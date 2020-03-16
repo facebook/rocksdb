@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
-#include "table/block_based/block_based_table_iterator.h"
+#include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status PartitionIndexReader::Create(
@@ -77,14 +77,15 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.fill_cache = read_options.fill_cache;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
-    it = new BlockBasedTableIterator<IndexBlockIter, IndexValue>(
-        table(), ro, *internal_comparator(),
+    std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
         index_block.GetValue()->NewIndexIterator(
             internal_comparator(), internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
-            index_value_is_full()),
-        false, true, /* prefix_extractor */ nullptr, BlockType::kIndex,
+            index_value_is_full()));
+
+    it = new ParititionedIndexIterator(
+        table(), ro, *internal_comparator(), std::move(index_iter),
         lookup_context ? lookup_context->caller
                        : TableReaderCaller::kUncategorized);
   }

@@ -2025,31 +2025,25 @@ InternalIterator* BlockBasedTable::NewIterator(
   bool need_upper_bound_check =
       read_options.auto_prefix_mode ||
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(NewIndexIterator(
+      read_options,
+      need_upper_bound_check &&
+          rep_->index_type == BlockBasedTableOptions::kHashSearch,
+      /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context));
   if (arena == nullptr) {
-    return new BlockBasedTableIterator<DataBlockIter>(
-        this, read_options, rep_->internal_comparator,
-        NewIndexIterator(
-            read_options,
-            need_upper_bound_check &&
-                rep_->index_type == BlockBasedTableOptions::kHashSearch,
-            /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
+    return new BlockBasedTableIterator(
+        this, read_options, rep_->internal_comparator, std::move(index_iter),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size);
   } else {
-    auto* mem =
-        arena->AllocateAligned(sizeof(BlockBasedTableIterator<DataBlockIter>));
-    return new (mem) BlockBasedTableIterator<DataBlockIter>(
-        this, read_options, rep_->internal_comparator,
-        NewIndexIterator(
-            read_options,
-            need_upper_bound_check &&
-                rep_->index_type == BlockBasedTableOptions::kHashSearch,
-            /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context),
+    auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
+    return new (mem) BlockBasedTableIterator(
+        this, read_options, rep_->internal_comparator, std::move(index_iter),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, BlockType::kData, caller,
+        need_upper_bound_check, prefix_extractor, caller,
         compaction_readahead_size);
   }
 }
