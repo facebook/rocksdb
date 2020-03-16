@@ -606,7 +606,7 @@ TESTS = \
 	defer_test \
 	blob_file_addition_test \
 	blob_file_garbage_test \
-	function_scheduler_test \
+	timer_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1749,7 +1749,7 @@ blob_file_addition_test: db/blob/blob_file_addition_test.o $(LIBOBJECTS) $(TESTH
 blob_file_garbage_test: db/blob/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-function_scheduler_test: util/function_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
+timer_test: util/timer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

@@ -1062,7 +1062,6 @@ if(WITH_TESTS)
         util/dynamic_bloom_test.cc
         util/file_reader_writer_test.cc
         util/filelock_test.cc
-        util/function_scheduler_test.cc
         util/hash_test.cc
         util/heap_test.cc
         util/random_test.cc
@@ -1071,6 +1070,7 @@ if(WITH_TESTS)
         util/slice_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
+        util/timer_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc

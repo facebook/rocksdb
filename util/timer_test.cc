@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "util/function_scheduler.h"
+#include "util/timer.h"
 
 #include "db/db_test_util.h"
 
-class FunctionSchedulerTest : public testing::Test {
+class TimerTest : public testing::Test {
  public:
-  FunctionSchedulerTest()
+  TimerTest()
       : mock_env_(new ROCKSDB_NAMESPACE::MockTimeEnv(
           ROCKSDB_NAMESPACE::Env::Default())) {}
 
@@ -17,15 +17,15 @@ class FunctionSchedulerTest : public testing::Test {
   std::unique_ptr<ROCKSDB_NAMESPACE::MockTimeEnv> mock_env_;
 };
 
-TEST_F(FunctionSchedulerTest, SingleScheduleOnceTest) {
+TEST_F(TimerTest, SingleScheduleOnceTest) {
     const uint64_t kSecond = 1000000;  // 1sec = 1000000us
     const int kIteration = 1;
     ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
     ROCKSDB_NAMESPACE::port::Mutex mutex;
     ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
-    ROCKSDB_NAMESPACE::FunctionScheduler fnSch(env);
+    ROCKSDB_NAMESPACE::Timer timer(env);
     int count = 0;
-    fnSch.Schedule(
+    timer.Add(
         [&] {
           ROCKSDB_NAMESPACE::MutexLock l(&mutex);
           count++;
@@ -37,7 +37,7 @@ TEST_F(FunctionSchedulerTest, SingleScheduleOnceTest) {
         1 * kSecond,
         0);
 
-    ASSERT_TRUE(fnSch.Start());
+    ASSERT_TRUE(timer.Start());
 
     // Wait for execution to finish
     {
@@ -47,21 +47,21 @@ TEST_F(FunctionSchedulerTest, SingleScheduleOnceTest) {
       }
     }
 
-    ASSERT_TRUE(fnSch.Stop());
+    ASSERT_TRUE(timer.Shutdown());
 
     ASSERT_EQ(1, count);
 }
 
-TEST_F(FunctionSchedulerTest, MultipleScheduleOnceTest) {
+TEST_F(TimerTest, MultipleScheduleOnceTest) {
     const uint64_t kSecond = 1000000;  // 1sec = 1000000us
     const int kIteration = 1;
     ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-    ROCKSDB_NAMESPACE::FunctionScheduler fnSch(env);
+    ROCKSDB_NAMESPACE::Timer timer(env);
 
     ROCKSDB_NAMESPACE::port::Mutex mutex1;
     ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
     int count1 = 0;
-    fnSch.Schedule(
+    timer.Add(
         [&] {
             ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
             count1++;
@@ -76,7 +76,7 @@ TEST_F(FunctionSchedulerTest, MultipleScheduleOnceTest) {
     ROCKSDB_NAMESPACE::port::Mutex mutex2;
     ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
     int count2 = 0;
-    fnSch.Schedule(
+    timer.Add(
         [&] {
             ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
             count2 += 5;
@@ -88,7 +88,7 @@ TEST_F(FunctionSchedulerTest, MultipleScheduleOnceTest) {
         3 * kSecond,
         0);
 
-    ASSERT_TRUE(fnSch.Start());
+    ASSERT_TRUE(timer.Start());
 
     // Wait for execution to finish
     {
@@ -109,21 +109,21 @@ TEST_F(FunctionSchedulerTest, MultipleScheduleOnceTest) {
         }
     }
 
-    ASSERT_TRUE(fnSch.Stop());
+    ASSERT_TRUE(timer.Shutdown());
 
     ASSERT_EQ(1, count1);
     ASSERT_EQ(5, count2);
 }
 
-TEST_F(FunctionSchedulerTest, SingleScheduleRepeatedlyTest) {
+TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
     const uint64_t kSecond = 1000000;  // 1sec = 1000000us
     const int kIteration = 5;
     ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
     ROCKSDB_NAMESPACE::port::Mutex mutex;
     ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
-    ROCKSDB_NAMESPACE::FunctionScheduler fnSch(env);
+    ROCKSDB_NAMESPACE::Timer timer(env);
     int count = 0;
-    fnSch.Schedule(
+    timer.Add(
         [&] {
           ROCKSDB_NAMESPACE::MutexLock l(&mutex);
           count++;
@@ -135,7 +135,7 @@ TEST_F(FunctionSchedulerTest, SingleScheduleRepeatedlyTest) {
         1 * kSecond,
         1 * kSecond);
 
-    ASSERT_TRUE(fnSch.Start());
+    ASSERT_TRUE(timer.Start());
 
     // Wait for execution to finish
     {
@@ -145,21 +145,21 @@ TEST_F(FunctionSchedulerTest, SingleScheduleRepeatedlyTest) {
       }
     }
 
-    ASSERT_TRUE(fnSch.Stop());
+    ASSERT_TRUE(timer.Shutdown());
 
     ASSERT_EQ(5, count);
 }
 
-TEST_F(FunctionSchedulerTest, MultipleScheduleRepeatedlyTest) {
+TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
     const uint64_t kSecond = 1000000;  // 1sec = 1000000us
     ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-    ROCKSDB_NAMESPACE::FunctionScheduler fnSch(env);
+    ROCKSDB_NAMESPACE::Timer timer(env);
 
     ROCKSDB_NAMESPACE::port::Mutex mutex1;
     ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
     const int kIteration1 = 5;
     int count1 = 0;
-    fnSch.Schedule(
+    timer.Add(
         [&] {
             ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
             count1++;
@@ -176,7 +176,7 @@ TEST_F(FunctionSchedulerTest, MultipleScheduleRepeatedlyTest) {
     ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
     const int kIteration2 = 3;
     int count2 = 0;
-    fnSch.Schedule(
+    timer.Add(
         [&] {
             ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
             count2 += 5;
@@ -189,7 +189,7 @@ TEST_F(FunctionSchedulerTest, MultipleScheduleRepeatedlyTest) {
         1 * kSecond,
         5 * kSecond);
 
-    ASSERT_TRUE(fnSch.Start());
+    ASSERT_TRUE(timer.Start());
 
     // Wait for execution to finish
     {
@@ -210,7 +210,7 @@ TEST_F(FunctionSchedulerTest, MultipleScheduleRepeatedlyTest) {
         }
     }
 
-    ASSERT_TRUE(fnSch.Stop());
+    ASSERT_TRUE(timer.Shutdown());
 
     ASSERT_EQ(5, count1);
     ASSERT_EQ(10, count2);

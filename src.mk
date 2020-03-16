@@ -441,16 +441,15 @@ MAIN_SOURCES =                                                          \
   util/defer_test.cc                                                    \
   util/dynamic_bloom_test.cc                                            \
   util/filelock_test.cc                                                 \
-  util/function_scheduler_test.cc                                       \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
   util/random_test.cc                                                   \
   util/repeatable_thread_test.cc                                        \
   util/slice_test.cc                                                    \
   util/slice_transform_test.cc                                          \
-  util/timer_queue_test.cc                                              \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
+  util/timer_test.cc                                                    \
   util/work_queue_test.cc                                               \
   utilities/backupable/backupable_db_test.cc                            \
   utilities/blob_db/blob_db_test.cc                                     \
