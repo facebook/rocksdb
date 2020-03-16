@@ -169,8 +169,8 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
 };
 
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
-  const int kNumKeysPerFile = 2048;
-  const uint64_t kMaxKey = 16384;
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   // TODO(yanqin) re-enable auto compaction
@@ -236,9 +236,9 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
 }
 
 TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
-  const int kNumKeysPerFile = 2048;
+  const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 0xffffffffffffffff;
-  const uint64_t kMinKey = kMaxKey - 16383;
+  const uint64_t kMinKey = kMaxKey - 1023;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -428,8 +428,8 @@ class DBBasicTestWithTimestampCompressionSettings
 };
 
 TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
-  const int kNumKeysPerFile = 8192;
-  const size_t kNumTimestamps = 6;
+  const int kNumKeysPerFile = 1024;
+  const size_t kNumTimestamps = 4;
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.env = env_;
@@ -534,7 +534,7 @@ class FlushedFileCollector : public EventListener {
 };
 
 TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
-  const int kNumKeysPerFile = 8192;
+  const int kNumKeysPerFile = 1024;
   const size_t kNumTimestamps = 2;
   const size_t kNumKeysPerTimestamp = (kNumKeysPerFile - 1) / kNumTimestamps;
   const size_t kSplitPosBase = kNumKeysPerTimestamp / 2;
@@ -674,7 +674,7 @@ class DBBasicTestWithTimestampPrefixSeek
 };
 
 TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
-  const size_t kNumKeysPerFile = 4096;
+  const size_t kNumKeysPerFile = 128;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -691,7 +691,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
   DestroyAndReopen(options);
 
   const uint64_t kMaxKey = 0xffffffffffffffff;
-  const uint64_t kMinKey = 0xffffffffffff8000;
+  const uint64_t kMinKey = 0xfffffffffffff000;
   const std::vector<std::string> write_ts_list = {Timestamp(3, 0xffffffff),
                                                   Timestamp(6, 0xffffffff)};
   WriteOptions write_opts;
