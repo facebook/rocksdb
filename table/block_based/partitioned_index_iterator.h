@@ -29,7 +29,9 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
       TableReaderCaller caller, size_t compaction_readahead_size = 0)
       : table_(table),
         read_options_(read_options),
+#ifndef NDEBUG
         icomp_(icomp),
+#endif
         user_comparator_(icomp.user_comparator()),
         index_iter_(std::move(index_iter)),
         block_iter_points_to_real_block_(false),
@@ -122,7 +124,9 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
  private:
   const BlockBasedTable* table_;
   const ReadOptions read_options_;
+#ifndef NDEBUG
   const InternalKeyComparator& icomp_;
+#endif
   UserComparatorWrapper user_comparator_;
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   IndexBlockIter block_iter_;
