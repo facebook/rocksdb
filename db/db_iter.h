@@ -270,6 +270,12 @@ class DBIter final : public Iterator {
     return expect_total_order_inner_iter_;
   }
 
+  inline int UserComparatorCompare(const Slice& a, const Slice& b,
+                                   bool compareTimestamp) {
+    return compareTimestamp ? user_comparator_.Compare(a, b)
+                            : user_comparator_.CompareWithoutTimestamp(a, b);
+  }
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   Logger* logger_;
@@ -338,6 +344,7 @@ class DBIter final : public Iterator {
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
   const Slice* const timestamp_ub_;
+  const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
 };
 

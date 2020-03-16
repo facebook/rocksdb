@@ -1337,9 +1337,12 @@ struct ReadOptions {
   // specified timestamp. All timestamps of the same database must be of the
   // same length and format. The user is responsible for providing a customized
   // compare function via Comparator to order <key, timestamp> tuples.
+  // For iterator, timestamp_iterate_lower_bound is the lower bound (older) and
+  // timestamp serves as the upper bound.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
   const Slice* timestamp;
+  const Slice* timestamp_iterate_lower_bound;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

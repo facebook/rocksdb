@@ -73,6 +73,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       cfd_(cfd),
       start_seqnum_(read_options.iter_start_seqnum),
       timestamp_ub_(read_options.timestamp),
+      timestamp_lb_(read_options.timestamp_iterate_lower_bound),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
@@ -254,15 +255,16 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       // possibly be skipped. This condition can potentially be relaxed to
       // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
       // prone to bugs causing the same user key with the same sequence number.
+      bool has_ts_lb = timestamp_lb_ != nullptr;
       if (!is_prev_key_seqnum_zero && skipping_saved_key &&
-          user_comparator_.CompareWithoutTimestamp(
-              ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
+          UserComparatorCompare(ikey_.user_key, saved_key_.GetUserKey(),
+                                has_ts_lb) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         assert(!skipping_saved_key ||
-               user_comparator_.CompareWithoutTimestamp(
-                   ikey_.user_key, saved_key_.GetUserKey()) > 0);
+               UserComparatorCompare(ikey_.user_key, saved_key_.GetUserKey(),
+                                     has_ts_lb) > 0);
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -1103,10 +1105,11 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
 
 bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts) {
   // Remember that comparator orders preceding timestamp as larger.
-  int cmp_ts = timestamp_ub_ != nullptr
-                   ? user_comparator_.CompareTimestamp(ts, *timestamp_ub_)
-                   : 0;
-  if (cmp_ts > 0) {
+  if ((timestamp_ub_ != nullptr && 
+       user_comparator_.CompareTimestamp(ts, *timestamp_ub_) > 0) ||
+      (timestamp_lb_ != nullptr && 
+       user_comparator_.CompareTimestamp(ts, *timestamp_lb_) < 0))
+  {
     return false;
   }
   if (read_callback_ == nullptr) {
