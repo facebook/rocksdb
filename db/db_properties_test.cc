@@ -1812,7 +1812,7 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
 }
 
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
-  Options options;
+  Options options = CurrentOptions();
   uint64_t value;
 
   options.env = CurrentOptions().env;

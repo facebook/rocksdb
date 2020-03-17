@@ -39,6 +39,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
+#include "encryption/in_memory_key_manager.h"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
 #include "monitoring/statistics.h"
@@ -48,6 +49,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "rocksdb/encryption.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
@@ -1559,9 +1561,13 @@ DEFINE_int32(disable_seek_compaction, false,
 
 static const bool FLAGS_deletepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_deletepercent, &ValidateInt32Percent);
-static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__)) =
-    RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
-                          &ValidateTableCacheNumshardbits);
+static const bool FLAGS_table_cache_numshardbits_dummy
+    __attribute__((__unused__)) = RegisterFlagValidator(
+        &FLAGS_table_cache_numshardbits, &ValidateTableCacheNumshardbits);
+
+DEFINE_string(
+    encryption_method, "",
+    "If non-empty, enable encryption with the specific encryption method.");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -8188,6 +8194,27 @@ int db_bench_tool(int argc, char** argv) {
 
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
+  }
+
+  if (!FLAGS_encryption_method.empty()) {
+    ROCKSDB_NAMESPACE::encryption::EncryptionMethod method =
+        ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kUnknown;
+    if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES128CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES128_CTR;
+    } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES192CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES192_CTR;
+    } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES256CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES256_CTR;
+    }
+    if (method == ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kUnknown) {
+      fprintf(stderr, "Unknown encryption method %s\n",
+              FLAGS_encryption_method.c_str());
+      exit(1);
+    }
+    std::shared_ptr<ROCKSDB_NAMESPACE::encryption::KeyManager> key_manager(
+        new ROCKSDB_NAMESPACE::encryption::InMemoryKeyManager(method));
+    FLAGS_env = ROCKSDB_NAMESPACE::encryption::NewKeyManagedEncryptedEnv(
+        FLAGS_env, key_manager);
   }
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))

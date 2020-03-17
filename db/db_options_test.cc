@@ -1119,10 +1119,11 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
 }
 
 TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
+  options.max_open_files = -1;
   options.env = CurrentOptions().env;
 
   ASSERT_OK(TryReopen(options));

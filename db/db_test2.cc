@@ -2772,6 +2772,9 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
+  if (getenv("ENCRYPTED_ENV")) {
+    return;
+  }
   {
     const int kIdBufLen = 100;
     char id_buf[kIdBufLen];

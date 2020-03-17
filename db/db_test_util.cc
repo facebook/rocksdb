@@ -28,6 +28,14 @@ int64_t MaybeCurrentTime(Env* env) {
 }
 }  // namespace
 
+#ifdef OPENSSL
+const std::string TestKeyManager::default_key =
+    "\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34"
+    "\x56\x78\x12\x34\x56\x78";
+const std::string TestKeyManager::default_iv =
+    "\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd";
+#endif
+
 // Special Env used to delay background operations
 
 SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
@@ -69,15 +77,13 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
-    std::shared_ptr<EncryptionProvider> provider;
-    std::string provider_id = getenv("ENCRYPTED_ENV");
-    if (provider_id.find("=") == std::string::npos &&
-        !EndsWith(provider_id, "://test")) {
-      provider_id = provider_id + "://test";
-    }
-    EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
-                                                   &provider));
-    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
+#ifdef OPENSSL
+    std::shared_ptr<encryption::KeyManager> key_manager(new TestKeyManager);
+    encrypted_env_ = NewKeyManagedEncryptedEnv(Env::Default(), key_manager);
+#else
+    fprintf(stderr, "EncryptedEnv is not available without OpenSSL.");
+    assert(false);
+#endif
   }
 #endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_

@@ -485,6 +485,19 @@ EOF
         fi
     fi
 
+    if ! test $ROCKSDB_DISABLE_OPENSSL; then
+        # Test whether OpenSSL library is installed
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <openssl/crypto.h>
+          int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DOPENSSL"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lcrypto"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lcrypto"
+        fi
+    fi
+
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
         $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
