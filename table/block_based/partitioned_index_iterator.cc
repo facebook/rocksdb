@@ -14,6 +14,8 @@ void ParititionedIndexIterator::Seek(const Slice& target) { SeekImpl(&target); }
 void ParititionedIndexIterator::SeekToFirst() { SeekImpl(nullptr); }
 
 void ParititionedIndexIterator::SeekImpl(const Slice* target) {
+  SavePrevIndexValue();
+
   if (target) {
     index_iter_->Seek(*target);
   } else {
@@ -25,13 +27,7 @@ void ParititionedIndexIterator::SeekImpl(const Slice* target) {
     return;
   }
 
-  IndexValue v = index_iter_->value();
-  const bool same_block = block_iter_points_to_real_block_ &&
-                          v.handle.offset() == prev_block_offset_;
-
-  if (!same_block) {
-    InitPartitionedIndexBlock();
-  }
+  InitPartitionedIndexBlock();
 
   if (target) {
     block_iter_.Seek(*target);
