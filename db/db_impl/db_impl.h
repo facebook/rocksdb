@@ -206,14 +206,12 @@ class DBImpl : public DB {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool sorted_input = false) override;
-  virtual void MultiGet(const ReadOptions& /*options*/,
-                        ColumnFamilyHandle* /*column_family*/,
-                        const size_t /*num_keys*/, const Slice* /*keys*/,
-                        PinnableSlice* /*values*/, std::string* /*timestamps*/,
-                        Status* /*statuses*/,
-                        const bool /*sorted_input*/= false) override {
-    assert(false);
-  }
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses,
+                        const bool sorted_input = false) override;
 
   virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
                         ColumnFamilyHandle** column_families, const Slice* keys,

@@ -539,6 +539,7 @@ class DB {
       values++;
     }
   }
+
   virtual void MultiGet(const ReadOptions& options,
                         ColumnFamilyHandle* column_family,
                         const size_t num_keys, const Slice* keys,

@@ -675,15 +675,15 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
 
   const auto& verify_records_func = [&](size_t i, ColumnFamilyHandle* cfh) {
     std::vector<Slice> keys;
-    std::vector<std::string> keyVals;
+    std::vector<std::string> key_vals;
     std::vector<std::string> values;
     std::vector<std::string> timestamps;
 
     for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-      keyVals.push_back(Key1(j));
+      key_vals.push_back(Key1(j));
     }
     for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-      keys.push_back(keyVals[j]);
+      keys.push_back(key_vals[j]);
     }
 
     ReadOptions ropts;
