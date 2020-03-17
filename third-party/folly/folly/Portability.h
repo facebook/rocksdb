@@ -82,3 +82,11 @@ constexpr bool kIsSanitizeThread = true;
 constexpr bool kIsSanitizeThread = false;
 #endif
 } // namespace folly
+
+namespace folly {
+#if defined(__linux__) && !FOLLY_MOBILE
+constexpr auto kIsLinux = true;
+#else
+constexpr auto kIsLinux = false;
+#endif
+} // namespace folly
