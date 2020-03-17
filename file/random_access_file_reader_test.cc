@@ -56,14 +56,6 @@ class RandomAccessFileReaderTest : public testing::Test {
     }
   }
 
-  void AssertSharedBuffer(const AlignedBuffers& bufs) {
-    ASSERT_EQ(1, SharedBuffers(bufs).size());
-  }
-
-  void AssertNoSharedBuffer(const AlignedBuffers& bufs) {
-    ASSERT_EQ(bufs.size(), SharedBuffers(bufs).size());
-  }
-
   size_t alignment() const { return alignment_; }
 
  private:
@@ -74,15 +66,6 @@ class RandomAccessFileReaderTest : public testing::Test {
 
   std::string Path(const std::string& fname) {
     return test_dir_ + "/" + fname;
-  }
-
-  std::unordered_set<const char*> SharedBuffers(
-      const AlignedBuffers& aligned_bufs) {
-    std::unordered_set<const char*> bufs;
-    for (const auto& buf : aligned_bufs) {
-      bufs.insert(buf.get());
-    }
-    return bufs;
   }
 
   size_t GetAlignment() {
@@ -131,11 +114,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
-    AlignedBuffers aligned_bufs;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_bufs));
+    AlignedBuf aligned_buf;
+    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
-    AssertSharedBuffer(aligned_bufs);
   }
 
   {
@@ -169,11 +151,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
-    AlignedBuffers aligned_bufs;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_bufs));
+    AlignedBuf aligned_buf;
+    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
-    AssertSharedBuffer(aligned_bufs);
   }
 
   {
@@ -207,11 +188,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
-    AlignedBuffers aligned_bufs;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_bufs));
+    AlignedBuf aligned_buf;
+    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
-    AssertSharedBuffer(aligned_bufs);
   }
 
   {
@@ -237,11 +217,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     std::vector<FSReadRequest> reqs;
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
-    AlignedBuffers aligned_bufs;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_bufs));
+    AlignedBuf aligned_buf;
+    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
-    AssertNoSharedBuffer(aligned_bufs);
   }
 }
 

@@ -178,10 +178,10 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-Status RandomAccessFileReader::MultiRead(
-    FSReadRequest* read_reqs, size_t num_reqs,
-    AlignedBuffers* aligned_bufs) const {
-  (void) aligned_bufs; // suppress warning of unused variable in LITE mode
+Status RandomAccessFileReader::MultiRead(FSReadRequest* read_reqs,
+                                         size_t num_reqs,
+                                         AlignedBuf* aligned_buf) const {
+  (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
   Status s;
   uint64_t elapsed = 0;
@@ -196,8 +196,10 @@ Status RandomAccessFileReader::MultiRead(
     size_t num_fs_reqs = num_reqs;
 #ifndef ROCKSDB_LITE
     std::vector<FSReadRequest> aligned_reqs;
-    aligned_reqs.reserve(num_reqs);
     if (use_direct_io()) {
+      // num_reqs is the max possible size,
+      // this can reduce std::vecector's internal resize operations.
+      aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
       aligned_reqs.push_back(Align(read_reqs[0], alignment));
@@ -207,13 +209,22 @@ Status RandomAccessFileReader::MultiRead(
           aligned_reqs.push_back(r);
         }
       }
+
+      // Allocate aligned buffer and let scratch buffers point to it.
+      size_t total_len = 0;
+      for (const auto& r : aligned_reqs) {
+        total_len += r.len;
+      }
       AlignedBuffer buf;
       buf.Alignment(alignment);
+      buf.AllocateNewBuffer(total_len);
+      char* scratch = buf.BufferStart();
       for (auto& r : aligned_reqs) {
-        buf.AllocateNewBuffer(r.len);
-        r.scratch = buf.BufferStart();
-        aligned_bufs->emplace_back(buf.Release());
+        r.scratch = scratch;
+        scratch += r.len;
       }
+
+      aligned_buf->reset(buf.Release());
       fs_reqs = aligned_reqs.data();
       num_fs_reqs = aligned_reqs.size();
     }

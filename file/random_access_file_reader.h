@@ -17,13 +17,12 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
-#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
 
-using AlignedBuffers = autovector<std::unique_ptr<const char[]>>;
+using AlignedBuf = std::unique_ptr<const char[]>;
 
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:
@@ -110,11 +109,11 @@ class RandomAccessFileReader {
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
-  // In non-direct IO mode, aligned_bufs should be null;
-  // In direct IO mode, aligned_bufs stores the aligned buffers allocated inside
-  // MultiRead, the result Slices in reqs refer to aligned_bufs.
+  // In non-direct IO mode, aligned_buf should be null;
+  // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
+  // MultiRead, the result Slices in reqs refer to aligned_buf.
   Status MultiRead(FSReadRequest* reqs, size_t num_reqs,
-                   AlignedBuffers* aligned_bufs) const;
+                   AlignedBuf* aligned_buf) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);
