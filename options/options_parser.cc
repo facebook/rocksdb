@@ -620,10 +620,7 @@ bool AreEqualOptions(
       return false;
     }
     default:
-      if (type_info.verification == OptionVerificationType::kByName ||
-          type_info.verification ==
-              OptionVerificationType::kByNameAllowFromNull ||
-          type_info.verification == OptionVerificationType::kByNameAllowNull) {
+      if (type_info.IsByName()) {
         std::string value1;
         bool result =
             SerializeSingleOptionHelper(offset1, type_info.type, &value1);
@@ -637,13 +634,12 @@ bool AreEqualOptions(
         if (iter == opt_map->end()) {
           return true;
         } else {
-          if (type_info.verification ==
-              OptionVerificationType::kByNameAllowNull) {
+          if (type_info.IsEnabled(OptionVerificationType::kByNameAllowNull)) {
             if (iter->second == kNullptrString || value1 == kNullptrString) {
               return true;
             }
-          } else if (type_info.verification ==
-                     OptionVerificationType::kByNameAllowFromNull) {
+          } else if (type_info.IsEnabled(
+                         OptionVerificationType::kByNameAllowFromNull)) {
             if (iter->second == kNullptrString) {
               return true;
             }
@@ -684,7 +680,8 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 
   // Verify ColumnFamily Name
   if (cf_names.size() != parser.cf_names()->size()) {
-    if (sanity_check_level >= kSanityLevelLooselyCompatible) {
+    if (sanity_check_level >=
+        OptionsSanityCheckLevel::kSanityLevelLooselyCompatible) {
       return Status::InvalidArgument(
           "[RocksDBOptionParser Error] The persisted options does not have "
           "the same number of column family names as the db instance.");
@@ -706,7 +703,8 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 
   // Verify Column Family Options
   if (cf_opts.size() != parser.cf_opts()->size()) {
-    if (sanity_check_level >= kSanityLevelLooselyCompatible) {
+    if (sanity_check_level >=
+        OptionsSanityCheckLevel::kSanityLevelLooselyCompatible) {
       return Status::InvalidArgument(
           "[RocksDBOptionsParser Error]",
           "The persisted options does not have the same number of "
@@ -740,7 +738,7 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const std::unordered_map<std::string, std::string>* /*opt_map*/,
     OptionsSanityCheckLevel sanity_check_level) {
   for (const auto& pair : db_options_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+    if (pair.second.IsDeprecated()) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
@@ -778,7 +776,7 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     const std::unordered_map<std::string, std::string>* persisted_opt_map,
     OptionsSanityCheckLevel sanity_check_level) {
   for (const auto& pair : cf_options_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+    if (pair.second.IsDeprecated()) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
@@ -814,7 +812,7 @@ Status RocksDBOptionsParser::VerifyTableFactory(
     const TableFactory* base_tf, const TableFactory* file_tf,
     OptionsSanityCheckLevel sanity_check_level) {
   if (base_tf && file_tf) {
-    if (sanity_check_level > kSanityLevelNone &&
+    if (sanity_check_level > OptionsSanityCheckLevel::kSanityLevelNone &&
         std::string(base_tf->Name()) != std::string(file_tf->Name())) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
