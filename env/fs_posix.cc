@@ -945,7 +945,7 @@ size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
 size_t PosixFileSystem::GetLogicalBlockSizeIfNeeded(const EnvOptions& options,
                                                     const std::string& fname,
                                                     int fd) {
-  return options.use_direct_reads
+  return (options.use_direct_reads || options.use_direct_writes)
              ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
              : kDefaultPageSize;
 }
