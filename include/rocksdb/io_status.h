@@ -209,9 +209,7 @@ inline IOStatus& IOStatus::operator=(IOStatus&& s)
     subcode_ = std::move(s.subcode_);
     s.subcode_ = kNone;
     retryable_ = s.retryable_;
-    retryable_ = false;
     data_loss_ = s.data_loss_;
-    data_loss_ = false;
     scope_ = s.scope_;
     scope_ = kIOErrorScopeFileSystem;
     delete[] state_;

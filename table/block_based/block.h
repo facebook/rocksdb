@@ -151,8 +151,7 @@ class BlockReadAmpBitmap {
 class Block {
  public:
   // Initialize the block with the specified contents.
-  explicit Block(BlockContents&& contents, SequenceNumber _global_seqno,
-                 size_t read_amp_bytes_per_bit = 0,
+  explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
   // No copying allowed
   Block(const Block&) = delete;
@@ -190,6 +189,7 @@ class Block {
   // the key that is just pass the target key.
   DataBlockIter* NewDataIterator(const Comparator* comparator,
                                  const Comparator* user_comparator,
+                                 SequenceNumber global_seqno,
                                  DataBlockIter* iter = nullptr,
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
@@ -208,6 +208,7 @@ class Block {
   // It is determined by IndexType property of the table.
   IndexBlockIter* NewIndexIterator(const Comparator* comparator,
                                    const Comparator* user_comparator,
+                                   SequenceNumber global_seqno,
                                    IndexBlockIter* iter, Statistics* stats,
                                    bool total_order_seek, bool have_first_key,
                                    bool key_includes_seq, bool value_is_full,
@@ -217,8 +218,6 @@ class Block {
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const;
 
-  SequenceNumber global_seqno() const { return global_seqno_; }
-
  private:
   BlockContents contents_;
   const char* data_;         // contents_.data.data()
@@ -226,10 +225,6 @@ class Block {
   uint32_t restart_offset_;  // Offset in data_ of restart array
   uint32_t num_restarts_;
   std::unique_ptr<BlockReadAmpBitmap> read_amp_bitmap_;
-  // All keys in the block will have seqno = global_seqno_, regardless of
-  // the encoded value (kDisableGlobalSequenceNumber means disabled)
-  const SequenceNumber global_seqno_;
-
   DataBlockHashIndex data_block_hash_index_;
 };
 

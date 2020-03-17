@@ -67,7 +67,7 @@ DEFINE_string(
     "Group the number of accesses per block per second using these labels. "
     "Possible labels are a combination of the following: cf (column family), "
     "sst, level, bt (block type), caller, block. For example, label \"cf_bt\" "
-    "means the number of acccess per second is grouped by unique pairs of "
+    "means the number of access per second is grouped by unique pairs of "
     "\"cf_bt\". A label \"all\" contains the aggregated number of accesses per "
     "second across all possible labels.");
 DEFINE_string(reuse_distance_labels, "",

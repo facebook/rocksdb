@@ -796,6 +796,45 @@ TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   Destroy(options);
 }
 
+TEST_F(ExternalSSTFileBasicTest, IngestRangeDeletionTombstoneWithGlobalSeqno) {
+  for (int i = 5; i < 25; i++) {
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(i),
+                       Key(i) + "_val"));
+  }
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // file.sst (delete 0 => 30)
+  std::string file = sst_files_dir_ + "file.sst";
+  ASSERT_OK(sst_file_writer.Open(file));
+  ASSERT_OK(sst_file_writer.DeleteRange(Key(0), Key(30)));
+  ExternalSstFileInfo file_info;
+  ASSERT_OK(sst_file_writer.Finish(&file_info));
+  ASSERT_EQ(file_info.file_path, file);
+  ASSERT_EQ(file_info.num_entries, 0);
+  ASSERT_EQ(file_info.smallest_key, "");
+  ASSERT_EQ(file_info.largest_key, "");
+  ASSERT_EQ(file_info.num_range_del_entries, 1);
+  ASSERT_EQ(file_info.smallest_range_del_key, Key(0));
+  ASSERT_EQ(file_info.largest_range_del_key, Key(30));
+
+  IngestExternalFileOptions ifo;
+  ifo.move_files = true;
+  ifo.snapshot_consistency = true;
+  ifo.allow_global_seqno = true;
+  ifo.write_global_seqno = true;
+  ifo.verify_checksums_before_ingest = false;
+  ASSERT_OK(db_->IngestExternalFile({file}, ifo));
+
+  for (int i = 5; i < 25; i++) {
+    std::string res;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &res).IsNotFound());
+  }
+}
+
 TEST_P(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   int kNumLevels = 7;
   Options options = CurrentOptions();

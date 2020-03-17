@@ -16,10 +16,6 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-// Assume that for everywhere
-#undef PLATFORM_IS_LITTLE_ENDIAN
-#define PLATFORM_IS_LITTLE_ENDIAN true
-
 #include <windows.h>
 #include <string>
 #include <string.h>
@@ -70,10 +66,6 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#ifndef PLATFORM_IS_LITTLE_ENDIAN
-#define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 #define PREFETCH(addr, rw, locality)
@@ -122,7 +114,10 @@ const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 #endif //_MSC_VER
 
-const bool kLittleEndian = true;
+// "Windows is designed to run on little-endian computer architectures."
+// https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
+constexpr bool kLittleEndian = true;
+#undef PLATFORM_IS_LITTLE_ENDIAN
 
 class CondVar;
 
@@ -269,6 +264,8 @@ inline void cacheline_aligned_free(void *memblock) {
   _aligned_free(memblock);
 #endif
 }
+
+extern const size_t kPageSize;
 
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
 // could not be worked around with by -mno-ms-bitfields

@@ -235,12 +235,13 @@ class BlockConstructor: public Constructor {
     data_ = builder.Finish().ToString();
     BlockContents contents;
     contents.data = data_;
-    block_ = new Block(std::move(contents), kDisableGlobalSequenceNumber);
+    block_ = new Block(std::move(contents));
     return Status::OK();
   }
   InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewDataIterator(comparator_, comparator_);
+    return block_->NewDataIterator(comparator_, comparator_,
+                                   kDisableGlobalSequenceNumber);
   }
 
  private:
@@ -1250,7 +1251,8 @@ class FileChecksumTestHelper {
     std::string tmp_checksum;
     bool first_read = true;
     Status s;
-    s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
+    s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
+                           false);
     if (!s.ok()) {
       return s;
     }
@@ -1263,7 +1265,8 @@ class FileChecksumTestHelper {
                                                   result.size());
       }
       offset += static_cast<uint64_t>(result.size());
-      s = file_reader_->Read(offset, 2048, &result, scratch.get(), false);
+      s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
+                             false);
       if (!s.ok()) {
         return s;
       }
@@ -1936,8 +1939,9 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
 
   // -- Find keys do not exist, but have common prefix.
   std::vector<std::string> prefixes = {"001", "003", "005", "007", "009"};
-  std::vector<std::string> lower_bound = {keys[0], keys[1], keys[2],
-                                          keys[7], keys[9], };
+  std::vector<std::string> lower_bound = {
+      keys[0], keys[1], keys[2], keys[7], keys[9],
+  };
 
   // find the lower bound of the prefix
   for (size_t i = 0; i < prefixes.size(); ++i) {
@@ -2014,6 +2018,80 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
       ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) > 0);
     }
   }
+
+  {
+    // Test reseek case. It should impact partitioned index more.
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<InternalIterator> index_iter2(reader->NewIterator(
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    // Things to cover in partitioned index:
+    // 1. Both of Seek() and SeekToLast() has optimization to prevent
+    //    rereek leaf index block if it remains to the same one, and
+    //    they reuse the same variable.
+    // 2. When Next() or Prev() is called, the block moves, so the
+    //    optimization should kick in only with the current one.
+    index_iter2->Seek(InternalKey("0055", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0055", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0055", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0055", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0095", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0095", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0075", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Next();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Next();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+  }
+
   c.ResetTableReader();
 }
 
@@ -4297,11 +4375,11 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     BlockFetchHelper(metaindex_handle, BlockType::kMetaIndex,
                      &metaindex_contents);
-    Block metaindex_block(std::move(metaindex_contents),
-                          kDisableGlobalSequenceNumber);
+    Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-        BytewiseComparator(), BytewiseComparator()));
+        BytewiseComparator(), BytewiseComparator(),
+        kDisableGlobalSequenceNumber));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -4314,8 +4392,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
 
     BlockFetchHelper(properties_handle, BlockType::kProperties,
                      &properties_contents);
-    Block properties_block(std::move(properties_contents),
-                           kDisableGlobalSequenceNumber);
+    Block properties_block(std::move(properties_contents));
 
     ASSERT_EQ(properties_block.NumRestarts(), 1u);
   }
@@ -4376,12 +4453,12 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
       UncompressionDict::GetEmptyDict(), pcache_opts,
       nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
-  Block metaindex_block(std::move(metaindex_contents),
-                        kDisableGlobalSequenceNumber);
+  Block metaindex_block(std::move(metaindex_contents));
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator, options.comparator)};
+      metaindex_block.NewDataIterator(options.comparator, options.comparator,
+                                      kDisableGlobalSequenceNumber)};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
   for (metaindex_iter->SeekToFirst(); metaindex_iter->Valid();

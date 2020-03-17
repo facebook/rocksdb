@@ -217,6 +217,18 @@ void cacheline_aligned_free(void *memblock) {
   free(memblock);
 }
 
+static size_t GetPageSize() {
+#if defined(OS_LINUX) || defined(_SC_PAGESIZE)
+  long v = sysconf(_SC_PAGESIZE);
+  if (v >= 1024) {
+    return static_cast<size_t>(v);
+  }
+#endif
+  // Default assume 4KB
+  return 4U * 1024U;
+}
+
+const size_t kPageSize = GetPageSize();
 
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

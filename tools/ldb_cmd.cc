@@ -1749,7 +1749,7 @@ void DBDumperCommand::DoDumpCommand() {
       break;
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
-      rawtime = it_ttl->timestamp();
+      rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
       }
@@ -2578,7 +2578,7 @@ void ScanCommand::DoCommand() {
         it->Next()) {
     if (is_db_ttl_) {
       TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
-      int rawtime = it_ttl->timestamp();
+      int rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
       }

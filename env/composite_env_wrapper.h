@@ -300,6 +300,13 @@ class CompositeEnvWrapper : public Env {
 
   FileSystem* fs_env_target() const { return fs_env_target_; }
 
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    return fs_env_target_->RegisterDbPaths(paths);
+  }
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    return fs_env_target_->UnregisterDbPaths(paths);
+  }
+
   // The following text is boilerplate that forwards all methods to target()
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,

@@ -262,5 +262,8 @@ void Crash(const std::string& srcfile, int srcline) {
 
 int GetMaxOpenFiles() { return -1; }
 
+// Assume 4KB page size
+const size_t kPageSize = 4U * 1024U;
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

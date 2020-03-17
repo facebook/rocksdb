@@ -1,0 +1,56 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.4.0
+
+executors:
+  windows-2xlarge:
+    machine:
+      image: 'windows-server-2019-vs2019:stable'
+      resource_class: windows.2xlarge
+      shell: bash.exe
+
+jobs:
+  build:
+    executor: windows-2xlarge
+    
+    environment:
+      THIRDPARTY_HOME: C:/Users/circleci/thirdparty
+      CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
+      CMAKE_BIN: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64/bin/cmake.exe
+      CMAKE_GENERATOR: Visual Studio 16 2019
+      SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
+      SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
+      SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
+
+    steps:
+      - checkout
+      - run:
+          name: "Install thirdparty dependencies"
+          command: |
+            mkdir ${THIRDPARTY_HOME}
+            cd ${THIRDPARTY_HOME}
+            echo "Installing CMake..."
+            curl --fail --silent --show-error --output cmake-3.16.4-win64-x64.zip --location https://github.com/Kitware/CMake/releases/download/v3.16.4/cmake-3.16.4-win64-x64.zip
+            unzip -q cmake-3.16.4-win64-x64.zip
+            echo "Building Snappy dependency..."
+            curl --fail --silent --show-error --output snappy-1.1.7.zip --location https://github.com/google/snappy/archive/1.1.7.zip
+            unzip -q snappy-1.1.7.zip
+            cd snappy-1.1.7
+            mkdir build
+            cd build
+            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" ..
+            msbuild.exe Snappy.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      - run:
+          name: "Build RocksDB"
+          command: |
+            mkdir build
+            cd build
+            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            cd ..
+            msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
+      - run:
+          name: "Test RocksDB"
+          shell: powershell.exe
+          command: |
+            build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,env_basic_test,env_test,db_merge_operand_test -Concurrency 16

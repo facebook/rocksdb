@@ -500,14 +500,15 @@ class ColumnFamilyData {
   // created_dirs remembers directory created, so that we don't need to call
   // the same data creation operation again.
   Status AddDirectories(
-      std::map<std::string, std::shared_ptr<Directory>>* created_dirs);
+      std::map<std::string, std::shared_ptr<FSDirectory>>* created_dirs);
 
-  Directory* GetDataDir(size_t path_id) const;
+  FSDirectory* GetDataDir(size_t path_id) const;
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
 
  private:
   friend class ColumnFamilySet;
+  static const uint32_t kDummyColumnFamilyDataId;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
@@ -516,6 +517,8 @@ class ColumnFamilyData {
                    const FileOptions& file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer);
+
+  std::vector<std::string> GetDbPaths() const;
 
   uint32_t id_;
   const std::string name_;
@@ -592,7 +595,9 @@ class ColumnFamilyData {
   std::atomic<uint64_t> last_memtable_id_;
 
   // Directories corresponding to cf_paths.
-  std::vector<std::shared_ptr<Directory>> data_dirs_;
+  std::vector<std::shared_ptr<FSDirectory>> data_dirs_;
+
+  bool db_paths_registered_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

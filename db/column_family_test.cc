@@ -821,7 +821,7 @@ TEST_P(ColumnFamilyTest, BulkAddDrop) {
 }
 
 TEST_P(ColumnFamilyTest, DropTest) {
-  // first iteration - dont reopen DB before dropping
+  // first iteration - don't reopen DB before dropping
   // second iteration - reopen DB before dropping
   for (int iter = 0; iter < 2; ++iter) {
     Open({"default"});

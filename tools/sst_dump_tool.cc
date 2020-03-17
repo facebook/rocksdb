@@ -15,7 +15,7 @@
 #include <sstream>
 #include <vector>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"

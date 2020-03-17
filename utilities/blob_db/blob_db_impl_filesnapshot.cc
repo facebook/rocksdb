@@ -32,7 +32,7 @@ Status BlobDBImpl::DisableFileDeletions() {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "Disalbed blob file deletions. count: %d", count);
+                 "Disabled blob file deletions. count: %d", count);
   return Status::OK();
 }
 

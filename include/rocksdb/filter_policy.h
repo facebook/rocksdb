@@ -84,7 +84,8 @@ class FilterBitsReader {
 };
 
 // Contextual information passed to BloomFilterPolicy at filter building time.
-// Used in overriding FilterPolicy::GetBuilderWithContext().
+// Used in overriding FilterPolicy::GetBuilderWithContext(). References other
+// structs because this is expected to be a temporary, stack-allocated object.
 struct FilterBuildingContext {
   // This constructor is for internal use only and subject to change.
   FilterBuildingContext(const BlockBasedTableOptions& table_options);
