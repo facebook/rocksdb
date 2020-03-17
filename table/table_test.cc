@@ -2033,6 +2033,18 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
     //    they reuse the same variable.
     // 2. When Next() or Prev() is called, the block moves, so the
     //    optimization should kick in only with the current one.
+    index_iter2->Seek(InternalKey("0055", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0055", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0055", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0055", index_iter2->key().ToString().substr(0, 4));
+
     index_iter2->SeekToLast();
     ASSERT_TRUE(index_iter2->Valid());
     ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
