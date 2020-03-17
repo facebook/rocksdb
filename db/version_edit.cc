@@ -60,7 +60,7 @@ enum Tag : uint32_t {
   kBlobFileAddition,
   kBlobFileGarbage,
   kStateUponManifestSwitch,
-  kManifestSwitchFinished,
+  kManifestSwitched,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -163,7 +163,7 @@ void VersionEdit::Clear() {
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
   state_upon_manifest_switch_ = false;
-  manifest_switch_finished_ = false;
+  manifest_switched_ = false;
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -301,8 +301,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kStateUponManifestSwitch);
   }
 
-  if (manifest_switch_finished_) {
-    PutVarint32(dst, kManifestSwitchFinished);
+  if (manifest_switched_) {
+    PutVarint32(dst, kManifestSwitched);
   }
 
   if (is_column_family_add_) {
@@ -651,8 +651,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         state_upon_manifest_switch_ = true;
         break;
 
-      case kManifestSwitchFinished:
-        manifest_switch_finished_ = true;
+      case kManifestSwitched:
+        manifest_switched_ = true;
         break;
 
       case kInAtomicGroup:

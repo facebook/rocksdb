@@ -5003,7 +5003,7 @@ Status VersionSet::WriteCurrentStateToManifest(
     VersionEdit edit_for_db_id;
     assert(!db_id_.empty());
     edit_for_db_id.SetDBId(db_id_);
-    edit_for_db_id.SetStateUponManifestSwitchTag(true);
+    edit_for_db_id.SetStateUponManifestSwitch(true);
     std::string db_id_record;
     if (!edit_for_db_id.EncodeTo(&db_id_record)) {
       return Status::Corruption("Unable to Encode VersionEdit:" +
@@ -5029,7 +5029,7 @@ Status VersionSet::WriteCurrentStateToManifest(
         edit.AddColumnFamily(cfd->GetName());
         edit.SetColumnFamily(cfd->GetID());
       }
-      edit.SetStateUponManifestSwitchTag(true);
+      edit.SetStateUponManifestSwitch(true);
       edit.SetComparatorName(
           cfd->internal_comparator().user_comparator()->Name());
       std::string record;
@@ -5047,7 +5047,7 @@ Status VersionSet::WriteCurrentStateToManifest(
       // Save files
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
-      edit.SetStateUponManifestSwitchTag(true);
+      edit.SetStateUponManifestSwitch(true);
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f :
@@ -5076,18 +5076,15 @@ Status VersionSet::WriteCurrentStateToManifest(
     }
   }
   VersionEdit end_flag;
-  end_flag.SetStateUponManifestSwitchTag(true);
-  end_flag.SetManifestSwitchFinishedTag(true);
+  end_flag.SetStateUponManifestSwitch(true);
+  end_flag.SetManifestSwitched(true);
   std::string end_record;
   if (!end_flag.EncodeTo(&end_record)) {
     return Status::Corruption("Unable to Encode VersionEdit:" +
                               end_flag.DebugString(true));
   }
   Status s_end_record = log->AddRecord(end_record);
-  if (!s_end_record.ok()) {
-    return s_end_record;
-  }
-  return Status::OK();
+  return  s_end_record;
 }
 
 // TODO(aekmekji): in CompactionJob::GenSubcompactionBoundaries(), this

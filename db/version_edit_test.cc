@@ -46,7 +46,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
-  edit.SetStateUponManifestSwitchTag(true);
+  edit.SetStateUponManifestSwitch(true);
   TestEncodeDecode(edit);
 }
 
@@ -81,7 +81,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
-  edit.SetStateUponManifestSwitchTag(true);
+  edit.SetStateUponManifestSwitch(true);
   TestEncodeDecode(edit);
 
   std::string encoded, encoded2;
@@ -105,7 +105,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_EQ(kInvalidBlobFileNumber,
             new_files[2].second.oldest_blob_file_number);
   ASSERT_EQ(1001, new_files[3].second.oldest_blob_file_number);
-  ASSERT_TRUE(parsed.GetStateUponManifestSwitchTag());
+  ASSERT_TRUE(parsed.GetStateUponManifestSwitch());
 }
 
 TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
@@ -284,32 +284,32 @@ TEST_F(VersionEditTest, DbId) {
 
 TEST_F(VersionEditTest, ManifestSwitchTag) {
   VersionEdit edit1, decode1;
-  edit1.SetStateUponManifestSwitchTag(true);
+  edit1.SetStateUponManifestSwitch(true);
   TestEncodeDecode(edit1);
   std::string encoded1;
   edit1.EncodeTo(&encoded1);
   ASSERT_OK(decode1.DecodeFrom(encoded1));
-  ASSERT_TRUE(decode1.GetStateUponManifestSwitchTag());
-  ASSERT_TRUE(!decode1.GetManifestSwitchFinishedTag());
+  ASSERT_TRUE(decode1.GetStateUponManifestSwitch());
+  ASSERT_TRUE(!decode1.GetManifestSwitched());
 
   VersionEdit edit2, decode2;
-  edit2.SetManifestSwitchFinishedTag(true);
+  edit2.SetManifestSwitched(true);
   TestEncodeDecode(edit2);
   std::string encoded2;
   edit2.EncodeTo(&encoded2);
   ASSERT_OK(decode2.DecodeFrom(encoded2));
-  ASSERT_TRUE(!decode2.GetStateUponManifestSwitchTag());
-  ASSERT_TRUE(decode2.GetManifestSwitchFinishedTag());
+  ASSERT_TRUE(!decode2.GetStateUponManifestSwitch());
+  ASSERT_TRUE(decode2.GetManifestSwitched());
 
   VersionEdit edit3, decode3;
-  edit3.SetStateUponManifestSwitchTag(true);
-  edit3.SetManifestSwitchFinishedTag(true);
+  edit3.SetStateUponManifestSwitch(true);
+  edit3.SetManifestSwitched(true);
   TestEncodeDecode(edit3);
   std::string encoded3;
   edit3.EncodeTo(&encoded3);
   ASSERT_OK(decode3.DecodeFrom(encoded3));
-  ASSERT_TRUE(decode3.GetStateUponManifestSwitchTag());
-  ASSERT_TRUE(decode3.GetManifestSwitchFinishedTag());
+  ASSERT_TRUE(decode3.GetStateUponManifestSwitch());
+  ASSERT_TRUE(decode3.GetManifestSwitched());
 
 
 }

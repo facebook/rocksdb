@@ -423,17 +423,17 @@ class VersionEdit {
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
-  void SetStateUponManifestSwitchTag(bool tag) {
+  void SetStateUponManifestSwitch(bool tag) {
     state_upon_manifest_switch_ = tag;
   }
-  bool GetStateUponManifestSwitchTag() const {
+  bool GetStateUponManifestSwitch() const {
     return state_upon_manifest_switch_;
   }
-  void SetManifestSwitchFinishedTag(bool tag) {
-    manifest_switch_finished_ = tag;
+  void SetManifestSwitched(bool tag) {
+    manifest_switched_ = tag;
   }
-  bool GetManifestSwitchFinishedTag() const {
-    return manifest_switch_finished_;
+  bool GetManifestSwitched() const {
+    return manifest_switched_;
   }
 
  private:
@@ -484,12 +484,12 @@ class VersionEdit {
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
   // To distinguish the version edit written by WriteCurrentStateToManifest
-  // and other redgular writes. Default is false.
+  // and other regular writes. Default is false.
   bool state_upon_manifest_switch_ = false;
   // To indicate when WriteCurrentStateToManifest is successful. When both
   // state_upon_manifest_switch and manifest_switch_finished are true, it can
   // ensure the manifest switch is finished.
-  bool manifest_switch_finished_ = false;
+  bool manifest_switched_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
