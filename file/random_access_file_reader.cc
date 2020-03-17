@@ -22,10 +22,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
-                                    char* scratch,
-                                    std::unique_ptr<const char[]>* internal_buf,
+                                    char* scratch, AlignedBuf* aligned_buf,
                                     bool for_compaction) const {
-  (void) internal_buf;
+  (void)aligned_buf;
   Status s;
   uint64_t elapsed = 0;
   {
@@ -82,11 +81,11 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       size_t res_len = 0;
       if (s.ok() && offset_advance < buf.CurrentSize()) {
         res_len = std::min(buf.CurrentSize() - offset_advance, n);
-        if (internal_buf == nullptr) {
+        if (aligned_buf == nullptr) {
           buf.Read(scratch, offset_advance, res_len);
         } else {
           scratch = buf.BufferStart();
-          internal_buf->reset(buf.Release());
+          aligned_buf->reset(buf.Release());
         }
       }
       *result = Slice(scratch, res_len);
