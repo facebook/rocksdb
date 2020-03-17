@@ -293,6 +293,10 @@ class CompositeEnvWrapper : public Env {
   // calls to env, and all file operations to fs
   explicit CompositeEnvWrapper(Env* env, FileSystem* fs)
       : env_target_(env), fs_env_target_(fs) {}
+  explicit CompositeEnvWrapper(Env* env, std::unique_ptr<FileSystem>&& fs)
+      : env_target_(env), fs_env_ptr_(std::move(fs)), fs_env_target_(fs_env_ptr_.get()) {}
+  explicit CompositeEnvWrapper(Env* env, std::shared_ptr<FileSystem> fs)
+      : Env(fs), env_target_(env), fs_env_target_(fs.get()) {}
   ~CompositeEnvWrapper() {}
 
   // Return the target to which this Env forwards all calls
@@ -504,6 +508,13 @@ class CompositeEnvWrapper : public Env {
     return fs_env_target_->GetAbsolutePath(db_path, io_opts, output_path, &dbg);
   }
 
+  Status NewLogger(const std::string& fname,
+                   std::shared_ptr<Logger>* result) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return fs_env_target_->NewLogger(fname, io_opts, result, &dbg);
+  }
+
 #if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,
@@ -530,10 +541,6 @@ class CompositeEnvWrapper : public Env {
   }
   Status GetTestDirectory(std::string* path) override {
     return env_target_->GetTestDirectory(path);
-  }
-  Status NewLogger(const std::string& fname,
-                   std::shared_ptr<Logger>* result) override {
-    return env_target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return env_target_->NowMicros(); }
   uint64_t NowNanos() override { return env_target_->NowNanos(); }
@@ -629,6 +636,7 @@ class CompositeEnvWrapper : public Env {
 
  private:
   Env* env_target_;
+  std::shared_ptr<FileSystem> fs_env_ptr_;
   FileSystem* fs_env_target_;
 };
 
@@ -1065,6 +1073,10 @@ class LegacyFileSystemWrapper : public FileSystem {
                      std::shared_ptr<Logger>* result,
                      IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->NewLogger(fname, result));
+  }
+
+  void SanitizeFileOptions(FileOptions* opts) const override {
+    target_->SanitizeEnvOptions(opts);
   }
 
   FileOptions OptimizeForLogRead(

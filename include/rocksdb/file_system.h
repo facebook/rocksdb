@@ -102,6 +102,9 @@ struct FileOptions : EnvOptions {
 
   FileOptions(const EnvOptions& opts)
     : EnvOptions(opts) {}
+
+  FileOptions(const FileOptions& opts)
+    : EnvOptions(opts), io_options(opts.io_options) {}
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -464,6 +467,10 @@ class FileSystem {
                                    const IOOptions& options,
                                    std::string* output_path,
                                    IODebugContext* dbg) = 0;
+
+  // Sanitize the FileOptions. Typically called by a FileOptions/EnvOptions
+  // copy constructor
+  virtual void SanitizeFileOptions(FileOptions* /*opts*/) const {}
 
   // OptimizeForLogRead will create a new FileOptions object that is a copy of
   // the FileOptions in the parameters, but is optimized for reading log files.
@@ -1147,6 +1154,10 @@ class FileSystemWrapper : public FileSystem {
                      std::shared_ptr<Logger>* result,
                      IODebugContext* dbg) override {
     return target_->NewLogger(fname, options, result, dbg);
+  }
+
+  void SanitizeFileOptions(FileOptions* opts) const override {
+    target_->SanitizeFileOptions(opts);
   }
 
   FileOptions OptimizeForLogRead(

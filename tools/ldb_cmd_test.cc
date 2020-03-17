@@ -81,8 +81,6 @@ TEST_F(LdbCmdTest, MemEnv) {
   opts.env = env.get();
   opts.create_if_missing = true;
 
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-
   DB* db = nullptr;
   std::string dbname = test::TmpDir();
   ASSERT_OK(DB::Open(opts, dbname, &db));
@@ -199,7 +197,7 @@ class FileChecksumTestHelper {
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
-                                    options_.file_system.get());
+                                    immutable_db_options.fs.get());
     if (s.ok()) {
       std::vector<ColumnFamilyDescriptor> cf_list;
       for (const auto& name : cf_name_list) {
@@ -264,7 +262,6 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();
@@ -351,7 +348,6 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   opts.create_if_missing = true;
   opts.sst_file_checksum_func =
       std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();
