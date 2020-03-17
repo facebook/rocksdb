@@ -34,6 +34,7 @@ manifest_dump
 sst_dump
 blob_dump
 block_cache_trace_analyzer
+db_with_timestamp_basic_test
 tools/block_cache_analyzer/*.pyc
 column_aware_encoding_exp
 util/build_version.cc

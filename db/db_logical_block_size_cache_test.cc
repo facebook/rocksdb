@@ -72,8 +72,12 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db));
+#endif
     }
     ASSERT_EQ(2, cache_->Size());
     ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -84,6 +88,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
     ASSERT_EQ(0, cache_->Size());
     delete db;
   }
+  ASSERT_OK(DestroyDB(dbname_, options, {}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
@@ -99,8 +104,12 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
       printf("Open\n");
       ASSERT_OK(DB::Open(options, dbname_, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db));
+#endif
     }
     ASSERT_EQ(1, cache_->Size());
     ASSERT_TRUE(cache_->Contains(dbname_));
@@ -108,6 +117,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenDelete) {
     delete db;
     ASSERT_EQ(0, cache_->Size());
   }
+  ASSERT_OK(DestroyDB(dbname_, options, {}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
@@ -153,6 +163,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
 
   delete db;
   ASSERT_EQ(0, cache_->Size());
+  ASSERT_OK(DestroyDB(dbname_, options, {{"cf", cf_options}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
@@ -206,6 +217,8 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
 
   delete db;
   ASSERT_EQ(0, cache_->Size());
+  ASSERT_OK(DestroyDB(dbname_, options,
+      {{"cf1", cf_options}, {"cf2", cf_options}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
@@ -241,12 +254,16 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
                           {"default", ColumnFamilyOptions()}},
                          &cfs, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(options, dbname_,
                                     {{"cf1", cf_options},
                                      {"cf2", cf_options},
                                      {"default", ColumnFamilyOptions()}},
                                     &cfs, &db));
+#endif
     }
 
     // Logical block sizes of dbname_ and cf_path_0_ are cached during Open.
@@ -289,6 +306,8 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenWithColumnFamilies) {
     delete db;
     ASSERT_EQ(0, cache_->Size());
   }
+  ASSERT_OK(DestroyDB(dbname_, options,
+      {{"cf1", cf_options}, {"cf2", cf_options}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
@@ -334,10 +353,14 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
           options, dbname_,
           {{"cf", cf_options}, {"default", ColumnFamilyOptions()}}, &cfs, &db));
     } else {
+#ifdef ROCKSDB_LITE
+      break;
+#else
       printf("OpenForReadOnly\n");
       ASSERT_OK(DB::OpenForReadOnly(
           options, dbname_,
           {{"cf", cf_options}, {"default", ColumnFamilyOptions()}}, &cfs, &db));
+#endif
     }
     // cf_path_0_ and dbname_ are cached.
     ASSERT_EQ(2, cache_->Size());
@@ -358,6 +381,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, DestroyColumnFamilyHandle) {
     delete db;
     ASSERT_EQ(0, cache_->Size());
   }
+  ASSERT_OK(DestroyDB(dbname_, options, {{"cf", cf_options}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
@@ -366,6 +390,8 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
+
+  ASSERT_OK(env_->CreateDirIfMissing(dbname_));
 
   DB* db0;
   ASSERT_OK(DB::Open(options, data_path_0_, &db0));
@@ -413,10 +439,12 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_EQ(1, cache_->GetRefCount(data_path_1_));
   ASSERT_TRUE(cache_->Contains(cf_path_1_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
+  ASSERT_OK(DestroyDB(data_path_0_, options, {{"cf", cf_options0}}));
 
   db1->DestroyColumnFamilyHandle(cf1);
   delete db1;
   ASSERT_EQ(0, cache_->Size());
+  ASSERT_OK(DestroyDB(data_path_1_, options, {{"cf", cf_options1}}));
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
@@ -428,6 +456,8 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   options.db_paths = {{data_path_0_, 1024}};
   ColumnFamilyOptions cf_options;
   cf_options.cf_paths = {{cf_path_0_, 1024}};
+
+  ASSERT_OK(env_->CreateDirIfMissing(dbname_));
 
   DB* db0;
   ASSERT_OK(DB::Open(options, dbname_ + "/db0", &db0));
@@ -466,10 +496,12 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
+  ASSERT_OK(DestroyDB(dbname_ + "/db0", options, {{"cf", cf_options}}));
 
   db1->DestroyColumnFamilyHandle(cf1);
   delete db1;
   ASSERT_EQ(0, cache_->Size());
+  ASSERT_OK(DestroyDB(dbname_ + "/db1", options, {{"cf", cf_options}}));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

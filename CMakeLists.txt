@@ -510,8 +510,8 @@ set(SOURCES
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
-        db/blob_file_addition.cc
-        db/blob_file_garbage.cc
+        db/blob/blob_file_addition.cc
+        db/blob/blob_file_garbage.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -620,12 +620,15 @@ set(SOURCES
         options/options_sanity_check.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
+        table/block_based/binary_search_index_reader.cc
         table/block_based/block.cc
         table/block_based/block_based_filter_block.cc
         table/block_based/block_based_table_builder.cc
         table/block_based/block_based_table_factory.cc
+        table/block_based/block_based_table_iterator.cc
         table/block_based/block_based_table_reader.cc
         table/block_based/block_builder.cc
+        table/block_based/block_prefetcher.cc
         table/block_based/block_prefix_index.cc
         table/block_based/data_block_hash_index.cc
         table/block_based/data_block_footer.cc
@@ -633,9 +636,14 @@ set(SOURCES
         table/block_based/filter_policy.cc
         table/block_based/flush_block_policy.cc
         table/block_based/full_filter_block.cc
+        table/block_based/hash_index_reader.cc
         table/block_based/index_builder.cc
+        table/block_based/index_reader_common.cc
         table/block_based/parsed_full_filter_block.cc
         table/block_based/partitioned_filter_block.cc
+        table/block_based/partitioned_index_iterator.cc
+        table/block_based/partitioned_index_reader.cc
+        table/block_based/reader_common.cc
         table/block_based/uncompression_dict_reader.cc
         table/block_fetcher.cc
         table/cuckoo/cuckoo_table_builder.cc
@@ -935,8 +943,9 @@ if(WITH_TESTS)
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
-        db/blob_file_addition_test.cc
-        db/blob_file_garbage_test.cc
+        db/blob/blob_file_addition_test.cc
+        db/blob/blob_file_garbage_test.cc
+        db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
         db/compaction/compaction_job_stats_test.cc
@@ -947,7 +956,7 @@ if(WITH_TESTS)
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
         db/db_basic_test.cc
-        db/db_blob_index_test.cc
+        db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc

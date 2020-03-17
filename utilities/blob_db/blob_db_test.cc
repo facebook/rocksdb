@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "env/composite_env_wrapper.h"
 #include "file/file_util.h"

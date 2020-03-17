@@ -416,7 +416,7 @@ Status RocksDBOptionsParser::EndSection(
       return s;
     }
   } else if (section == kOptionSectionVersion) {
-    for (const auto pair : opt_map) {
+    for (const auto& pair : opt_map) {
       if (pair.first == "rocksdb_version") {
         s = ParseVersionNumber(pair.first, pair.second, 3, db_version);
         if (!s.ok()) {
@@ -739,7 +739,7 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const DBOptions& base_opt, const DBOptions& persisted_opt,
     const std::unordered_map<std::string, std::string>* /*opt_map*/,
     OptionsSanityCheckLevel sanity_check_level) {
-  for (auto pair : db_options_type_info) {
+  for (const auto& pair : db_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
@@ -777,7 +777,7 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     const ColumnFamilyOptions& persisted_opt,
     const std::unordered_map<std::string, std::string>* persisted_opt_map,
     OptionsSanityCheckLevel sanity_check_level) {
-  for (auto& pair : cf_options_type_info) {
+  for (const auto& pair : cf_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized

@@ -5,13 +5,12 @@ os:
   - osx
 arch:
   - amd64
+  - arm64
   - ppc64le
 compiler:
   - clang
   - gcc
 osx_image: xcode9.4
-jdk:
-  - openjdk7
 cache:
   - ccache
 
@@ -71,16 +70,14 @@ matrix:
     arch: ppc64le
   - os: osx
     compiler: gcc
+  - os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-mingw
   - os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-mingw
   - os: linux
     compiler: clang
-
-before_install:
-  - if [[ "${JOB_NAME}" == java_test  || "${JOB_NAME}" == cmake* ]] && [ "$(uname -m)" == ppc64le ]; then
-     sudo apt-get -y install openjdk-8-jdk && export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-ppc64el;
-   fi
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
@@ -94,12 +91,29 @@ install:
       sudo apt-get install -y mingw-w64 ;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      CMAKE_DIST_URL="https://github.com/pdillinger/rocksdb/releases/download/cmake-3.14.5/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
+      CMAKE_DIST_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
       TAR_OPT="--strip-components=1 -xj";
+      if [ "aarch64" == "$(uname -m)" ]; then
+        sudo apt-get install -y libuv1 librhash0;
+        sudo apt-get upgrade -y libstdc++6;
+      fi;
       mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
     fi
-  - if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
-      java -version && echo "JAVA_HOME=${JAVA_HOME}";
+  - |
+    if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
+      # Ensure JDK 8
+      if [ "${TRAVIS_OS_NAME}" == osx ]; then
+        brew tap AdoptOpenJDK/openjdk
+        brew cask install adoptopenjdk8
+        export JAVA_HOME=$(/usr/libexec/java_home)
+      else
+        sudo apt-get install -y openjdk-8-jdk
+        export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
+        export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
+      fi
+      echo "JAVA_HOME=${JAVA_HOME}"
+      which java && java -version
+      which javac && javac -version
     fi
 
 before_script:

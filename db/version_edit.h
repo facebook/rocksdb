@@ -13,8 +13,8 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "db/blob_file_addition.h"
-#include "db/blob_file_garbage.h"
+#include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
