@@ -14,6 +14,14 @@
 
 namespace rocksdb {
 
+#ifdef OPENSSL
+const std::string TestKeyManager::default_key =
+    "\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34"
+    "\x56\x78\x12\x34\x56\x78";
+const std::string TestKeyManager::default_iv =
+    "\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd";
+#endif
+
 // Special Env used to delay background operations
 
 SpecialEnv::SpecialEnv(Env* base)
@@ -68,8 +76,13 @@ DBTestBase::DBTestBase(const std::string path)
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
-    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env,
-                                     new CTREncryptionProvider(rot13Cipher_));
+#ifdef OPENSSL
+    std::shared_ptr<encryption::KeyManager> key_manager(new TestKeyManager);
+    encrypted_env_ = NewKeyManagedEncryptedEnv(Env::Default(), key_manager);
+#else
+    fprintf(stderr, "EncryptedEnv is not available without OpenSSL.");
+    assert(false);
+#endif
   }
 #endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_

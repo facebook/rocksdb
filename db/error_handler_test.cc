@@ -548,7 +548,7 @@ TEST_F(DBErrorHandlingTest, WALWriteError) {
 
 TEST_F(DBErrorHandlingTest, MultiCFWALWriteError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   std::shared_ptr<ErrorHandlerListener> listener(new ErrorHandlerListener());
   Options options = GetDefaultOptions();
   options.create_if_missing = true;

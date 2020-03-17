@@ -938,7 +938,7 @@ TEST_F(DBBasicTest, DBClose) {
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;

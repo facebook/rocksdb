@@ -55,6 +55,7 @@ option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
 option(WITH_ZSTD "build with zstd" OFF)
+option(WITH_OPENSSL "build with openssl" OFF)
 option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, regardles of the system code page" OFF)
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
@@ -130,6 +131,14 @@ else()
     add_definitions(-DZSTD)
     include_directories(${ZSTD_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS ${ZSTD_LIBRARIES})
+  endif()
+
+  if(WITH_OPENSSL)
+    find_package(OpenSSL REQUIRED)
+    add_definitions(-DOPENSSL)
+    include_directories(${OPENSSL_INCLUDE_DIR})
+    # Only the crypto library is needed.
+    list(APPEND THIRDPARTY_LIBS ${OPENSSL_CRYPTO_LIBRARIES})
   endif()
 endif()
 
@@ -545,6 +554,7 @@ set(SOURCES
         db/write_batch_base.cc
         db/write_controller.cc
         db/write_thread.cc
+        encryption/encryption.cc
         env/env.cc
         env/env_chroot.cc
         env/env_encryption.cc
