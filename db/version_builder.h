@@ -8,6 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 #pragma once
+
+#include <memory>
+
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
 
@@ -27,9 +30,7 @@ class VersionBuilder {
   VersionBuilder(const FileOptions& file_options, TableCache* table_cache,
                  VersionStorageInfo* base_vstorage, Logger* info_log = nullptr);
   ~VersionBuilder();
-  Status CheckConsistency(VersionStorageInfo* vstorage);
-  Status CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
-                                    int level);
+
   bool CheckConsistencyForNumLevels();
   Status Apply(VersionEdit* edit);
   Status SaveTo(VersionStorageInfo* vstorage);
@@ -37,11 +38,10 @@ class VersionBuilder {
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
                            const SliceTransform* prefix_extractor);
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
 
  private:
   class Rep;
-  Rep* rep_;
+  std::unique_ptr<Rep> rep_;
 };
 
 extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);
