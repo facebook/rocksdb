@@ -1199,9 +1199,15 @@ if(WITH_BENCHMARK_TOOLS)
     ${ROCKSDB_LIB})
 endif()
 
+option(WITH_CORE_TOOLS "build with ldb and sst_dump" ON)
 option(WITH_TOOLS "build with tools" ON)
-if(WITH_TOOLS)
+if(WITH_CORE_TOOLS OR WITH_TOOLS)
   add_subdirectory(tools)
+  add_custom_target(core_tools
+    DEPENDS ${core_tool_deps})
+endif()
+
+if(WITH_TOOLS)
   add_subdirectory(db_stress_tool)
   add_custom_target(tools
     DEPENDS ${tool_deps})
