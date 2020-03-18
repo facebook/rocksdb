@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <unordered_set>
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
@@ -19,7 +18,10 @@ class RandomAccessFileReaderTest : public testing::Test {
 #ifdef OS_LINUX
     // TEST_TMPDIR may be set to /dev/shm in Makefile,
     // but /dev/shm does not support direct IO.
-    unsetenv("TEST_TMPDIR");
+    // The default TEST_TMPDIR is under /tmp, but /tmp might also be a tmpfs
+    // which does not support direct IO neither.
+    // So always overwrite TEST_TMPDIR to the home directory.
+    setenv("TEST_TMPDIR", "~", 1);
 #endif
     env_ = Env::Default();
     fs_ = FileSystem::Default();
