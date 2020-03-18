@@ -20,8 +20,14 @@ class RandomAccessFileReaderTest : public testing::Test {
     // but /dev/shm does not support direct IO.
     // The default TEST_TMPDIR is under /tmp, but /tmp might also be a tmpfs
     // which does not support direct IO neither.
-    // So always overwrite TEST_TMPDIR to the home directory.
-    setenv("TEST_TMPDIR", "~", 1);
+    unsetenv("TEST_TMPDIR");
+    char* tmpdir = getenv("DISK_TEMP_DIR");
+    if (tmpdir == nullptr) {
+      tmpdir = getenv("HOME");
+    }
+    if (tmpdir != nullptr) {
+      setenv("TEST_TMPDIR", tmpdir, 1);
+    }
 #endif
     env_ = Env::Default();
     fs_ = FileSystem::Default();
