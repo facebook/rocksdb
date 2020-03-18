@@ -9,7 +9,9 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#ifndef NDEBUG
 #include "test_util/fault_injection_test_fs.h"
+#endif // NDEBUG
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -147,18 +149,22 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string from_db;
     int error_count = 0;
 
+#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->EnableErrorInjection();
       filter_read_error = false;
     }
+#endif // NDEBUG
     Status s = db_->Get(read_opts, cfh, key, &from_db);
+#ifndef NDEBUG
     if (fault_fs_guard) {
       error_count = fault_fs_guard->GetAndResetErrorCount();
     }
+#endif // NDEBUG
     if (s.ok()) {
+#ifndef NDEBUG
       if (fault_fs_guard) {
         if (error_count && !filter_read_error) {
-#ifndef NDEBUG
           fprintf(stderr, "Didn't get expected error from Get\n");
           int frames = 0;
           char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
@@ -169,9 +175,9 @@ class NonBatchedOpsStressTest : public StressTest {
             }
             free(strs);
           }
-#endif // NDEBUG
         }
       }
+#endif // NDEBUG
       // found case
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
@@ -185,9 +191,11 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->stats.AddVerifiedErrors(1);
       }
     }
+#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
+#endif // NDEBUG
     return s;
   }
 
@@ -264,15 +272,19 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!use_txn) {
+#ifndef NDEBUG
       if (fault_fs_guard) {
         fault_fs_guard->EnableErrorInjection();
         filter_read_error = false;
       }
+#endif // NDEBUG
       db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
+#ifndef NDEBUG
       if (fault_fs_guard) {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
+#endif // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
@@ -283,8 +295,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     for (const auto& s : statuses) {
       if (s.ok()) {
-        if (fault_fs_guard && error_count && !filter_read_error) {
 #ifndef NDEBUG
+        if (fault_fs_guard && error_count && !filter_read_error) {
           fprintf(stderr, "Didn't get expected error from MultiGet\n");
           int frames = 0;
           char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
@@ -295,11 +307,13 @@ class NonBatchedOpsStressTest : public StressTest {
             }
             free(strs);
           }
-#endif // NDEBUG
         } else {
+#endif // NDEBUG
           // found case
           thread->stats.AddGets(1, 1);
+#ifndef NDEBUG
         }
+#endif // NDEBUG
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
@@ -316,9 +330,11 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
     }
+#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
+#endif // NDEBUG
     return statuses;
   }
 

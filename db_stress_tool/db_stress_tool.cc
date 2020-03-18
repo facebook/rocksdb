@@ -23,7 +23,9 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#ifndef NDEBUG
 #include "test_util/fault_injection_test_fs.h"
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -32,7 +34,9 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 }  // namespace
 
 KeyGenContext key_gen_ctx;
+#ifndef NDEBUG
 std::shared_ptr<FaultInjectionTestFS> fault_fs_guard;
+#endif // NDEBUG
 std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 
 // Errors when reading filter blocks are ignored, so we use a thread

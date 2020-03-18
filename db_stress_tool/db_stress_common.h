@@ -58,7 +58,9 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#ifndef NDEBUG
 #include "test_util/fault_injection_test_fs.h"
+#endif
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -263,7 +265,9 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 extern enum RepFactory FLAGS_rep_factory;
 
 namespace ROCKSDB_NAMESPACE {
+#ifndef NDEBUG
 extern std::shared_ptr<FaultInjectionTestFS> fault_fs_guard;
+#endif
 extern std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 #if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && defined(OS_LINUX)
 extern thread_local bool filter_read_error;

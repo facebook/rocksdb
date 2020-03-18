@@ -18,6 +18,7 @@
 #include <execinfo.h>
 #include <functional>
 #include <utility>
+#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -502,7 +503,7 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
               memcpy(scratch + offset, str.data(), len);
               break;
             } else {
-              [[fallthrough]];
+              FALLTHROUGH_INTENDED;
             }
           }
           // Truncate the result
