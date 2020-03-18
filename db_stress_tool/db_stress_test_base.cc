@@ -600,6 +600,24 @@ void StressTest::OperateDb(ThreadState* thread) {
           VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
         }
       }
+
+      // Verify GetSortedWalFiles with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_sorted_wal_files_one_in)) {
+        Status status = VerifyGetSortedWalFiles();
+        if (!status.ok()) {
+          VerificationAbort(shared, "VerifyGetSortedWalFiles status not OK",
+                            status);
+        }
+      }
+
+      // Verify GetCurrentWalFile with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
+        Status status = VerifyGetCurrentWalFile();
+        if (!status.ok()) {
+          VerificationAbort(shared, "VerifyGetCurrentWalFile status not OK",
+                            status);
+        }
+      }
 #endif  // !ROCKSDB_LITE
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
@@ -976,10 +994,22 @@ Status StressTest::TestIterate(ThreadState* thread,
 
 #ifndef ROCKSDB_LITE
 // Test the return status of GetLiveFiles.
-Status StressTest::VerifyGetLiveFiles() {
+Status StressTest::VerifyGetLiveFiles() const {
   std::vector<std::string> live_file;
   uint64_t manifest_size = 0;
   return db_->GetLiveFiles(live_file, &manifest_size);
+}
+
+// Test the return status of GetSortedWalFiles.
+Status StressTest::VerifyGetSortedWalFiles() const {
+  VectorLogPtr log_ptr;
+  return db_->GetSortedWalFiles(log_ptr);
+}
+
+// Test the return status of GetLiveFiles.
+Status StressTest::VerifyGetCurrentWalFile() const {
+  std::unique_ptr<LogFile> cur_wal_file;
+  return db_->GetCurrentWalFile(&cur_wal_file);
 }
 #endif  // !ROCKSDB_LITE
 
