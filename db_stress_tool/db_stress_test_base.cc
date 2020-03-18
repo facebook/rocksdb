@@ -1006,7 +1006,7 @@ Status StressTest::VerifyGetSortedWalFiles() const {
   return db_->GetSortedWalFiles(log_ptr);
 }
 
-// Test the return status of GetLiveFiles.
+// Test the return status of GetCurrentWalFile.
 Status StressTest::VerifyGetCurrentWalFile() const {
   std::unique_ptr<LogFile> cur_wal_file;
   return db_->GetCurrentWalFile(&cur_wal_file);
