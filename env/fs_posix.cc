@@ -184,7 +184,7 @@ class PosixFileSystem : public FileSystem {
       }
     }
     result->reset(new PosixSequentialFile(
-        fname, file, fd, GetLogicalBlockSizeIfNeeded(options, fname, fd),
+        fname, file, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
         options));
     return IOStatus::OK();
   }
@@ -245,7 +245,8 @@ class PosixFileSystem : public FileSystem {
 #endif
       }
       result->reset(new PosixRandomAccessFile(
-          fname, fd, GetLogicalBlockSizeIfNeeded(options, fname, fd), options
+          fname, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
+          options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
           thread_local_io_urings_.get()
@@ -332,15 +333,17 @@ class PosixFileSystem : public FileSystem {
       }
 #endif
       result->reset(new PosixWritableFile(
-          fname, fd, GetLogicalBlockSizeIfNeeded(options, fname, fd), options));
+          fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
+          options));
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(
-          fname, fd,
-          GetLogicalBlockSizeIfNeeded(no_mmap_writes_options, fname, fd),
-          no_mmap_writes_options));
+      result->reset(
+          new PosixWritableFile(fname, fd,
+                                GetLogicalBlockSizeForWriteIfNeeded(
+                                    no_mmap_writes_options, fname, fd),
+                                no_mmap_writes_options));
     }
     return s;
   }
@@ -436,15 +439,17 @@ class PosixFileSystem : public FileSystem {
       }
 #endif
       result->reset(new PosixWritableFile(
-          fname, fd, GetLogicalBlockSizeIfNeeded(options, fname, fd), options));
+          fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
+          options));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(
-          fname, fd,
-          GetLogicalBlockSizeIfNeeded(no_mmap_writes_options, fname, fd),
-          no_mmap_writes_options));
+      result->reset(
+          new PosixWritableFile(fname, fd,
+                                GetLogicalBlockSizeForWriteIfNeeded(
+                                    no_mmap_writes_options, fname, fd),
+                                no_mmap_writes_options));
     }
     return s;
   }
@@ -925,8 +930,12 @@ class PosixFileSystem : public FileSystem {
   static size_t GetLogicalBlockSize(const std::string& fname, int fd);
   // In non-direct IO mode, this directly returns kDefaultPageSize.
   // Otherwise call GetLogicalBlockSize.
-  static size_t GetLogicalBlockSizeIfNeeded(const EnvOptions& options,
-                                            const std::string& fname, int fd);
+  static size_t GetLogicalBlockSizeForReadIfNeeded(const EnvOptions& options,
+                                                   const std::string& fname,
+                                                   int fd);
+  static size_t GetLogicalBlockSizeForWriteIfNeeded(const EnvOptions& options,
+                                                    const std::string& fname,
+                                                    int fd);
 };
 
 #ifdef OS_LINUX
@@ -942,10 +951,16 @@ size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
 #endif
 }
 
-size_t PosixFileSystem::GetLogicalBlockSizeIfNeeded(const EnvOptions& options,
-                                                    const std::string& fname,
-                                                    int fd) {
-  return (options.use_direct_reads || options.use_direct_writes)
+size_t PosixFileSystem::GetLogicalBlockSizeForReadIfNeeded(
+    const EnvOptions& options, const std::string& fname, int fd) {
+  return options.use_direct_reads
+             ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
+             : kDefaultPageSize;
+}
+
+size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
+    const EnvOptions& options, const std::string& fname, int fd) {
+  return options.use_direct_writes
              ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
              : kDefaultPageSize;
 }
