@@ -71,6 +71,7 @@ matrix:
   - os: linux
     compiler: clang
   # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
+  # NB: the cmake build is a partial java test
   - if: type = pull_request
     os: osx
     env: TEST_GROUP=1
@@ -116,21 +117,30 @@ matrix:
     arch: ppc64le
     env: TEST_GROUP=4
   - if: type = pull_request
-    os : linux
-    arch: arm64
-    env: JOB_NAME=java-test
-  - if: type = pull_request
-    os: linux
-    arch: ppc64le
-    env: JOB_NAME=java-test
+    os : osx
+    env: JOB_NAME=java_test
   - if: type = pull_request
     os : linux
     arch: arm64
-    env: JOB_NAME=lite-build
+    env: JOB_NAME=java_test
   - if: type = pull_request
     os: linux
     arch: ppc64le
-    env: JOB_NAME=lite-build
+    env: JOB_NAME=java_test
+  - if: type = pull_request
+    os : osx
+    env: JOB_NAME=lite_build
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=lite_build
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=lite_build
+  - if: type = pull_request
+    os : osx
+    env: JOB_NAME=examples
   - if: type = pull_request
     os : linux
     arch: arm64
