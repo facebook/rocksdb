@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_meta.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker.h"
@@ -119,6 +120,8 @@ class VersionStorageInfo {
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
   void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
+
+  void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
   void SetFinalized();
 
@@ -278,6 +281,12 @@ class VersionStorageInfo {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
+  const BlobFiles& GetBlobFiles() const {
+    return blob_files_;
   }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
@@ -453,6 +462,9 @@ class VersionStorageInfo {
   // List of files per level, files in each level are arranged
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
+
+  // Map of blob files in version by number.
+  BlobFiles blob_files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
