@@ -208,7 +208,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok()) {
+    if (!io_s.ok()&& !io_s.IsShutdownInProgress() && !io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     } else {
       Status new_bg_error = s;
@@ -365,7 +365,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
-    s = SyncClosedLogs(job_context);
+    io_s = SyncClosedLogs(job_context);
     s = io_s;
   }
 
@@ -419,9 +419,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
   if (io_s.ok()) {
     IOStatus io_error = IOStatus::OK();
-    for (int i = 0; i != num_cfs; i++) {
-      if (!io_status[i].ok() && !exec_status[i].second.IsShutdownInProgress() &&
-          !exec_status[i].second.IsColumnFamilyDropped()) {
+    for (int i = 0; i != static_cast<int>(io_status.size()); i++) {
+      if (!io_status[i].ok() && !io_status[i].IsShutdownInProgress() &&
+          !io_status[i].IsColumnFamilyDropped()) {
         io_error = io_status[i];
       }
     }
@@ -572,7 +572,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok()) {
+    if (!io_s.ok() && io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     } else {
       Status new_bg_error = s;
