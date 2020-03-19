@@ -1410,7 +1410,7 @@ size_t Version::GetMemoryUsageByTableReaders() {
   return total_usage;
 }
 
-void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {  // TODO
+void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
   assert(cf_meta);
   assert(cfd_);
 
@@ -2108,8 +2108,7 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   return true;
 }
 
-void VersionStorageInfo::UpdateAccumulatedStats(
-    FileMetaData* file_meta) {  // TODO
+void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   TEST_SYNC_POINT_CALLBACK("VersionStorageInfo::UpdateAccumulatedStats",
                            nullptr);
 
@@ -2127,7 +2126,7 @@ void VersionStorageInfo::UpdateAccumulatedStats(
   current_num_samples_++;
 }
 
-void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) {  // TODO
+void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) {
   if (file_meta->init_stats_from_file) {
     current_num_non_deletions_ -=
         file_meta->num_entries - file_meta->num_deletions;
@@ -3337,7 +3336,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
   }
 }
 
-uint64_t VersionStorageInfo::EstimateLiveDataSize() const {  // TODO
+uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
   // Estimate the live data size by adding up the size of the last level for all
   // key ranges. Note: Estimate depends on the ordering of files in level 0
   // because files in level 0 can be overlapping.
@@ -3402,7 +3401,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
   return false;
 }
 
-void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {  // TODO
+void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
   for (int level = 0; level < storage_info_.num_levels(); level++) {
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (const auto& file : files) {
