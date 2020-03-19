@@ -14,6 +14,7 @@
 #include <cinttypes>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <thread>
 #include <unordered_map>
@@ -21,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_meta.h"
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
@@ -99,6 +101,9 @@ class VersionBuilder::Rep {
   bool has_invalid_levels_;
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
+
+  // Metadata for all blob files affected by the series of version edits.
+  std::unordered_map<uint64_t, std::shared_ptr<BlobFileMetaData>> blob_files_;
 
  public:
   Rep(const FileOptions& file_options, Logger* info_log,
@@ -217,6 +222,11 @@ class VersionBuilder::Rep {
         }
       }
     }
+
+    // TODO: make sure that all oldest blob file numbers refer to a valid blob
+    // file in this version and that for each blob file, the amount (count and
+    // bytes) of garbage is less than the total amount
+
     return Status::OK();
   }
 
@@ -282,6 +292,25 @@ class VersionBuilder::Rep {
     return true;
   }
 
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      uint64_t blob_file_number) const {
+    auto it = blob_files_.find(blob_file_number);
+    if (it != blob_files_.end()) {
+      return it->second;
+    }
+
+    assert(base_vstorage_);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+
+    auto base_it = base_blob_files.find(blob_file_number);
+    if (base_it != base_blob_files.end()) {
+      return base_it->second;
+    }
+
+    return std::shared_ptr<BlobFileMetaData>();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
     Status s = CheckConsistency(base_vstorage_);
@@ -333,6 +362,52 @@ class VersionBuilder::Rep {
         }
       }
     }
+
+    // Add new blob files
+    for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
+      const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
+
+      auto meta = GetBlobFileMetaData(blob_file_number);
+      if (meta) {
+        return Status::Corruption();  // TODO message
+      }
+
+      auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
+          blob_file_number, blob_file_addition.GetTotalBlobCount(),
+          blob_file_addition.GetTotalBlobBytes(),
+          blob_file_addition.GetChecksumMethod(),
+          blob_file_addition.GetChecksumValue());
+
+      constexpr uint64_t garbage_blob_count = 0;
+      constexpr uint64_t garbage_blob_bytes = 0;
+      auto new_meta = std::make_shared<BlobFileMetaData>(
+          std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
+
+      blob_files_.emplace(blob_file_number, std::move(new_meta));
+    }
+
+    // Increase the amount of garbage for blob files affected by GC
+    for (const auto& blob_file_garbage : edit->GetBlobFileGarbages()) {
+      const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
+
+      auto meta = GetBlobFileMetaData(blob_file_number);
+      if (!meta) {
+        return Status::Corruption();  // TODO message
+      }
+
+      auto shared_meta = meta->GetSharedMeta();
+
+      assert(shared_meta);
+      assert(shared_meta->GetBlobFileNumber() == blob_file_number);
+
+      auto new_meta = std::make_shared<BlobFileMetaData>(
+          std::move(shared_meta),
+          meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
+          meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
+
+      blob_files_[blob_file_number] = std::move(new_meta);
+    }
+
     return s;
   }
 

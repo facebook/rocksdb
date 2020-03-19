@@ -285,9 +285,7 @@ class VersionStorageInfo {
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
-  const BlobFiles& GetBlobFiles() const {
-    return blob_files_;
-  }
+  const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
     assert(level < static_cast<int>(level_files_brief_.size()));

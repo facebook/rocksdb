@@ -1410,7 +1410,7 @@ size_t Version::GetMemoryUsageByTableReaders() {
   return total_usage;
 }
 
-void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) { // TODO
+void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {  // TODO
   assert(cf_meta);
   assert(cfd_);
 
@@ -2108,7 +2108,8 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   return true;
 }
 
-void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) { // TODO
+void VersionStorageInfo::UpdateAccumulatedStats(
+    FileMetaData* file_meta) {  // TODO
   TEST_SYNC_POINT_CALLBACK("VersionStorageInfo::UpdateAccumulatedStats",
                            nullptr);
 
@@ -2126,7 +2127,7 @@ void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) { // TO
   current_num_samples_++;
 }
 
-void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) { // TODO
+void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) {  // TODO
   if (file_meta->init_stats_from_file) {
     current_num_non_deletions_ -=
         file_meta->num_entries - file_meta->num_deletions;
@@ -2599,16 +2600,19 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   level_files->push_back(f);
 }
 
-void VersionStorageInfo::AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta) {
+void VersionStorageInfo::AddBlobFile(
+    std::shared_ptr<BlobFileMetaData> blob_file_meta) {
   assert(blob_file_meta);
   assert(blob_file_meta->GetSharedMeta());
 
-  const uint64_t blob_file_number = blob_file_meta->GetSharedMeta()->GetBlobFileNumber();
+  const uint64_t blob_file_number =
+      blob_file_meta->GetSharedMeta()->GetBlobFileNumber();
 
   auto it = blob_files_.lower_bound(blob_file_number);
   assert(it == blob_files_.end() || it->first != blob_file_number);
 
-  blob_files_.insert(it, BlobFiles::value_type(blob_file_number, std::move(blob_file_meta)));
+  blob_files_.insert(
+      it, BlobFiles::value_type(blob_file_number, std::move(blob_file_meta)));
 }
 
 // Version::PrepareApply() need to be called before calling the function, or
@@ -3335,7 +3339,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
   }
 }
 
-uint64_t VersionStorageInfo::EstimateLiveDataSize() const { // TODO
+uint64_t VersionStorageInfo::EstimateLiveDataSize() const {  // TODO
   // Estimate the live data size by adding up the size of the last level for all
   // key ranges. Note: Estimate depends on the ordering of files in level 0
   // because files in level 0 can be overlapping.
@@ -3400,7 +3404,7 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
   return false;
 }
 
-void Version::AddLiveFiles(std::vector<FileDescriptor>* live) { // TODO
+void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {  // TODO
   for (int level = 0; level < storage_info_.num_levels(); level++) {
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (const auto& file : files) {
@@ -3457,7 +3461,7 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
 
     r.append(" --- blob files\n");
     const auto& blob_files = storage_info_.GetBlobFiles();
-    for (const auto& pair : blob_files) { // TODO
+    for (const auto& pair : blob_files) {  // TODO
       (void)pair;
     }
   }
