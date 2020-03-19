@@ -311,6 +311,50 @@ class VersionBuilder::Rep {
     return std::shared_ptr<BlobFileMetaData>();
   }
 
+  Status ProcessBlobFileAddition(const BlobFileAddition& blob_file_addition) {
+    const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
+
+    auto meta = GetBlobFileMetaData(blob_file_number);
+    if (meta) {
+      return Status::Corruption();  // TODO message
+    }
+
+    auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
+        blob_file_number, blob_file_addition.GetTotalBlobCount(),
+        blob_file_addition.GetTotalBlobBytes(),
+        blob_file_addition.GetChecksumMethod(),
+        blob_file_addition.GetChecksumValue());
+
+    constexpr uint64_t garbage_blob_count = 0;
+    constexpr uint64_t garbage_blob_bytes = 0;
+    auto new_meta = std::make_shared<BlobFileMetaData>(
+        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
+
+    changed_blob_files_.emplace(blob_file_number, std::move(new_meta));
+
+    return Status::OK();
+  }
+
+  Status ProcessBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
+    const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
+
+    auto meta = GetBlobFileMetaData(blob_file_number);
+    if (!meta) {
+      return Status::Corruption();  // TODO message
+    }
+
+    assert(meta->GetBlobFileNumber() == blob_file_number);
+
+    auto new_meta = std::make_shared<BlobFileMetaData>(
+        meta->GetSharedMeta(),
+        meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
+        meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
+
+    changed_blob_files_[blob_file_number] = std::move(new_meta);
+
+    return Status::OK();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
     Status s = CheckConsistency(base_vstorage_);
@@ -365,45 +409,18 @@ class VersionBuilder::Rep {
 
     // Add new blob files
     for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
-      const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
-
-      auto meta = GetBlobFileMetaData(blob_file_number);
-      if (meta) {
-        return Status::Corruption();  // TODO message
+      s = ProcessBlobFileAddition(blob_file_addition);
+      if (!s.ok()) {
+        return s;
       }
-
-      auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
-          blob_file_number, blob_file_addition.GetTotalBlobCount(),
-          blob_file_addition.GetTotalBlobBytes(),
-          blob_file_addition.GetChecksumMethod(),
-          blob_file_addition.GetChecksumValue());
-
-      constexpr uint64_t garbage_blob_count = 0;
-      constexpr uint64_t garbage_blob_bytes = 0;
-      auto new_meta = std::make_shared<BlobFileMetaData>(
-          std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
-
-      changed_blob_files_.emplace(blob_file_number, std::move(new_meta));
     }
 
     // Increase the amount of garbage for blob files affected by GC
     for (const auto& blob_file_garbage : edit->GetBlobFileGarbages()) {
-      const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
-
-      auto meta = GetBlobFileMetaData(blob_file_number);
-      if (!meta) {
-        return Status::Corruption();  // TODO message
+      s = ProcessBlobFileGarbage(blob_file_garbage);
+      if (!s.ok()) {
+        return s;
       }
-
-      assert(meta->GetBlobFileNumber() == blob_file_number);
-
-      auto new_meta = std::make_shared<BlobFileMetaData>(
-          meta->GetSharedMeta(),
-          meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
-          meta->GetGarbageBlobBytes() +
-              blob_file_garbage.GetGarbageBlobBytes());
-
-      changed_blob_files_[blob_file_number] = std::move(new_meta);
     }
 
     return s;
