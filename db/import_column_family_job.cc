@@ -62,6 +62,9 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
                                            info2->smallest_internal_key) < 0;
                 });
 
+      if (sorted_files.size() <= 1) {
+        continue;
+      }
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
         if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
                               sorted_files[i + 1]->smallest_internal_key) >=
