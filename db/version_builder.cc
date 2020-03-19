@@ -395,15 +395,13 @@ class VersionBuilder::Rep {
         return Status::Corruption();  // TODO message
       }
 
-      auto shared_meta = meta->GetSharedMeta();
-
-      assert(shared_meta);
-      assert(shared_meta->GetBlobFileNumber() == blob_file_number);
+      assert(meta->GetBlobFileNumber() == blob_file_number);
 
       auto new_meta = std::make_shared<BlobFileMetaData>(
-          std::move(shared_meta),
+          meta->GetSharedMeta(),
           meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
-          meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
+          meta->GetGarbageBlobBytes() +
+              blob_file_garbage.GetGarbageBlobBytes());
 
       changed_blob_files_[blob_file_number] = std::move(new_meta);
     }
@@ -480,25 +478,20 @@ class VersionBuilder::Rep {
         const auto& base_meta = base_it->second;
         const auto& changed_meta = changed_it->second;
 
-        assert(base_meta->GetSharedMeta());
-        assert(changed_meta->GetSharedMeta());
-
         if (base_blob_file_number < changed_blob_file_number) {
           assert(base_meta->GetGarbageBlobCount() <
-                 base_meta->GetSharedMeta()->GetTotalBlobCount());
+                 base_meta->GetTotalBlobCount());
 
           vstorage->AddBlobFile(base_meta);
           ++base_it;
         } else if (changed_blob_file_number < base_blob_file_number) {
           assert(changed_meta->GetGarbageBlobCount() <
-                 changed_meta->GetSharedMeta()->GetTotalBlobCount());
+                 changed_meta->GetTotalBlobCount());
 
           vstorage->AddBlobFile(changed_meta);
           ++changed_it;
         } else {
           assert(base_blob_file_number == changed_blob_file_number);
-          assert(base_meta->GetSharedMeta());
-          assert(changed_meta->GetSharedMeta());
           assert(base_meta->GetSharedMeta() == changed_meta->GetSharedMeta());
           assert(base_meta->GetGarbageBlobCount() <=
                  changed_meta->GetGarbageBlobCount());
@@ -506,7 +499,7 @@ class VersionBuilder::Rep {
                  changed_meta->GetGarbageBlobBytes());
 
           if (changed_meta->GetGarbageBlobCount() <
-              changed_meta->GetSharedMeta()->GetTotalBlobCount()) {
+              changed_meta->GetTotalBlobCount()) {
             vstorage->AddBlobFile(changed_meta);
           }
 
@@ -518,7 +511,7 @@ class VersionBuilder::Rep {
       while (base_it != base_it_end) {
         const auto& base_meta = base_it->second;
         assert(base_meta->GetGarbageBlobCount() <
-               base_meta->GetSharedMeta()->GetTotalBlobCount());
+               base_meta->GetTotalBlobCount());
 
         vstorage->AddBlobFile(base_meta);
         ++base_it;
@@ -527,7 +520,7 @@ class VersionBuilder::Rep {
       while (changed_it != changed_it_end) {
         const auto& changed_meta = changed_it->second;
         assert(changed_meta->GetGarbageBlobCount() <
-               changed_meta->GetSharedMeta()->GetTotalBlobCount());
+               changed_meta->GetTotalBlobCount());
 
         vstorage->AddBlobFile(changed_meta);
         ++changed_it;
