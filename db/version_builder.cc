@@ -507,16 +507,7 @@ VersionBuilder::VersionBuilder(const FileOptions& file_options,
                                Logger* info_log)
     : rep_(new Rep(file_options, info_log, table_cache, base_vstorage)) {}
 
-VersionBuilder::~VersionBuilder() { delete rep_; }
-
-Status VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
-  return rep_->CheckConsistency(vstorage);
-}
-
-Status VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
-                                                  uint64_t number, int level) {
-  return rep_->CheckConsistencyForDeletes(edit, number, level);
-}
+VersionBuilder::~VersionBuilder() = default;
 
 bool VersionBuilder::CheckConsistencyForNumLevels() {
   return rep_->CheckConsistencyForNumLevels();
@@ -535,11 +526,6 @@ Status VersionBuilder::LoadTableHandlers(
   return rep_->LoadTableHandlers(internal_stats, max_threads,
                                  prefetch_index_and_filter_in_cache,
                                  is_initial_load, prefix_extractor);
-}
-
-void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
-                                  FileMetaData* f) {
-  rep_->MaybeAddFile(vstorage, level, f);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
