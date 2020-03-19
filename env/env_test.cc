@@ -1994,7 +1994,7 @@ class EnvFSTestWithParam
     env_ = env_non_null ? (env_default ? Env::Default() : nullptr) : nullptr;
     fs_ = fs_default ? FileSystem::Default() :
           std::make_shared<FaultInjectionTestFS>(
-              FileSystem::Default().get());
+              FileSystem::Default());
     if (env_non_null && env_default && !fs_default) {
       env_ptr_ = NewCompositeEnv(fs_);
     }

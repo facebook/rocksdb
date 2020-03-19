@@ -1008,11 +1008,11 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(FileSystem* t) : target_(t) {}
+  explicit FileSystemWrapper(std::shared_ptr<FileSystem> t) : target_(t) {}
   ~FileSystemWrapper() override {}
 
   // Return the target to which this Env forwards all calls
-  FileSystem* target() const { return target_; }
+  FileSystem* target() const { return target_.get(); }
 
   // The following text is boilerplate that forwards all methods to target()
   IOStatus NewSequentialFile(const std::string& f,
@@ -1193,7 +1193,7 @@ class FileSystemWrapper : public FileSystem {
   }
 
  private:
-  FileSystem* target_;
+  std::shared_ptr<FileSystem> target_;
 };
 
 class FSSequentialFileWrapper : public FSSequentialFile {

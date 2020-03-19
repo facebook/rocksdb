@@ -544,7 +544,7 @@ class Env {
 
   // Get the FileSystem implementation this Env was constructed with. It
   // could be a fully implemented one, or a wrapper class around the Env
-  std::shared_ptr<FileSystem> GetFileSystem();
+  const std::shared_ptr<FileSystem>& GetFileSystem() const;
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 

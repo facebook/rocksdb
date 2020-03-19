@@ -480,8 +480,14 @@ Status NewEnvLogger(const std::string& fname, Env* env,
   return Status::OK();
 }
 
-std::shared_ptr<FileSystem> Env::GetFileSystem() {
+const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
   return file_system_;
 }
+
+#ifdef OS_WIN
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
+}
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

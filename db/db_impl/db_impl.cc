@@ -3478,7 +3478,7 @@ Status DBImpl::Close() {
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  std::shared_ptr<FileSystem> fs = db_options.env->GetFileSystem();
+  const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
   return VersionSet::ListColumnFamilies(column_families, name, fs.get());
 }
 
