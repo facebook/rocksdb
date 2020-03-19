@@ -426,6 +426,69 @@ class VersionBuilder::Rep {
     return s;
   }
 
+  void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+    auto base_it = base_blob_files.begin();
+    const auto base_it_end = base_blob_files.end();
+
+    auto changed_it = changed_blob_files_.begin();
+    const auto changed_it_end = changed_blob_files_.end();
+
+    while (base_it != base_it_end && changed_it != changed_it_end) {
+      const uint64_t base_blob_file_number = base_it->first;
+      const uint64_t changed_blob_file_number = changed_it->first;
+
+      const auto& base_meta = base_it->second;
+      const auto& changed_meta = changed_it->second;
+
+      if (base_blob_file_number < changed_blob_file_number) {
+        assert(base_meta->GetGarbageBlobCount() <
+               base_meta->GetTotalBlobCount());
+
+        vstorage->AddBlobFile(base_meta);
+        ++base_it;
+      } else if (changed_blob_file_number < base_blob_file_number) {
+        assert(changed_meta->GetGarbageBlobCount() <
+               changed_meta->GetTotalBlobCount());
+
+        vstorage->AddBlobFile(changed_meta);
+        ++changed_it;
+      } else {
+        assert(base_blob_file_number == changed_blob_file_number);
+        assert(base_meta->GetSharedMeta() == changed_meta->GetSharedMeta());
+        assert(base_meta->GetGarbageBlobCount() <=
+               changed_meta->GetGarbageBlobCount());
+        assert(base_meta->GetGarbageBlobBytes() <=
+               changed_meta->GetGarbageBlobBytes());
+
+        if (changed_meta->GetGarbageBlobCount() <
+            changed_meta->GetTotalBlobCount()) {
+          vstorage->AddBlobFile(changed_meta);
+        }
+
+        ++base_it;
+        ++changed_it;
+      }
+    }
+
+    while (base_it != base_it_end) {
+      const auto& base_meta = base_it->second;
+      assert(base_meta->GetGarbageBlobCount() < base_meta->GetTotalBlobCount());
+
+      vstorage->AddBlobFile(base_meta);
+      ++base_it;
+    }
+
+    while (changed_it != changed_it_end) {
+      const auto& changed_meta = changed_it->second;
+      assert(changed_meta->GetGarbageBlobCount() <
+             changed_meta->GetTotalBlobCount());
+
+      vstorage->AddBlobFile(changed_meta);
+      ++changed_it;
+    }
+  }
+
   // Save the current state in *v.
   Status SaveTo(VersionStorageInfo* vstorage) {
     Status s = CheckConsistency(base_vstorage_);
@@ -480,69 +543,7 @@ class VersionBuilder::Rep {
       }
     }
 
-    {
-      const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-      auto base_it = base_blob_files.begin();
-      const auto base_it_end = base_blob_files.end();
-
-      auto changed_it = changed_blob_files_.begin();
-      const auto changed_it_end = changed_blob_files_.end();
-
-      while (base_it != base_it_end && changed_it != changed_it_end) {
-        const uint64_t base_blob_file_number = base_it->first;
-        const uint64_t changed_blob_file_number = changed_it->first;
-
-        const auto& base_meta = base_it->second;
-        const auto& changed_meta = changed_it->second;
-
-        if (base_blob_file_number < changed_blob_file_number) {
-          assert(base_meta->GetGarbageBlobCount() <
-                 base_meta->GetTotalBlobCount());
-
-          vstorage->AddBlobFile(base_meta);
-          ++base_it;
-        } else if (changed_blob_file_number < base_blob_file_number) {
-          assert(changed_meta->GetGarbageBlobCount() <
-                 changed_meta->GetTotalBlobCount());
-
-          vstorage->AddBlobFile(changed_meta);
-          ++changed_it;
-        } else {
-          assert(base_blob_file_number == changed_blob_file_number);
-          assert(base_meta->GetSharedMeta() == changed_meta->GetSharedMeta());
-          assert(base_meta->GetGarbageBlobCount() <=
-                 changed_meta->GetGarbageBlobCount());
-          assert(base_meta->GetGarbageBlobBytes() <=
-                 changed_meta->GetGarbageBlobBytes());
-
-          if (changed_meta->GetGarbageBlobCount() <
-              changed_meta->GetTotalBlobCount()) {
-            vstorage->AddBlobFile(changed_meta);
-          }
-
-          ++base_it;
-          ++changed_it;
-        }
-      }
-
-      while (base_it != base_it_end) {
-        const auto& base_meta = base_it->second;
-        assert(base_meta->GetGarbageBlobCount() <
-               base_meta->GetTotalBlobCount());
-
-        vstorage->AddBlobFile(base_meta);
-        ++base_it;
-      }
-
-      while (changed_it != changed_it_end) {
-        const auto& changed_meta = changed_it->second;
-        assert(changed_meta->GetGarbageBlobCount() <
-               changed_meta->GetTotalBlobCount());
-
-        vstorage->AddBlobFile(changed_meta);
-        ++changed_it;
-      }
-    }
+    SaveBlobFilesTo(vstorage);
 
     s = CheckConsistency(vstorage);
     return s;
