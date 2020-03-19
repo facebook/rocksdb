@@ -103,7 +103,7 @@ class VersionBuilder::Rep {
   FileComparator level_nonzero_cmp_;
 
   // Metadata for all blob files affected by the series of version edits.
-  std::unordered_map<uint64_t, std::shared_ptr<BlobFileMetaData>> blob_files_;
+  std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> blob_files_;
 
  public:
   Rep(const FileOptions& file_options, Logger* info_log,
