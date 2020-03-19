@@ -103,7 +103,7 @@ class VersionBuilder::Rep {
   FileComparator level_nonzero_cmp_;
 
   // Metadata for all blob files affected by the series of version edits.
-  std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> blob_files_;
+  std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> changed_blob_files_;
 
  public:
   Rep(const FileOptions& file_options, Logger* info_log,
@@ -294,9 +294,9 @@ class VersionBuilder::Rep {
 
   std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
       uint64_t blob_file_number) const {
-    auto it = blob_files_.find(blob_file_number);
-    if (it != blob_files_.end()) {
-      return it->second;
+    auto changed_it = changed_blob_files_.find(blob_file_number);
+    if (changed_it != changed_blob_files_.end()) {
+      return changed_it->second;
     }
 
     assert(base_vstorage_);
@@ -383,7 +383,7 @@ class VersionBuilder::Rep {
       auto new_meta = std::make_shared<BlobFileMetaData>(
           std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
 
-      blob_files_.emplace(blob_file_number, std::move(new_meta));
+      changed_blob_files_.emplace(blob_file_number, std::move(new_meta));
     }
 
     // Increase the amount of garbage for blob files affected by GC
@@ -405,7 +405,7 @@ class VersionBuilder::Rep {
           meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
           meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
 
-      blob_files_[blob_file_number] = std::move(new_meta);
+      changed_blob_files_[blob_file_number] = std::move(new_meta);
     }
 
     return s;
@@ -462,6 +462,75 @@ class VersionBuilder::Rep {
         } else {
           MaybeAddFile(vstorage, level, *base_iter++);
         }
+      }
+    }
+
+    {
+      const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+      auto base_it = base_blob_files.begin();
+      const auto base_it_end = base_blob_files.end();
+
+      auto changed_it = changed_blob_files_.begin();
+      const auto changed_it_end = changed_blob_files_.end();
+
+      while (base_it != base_it_end && changed_it != changed_it_end) {
+        const uint64_t base_blob_file_number = base_it->first;
+        const uint64_t changed_blob_file_number = changed_it->first;
+
+        const auto& base_meta = base_it->second;
+        const auto& changed_meta = changed_it->second;
+
+        assert(base_meta->GetSharedMeta());
+        assert(changed_meta->GetSharedMeta());
+
+        if (base_blob_file_number < changed_blob_file_number) {
+          assert(base_meta->GetGarbageBlobCount() <
+                 base_meta->GetSharedMeta()->GetTotalBlobCount());
+
+          vstorage->AddBlobFile(base_meta);
+          ++base_it;
+        } else if (changed_blob_file_number < base_blob_file_number) {
+          assert(changed_meta->GetGarbageBlobCount() <
+                 changed_meta->GetSharedMeta()->GetTotalBlobCount());
+
+          vstorage->AddBlobFile(changed_meta);
+          ++changed_it;
+        } else {
+          assert(base_blob_file_number == changed_blob_file_number);
+          assert(base_meta->GetSharedMeta());
+          assert(changed_meta->GetSharedMeta());
+          assert(base_meta->GetSharedMeta() == changed_meta->GetSharedMeta());
+          assert(base_meta->GetGarbageBlobCount() <=
+                 changed_meta->GetGarbageBlobCount());
+          assert(base_meta->GetGarbageBlobBytes() <=
+                 changed_meta->GetGarbageBlobBytes());
+
+          if (changed_meta->GetGarbageBlobCount() <
+              changed_meta->GetSharedMeta()->GetTotalBlobCount()) {
+            vstorage->AddBlobFile(changed_meta);
+          }
+
+          ++base_it;
+          ++changed_it;
+        }
+      }
+
+      while (base_it != base_it_end) {
+        const auto& base_meta = base_it->second;
+        assert(base_meta->GetGarbageBlobCount() <
+               base_meta->GetSharedMeta()->GetTotalBlobCount());
+
+        vstorage->AddBlobFile(base_meta);
+        ++base_it;
+      }
+
+      while (changed_it != changed_it_end) {
+        const auto& changed_meta = changed_it->second;
+        assert(changed_meta->GetGarbageBlobCount() <
+               changed_meta->GetSharedMeta()->GetTotalBlobCount());
+
+        vstorage->AddBlobFile(changed_meta);
+        ++changed_it;
       }
     }
 
