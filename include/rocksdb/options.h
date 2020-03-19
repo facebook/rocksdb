@@ -1136,7 +1136,7 @@ struct DBOptions {
   // Best-efforts recovery is another recovery mode that
   // tries to restore the database to the most recent point in time without
   // missing file.
-  // Currently not compatible with atomic flush. Furthermoare, WAL files will
+  // Currently not compatible with atomic flush. Furthermore, WAL files will
   // not be used for recovery if best_efforts_recovery is true.
   // Default: false
   bool best_efforts_recovery = false;

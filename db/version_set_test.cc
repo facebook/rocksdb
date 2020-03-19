@@ -1683,7 +1683,9 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
 INSTANTIATE_TEST_CASE_P(
     BestEffortRecovery, VersionSetTestEmptyDb,
     testing::Combine(
-        testing::Bool(), testing::Bool(),
+        /*write_dbid_to_manifest=*/testing::Bool(),
+        /*read_only=*/testing::Bool(),
+        /*cf_names=*/
         testing::Values(
             std::vector<std::string>(),
             std::vector<std::string>({kDefaultColumnFamilyName}),

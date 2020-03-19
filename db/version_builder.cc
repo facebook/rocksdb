@@ -533,8 +533,7 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->table_cache(),
           cfd->current()->storage_info(), cfd->ioptions()->info_log)),
-      version_(cfd->current()),
-      should_ref_cfd_version_(true) {
+      version_(cfd->current()) {
   version_->Ref();
 }
 
@@ -543,15 +542,12 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->table_cache(),
           v->storage_info(), cfd->ioptions()->info_log)),
-      version_(v),
-      should_ref_cfd_version_(false) {
+      version_(v) {
   assert(version_ != cfd->current());
 }
 
 BaseReferencedVersionBuilder::~BaseReferencedVersionBuilder() {
-  if (should_ref_cfd_version_) {
-    version_->Unref();
-  }
+  version_->Unref();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

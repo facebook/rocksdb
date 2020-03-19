@@ -59,7 +59,6 @@ class BaseReferencedVersionBuilder {
  private:
   std::unique_ptr<VersionBuilder> version_builder_;
   Version* version_;
-  const bool should_ref_cfd_version_;
 };
 
 extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);

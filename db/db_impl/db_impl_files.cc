@@ -693,14 +693,17 @@ Status DBImpl::CleanupFilesAfterRecovery() {
       if (!ParseFileName(fname, &number, &type)) {
         continue;
       }
+      const std::string normalized_fpath = NormalizePath(path + fname);
       largest_file_number = std::max(largest_file_number, number);
       if (type == kTableFile && number >= next_file_number &&
-          files_to_delete.find(fname) == files_to_delete.end()) {
-        files_to_delete.insert(NormalizePath(path + fname));
+          files_to_delete.find(normalized_fpath) == files_to_delete.end()) {
+        files_to_delete.insert(normalized_fpath);
       }
     }
   }
-  versions_->next_file_number_.store(largest_file_number + 1);
+  if (largest_file_number > next_file_number) {
+    versions_->next_file_number_.store(largest_file_number + 1);
+  }
   mutex_.Unlock();
   Status s;
   for (const auto& fname : files_to_delete) {
