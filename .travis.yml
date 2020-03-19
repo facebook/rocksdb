@@ -55,14 +55,6 @@ env:
 matrix:
   exclude:
   - os: osx
-    env: TEST_GROUP=1
-  - os: osx
-    env: TEST_GROUP=2
-  - os: osx
-    env: TEST_GROUP=3
-  - os: osx
-    env: TEST_GROUP=4
-  - os: osx
     env: JOB_NAME=cmake-gcc8
   - os: osx
     env: JOB_NAME=cmake-mingw
@@ -78,6 +70,83 @@ matrix:
     env: JOB_NAME=cmake-mingw
   - os: linux
     compiler: clang
+  # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
+  - if: type != pull_request
+    os: osx
+    env: TEST_GROUP=1
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=1
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=1
+  - if: type != pull_request
+    os: osx
+    env: TEST_GROUP=2
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=2
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=2
+  - if: type != pull_request
+    os: osx
+    env: TEST_GROUP=3
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=3
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=3
+  - if: type != pull_request
+    os: osx
+    env: TEST_GROUP=4
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=4
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=4
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=java-test
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=java-test
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=lite-build
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=lite-build
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=examples
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=examples
+  - if: type != pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-gcc8
+  - if: type != pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-gcc8
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
