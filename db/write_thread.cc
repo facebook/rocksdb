@@ -142,39 +142,26 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
   const int sampling_base = 256;
 
   if (enable_multi_thread_write_) {
-#ifdef NDEBUG
-    std::function<void()> work;
-    while ((state & goal_mask) == 0) {
-      if (write_queue_.PopFront(work)) {
-        work();
-      } else {
-        std::this_thread::yield();
-      }
-      state = w->state.load(std::memory_order_acquire);
-    }
-    // In release build, we do not need to block thread, because it could help
-    // writer-leader to insert into memtable.
-#else
     auto spin_begin = std::chrono::steady_clock::now();
-    const int max_yield_usec = 2000;
-    std::function<void()> work;
     while ((state & goal_mask) == 0) {
-      if (write_queue_.PopFront(work)) {
-        work();
+      if (write_queue_.RunFunc()) {
+        spin_begin = std::chrono::steady_clock::now();
       } else {
         std::this_thread::yield();
+        auto now = std::chrono::steady_clock::now();
+        // If there is no task in the queue for a long time, we should block
+        // this thread to avoid costing too much CPU. Because there may be a
+        // large WriteBatch writing into memtable.
+        if ((now - spin_begin) > std::chrono::microseconds(max_yield_usec_)) {
+          break;
+        }
       }
       state = w->state.load(std::memory_order_acquire);
-      auto now = std::chrono::steady_clock::now();
-      if ((now - spin_begin) > std::chrono::microseconds(max_yield_usec)) {
-        break;
-      }
     }
     if ((state & goal_mask) == 0) {
       TEST_SYNC_POINT_CALLBACK("WriteThread::AwaitState:BlockingWaiting", w);
       state = BlockingAwaitState(w, goal_mask);
     }
-#endif
     return state;
   }
 
@@ -537,7 +524,8 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
   write_group->size = 1;
   Writer* last_writer = leader;
 
-  if (!allow_concurrent_memtable_write_ || !leader->batches[0]->HasMerge()) {
+  if (!allow_concurrent_memtable_write_ || enable_multi_thread_write_ ||
+      !leader->batches[0]->HasMerge()) {
     Writer* newest_writer = newest_memtable_writer_.load();
     CreateMissingNewerLinks(newest_writer);
 
@@ -549,7 +537,7 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
         break;
       }
 
-      if (w->batches[0]->HasMerge()) {
+      if (!enable_multi_thread_write_ && w->batches[0]->HasMerge()) {
         break;
       }
 

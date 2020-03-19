@@ -66,29 +66,23 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 }
 #endif  // ROCKSDB_LITE
 
-Status DBImpl::MultiThreadWrite(const WriteOptions& options,
-                                const std::vector<WriteBatch*>& updates) {
+Status DBImpl::MultiBatchWrite(const WriteOptions& options,
+                               std::vector<WriteBatch*>&& updates) {
   if (immutable_db_options_.enable_multi_thread_write) {
-    if (UNLIKELY(updates.empty())) {
-      return Status::OK();
-    }
-    autovector<WriteBatch*> batches;
-    for (auto w : updates) {
-      batches.push_back(w);
-    }
-    return MultiThreadWriteImpl(options, batches, nullptr, nullptr);
+    return MultiBatchWriteImpl(options, std::move(updates), nullptr, nullptr);
   } else {
     return Status::NotSupported();
   }
 }
 
-Status DBImpl::MultiThreadWriteImpl(const WriteOptions& write_options,
-                                    const autovector<WriteBatch*>& updates,
-                                    WriteCallback* callback, uint64_t* log_used,
-                                    uint64_t log_ref, uint64_t* seq_used) {
+Status DBImpl::MultiBatchWriteImpl(const WriteOptions& write_options,
+                                   std::vector<WriteBatch*>&& my_batch,
+                                   WriteCallback* callback, uint64_t* log_used,
+                                   uint64_t log_ref, uint64_t* seq_used) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
-  WriteThread::Writer writer(write_options, updates, callback, log_ref);
+  WriteThread::Writer writer(write_options, std::move(my_batch), callback,
+                             log_ref);
   write_thread_.JoinBatchGroup(&writer);
 
   WriteContext write_context;
@@ -169,36 +163,66 @@ Status DBImpl::MultiThreadWriteImpl(const WriteOptions& write_options,
     }
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, writer.status);
   }
+  bool is_leader_thread = false;
   if (writer.state == WriteThread::STATE_MEMTABLE_WRITER_LEADER) {
     PERF_TIMER_GUARD(write_memtable_time);
     assert(writer.ShouldWriteToMemtable());
     WriteThread::WriteGroup memtable_write_group;
     write_thread_.EnterAsMemTableWriter(&writer, &memtable_write_group);
     assert(immutable_db_options_.allow_concurrent_memtable_write);
-    auto version_set = versions_->GetColumnFamilySet();
-    memtable_write_group.running.store(0);
-    for (auto it = memtable_write_group.begin();
-         it != memtable_write_group.end(); ++it) {
-      if (!it.writer->ShouldWriteToMemtable()) {
-        continue;
+    if (memtable_write_group.size > 1) {
+      is_leader_thread = true;
+      write_thread_.LaunchParallelMemTableWriters(&memtable_write_group);
+    } else {
+      auto version_set = versions_->GetColumnFamilySet();
+      memtable_write_group.running.store(0);
+      for (auto it = memtable_write_group.begin();
+           it != memtable_write_group.end(); ++it) {
+        if (!it.writer->ShouldWriteToMemtable()) {
+          continue;
+        }
+        WriteBatchInternal::AsyncInsertInto(
+            it.writer, it.writer->sequence, version_set, &flush_scheduler_,
+            ignore_missing_faimly, this, &write_thread_.write_queue_);
       }
-      WriteBatchInternal::AsyncInsertInto(
-          it.writer, it.writer->sequence, version_set, &flush_scheduler_,
-          ignore_missing_faimly, this,
-          &write_thread_.write_queue_);
-    }
-    while (memtable_write_group.running.load(std::memory_order_acquire) > 0) {
-      std::function<void()> work;
-      if (write_thread_.write_queue_.PopFront(work)) {
-        work();
-      } else {
-        std::this_thread::yield();
+      while (memtable_write_group.running.load(std::memory_order_acquire) > 0) {
+        if (!write_thread_.write_queue_.RunFunc()) {
+          std::this_thread::yield();
+        }
       }
+      MemTableInsertStatusCheck(memtable_write_group.status);
+      versions_->SetLastSequence(memtable_write_group.last_sequence);
+      write_thread_.ExitAsMemTableWriter(&writer, memtable_write_group);
     }
-    MemTableInsertStatusCheck(memtable_write_group.status);
-    versions_->SetLastSequence(memtable_write_group.last_sequence);
-    write_thread_.ExitAsMemTableWriter(&writer, memtable_write_group);
   }
+  if (writer.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
+    assert(writer.ShouldWriteToMemtable());
+    auto version_set = versions_->GetColumnFamilySet();
+    WriteBatchInternal::AsyncInsertInto(
+        &writer, writer.sequence, version_set, &flush_scheduler_,
+        ignore_missing_faimly, this, &write_thread_.write_queue_);
+    // Because `LaunchParallelMemTableWriters` has add `write_group->size` to `running`,
+    // the value of `running` is always larger than one if the leader thread does not
+    // call `CompleteParallelMemTableWriter`.
+    while (writer.write_group->running.load(std::memory_order_acquire) > 1) {
+      // Write thread could exit and block itself if it is not a leader thread.
+      if (!write_thread_.write_queue_.RunFunc() && !is_leader_thread) {
+        break;
+      }
+    }
+    // We only allow leader_thread to finish this WriteGroup because there may
+    // be another task which is done by the thread that is not in this WriteGroup,
+    // and it would not notify the threads in this WriteGroup. So we must make someone in
+    // this WriteGroup to complete it and leader thread is easy to be decided.
+    if (is_leader_thread) {
+      MemTableInsertStatusCheck(writer.status);
+      versions_->SetLastSequence(writer.write_group->last_sequence);
+      write_thread_.ExitAsMemTableWriter(&writer, *writer.write_group);
+    } else {
+      write_thread_.CompleteParallelMemTableWriter(&writer);
+    }
+  }
+
   if (seq_used != nullptr) {
     *seq_used = writer.sequence;
   }
@@ -293,10 +317,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (immutable_db_options_.enable_multi_thread_write) {
-    autovector<WriteBatch*> updates;
-    updates.push_back(my_batch);
-    return MultiThreadWriteImpl(write_options, updates, callback, log_used,
-                                log_ref, seq_used);
+    std::vector<WriteBatch*> updates(1);
+    updates[0] = my_batch;
+    return MultiBatchWriteImpl(write_options, std::move(updates), callback,
+                               log_used, log_ref, seq_used);
   }
 
   if (immutable_db_options_.enable_pipelined_write) {

@@ -117,7 +117,7 @@ class WriteThread {
   // Information kept for every waiting writer.
   struct Writer {
     WriteBatch* batch;
-    autovector<WriteBatch*> batches;
+    std::vector<WriteBatch*> batches;
     bool sync;
     bool no_slowdown;
     bool disable_wal;
@@ -180,9 +180,8 @@ class WriteThread {
       batches.push_back(_batch);
     }
 
-    Writer(const WriteOptions& write_options,
-           const autovector<WriteBatch*>& _batch, WriteCallback* _callback,
-           uint64_t _log_ref,
+    Writer(const WriteOptions& write_options, std::vector<WriteBatch*>&& _batch,
+           WriteCallback* _callback, uint64_t _log_ref,
            PreReleaseCallback* _pre_release_callback = nullptr)
         : batch(nullptr),
           batches(_batch),
@@ -377,7 +376,7 @@ class WriteThread {
   // Remove the dummy writer and wake up waiting writers
   void EndWriteStall();
 
-  SafeQueue<std::function<void()>> write_queue_;
+  SafeFuncQueue write_queue_;
 
  private:
   // See AwaitState.

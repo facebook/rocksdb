@@ -116,7 +116,7 @@ class WriteBatchInternal {
   // Return the number of entries in the batch.
   static int Count(const WriteBatch* batch);
 
-  static int Count(const autovector<WriteBatch*> batch);
+  static int Count(const std::vector<WriteBatch*> batch);
 
   // Set the count for the number of entries in the batch.
   static void SetCount(WriteBatch* batch, int n);
@@ -140,7 +140,7 @@ class WriteBatchInternal {
     return batch->rep_.size();
   }
 
-  static size_t ByteSize(const autovector<WriteBatch*> batch) {
+  static size_t ByteSize(const std::vector<WriteBatch*> batch) {
     size_t count = 0;
     for (auto w : batch) {
       count += w->rep_.size();
@@ -201,7 +201,7 @@ class WriteBatchInternal {
                               ColumnFamilySet* version_set,
                               FlushScheduler* flush_scheduler,
                               bool ignore_missing_column_families, DB* db,
-                              SafeQueue<std::function<void()>>* pool);
+                              SafeFuncQueue* pool);
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);

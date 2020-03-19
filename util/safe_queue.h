@@ -5,41 +5,45 @@
 
 #pragma once
 
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <queue>
 
 namespace rocksdb {
-template <typename T>
-class SafeQueue {
+class SafeFuncQueue {
+ private:
+  struct Item {
+    std::function<void()> func;
+  };
+
  public:
-  SafeQueue() {}
+  SafeFuncQueue() {}
 
-  ~SafeQueue() {}
+  ~SafeFuncQueue() {}
 
-  bool PopFront(T &ret) {
-    if (0 == que_len_.load(std::memory_order_relaxed)) {
-      return false;
-    }
-    std::lock_guard<std::mutex> lock(mu_);
+  bool RunFunc() {
+    mu_.lock();
     if (que_.empty()) {
+      mu_.unlock();
       return false;
     }
-    ret = std::move(que_.front());
+    auto func = std::move(que_.front().func);
     que_.pop_front();
-    que_len_.fetch_sub(1, std::memory_order_relaxed);
+    mu_.unlock();
+    func();
     return true;
   }
 
-  void PushBack(T &&v) {
-    std::lock_guard<std::mutex> lock(mu_);
-    que_.push_back(v);
-    que_len_.fetch_add(1, std::memory_order_relaxed);
+  void Push(std::function<void()> &&v) {
+    std::lock_guard<std::mutex> _guard(mu_);
+    que_.emplace_back();
+    que_.back().func = std::move(v);
   }
 
  private:
-  std::deque<T> que_;
+  std::deque<Item> que_;
   std::mutex mu_;
-  std::atomic<uint64_t> que_len_;
 };
+
 }  // namespace rocksdb

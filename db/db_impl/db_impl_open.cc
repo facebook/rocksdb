@@ -121,7 +121,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.avoid_flush_during_recovery = false;
   }
 
-  // multi thread write do not support two-write-que or write in pipeline
+  // multi thread write do not support two-write-que or write in 2PC
   if (result.two_write_queues || result.allow_2pc) {
     result.enable_multi_thread_write = false;
   }
