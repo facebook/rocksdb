@@ -16,6 +16,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -316,7 +317,10 @@ class VersionBuilder::Rep {
 
     auto meta = GetBlobFileMetaData(blob_file_number);
     if (meta) {
-      return Status::Corruption();  // TODO message
+      std::ostringstream oss;
+      oss << "Blob file #" << blob_file_number << " already added";
+
+      return Status::Corruption("VersionBuilder", oss.str());
     }
 
     auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
@@ -340,7 +344,10 @@ class VersionBuilder::Rep {
 
     auto meta = GetBlobFileMetaData(blob_file_number);
     if (!meta) {
-      return Status::Corruption();  // TODO message
+      std::ostringstream oss;
+      oss << "Blob file #" << blob_file_number << " not found";
+
+      return Status::Corruption("VersionBuilder", oss.str());
     }
 
     assert(meta->GetBlobFileNumber() == blob_file_number);
