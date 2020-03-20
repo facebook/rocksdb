@@ -354,6 +354,14 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, best_efforts_recovery),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
+        {"max_bgerror_resume_count",
+         {offsetof(struct DBOptions, max_bgerror_resume_count),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"bgerror_resume_retry_interval",
+         {offsetof(struct DBOptions, bgerror_resume_retry_interval),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -465,7 +473,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
-      best_efforts_recovery(options.best_efforts_recovery) {
+      best_efforts_recovery(options.best_efforts_recovery),
+      max_bgerror_resume_count(options.max_bgerror_resume_count),
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -619,6 +629,11 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                                              : kUnknownFileChecksumFuncName);
   ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
                    static_cast<int>(best_efforts_recovery));
+  ROCKS_LOG_HEADER(log, "               Options.max_bgerror_resume_count: %d",
+                   max_bgerror_resume_count);
+  ROCKS_LOG_HEADER(log,
+                   "           Options.bgerror_resume_retry_interval: %" PRIu64,
+                   bgerror_resume_retry_interval);
 }
 
 MutableDBOptions::MutableDBOptions()

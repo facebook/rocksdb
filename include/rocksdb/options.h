@@ -1137,6 +1137,22 @@ struct DBOptions {
   // not be used for recovery if best_efforts_recovery is true.
   // Default: false
   bool best_efforts_recovery = false;
+
+  // It defines How many times call db resume when retryable BGError happens.
+  // When BGError happens, SetBGError is called to deal with the Error. If
+  // the error can be auto-recovered, db resume is called in background to
+  // recover from the error. If this value is 0 or negative, db resume will
+  // not be called.
+  //
+  // Default: 0
+  int max_bgerror_resume_count = 0;
+
+  // If max_bgerror_resume_count is >= 2, db resume is called multiple times.
+  // This option decides how long to wait to retry the next resume if the
+  // previous resume fails and satisfy redo resume conditions.
+  //
+  // Default: 10000000 (microseconds).
+  uint64_t bgerror_resume_retry_interval = 1000000;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
