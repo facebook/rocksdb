@@ -37,30 +37,40 @@ class VersionEditHandler {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
       bool ignore_missing_files);
+
   virtual ~VersionEditHandler() {}
 
   Status Iterate(log::Reader& reader, std::string* db_id);
 
   const Status& status() const { return status_; }
+
   bool HasMissingFiles() const;
 
  protected:
-  Status ApplyOneVersionEditToBuilder(VersionEdit& edit,
-                                      ColumnFamilyData** cfd);
+  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd);
+
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
+
   Status OnColumnFamilyDrop(VersionEdit& edit, ColumnFamilyData** cfd);
+
   Status OnNonCfOperation(VersionEdit& edit, ColumnFamilyData** cfd);
 
   Status Initialize();
+
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
                            bool* cf_in_builders) const;
+
   virtual void CheckIterationResult(const log::Reader& reader, Status* s);
 
   ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
                                     const VersionEdit& edit);
+
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
-  virtual Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
-                               bool force_create_version);
+
+  virtual Status MaybeCreateVersion(const VersionEdit& edit,
+                                    ColumnFamilyData* cfd,
+                                    bool force_create_version);
+
   Status LoadTables(ColumnFamilyData* cfd,
                     bool prefetch_index_and_filter_in_cache,
                     bool is_initial_load);
@@ -82,6 +92,7 @@ class VersionEditHandler {
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
+
   bool initialized_;
 };
 
@@ -102,8 +113,8 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
  protected:
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
-  Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
-                       bool force_create_version) override;
+  Status MaybeCreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
+                            bool force_create_version) override;
 
  private:
   std::unordered_map<uint32_t, Version*> versions_;

@@ -16,13 +16,13 @@ namespace ROCKSDB_NAMESPACE {
 VersionEditHandler::VersionEditHandler(
     bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
     VersionSet* version_set, bool track_missing_files,
-    bool _ignore_missing_files)
+    bool no_error_if_table_files_missing)
     : read_only_(read_only),
       column_families_(column_families),
       status_(),
       version_set_(version_set),
       track_missing_files_(track_missing_files),
-      no_error_if_table_files_missing_(_ignore_missing_files),
+      no_error_if_table_files_missing_(no_error_if_table_files_missing),
       initialized_(false) {
   assert(version_set_ != nullptr);
 }
@@ -52,7 +52,7 @@ Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
     if (edit.is_in_atomic_group_) {
       if (read_buffer_.IsFull()) {
         for (auto& e : read_buffer_.replay_buffer()) {
-          s = ApplyOneVersionEditToBuilder(e, &cfd);
+          s = ApplyVersionEdit(e, &cfd);
           if (!s.ok()) {
             break;
           }
@@ -64,7 +64,7 @@ Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
         read_buffer_.Clear();
       }
     } else {
-      s = ApplyOneVersionEditToBuilder(edit, &cfd);
+      s = ApplyVersionEdit(edit, &cfd);
       if (s.ok()) {
         ++recovered_edits;
       }
@@ -93,19 +93,20 @@ Status VersionEditHandler::Initialize() {
       VersionEdit default_cf_edit;
       default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
       default_cf_edit.SetColumnFamily(0);
-      ColumnFamilyData* cfd __attribute__((__unused__)) =
+      ColumnFamilyData* cfd =
           CreateCfAndInit(default_cf_iter->second, default_cf_edit);
       assert(cfd != nullptr);
-    } else {
-      status_ = s;
+#ifdef NDEBUG
+      (void)cfd;
+#endif
+      initialized_ = true;
     }
-    initialized_ = true;
   }
   return s;
 }
 
-Status VersionEditHandler::ApplyOneVersionEditToBuilder(
-    VersionEdit& edit, ColumnFamilyData** cfd) {
+Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
+                                            ColumnFamilyData** cfd) {
   Status s;
   if (edit.is_column_family_add_) {
     s = OnColumnFamilyAdd(edit, cfd);
@@ -117,9 +118,6 @@ Status VersionEditHandler::ApplyOneVersionEditToBuilder(
   if (s.ok()) {
     assert(cfd != nullptr);
     s = ExtractInfoFromVersionEdit(*cfd, edit);
-  }
-  if (!s.ok()) {
-    status_ = s;
   }
   return s;
 }
@@ -159,9 +157,6 @@ Status VersionEditHandler::OnColumnFamilyAdd(VersionEdit& edit,
       *cfd = tmp_cfd;
     }
   }
-  if (!s.ok()) {
-    status_ = s;
-  }
   return s;
 }
 
@@ -181,7 +176,6 @@ Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
     column_families_not_found_.erase(edit.column_family_);
   } else {
     s = Status::Corruption("MANIFEST - dropping non-existing column family");
-    status_ = s;
   }
   *cfd = tmp_cfd;
   return s;
@@ -208,15 +202,12 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
       tmp_cfd = version_set_->GetColumnFamilySet()->GetColumnFamily(
           edit.column_family_);
       assert(tmp_cfd != nullptr);
-      s = CreateVersion(edit, tmp_cfd, false);
+      s = MaybeCreateVersion(edit, tmp_cfd, /*force_create_version=*/false);
       if (s.ok()) {
         s = builder_iter->second->version_builder()->Apply(&edit);
       }
     }
     *cfd = tmp_cfd;
-  }
-  if (!s.ok()) {
-    status_ = s;
   }
   return s;
 }
@@ -325,7 +316,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         continue;
       }
       assert(cfd->initialized());
-      *s = CreateVersion(VersionEdit(), cfd, true);
+      VersionEdit edit;
+      *s = MaybeCreateVersion(edit, cfd, /*force_create_version=*/true);
       if (!s->ok()) {
         break;
       }
@@ -342,8 +334,6 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         version_edit_params_.last_sequence_;
     version_set_->last_sequence_ = version_edit_params_.last_sequence_;
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
-  } else {
-    status_ = *s;
   }
 }
 
@@ -383,21 +373,23 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
   return ret;
 }
 
-Status VersionEditHandler::CreateVersion(const VersionEdit& /*edit*/,
-                                         ColumnFamilyData* cfd,
-                                         bool /*force_create_version*/) {
+Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
+                                              ColumnFamilyData* cfd,
+                                              bool force_create_version) {
   assert(cfd->initialized());
-  auto builder_iter = builders_.find(cfd->GetID());
-  assert(builder_iter != builders_.end());
-  auto* builder = builder_iter->second->version_builder();
-  auto* v = new Version(cfd, version_set_, version_set_->file_options_,
-                        *cfd->GetLatestMutableCFOptions(),
-                        version_set_->current_version_number_++);
-  builder->SaveTo(v->storage_info());
-  // Install new version
-  v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
-                  !(version_set_->db_options_->skip_stats_update_on_db_open));
-  version_set_->AppendVersion(cfd, v);
+  if (force_create_version) {
+    auto builder_iter = builders_.find(cfd->GetID());
+    assert(builder_iter != builders_.end());
+    auto* builder = builder_iter->second->version_builder();
+    auto* v = new Version(cfd, version_set_, version_set_->file_options_,
+                          *cfd->GetLatestMutableCFOptions(),
+                          version_set_->current_version_number_++);
+    builder->SaveTo(v->storage_info());
+    // Install new version
+    v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
+                    !(version_set_->db_options_->skip_stats_update_on_db_open));
+    version_set_->AppendVersion(cfd, v);
+  }
   return Status::OK();
 }
 
@@ -473,8 +465,6 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     if (!version_edit_params_.has_prev_log_number_) {
       version_edit_params_.SetPrevLogNumber(0);
     }
-  } else {
-    status_ = s;
   }
   return s;
 }
@@ -525,9 +515,8 @@ ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(
   return cfd;
 }
 
-Status VersionEditHandlerPointInTime::CreateVersion(const VersionEdit& edit,
-                                                    ColumnFamilyData* cfd,
-                                                    bool force_create_version) {
+Status VersionEditHandlerPointInTime::MaybeCreateVersion(
+    const VersionEdit& edit, ColumnFamilyData* cfd, bool force_create_version) {
   assert(cfd != nullptr);
   if (!force_create_version) {
     assert(edit.column_family_ == cfd->GetID());
