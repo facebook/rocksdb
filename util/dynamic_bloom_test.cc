@@ -34,7 +34,7 @@ DEFINE_int32(bits_per_key, 10, "");
 DEFINE_int32(num_probes, 6, "");
 DEFINE_bool(enable_perf, false, "");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct KeyMaker {
   uint64_t a;
@@ -312,7 +312,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -43,7 +43,36 @@
 #define F_SET_RW_HINT (F_LINUX_SPECIFIC_BASE + 12)
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
+
+std::string IOErrorMsg(const std::string& context,
+                       const std::string& file_name) {
+  if (file_name.empty()) {
+    return context;
+  }
+  return context + ": " + file_name;
+}
+
+// file_name can be left empty if it is not unkown.
+IOStatus IOError(const std::string& context, const std::string& file_name,
+                 int err_number) {
+  switch (err_number) {
+    case ENOSPC: {
+      IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
+                                     strerror(err_number));
+      s.SetRetryable(true);
+      return s;
+    }
+    case ESTALE:
+      return IOStatus::IOError(IOStatus::kStaleFile);
+    case ENOENT:
+      return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
+                                    strerror(err_number));
+    default:
+      return IOStatus::IOError(IOErrorMsg(context, file_name),
+                               strerror(err_number));
+  }
+}
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
 // it will simply return 0.
@@ -112,75 +141,6 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
   return true;
 }
 
-size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
-#ifdef OS_LINUX
-  struct stat buf;
-  int result = fstat(fd, &buf);
-  if (result == -1) {
-    return kDefaultPageSize;
-  }
-  if (major(buf.st_dev) == 0) {
-    // Unnamed devices (e.g. non-device mounts), reserved as null device number.
-    // These don't have an entry in /sys/dev/block/. Return a sensible default.
-    return kDefaultPageSize;
-  }
-
-  // Reading queue/logical_block_size does not require special permissions.
-  const int kBufferSize = 100;
-  char path[kBufferSize];
-  char real_path[PATH_MAX + 1];
-  snprintf(path, kBufferSize, "/sys/dev/block/%u:%u", major(buf.st_dev),
-           minor(buf.st_dev));
-  if (realpath(path, real_path) == nullptr) {
-    return kDefaultPageSize;
-  }
-  std::string device_dir(real_path);
-  if (!device_dir.empty() && device_dir.back() == '/') {
-    device_dir.pop_back();
-  }
-  // NOTE: sda3 and nvme0n1p1 do not have a `queue/` subdir, only the parent sda
-  // and nvme0n1 have it.
-  // $ ls -al '/sys/dev/block/8:3'
-  // lrwxrwxrwx. 1 root root 0 Jun 26 01:38 /sys/dev/block/8:3 ->
-  // ../../block/sda/sda3
-  // $ ls -al '/sys/dev/block/259:4'
-  // lrwxrwxrwx 1 root root 0 Jan 31 16:04 /sys/dev/block/259:4 ->
-  // ../../devices/pci0000:17/0000:17:00.0/0000:18:00.0/nvme/nvme0/nvme0n1/nvme0n1p1
-  size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
-  if (parent_end == std::string::npos) {
-    return kDefaultPageSize;
-  }
-  size_t parent_begin = device_dir.rfind('/', parent_end - 1);
-  if (parent_begin == std::string::npos) {
-    return kDefaultPageSize;
-  }
-  std::string parent =
-      device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
-  std::string child = device_dir.substr(parent_end + 1, std::string::npos);
-  if (parent != "block" &&
-      (child.compare(0, 4, "nvme") || child.find('p') != std::string::npos)) {
-    device_dir = device_dir.substr(0, parent_end);
-  }
-  std::string fname = device_dir + "/queue/logical_block_size";
-  FILE* fp;
-  size_t size = 0;
-  fp = fopen(fname.c_str(), "r");
-  if (fp != nullptr) {
-    char* line = nullptr;
-    size_t len = 0;
-    if (getline(&line, &len, fp) != -1) {
-      sscanf(line, "%zu", &size);
-    }
-    free(line);
-    fclose(fp);
-  }
-  if (size != 0 && (size & (size - 1)) == 0) {
-    return size;
-  }
-#endif
-  return kDefaultPageSize;
-}
-
 #ifdef ROCKSDB_RANGESYNC_PRESENT
 
 #if !defined(ZFS_SUPER_MAGIC)
@@ -247,12 +207,13 @@ bool IsSectorAligned(const void* ptr, size_t sector_size) {
  * PosixSequentialFile
  */
 PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
-                                         int fd, const EnvOptions& options)
+                                         int fd, size_t logical_block_size,
+                                         const EnvOptions& options)
     : filename_(fname),
       file_(file),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(GetLogicalBufferSize(fd_)) {
+      logical_sector_size_(logical_block_size) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
 }
 
@@ -409,13 +370,178 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   return static_cast<size_t>(rid - id);
 }
 #endif
+
+#ifdef OS_LINUX
+std::string RemoveTrailingSlash(const std::string& path) {
+  std::string p = path;
+  if (p.size() > 1 && p.back() == '/') {
+    p.pop_back();
+  }
+  return p;
+}
+
+Status LogicalBlockSizeCache::RefAndCacheLogicalBlockSize(
+    const std::vector<std::string>& directories) {
+  std::vector<std::string> dirs;
+  dirs.reserve(directories.size());
+  for (auto& d : directories) {
+    dirs.emplace_back(RemoveTrailingSlash(d));
+  }
+
+  std::map<std::string, size_t> dir_sizes;
+  {
+    ReadLock lock(&cache_mutex_);
+    for (const auto& dir : dirs) {
+      if (cache_.find(dir) == cache_.end()) {
+        dir_sizes.emplace(dir, 0);
+      }
+    }
+  }
+
+  Status s;
+  for (auto& dir_size : dir_sizes) {
+    s = get_logical_block_size_of_directory_(dir_size.first, &dir_size.second);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  WriteLock lock(&cache_mutex_);
+  for (const auto& dir : dirs) {
+    auto& v = cache_[dir];
+    v.ref++;
+    auto dir_size = dir_sizes.find(dir);
+    if (dir_size != dir_sizes.end()) {
+      v.size = dir_size->second;
+    }
+  }
+  return Status::OK();
+}
+
+void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
+    const std::vector<std::string>& directories) {
+  std::vector<std::string> dirs;
+  dirs.reserve(directories.size());
+  for (auto& dir : directories) {
+    dirs.emplace_back(RemoveTrailingSlash(dir));
+  }
+
+  WriteLock lock(&cache_mutex_);
+  for (const auto& dir : dirs) {
+    auto it = cache_.find(dir);
+    if (it != cache_.end() && !(--(it->second.ref))) {
+      cache_.erase(it);
+    }
+  }
+}
+
+size_t LogicalBlockSizeCache::GetLogicalBlockSize(const std::string& fname,
+                                                  int fd) {
+  std::string dir = fname.substr(0, fname.find_last_of("/"));
+  if (dir.empty()) {
+    dir = "/";
+  }
+  {
+    ReadLock lock(&cache_mutex_);
+    auto it = cache_.find(dir);
+    if (it != cache_.end()) {
+      return it->second.size;
+    }
+  }
+  return get_logical_block_size_of_fd_(fd);
+}
+#endif
+
+Status PosixHelper::GetLogicalBlockSizeOfDirectory(const std::string& directory,
+                                                   size_t* size) {
+  int fd = open(directory.c_str(), O_DIRECTORY | O_RDONLY);
+  if (fd == -1) {
+    close(fd);
+    return Status::IOError("Cannot open directory " + directory);
+  }
+  *size = PosixHelper::GetLogicalBlockSizeOfFd(fd);
+  close(fd);
+  return Status::OK();
+}
+
+size_t PosixHelper::GetLogicalBlockSizeOfFd(int fd) {
+#ifdef OS_LINUX
+  struct stat buf;
+  int result = fstat(fd, &buf);
+  if (result == -1) {
+    return kDefaultPageSize;
+  }
+  if (major(buf.st_dev) == 0) {
+    // Unnamed devices (e.g. non-device mounts), reserved as null device number.
+    // These don't have an entry in /sys/dev/block/. Return a sensible default.
+    return kDefaultPageSize;
+  }
+
+  // Reading queue/logical_block_size does not require special permissions.
+  const int kBufferSize = 100;
+  char path[kBufferSize];
+  char real_path[PATH_MAX + 1];
+  snprintf(path, kBufferSize, "/sys/dev/block/%u:%u", major(buf.st_dev),
+           minor(buf.st_dev));
+  if (realpath(path, real_path) == nullptr) {
+    return kDefaultPageSize;
+  }
+  std::string device_dir(real_path);
+  if (!device_dir.empty() && device_dir.back() == '/') {
+    device_dir.pop_back();
+  }
+  // NOTE: sda3 and nvme0n1p1 do not have a `queue/` subdir, only the parent sda
+  // and nvme0n1 have it.
+  // $ ls -al '/sys/dev/block/8:3'
+  // lrwxrwxrwx. 1 root root 0 Jun 26 01:38 /sys/dev/block/8:3 ->
+  // ../../block/sda/sda3
+  // $ ls -al '/sys/dev/block/259:4'
+  // lrwxrwxrwx 1 root root 0 Jan 31 16:04 /sys/dev/block/259:4 ->
+  // ../../devices/pci0000:17/0000:17:00.0/0000:18:00.0/nvme/nvme0/nvme0n1/nvme0n1p1
+  size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
+  if (parent_end == std::string::npos) {
+    return kDefaultPageSize;
+  }
+  size_t parent_begin = device_dir.rfind('/', parent_end - 1);
+  if (parent_begin == std::string::npos) {
+    return kDefaultPageSize;
+  }
+  std::string parent =
+      device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1);
+  std::string child = device_dir.substr(parent_end + 1, std::string::npos);
+  if (parent != "block" &&
+      (child.compare(0, 4, "nvme") || child.find('p') != std::string::npos)) {
+    device_dir = device_dir.substr(0, parent_end);
+  }
+  std::string fname = device_dir + "/queue/logical_block_size";
+  FILE* fp;
+  size_t size = 0;
+  fp = fopen(fname.c_str(), "r");
+  if (fp != nullptr) {
+    char* line = nullptr;
+    size_t len = 0;
+    if (getline(&line, &len, fp) != -1) {
+      sscanf(line, "%zu", &size);
+    }
+    free(line);
+    fclose(fp);
+  }
+  if (size != 0 && (size & (size - 1)) == 0) {
+    return size;
+  }
+#endif
+  (void)fd;
+  return kDefaultPageSize;
+}
+
 /*
  * PosixRandomAccessFile
  *
  * pread() based random-access
  */
 PosixRandomAccessFile::PosixRandomAccessFile(
-    const std::string& fname, int fd, const EnvOptions& options
+    const std::string& fname, int fd, size_t logical_block_size,
+    const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
     ,
     ThreadLocalPtr* thread_local_io_urings
@@ -424,7 +550,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(
     : filename_(fname),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(GetLogicalBufferSize(fd_))
+      logical_sector_size_(logical_block_size)
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
       thread_local_io_urings_(thread_local_io_urings)
@@ -482,9 +608,6 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
 #if defined(ROCKSDB_IOURING_PRESENT)
-  size_t reqs_off;
-  ssize_t ret __attribute__((__unused__));
-
   struct io_uring* iu = nullptr;
   if (thread_local_io_urings_) {
     iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
@@ -505,35 +628,49 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
   struct WrappedReadRequest {
     FSReadRequest* req;
     struct iovec iov;
-    explicit WrappedReadRequest(FSReadRequest* r) : req(r) {}
+    size_t finished_len;
+    explicit WrappedReadRequest(FSReadRequest* r) : req(r), finished_len(0) {}
   };
 
   autovector<WrappedReadRequest, 32> req_wraps;
+  autovector<WrappedReadRequest*, 4> incomplete_rq_list;
 
   for (size_t i = 0; i < num_reqs; i++) {
     req_wraps.emplace_back(&reqs[i]);
   }
 
-  reqs_off = 0;
-  while (num_reqs) {
-    size_t this_reqs = num_reqs;
+  size_t reqs_off = 0;
+  while (num_reqs > reqs_off || !incomplete_rq_list.empty()) {
+    size_t this_reqs = (num_reqs - reqs_off) + incomplete_rq_list.size();
 
     // If requests exceed depth, split it into batches
     if (this_reqs > kIoUringDepth) this_reqs = kIoUringDepth;
 
+    assert(incomplete_rq_list.size() <= this_reqs);
     for (size_t i = 0; i < this_reqs; i++) {
-      size_t index = i + reqs_off;
+      WrappedReadRequest* rep_to_submit;
+      if (i < incomplete_rq_list.size()) {
+        rep_to_submit = incomplete_rq_list[i];
+      } else {
+        rep_to_submit = &req_wraps[reqs_off++];
+      }
+      assert(rep_to_submit->req->len > rep_to_submit->finished_len);
+      rep_to_submit->iov.iov_base =
+          rep_to_submit->req->scratch + rep_to_submit->finished_len;
+      rep_to_submit->iov.iov_len =
+          rep_to_submit->req->len - rep_to_submit->finished_len;
+
       struct io_uring_sqe* sqe;
-
       sqe = io_uring_get_sqe(iu);
-      req_wraps[index].iov.iov_base = reqs[index].scratch;
-      req_wraps[index].iov.iov_len = reqs[index].len;
-      io_uring_prep_readv(sqe, fd_, &req_wraps[index].iov, 1,
-                          reqs[index].offset);
-      io_uring_sqe_set_data(sqe, &req_wraps[index]);
+      io_uring_prep_readv(
+          sqe, fd_, &rep_to_submit->iov, 1,
+          rep_to_submit->req->offset + rep_to_submit->finished_len);
+      io_uring_sqe_set_data(sqe, rep_to_submit);
     }
+    incomplete_rq_list.clear();
 
-    ret = io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
+    ssize_t ret =
+        io_uring_submit_and_wait(iu, static_cast<unsigned int>(this_reqs));
     if (static_cast<size_t>(ret) != this_reqs) {
       fprintf(stderr, "ret = %ld this_reqs: %ld\n", (long)ret, (long)this_reqs);
     }
@@ -547,21 +684,44 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       // of our initial wait not reaping all completions
       ret = io_uring_wait_cqe(iu, &cqe);
       assert(!ret);
+
       req_wrap = static_cast<WrappedReadRequest*>(io_uring_cqe_get_data(cqe));
       FSReadRequest* req = req_wrap->req;
-      if (static_cast<size_t>(cqe->res) == req_wrap->iov.iov_len) {
-        req->result = Slice(req->scratch, cqe->res);
-        req->status = IOStatus::OK();
-      } else if (cqe->res >= 0) {
-        req->result = Slice(req->scratch, req_wrap->iov.iov_len - cqe->res);
-      } else {
+      if (cqe->res < 0) {
         req->result = Slice(req->scratch, 0);
         req->status = IOError("Req failed", filename_, cqe->res);
+      } else {
+        size_t bytes_read = static_cast<size_t>(cqe->res);
+        TEST_SYNC_POINT_CALLBACK(
+            "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
+        if (bytes_read == req_wrap->iov.iov_len) {
+          req->result = Slice(req->scratch, req->len);
+          req->status = IOStatus::OK();
+        } else if (bytes_read == 0) {
+          // cqe->res == 0 can means EOF, or can mean partial results. See
+          // comment
+          // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+          // Fall back to pread in this case.
+          Slice tmp_slice;
+          req->status =
+              Read(req->offset + req_wrap->finished_len,
+                   req->len - req_wrap->finished_len, options, &tmp_slice,
+                   req->scratch + req_wrap->finished_len, dbg);
+          req->result =
+              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+        } else if (bytes_read < req_wrap->iov.iov_len) {
+          assert(bytes_read > 0);
+          assert(bytes_read + req_wrap->finished_len < req->len);
+          req_wrap->finished_len += bytes_read;
+          incomplete_rq_list.push_back(req_wrap);
+        } else {
+          req->result = Slice(req->scratch, 0);
+          req->status = IOError("Req returned more bytes than requested",
+                                filename_, cqe->res);
+        }
       }
       io_uring_cqe_seen(iu, cqe);
     }
-    num_reqs -= this_reqs;
-    reqs_off += this_reqs;
   }
   return IOStatus::OK();
 #else
@@ -954,13 +1114,14 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
  * Use posix write to write data to a file.
  */
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
+                                     size_t logical_block_size,
                                      const EnvOptions& options)
     : FSWritableFile(options),
       filename_(fname),
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0),
-      logical_sector_size_(GetLogicalBufferSize(fd_)) {
+      logical_sector_size_(logical_block_size) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
@@ -1314,5 +1475,5 @@ IOStatus PosixDirectory::Fsync(const IOOptions& /*opts*/,
 #endif
   return IOStatus::OK();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

@@ -15,7 +15,7 @@
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const std::string ExternalSstFilePropertyNames::kVersion =
     "rocksdb.external_sst_file.version";
@@ -150,7 +150,7 @@ struct SstFileWriter::Rep {
     if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
-      // Tell the OS that we dont need this file in page cache
+      // Tell the OS that we don't need this file in page cache
       file_writer->InvalidateCache(0, 0);
       last_fadvise_size = builder->FileSize();
     }
@@ -316,4 +316,4 @@ uint64_t SstFileWriter::FileSize() {
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

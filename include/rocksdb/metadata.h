@@ -13,7 +13,7 @@
 
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 struct ColumnFamilyMetaData;
 struct LevelMetaData;
 struct SstFileMetaData;
@@ -148,4 +148,4 @@ struct ExportImportFilesMetaData {
   std::string db_comparator_name;       // Used to safety check at import.
   std::vector<LiveFileMetaData> files;  // Vector of file metadata.
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

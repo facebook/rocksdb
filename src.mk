@@ -4,6 +4,8 @@ LIB_SOURCES =                                                   \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob/blob_file_addition.cc                                 \
+  db/blob/blob_file_garbage.cc                                  \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -117,12 +119,15 @@ LIB_SOURCES =                                                   \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
+  table/block_based/binary_search_index_reader.cc               \
   table/block_based/block.cc                                    \
   table/block_based/block_based_filter_block.cc                 \
   table/block_based/block_based_table_builder.cc                \
   table/block_based/block_based_table_factory.cc                \
+  table/block_based/block_based_table_iterator.cc               \
   table/block_based/block_based_table_reader.cc                 \
   table/block_based/block_builder.cc                            \
+  table/block_based/block_prefetcher.cc                         \
   table/block_based/block_prefix_index.cc                       \
   table/block_based/data_block_hash_index.cc                    \
   table/block_based/data_block_footer.cc                        \
@@ -130,9 +135,14 @@ LIB_SOURCES =                                                   \
   table/block_based/filter_policy.cc                            \
   table/block_based/flush_block_policy.cc                       \
   table/block_based/full_filter_block.cc                        \
+  table/block_based/hash_index_reader.cc                        \
   table/block_based/index_builder.cc                            \
+  table/block_based/index_reader_common.cc                      \
   table/block_based/parsed_full_filter_block.cc                 \
   table/block_based/partitioned_filter_block.cc                 \
+  table/block_based/partitioned_index_iterator.cc               \
+  table/block_based/partitioned_index_reader.cc                 \
+  table/block_based/reader_common.cc                            \
   table/block_based/uncompression_dict_reader.cc                \
   table/block_fetcher.cc                             		        \
   table/cuckoo/cuckoo_table_builder.cc                          \
@@ -262,6 +272,7 @@ ANALYZER_LIB_SOURCES =                                          \
 
 MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
+  test_util/fault_injection_test_fs.cc				\
   test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES =                                             \
@@ -295,6 +306,9 @@ MAIN_SOURCES =                                                          \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
   db_stress_tool/db_stress.cc                                           \
+  db/blob/blob_file_addition_test.cc                                    \
+  db/blob/blob_file_garbage_test.cc                                     \
+  db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
   db/compaction/compaction_iterator_test.cc                             \
@@ -305,7 +319,7 @@ MAIN_SOURCES =                                                          \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/db_basic_test.cc                                                   \
-  db/db_blob_index_test.cc                                              \
+  db/db_with_timestamp_basic_test.cc					\
   db/db_block_cache_test.cc                                             \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
@@ -332,13 +346,14 @@ MAIN_SOURCES =                                                          \
   db/db_tailing_iter_test.cc                                            \
   db/db_test.cc                                                         \
   db/db_test2.cc                                                        \
+  db/db_logical_block_size_cache_test.cc                                \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
-  db/error_handler_test.cc                                              \
+  db/error_handler_fs_test.cc						\
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -378,6 +393,7 @@ MAIN_SOURCES =                                                          \
   db/write_controller_test.cc                                           \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
+  env/io_posix_test.cc                                                  \
   env/mock_env_test.cc                                                  \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \

@@ -68,7 +68,7 @@ build:
 test:
 
 test_script:
-  - ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test2,db_test,env_basic_test,env_test,db_merge_operand_test -Concurrency 8
+  - ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_with_timestamp_basic_test,db_test2,db_test,env_basic_test,env_test,db_merge_operand_test -Concurrency 8
 
 on_failure:
   - cmd: 7z a build-failed.zip %APPVEYOR_BUILD_FOLDER%\build\ && appveyor PushArtifact build-failed.zip

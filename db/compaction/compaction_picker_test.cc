@@ -17,7 +17,7 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CountingLogger : public Logger {
  public:
@@ -1733,7 +1733,7 @@ TEST_F(CompactionPickerTest, IntraL0ForEarliestSeqno) {
   ASSERT_EQ(0, compaction->output_level());
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -30,7 +30,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/thread_status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class FileLock;
 class FSDirectory;
@@ -170,6 +170,35 @@ class FileSystem {
   //
   // The result of Default() belongs to rocksdb and must never be deleted.
   static std::shared_ptr<FileSystem> Default();
+
+  // Handles the event when a new DB or a new ColumnFamily starts using the
+  // specified data paths.
+  //
+  // The data paths might be shared by different DBs or ColumnFamilies,
+  // so RegisterDbPaths might be called with the same data paths.
+  // For example, when CreateColumnFamily is called multiple times with the same
+  // data path, RegisterDbPaths will also be called with the same data path.
+  //
+  // If the return status is ok, then the paths must be correspondingly
+  // called in UnregisterDbPaths;
+  // otherwise this method should have no side effect, and UnregisterDbPaths
+  // do not need to be called for the paths.
+  //
+  // Different implementations may take different actions.
+  // By default, it's a no-op and returns Status::OK.
+  virtual Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) {
+    return Status::OK();
+  }
+  // Handles the event a DB or a ColumnFamily stops using the specified data
+  // paths.
+  //
+  // It should be called corresponding to each successful RegisterDbPaths.
+  //
+  // Different implementations may take different actions.
+  // By default, it's a no-op and returns Status::OK.
+  virtual Status UnregisterDbPaths(const std::vector<std::string>& /*paths*/) {
+    return Status::OK();
+  }
 
   // Create a brand new sequentially-readable file with the specified name.
   // On success, stores a pointer to the new file in *result and returns OK.
@@ -944,14 +973,16 @@ class FSDirectory {
 // Useful when wrapping the default implementations.
 // Typical usage is to inherit your wrapper from *Wrapper, e.g.:
 //
-// class MySequentialFileWrapper : public rocksdb::FSSequentialFileWrapper {
+// class MySequentialFileWrapper : public
+// ROCKSDB_NAMESPACE::FSSequentialFileWrapper {
 //  public:
-//   MySequentialFileWrapper(rocksdb::FSSequentialFile* target):
-//     rocksdb::FSSequentialFileWrapper(target) {}
+//   MySequentialFileWrapper(ROCKSDB_NAMESPACE::FSSequentialFile* target):
+//     ROCKSDB_NAMESPACE::FSSequentialFileWrapper(target) {}
 //   Status Read(size_t n, FileSystem::IOOptions& options, Slice* result,
 //               char* scratch, FileSystem::IODebugContext* dbg) override {
 //     cout << "Doing a read of size " << n << "!" << endl;
-//     return rocksdb::FSSequentialFileWrapper::Read(n, options, result,
+//     return ROCKSDB_NAMESPACE::FSSequentialFileWrapper::Read(n, options,
+//     result,
 //                                                 scratch, dbg);
 //   }
 //   // All other methods are forwarded to target_ automatically.
@@ -1353,4 +1384,4 @@ class FSDirectoryWrapper : public FSDirectory {
 extern Status ReadFileToString(FileSystem* fs, const std::string& fname,
                                std::string* data);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

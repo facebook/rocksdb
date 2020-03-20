@@ -13,7 +13,7 @@
 #include "table/block_based/block_type.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Retrieves a single block of a given file. Utilizes the prefetch buffer and/or
 // persistent cache provided (if any) to try to avoid reading from the file
@@ -90,7 +90,7 @@ class BlockFetcher {
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  rocksdb::CompressionType compression_type_;
+  ROCKSDB_NAMESPACE::CompressionType compression_type_;
   bool for_compaction_ = false;
 
   // return true if found
@@ -106,4 +106,4 @@ class BlockFetcher {
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
   void CheckBlockChecksum();
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

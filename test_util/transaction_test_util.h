@@ -12,7 +12,7 @@
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DB;
 class Random64;
@@ -127,6 +127,6 @@ class RandomTransactionInserter {
   bool DoInsert(DB* db, Transaction* txn, bool is_optimistic);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

@@ -30,7 +30,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 
@@ -275,4 +275,4 @@ class Cache {
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

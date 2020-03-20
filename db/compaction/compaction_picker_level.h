@@ -11,7 +11,7 @@
 
 #include "db/compaction/compaction_picker.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Picking compactions for leveled compaction. See wiki page
 // https://github.com/facebook/rocksdb/wiki/Leveled-Compaction
 // for description of Leveled compaction.
@@ -29,4 +29,4 @@ class LevelCompactionPicker : public CompactionPicker {
       const VersionStorageInfo* vstorage) const override;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

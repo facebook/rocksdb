@@ -49,7 +49,7 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const char* GetFlushReasonString (FlushReason flush_reason) {
   switch (flush_reason) {
@@ -92,8 +92,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    std::vector<SequenceNumber> existing_snapshots,
                    SequenceNumber earliest_write_conflict_snapshot,
                    SnapshotChecker* snapshot_checker, JobContext* job_context,
-                   LogBuffer* log_buffer, Directory* db_directory,
-                   Directory* output_file_directory,
+                   LogBuffer* log_buffer, FSDirectory* db_directory,
+                   FSDirectory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats,
                    const bool sync_output_directory, const bool write_manifest,
@@ -397,7 +397,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.marked_for_compaction ? " (needs compaction)" : "");
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
-      s = output_file_directory_->Fsync();
+      s = output_file_directory_->Fsync(IOOptions(), nullptr);
     }
     TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table", &mems_);
     db_mutex_->Lock();
@@ -459,4 +459,4 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

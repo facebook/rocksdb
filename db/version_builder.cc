@@ -29,7 +29,7 @@
 #include "table/table_reader.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
   if (a->fd.largest_seqno != b->fd.largest_seqno) {
@@ -405,7 +405,7 @@ class VersionBuilder::Rep {
     size_t max_load = port::kMaxSizet;
 
     if (!always_load) {
-      // If it is initial loading and not set to always laoding all the
+      // If it is initial loading and not set to always loading all the
       // files, we only load up to kInitialLoadLimit files, to limit the
       // time reopening the DB.
       const size_t kInitialLoadLimit = 16;
@@ -507,16 +507,7 @@ VersionBuilder::VersionBuilder(const FileOptions& file_options,
                                Logger* info_log)
     : rep_(new Rep(file_options, info_log, table_cache, base_vstorage)) {}
 
-VersionBuilder::~VersionBuilder() { delete rep_; }
-
-Status VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
-  return rep_->CheckConsistency(vstorage);
-}
-
-Status VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
-                                                  uint64_t number, int level) {
-  return rep_->CheckConsistencyForDeletes(edit, number, level);
-}
+VersionBuilder::~VersionBuilder() = default;
 
 bool VersionBuilder::CheckConsistencyForNumLevels() {
   return rep_->CheckConsistencyForNumLevels();
@@ -537,9 +528,4 @@ Status VersionBuilder::LoadTableHandlers(
                                  is_initial_load, prefix_extractor);
 }
 
-void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
-                                  FileMetaData* f) {
-  rep_->MaybeAddFile(vstorage, level, f);
-}
-
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

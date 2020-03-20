@@ -35,8 +35,11 @@ def test_binary(
         external_deps = rocksdb_external_deps,
     )
 
+    binary_path = "$(location :{})".format(test_bin)
+
     custom_unittest(
         name = test_name,
-        command = [TEST_RUNNER, "$(location :{})".format(test_bin)],
+        command = [TEST_RUNNER, binary_path],
         type = ttype,
+        env = {"BUCK_BASE_BINARY": binary_path},
     )

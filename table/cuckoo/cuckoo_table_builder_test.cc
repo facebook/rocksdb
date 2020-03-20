@@ -17,7 +17,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 extern const uint64_t kCuckooTableMagicNumber;
 
 namespace {
@@ -114,7 +114,7 @@ class CuckooBuilderTest : public testing::Test {
     for (uint32_t i = 0; i < table_size + cuckoo_block_size - 1; ++i) {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(i * bucket_size, bucket_size, &read_slice,
-                                  nullptr));
+                                  nullptr, nullptr));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();
@@ -644,7 +644,7 @@ TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
   ASSERT_TRUE(builder.Finish().IsNotSupported());
   ASSERT_OK(file_writer->Close());
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

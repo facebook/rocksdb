@@ -15,7 +15,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // kValueTypeForSeek defines the ValueType that should be passed when
 // constructing a ParsedInternalKey object for seeking to a particular
@@ -72,6 +72,15 @@ void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   result->append(key.user_key.data(), key.user_key.size());
+  PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
+}
+
+void AppendInternalKeyWithDifferentTimestamp(std::string* result,
+                                             const ParsedInternalKey& key,
+                                             const Slice& ts) {
+  assert(key.user_key.size() >= ts.size());
+  result->append(key.user_key.data(), key.user_key.size() - ts.size());
+  result->append(ts.data(), ts.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
 
@@ -194,4 +203,4 @@ void IterKey::EnlargeBuffer(size_t key_size) {
   buf_ = new char[key_size];
   buf_size_ = key_size;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

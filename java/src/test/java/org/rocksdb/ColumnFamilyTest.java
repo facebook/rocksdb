@@ -75,6 +75,7 @@ public class ColumnFamilyTest {
 
         assertThat(cfh.getName()).isEqualTo("default".getBytes(UTF_8));
         assertThat(cfh.getID()).isEqualTo(0);
+        assertThat(cfh.getDescriptor().getName()).isEqualTo("default".getBytes(UTF_8));
 
         final byte[] key = "key".getBytes();
         final byte[] value = "value".getBytes();

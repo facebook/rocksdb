@@ -15,7 +15,7 @@
 #include <atomic>
 #include <memory>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class Allocator;
@@ -211,4 +211,4 @@ inline void DynamicBloom::AddHash(uint32_t h32, const OrFunc& or_func) {
   }
 }
 
-}  // rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -505,5 +505,15 @@ public class BytewiseComparatorTest {
         return entries.get(offset).getValue();
       }
     }
+
+    @Override
+    public void seek(ByteBuffer target) {
+      throw new IllegalAccessError("Not implemented");
+    }
+
+    @Override
+    public void seekForPrev(ByteBuffer target) {
+      throw new IllegalAccessError("Not implemented");
+    }
   }
 }

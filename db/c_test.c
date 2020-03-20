@@ -835,23 +835,6 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_wi_iterate(wbi, &pos, CheckPut, CheckDel);
     CheckCondition(pos == 3);
     rocksdb_writebatch_wi_clear(wbi);
-    rocksdb_writebatch_wi_put(wbi, "bar", 3, "b", 1);
-    rocksdb_writebatch_wi_put(wbi, "bay", 3, "d", 1);
-    rocksdb_writebatch_wi_delete_range(wbi, "bar", 3, "bay", 3);
-    rocksdb_write_writebatch_wi(db, woptions, wbi, &err);
-    CheckNoError(err);
-    CheckGet(db, roptions, "bar", NULL);
-    CheckGet(db, roptions, "bay", "d");
-    rocksdb_writebatch_wi_clear(wbi);
-    const char* start_list[1] = {"bay"};
-    const size_t start_sizes[1] = {3};
-    const char* end_list[1] = {"baz"};
-    const size_t end_sizes[1] = {3};
-    rocksdb_writebatch_wi_delete_rangev(wbi, 1, start_list, start_sizes, end_list,
-                                     end_sizes);
-    rocksdb_write_writebatch_wi(db, woptions, wbi, &err);
-    CheckNoError(err);
-    CheckGet(db, roptions, "bay", NULL);
     rocksdb_writebatch_wi_destroy(wbi);
   }
 

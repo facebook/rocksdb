@@ -13,18 +13,19 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class VersionSet;
 
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
-constexpr uint64_t kInvalidBlobFileNumber = 0;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
@@ -307,16 +308,16 @@ class VersionEdit {
   bool HasLastSequence() const { return has_last_sequence_; }
   SequenceNumber GetLastSequence() const { return last_sequence_; }
 
-  // Delete the specified "file" from the specified "level".
+  // Delete the specified table file from the specified level.
   void DeleteFile(int level, uint64_t file) {
     deleted_files_.emplace(level, file);
   }
 
-  // Retrieve the files deleted as well as their associated levels.
+  // Retrieve the table files deleted as well as their associated levels.
   using DeletedFiles = std::set<std::pair<int, uint64_t>>;
   const DeletedFiles& GetDeletedFiles() const { return deleted_files_; }
 
-  // Add the specified file at the specified level.
+  // Add the specified table file at the specified level.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
   // REQUIRES: "oldest_blob_file_number" is the number of the oldest blob file
@@ -342,12 +343,45 @@ class VersionEdit {
     new_files_.emplace_back(level, f);
   }
 
-  // Retrieve the files added as well as their associated levels.
+  // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
+  // Add a new blob file.
+  void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
+                   uint64_t total_blob_bytes, std::string checksum_method,
+                   std::string checksum_value) {
+    blob_file_additions_.emplace_back(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        std::move(checksum_method), std::move(checksum_value));
+  }
+
+  // Retrieve all the blob files added.
+  using BlobFileAdditions = std::vector<BlobFileAddition>;
+  const BlobFileAdditions& GetBlobFileAdditions() const {
+    return blob_file_additions_;
+  }
+
+  // Add garbage for an existing blob file.  Note: intentionally broken English
+  // follows.
+  void AddBlobFileGarbage(uint64_t blob_file_number,
+                          uint64_t garbage_blob_count,
+                          uint64_t garbage_blob_bytes) {
+    blob_file_garbages_.emplace_back(blob_file_number, garbage_blob_count,
+                                     garbage_blob_bytes);
+  }
+
+  // Retrieve all the blob file garbage added.
+  using BlobFileGarbages = std::vector<BlobFileGarbage>;
+  const BlobFileGarbages& GetBlobFileGarbages() const {
+    return blob_file_garbages_;
+  }
+
   // Number of edits
-  size_t NumEntries() const { return new_files_.size() + deleted_files_.size(); }
+  size_t NumEntries() const {
+    return new_files_.size() + deleted_files_.size() +
+           blob_file_additions_.size() + blob_file_garbages_.size();
+  }
 
   void SetColumnFamily(uint32_t column_family_id) {
     column_family_ = column_family_id;
@@ -389,6 +423,19 @@ class VersionEdit {
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
+  void SetStateUponManifestSwitch(bool tag) {
+    state_upon_manifest_switch_ = tag;
+  }
+  bool GetStateUponManifestSwitch() const {
+    return state_upon_manifest_switch_;
+  }
+  void SetManifestSwitched(bool tag) {
+    manifest_switched_ = tag;
+  }
+  bool GetManifestSwitched() const {
+    return manifest_switched_;
+  }
+
  private:
   friend class ReactiveVersionSet;
   friend class VersionSet;
@@ -421,6 +468,9 @@ class VersionEdit {
   DeletedFiles deleted_files_;
   NewFiles new_files_;
 
+  BlobFileAdditions blob_file_additions_;
+  BlobFileGarbages blob_file_garbages_;
+
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
   uint32_t column_family_ = 0;
@@ -433,6 +483,13 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+  // To distinguish the version edit written by WriteCurrentStateToManifest
+  // and other regular writes. Default is false.
+  bool state_upon_manifest_switch_ = false;
+  // To indicate when WriteCurrentStateToManifest is successful. When both
+  // state_upon_manifest_switch and manifest_switch_finished are true, it can
+  // ensure the manifest switch is finished.
+  bool manifest_switched_ = false;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -8,7 +8,7 @@
 #include "test_util/testharness.h"
 #include "util/defer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DeferTest {};
 
@@ -30,10 +30,10 @@ TEST(DeferTest, FunctionScope) {
   ASSERT_EQ(4, v);
 }
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

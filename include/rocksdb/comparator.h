@@ -10,7 +10,9 @@
 
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
@@ -40,6 +42,9 @@ class Comparator {
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
   //   > 0 iff "a" > "b"
+  // Note that Compare(a, b) also compares timestamp if timestamp size is
+  // non-zero. For the same user key with different timestamps, larger (newer)
+  // timestamp comes first.
   virtual int Compare(const Slice& a, const Slice& b) const = 0;
 
   // Compares two slices for equality. The following invariant should always
@@ -95,13 +100,25 @@ class Comparator {
 
   inline size_t timestamp_size() const { return timestamp_size_; }
 
-  virtual int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
-    return Compare(a, b);
+  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
   }
 
+  // For two events e1 and e2 whose timestamps are t1 and t2 respectively,
+  // Returns value:
+  // < 0  iff t1 < t2
+  // == 0 iff t1 == t2
+  // > 0  iff t1 > t2
+  // Note that an all-zero byte array will be the smallest (oldest) timestamp
+  // of the same length.
   virtual int CompareTimestamp(const Slice& /*ts1*/,
                                const Slice& /*ts2*/) const {
     return 0;
+  }
+
+  virtual int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/,
+                                      const Slice& b, bool /*b_has_ts*/) const {
+    return Compare(a, b);
   }
 
  private:
@@ -117,4 +134,4 @@ extern const Comparator* BytewiseComparator();
 // ordering.
 extern const Comparator* ReverseBytewiseComparator();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

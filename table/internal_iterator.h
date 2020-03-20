@@ -13,7 +13,7 @@
 #include "rocksdb/status.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
 
@@ -52,6 +52,7 @@ class InternalIteratorBase : public Cleanable {
   // All Seek*() methods clear any error status() that the iterator had prior to
   // the call; after the seek, status() indicates only the error (if any) that
   // happened during the seek, not any past errors.
+  // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
   // Position at the first key in the source that at or before target
@@ -122,7 +123,7 @@ class InternalIteratorBase : public Cleanable {
   // iterate_upper_bound.
   virtual bool MayBeOutOfUpperBound() { return true; }
 
-  // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
+  // Pass the PinnedIteratorsManager to the Iterator, most Iterators don't
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager
   // they will implement this function and use the passed pointer to communicate
@@ -179,4 +180,4 @@ template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

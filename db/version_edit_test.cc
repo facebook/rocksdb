@@ -11,8 +11,9 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static void TestEncodeDecode(const VersionEdit& edit) {
   std::string encoded, encoded2;
@@ -45,6 +46,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
+  edit.SetStateUponManifestSwitch(true);
   TestEncodeDecode(edit);
 }
 
@@ -79,6 +81,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   edit.SetLogNumber(kBig + 100);
   edit.SetNextFile(kBig + 200);
   edit.SetLastSequence(kBig + 1000);
+  edit.SetStateUponManifestSwitch(true);
   TestEncodeDecode(edit);
 
   std::string encoded, encoded2;
@@ -102,6 +105,7 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
   ASSERT_EQ(kInvalidBlobFileNumber,
             new_files[2].second.oldest_blob_file_number);
   ASSERT_EQ(1001, new_files[3].second.oldest_blob_file_number);
+  ASSERT_TRUE(parsed.GetStateUponManifestSwitch());
 }
 
 TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
@@ -127,7 +131,7 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
 
   // Call back function to add extra customized builds.
   bool first = true;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionEdit::EncodeTo:NewFile4:CustomizeFields", [&](void* arg) {
         std::string* str = reinterpret_cast<std::string*>(arg);
         PutVarint32(str, 33);
@@ -140,9 +144,9 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
           PutLengthPrefixedSlice(str, str2);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   edit.EncodeTo(&encoded);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   VersionEdit parsed;
   Status s = parsed.DecodeFrom(encoded);
@@ -173,15 +177,15 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
   std::string encoded;
 
   // Call back function to add extra customized builds.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionEdit::EncodeTo:NewFile4:CustomizeFields", [&](void* arg) {
         std::string* str = reinterpret_cast<std::string*>(arg);
         const std::string str1 = "s";
         PutLengthPrefixedSlice(str, str1);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   edit.EncodeTo(&encoded);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   VersionEdit parsed;
   Status s = parsed.DecodeFrom(encoded);
@@ -278,7 +282,69 @@ TEST_F(VersionEditTest, DbId) {
   TestEncodeDecode(edit);
 }
 
-}  // namespace rocksdb
+TEST_F(VersionEditTest, ManifestSwitchTag) {
+  VersionEdit edit1, decode1;
+  edit1.SetStateUponManifestSwitch(true);
+  TestEncodeDecode(edit1);
+  std::string encoded1;
+  edit1.EncodeTo(&encoded1);
+  ASSERT_OK(decode1.DecodeFrom(encoded1));
+  ASSERT_TRUE(decode1.GetStateUponManifestSwitch());
+  ASSERT_TRUE(!decode1.GetManifestSwitched());
+
+  VersionEdit edit2, decode2;
+  edit2.SetManifestSwitched(true);
+  TestEncodeDecode(edit2);
+  std::string encoded2;
+  edit2.EncodeTo(&encoded2);
+  ASSERT_OK(decode2.DecodeFrom(encoded2));
+  ASSERT_TRUE(!decode2.GetStateUponManifestSwitch());
+  ASSERT_TRUE(decode2.GetManifestSwitched());
+
+  VersionEdit edit3, decode3;
+  edit3.SetStateUponManifestSwitch(true);
+  edit3.SetManifestSwitched(true);
+  TestEncodeDecode(edit3);
+  std::string encoded3;
+  edit3.EncodeTo(&encoded3);
+  ASSERT_OK(decode3.DecodeFrom(encoded3));
+  ASSERT_TRUE(decode3.GetStateUponManifestSwitch());
+  ASSERT_TRUE(decode3.GetManifestSwitched());
+
+
+}
+
+TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
+  VersionEdit edit;
+
+  const std::string checksum_method_prefix = "Hash";
+  const std::string checksum_value_prefix = "Value";
+
+  for (uint64_t blob_file_number = 1; blob_file_number <= 10;
+       ++blob_file_number) {
+    const uint64_t total_blob_count = blob_file_number << 10;
+    const uint64_t total_blob_bytes = blob_file_number << 20;
+
+    std::string checksum_method(checksum_method_prefix);
+    AppendNumberTo(&checksum_method, blob_file_number);
+
+    std::string checksum_value(checksum_value_prefix);
+    AppendNumberTo(&checksum_value, blob_file_number);
+
+    edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                     checksum_method, checksum_value);
+
+    const uint64_t garbage_blob_count = total_blob_count >> 2;
+    const uint64_t garbage_blob_bytes = total_blob_bytes >> 1;
+
+    edit.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
+                            garbage_blob_bytes);
+  }
+
+  TestEncodeDecode(edit);
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

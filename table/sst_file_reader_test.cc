@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
@@ -15,7 +16,7 @@
 #include "test_util/testutil.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::string EncodeAsString(uint64_t v) {
   char buf[16];
@@ -34,11 +35,24 @@ class SstFileReaderTest : public testing::Test {
   SstFileReaderTest() {
     options_.merge_operator = MergeOperators::CreateUInt64AddOperator();
     sst_name_ = test::PerThreadDBPath("sst_file");
+
+    Env* base_env = Env::Default();
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    if(test_env_uri) {
+      Env* test_env = nullptr;
+      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
+      base_env = test_env;
+      EXPECT_OK(s);
+      EXPECT_NE(Env::Default(), base_env);
+    }
+    EXPECT_NE(nullptr, base_env);
+    env_ = base_env;
+    options_.env = env_;
   }
 
   ~SstFileReaderTest() {
-    Status s = Env::Default()->DeleteFile(sst_name_);
-    assert(s.ok());
+    Status s = env_->DeleteFile(sst_name_);
+    EXPECT_OK(s);
   }
 
   void CreateFile(const std::string& file_name,
@@ -91,6 +105,8 @@ class SstFileReaderTest : public testing::Test {
   Options options_;
   EnvOptions soptions_;
   std::string sst_name_;
+  std::shared_ptr<Env> env_guard_;
+  Env* env_;
 };
 
 const uint64_t kNumKeys = 100;
@@ -155,10 +171,20 @@ TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
   ASSERT_OK(DestroyDB(db_name, options));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
+
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+  void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 

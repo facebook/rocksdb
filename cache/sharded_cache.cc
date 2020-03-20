@@ -13,7 +13,7 @@
 
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
                            bool strict_capacity_limit,
@@ -159,4 +159,4 @@ int GetDefaultCacheShardBits(size_t capacity) {
   return num_shard_bits;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

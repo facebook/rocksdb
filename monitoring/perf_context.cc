@@ -7,7 +7,7 @@
 #include <sstream>
 #include "monitoring/perf_context_imp.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 PerfContext perf_context;
@@ -556,4 +556,4 @@ void PerfContext::ClearPerLevelPerfContext(){
   per_level_perf_context_enabled = false;
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE

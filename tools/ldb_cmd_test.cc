@@ -21,7 +21,7 @@ using std::string;
 using std::vector;
 using std::map;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class LdbCmdTest : public testing::Test {
  public:
@@ -50,12 +50,12 @@ TEST_F(LdbCmdTest, HexToString) {
   };
 
   for (const auto& inPair : inputMap) {
-    auto actual = rocksdb::LDBCommand::HexToString(inPair.first);
+    auto actual = ROCKSDB_NAMESPACE::LDBCommand::HexToString(inPair.first);
     auto expected = inPair.second;
     for (unsigned int i = 0; i < actual.length(); i++) {
       EXPECT_EQ(expected[i], static_cast<int>((signed char) actual[i]));
     }
-    auto reverse = rocksdb::LDBCommand::StringToHex(actual);
+    auto reverse = ROCKSDB_NAMESPACE::LDBCommand::StringToHex(actual);
     EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
   }
 }
@@ -66,7 +66,7 @@ TEST_F(LdbCmdTest, HexToStringBadInputs) {
   };
   for (const auto badInput : badInputs) {
     try {
-      rocksdb::LDBCommand::HexToString(badInput);
+      ROCKSDB_NAMESPACE::LDBCommand::HexToString(badInput);
       std::cerr << "Should fail on bad hex value: " << badInput << "\n";
       FAIL();
     } catch (...) {
@@ -439,7 +439,7 @@ TEST_F(LdbCmdTest, OptionParsing) {
     args.push_back("scan");
     args.push_back("--ttl");
     args.push_back("--timestamp");
-    LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
+    LDBCommand* command = ROCKSDB_NAMESPACE::LDBCommand::InitFromCmdLineArgs(
         args, opts, LDBOptions(), nullptr);
     const std::vector<std::string> flags = command->TEST_GetFlags();
     EXPECT_EQ(flags.size(), 2);
@@ -456,7 +456,7 @@ TEST_F(LdbCmdTest, OptionParsing) {
         "--from='abcd/efg/hijk/lmn/"
         "opq:__rst.uvw.xyz?a=3+4+bcd+efghi&jk=lm_no&pq=rst-0&uv=wx-8&yz=a&bcd_"
         "ef=gh.ijk'");
-    LDBCommand* command = rocksdb::LDBCommand::InitFromCmdLineArgs(
+    LDBCommand* command = ROCKSDB_NAMESPACE::LDBCommand::InitFromCmdLineArgs(
         args, opts, LDBOptions(), nullptr);
     const std::map<std::string, std::string> option_map =
         command->TEST_GetOptionMap();
@@ -501,7 +501,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
     char arg3[] = "list_file_range_deletes";
     char* argv[] = {arg1, arg2, arg3};
 
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
           std::string* out_str = reinterpret_cast<std::string*>(arg);
 
@@ -516,13 +516,13 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
           }
           EXPECT_EQ(2, num_tb);
         });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     ASSERT_EQ(
         0, LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
 
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 
   // Test the case of limiting tombstones
@@ -534,7 +534,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
     char arg4[] = "--max_keys=1";
     char* argv[] = {arg1, arg2, arg3, arg4};
 
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", [&](void* arg) {
           std::string* out_str = reinterpret_cast<std::string*>(arg);
 
@@ -549,16 +549,16 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
           }
           EXPECT_EQ(1, num_tb);
         });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     ASSERT_EQ(
         0, LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
 
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 extern "C" {
@@ -569,7 +569,7 @@ void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
 #endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();

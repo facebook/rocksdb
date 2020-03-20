@@ -29,7 +29,7 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 enum SnapshotBackup : bool { kUnbackedByDBSnapshot, kBackedByDBSnapshot };
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
@@ -194,7 +194,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // happen after recovery, or it could be committed and evicted by another
       // commit, or never committed.
 
-      // At this point we dont know if it was committed or it is still prepared
+      // At this point we don't know if it was committed or it is still prepared
       max_evicted_seq_ub = max_evicted_seq_.load(std::memory_order_acquire);
       if (UNLIKELY(max_evicted_seq_lb != max_evicted_seq_ub)) {
         continue;
@@ -1107,5 +1107,5 @@ bool WritePreparedTxnDB::ValidateSnapshot(
   return true;
 }
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

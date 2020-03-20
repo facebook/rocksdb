@@ -54,8 +54,8 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS = [
             "-DROCKSDB_SCHED_GETCPU_PRESENT",
             "-DROCKSDB_IOURING_PRESENT",
             "-DHAVE_SSE42",
-            "-DNUMA",
             "-DLIBURING",
+            "-DNUMA",
         ],
     ),
     (

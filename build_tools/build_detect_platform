@@ -9,6 +9,7 @@
 #   PLATFORM_LDFLAGS            Linker flags
 #   JAVA_LDFLAGS                Linker flags for RocksDBJava
 #   JAVA_STATIC_LDFLAGS         Linker flags for RocksDBJava static build
+#   JAVAC_ARGS                  Arguments for javac
 #   PLATFORM_SHARED_EXT         Extension for shared libraries
 #   PLATFORM_SHARED_LDFLAGS     Flags for building shared library
 #   PLATFORM_SHARED_CFLAGS      Flags for compiling objects for shared library
@@ -150,18 +151,20 @@ case "$TARGET_OS" in
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
-        # check for liburing
-        $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
-          #include <liburing.h>
-          int main() {
-            struct io_uring ring;
-            io_uring_queue_init(1, &ring, 0);
-            return 0;
-          }
+        if test $ROCKSDB_USE_IO_URING; then
+            # check for liburing
+            $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
+              #include <liburing.h>
+              int main() {
+                struct io_uring ring;
+                io_uring_queue_init(1, &ring, 0);
+                return 0;
+              }
 EOF
-        if [ "$?" = 0 ]; then
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
-          COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
+            if [ "$?" = 0 ]; then
+                PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -luring"
+                COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_IOURING_PRESENT"
+            fi
         fi
         if test -z "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
           USE_FOLLY_DISTRIBUTED_MUTEX=1
@@ -237,6 +240,7 @@ esac
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
+JAVAC_ARGS="-source 7"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
@@ -506,6 +510,20 @@ EOF
         fi
     fi
 
+    if ! test $ROCKSDB_DISABLE_AUXV_GETAUXVAL; then
+        # Test whether getauxval is supported
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <sys/auxv.h>
+          int main() {
+            uint64_t auxv = getauxval(AT_HWCAP);
+            (void)auxv;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_AUXV_GETAUXVAL_PRESENT"
+        fi
+    fi
+
     if ! test $ROCKSDB_DISABLE_ALIGNED_NEW; then
         # Test whether c++17 aligned-new is supported
         $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -694,6 +712,7 @@ echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_STATIC_LDFLAGS=$JAVA_STATIC_LDFLAGS" >> "$OUTPUT"
+echo "JAVAC_ARGS=$JAVAC_ARGS" >> "$OUTPUT"
 echo "VALGRIND_VER=$VALGRIND_VER" >> "$OUTPUT"
 echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> "$OUTPUT"
 echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> "$OUTPUT"

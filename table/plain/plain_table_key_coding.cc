@@ -13,7 +13,7 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_reader.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 enum PlainTableEntryType : unsigned char {
   kFullKey = 0,
@@ -208,7 +208,7 @@ bool PlainTableFileReader::ReadNonMmap(uint32_t file_offset, uint32_t len,
   }
   Slice read_result;
   Status s = file_info_->file->Read(file_offset, size_to_read, &read_result,
-                                    new_buffer->buf.get());
+                                    new_buffer->buf.get(), nullptr);
   if (!s.ok()) {
     status_ = s;
     return false;
@@ -494,5 +494,5 @@ Status PlainTableKeyDecoder::NextKeyNoValue(uint32_t start_offset,
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LIT

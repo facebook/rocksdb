@@ -16,7 +16,7 @@
 #include "util/stop_watch.h"
 #include "utilities/blob_db/blob_log_format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
@@ -135,5 +135,5 @@ Status Writer::EmitPhysicalRecord(const std::string& headerbuf,
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

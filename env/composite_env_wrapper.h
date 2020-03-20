@@ -8,7 +8,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // The CompositeEnvWrapper class provides an interface that is compatible
 // with the old monolithic Env API, and an implementation that wraps around
@@ -299,6 +299,13 @@ class CompositeEnvWrapper : public Env {
   Env* env_target() const { return env_target_; }
 
   FileSystem* fs_env_target() const { return fs_env_target_; }
+
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    return fs_env_target_->RegisterDbPaths(paths);
+  }
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    return fs_env_target_->UnregisterDbPaths(paths);
+  }
 
   // The following text is boilerplate that forwards all methods to target()
   Status NewSequentialFile(const std::string& f,
@@ -1114,4 +1121,4 @@ inline std::unique_ptr<FSWritableFile> NewLegacyWritableFileWrapper(
       new LegacyWritableFileWrapper(std::move(file)));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

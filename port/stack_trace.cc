@@ -10,12 +10,12 @@
 
 // noop
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 void InstallStackTraceHandler() {}
 void PrintStack(int /*first_frames_to_skip*/) {}
 }  // namespace port
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #else
 
@@ -27,7 +27,7 @@ void PrintStack(int /*first_frames_to_skip*/) {}
 #include <unistd.h>
 #include <cxxabi.h>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 namespace {
@@ -133,6 +133,6 @@ void InstallStackTraceHandler() {
 }
 
 }  // namespace port
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

@@ -13,7 +13,7 @@
 #include "monitoring/statistics.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 Reader::Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
@@ -26,7 +26,8 @@ Reader::Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
 
 Status Reader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
   StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-  Status s = file_->Read(next_byte_, static_cast<size_t>(size), slice, buf);
+  Status s =
+      file_->Read(next_byte_, static_cast<size_t>(size), slice, buf, nullptr);
   next_byte_ += size;
   if (!s.ok()) {
     return s;
@@ -101,5 +102,5 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

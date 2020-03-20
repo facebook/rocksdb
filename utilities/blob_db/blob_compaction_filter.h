@@ -7,14 +7,14 @@
 
 #include <unordered_set>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "utilities/blob_db/blob_db_gc_stats.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 struct BlobCompactionContext {
@@ -164,5 +164,5 @@ class BlobIndexCompactionFilterFactoryGC
 };
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

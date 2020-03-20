@@ -23,8 +23,7 @@
 #undef GetCurrentTime
 #endif
 
-
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBWithTTLImpl : public DBWithTTL {
  public:
@@ -130,7 +129,7 @@ class TtlIterator : public Iterator {
 
   Slice key() const override { return iter_->key(); }
 
-  int32_t timestamp() const {
+  int32_t ttl_timestamp() const {
     return DecodeFixed32(iter_->value().data() + iter_->value().size() -
                          DBWithTTLImpl::kTSLength);
   }
@@ -358,5 +357,5 @@ class TtlMergeOperator : public MergeOperator {
   std::shared_ptr<MergeOperator> user_merge_op_;
   Env* env_;
 };
-}
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

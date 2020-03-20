@@ -16,7 +16,7 @@
 
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // FileChecksumFunc is the function class to generates the checksum value
 // for each file when the file is written to the file system.
@@ -83,4 +83,4 @@ extern FileChecksumList* NewFileChecksumList();
 // Create a Crc32c based file checksum function
 extern FileChecksumFunc* CreateFileChecksumFuncCrc32c();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

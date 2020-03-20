@@ -29,7 +29,7 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -310,5 +310,5 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

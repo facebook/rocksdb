@@ -18,7 +18,7 @@
 #include "table/block_based/full_filter_block.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  public:
@@ -119,4 +119,4 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
       filter_map_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

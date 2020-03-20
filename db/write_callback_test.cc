@@ -22,7 +22,7 @@
 
 using std::string;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteCallbackTest : public testing::Test {
  public:
@@ -185,7 +185,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               std::atomic<uint64_t> seq(db_impl->GetLatestSequenceNumber());
               ASSERT_EQ(db_impl->GetLatestSequenceNumber(), 0);
 
-              rocksdb::SyncPoint::GetInstance()->SetCallBack(
+              ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:Start", [&](void*) {
                     uint64_t cur_threads_joining = threads_joining.fetch_add(1);
                     // Wait for the last joined writer to link to the queue.
@@ -197,7 +197,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                   });
 
               // Verification once writers call JoinBatchGroup.
-              rocksdb::SyncPoint::GetInstance()->SetCallBack(
+              ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
                     uint64_t cur_threads_linked = threads_linked.fetch_add(1);
                     bool is_leader = false;
@@ -236,7 +236,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     }
                   });
 
-              rocksdb::SyncPoint::GetInstance()->SetCallBack(
+              ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:DoneWaiting", [&](void* arg) {
                     // check my state
                     auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
@@ -330,7 +330,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 }
               };
 
-              rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+              ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
               // do all the writes
               std::vector<port::Thread> threads;
@@ -341,7 +341,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 t.join();
               }
 
-              rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+              ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
               // check for keys
               string value;
@@ -433,7 +433,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   DestroyDB(dbname, options);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

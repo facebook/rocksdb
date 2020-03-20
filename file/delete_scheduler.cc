@@ -17,7 +17,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 DeleteScheduler::DeleteScheduler(Env* env, FileSystem* fs,
                                  int64_t rate_bytes_per_sec, Logger* info_log,
@@ -215,7 +215,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       const FileAndDir& fad = queue_.front();
       std::string path_in_trash = fad.fname;
 
-      // We dont need to hold the lock while deleting the file
+      // We don't need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
@@ -351,6 +351,6 @@ void DeleteScheduler::WaitForEmptyTrash() {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

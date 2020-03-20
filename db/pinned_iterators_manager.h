@@ -11,7 +11,7 @@
 
 #include "table/internal_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // PinnedIteratorsManager will be notified whenever we need to pin an Iterator
 // and it will be responsible for deleting pinned Iterators when they are
@@ -84,4 +84,4 @@ class PinnedIteratorsManager : public Cleanable {
   std::vector<std::pair<void*, ReleaseFunction>> pinned_ptrs_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

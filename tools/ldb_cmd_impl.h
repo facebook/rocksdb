@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CompactorCommand : public LDBCommand {
  public:
@@ -625,4 +625,4 @@ class ListFileRangeDeletesCommand : public LDBCommand {
   int max_keys_ = 1000;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
