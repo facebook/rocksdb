@@ -6497,6 +6497,7 @@ int db_bench_tool(int argc, char** argv) {
     FLAGS_env = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }
 
+#ifdef OPENSSL
   if (!FLAGS_encryption_method.empty()) {
     encryption::EncryptionMethod method =
         encryption::EncryptionMethod::kUnknown;
@@ -6516,6 +6517,7 @@ int db_bench_tool(int argc, char** argv) {
         new encryption::InMemoryKeyManager(method));
     FLAGS_env = encryption::NewKeyManagedEncryptedEnv(FLAGS_env, key_manager);
   }
+#endif // OPENSSL
 
   if (!strcasecmp(FLAGS_compaction_fadvice.c_str(), "NONE"))
     FLAGS_compaction_fadvice_e = rocksdb::Options::NONE;
