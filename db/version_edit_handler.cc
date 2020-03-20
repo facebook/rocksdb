@@ -22,7 +22,7 @@ VersionEditHandler::VersionEditHandler(
       status_(),
       version_set_(version_set),
       track_missing_files_(track_missing_files),
-      ignore_missing_files_(_ignore_missing_files),
+      no_error_if_table_files_missing_(_ignore_missing_files),
       initialized_(false) {
   assert(version_set_ != nullptr);
 }
@@ -75,6 +75,31 @@ Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
 
   if (!s.ok()) {
     status_ = s;
+  }
+  return s;
+}
+
+Status VersionEditHandler::Initialize() {
+  Status s;
+  if (!initialized_) {
+    for (const auto& cf_desc : column_families_) {
+      name_to_options_.emplace(cf_desc.name, cf_desc.options);
+    }
+    auto default_cf_iter = name_to_options_.find(kDefaultColumnFamilyName);
+    if (default_cf_iter == name_to_options_.end()) {
+      s = Status::InvalidArgument("Default column family not specified");
+    }
+    if (s.ok()) {
+      VersionEdit default_cf_edit;
+      default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
+      default_cf_edit.SetColumnFamily(0);
+      ColumnFamilyData* cfd __attribute__((__unused__)) =
+          CreateCfAndInit(default_cf_iter->second, default_cf_edit);
+      assert(cfd != nullptr);
+    } else {
+      status_ = s;
+    }
+    initialized_ = true;
   }
   return s;
 }
@@ -207,31 +232,6 @@ bool VersionEditHandler::HasMissingFiles() const {
     }
   }
   return ret;
-}
-
-Status VersionEditHandler::Initialize() {
-  Status s;
-  if (!initialized_) {
-    for (const auto& cf_desc : column_families_) {
-      name_to_options_.emplace(cf_desc.name, cf_desc.options);
-    }
-    auto default_cf_iter = name_to_options_.find(kDefaultColumnFamilyName);
-    if (default_cf_iter == name_to_options_.end()) {
-      s = Status::InvalidArgument("Default column family not specified");
-    }
-    if (s.ok()) {
-      VersionEdit default_cf_edit;
-      default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
-      default_cf_edit.SetColumnFamily(0);
-      ColumnFamilyData* cfd __attribute__((__unused__)) =
-          CreateCfAndInit(default_cf_iter->second, default_cf_edit);
-      assert(cfd != nullptr);
-    } else {
-      status_ = s;
-    }
-    initialized_ = true;
-  }
-  return s;
 }
 
 void VersionEditHandler::CheckColumnFamilyId(const VersionEdit& edit,
@@ -417,7 +417,7 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
       cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-  if (s.IsPathNotFound() && ignore_missing_files_) {
+  if (s.IsPathNotFound() && no_error_if_table_files_missing_) {
     s = Status::OK();
   }
   if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
@@ -482,7 +482,9 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
     VersionSet* version_set)
-    : VersionEditHandler(read_only, column_families, version_set, true, true) {}
+    : VersionEditHandler(read_only, column_families, version_set,
+                         /*track_missing_files=*/true,
+                         /*no_error_if_table_files_missing=*/true) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
@@ -510,12 +512,6 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
       }
     }
   }
-}
-
-ColumnFamilyData* VersionEditHandlerPointInTime::CreateCfAndInit(
-    const ColumnFamilyOptions& cf_options, const VersionEdit& edit) {
-  ColumnFamilyData* cfd = VersionEditHandler::CreateCfAndInit(cf_options, edit);
-  return cfd;
 }
 
 ColumnFamilyData* VersionEditHandlerPointInTime::DestroyCfAndCleanup(

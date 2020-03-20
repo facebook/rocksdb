@@ -40,23 +40,24 @@ class VersionEditHandler {
   virtual ~VersionEditHandler() {}
 
   Status Iterate(log::Reader& reader, std::string* db_id);
+
+  const Status& status() const { return status_; }
+  bool HasMissingFiles() const;
+
+ protected:
   Status ApplyOneVersionEditToBuilder(VersionEdit& edit,
                                       ColumnFamilyData** cfd);
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
   Status OnColumnFamilyDrop(VersionEdit& edit, ColumnFamilyData** cfd);
   Status OnNonCfOperation(VersionEdit& edit, ColumnFamilyData** cfd);
 
-  const Status& status() const { return status_; }
-  bool HasMissingFiles() const;
-
- protected:
   Status Initialize();
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
                            bool* cf_in_builders) const;
   virtual void CheckIterationResult(const log::Reader& reader, Status* s);
 
-  virtual ColumnFamilyData* CreateCfAndInit(
-      const ColumnFamilyOptions& cf_options, const VersionEdit& edit);
+  ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
+                                    const VersionEdit& edit);
   virtual ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit);
   virtual Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                                bool force_create_version);
@@ -76,7 +77,7 @@ class VersionEditHandler {
   const bool track_missing_files_;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files_;
-  bool ignore_missing_files_;
+  bool no_error_if_table_files_missing_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
@@ -100,8 +101,6 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
  protected:
   void CheckIterationResult(const log::Reader& reader, Status* s) override;
-  ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
-                                    const VersionEdit& edit) override;
   ColumnFamilyData* DestroyCfAndCleanup(const VersionEdit& edit) override;
   Status CreateVersion(const VersionEdit& edit, ColumnFamilyData* cfd,
                        bool force_create_version) override;
