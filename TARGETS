@@ -1513,6 +1513,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "work_queue_test",
+        "util/work_queue_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "write_batch_test",
         "db/write_batch_test.cc",
         "serial",
