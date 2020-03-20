@@ -184,7 +184,8 @@ class PosixFileSystem : public FileSystem {
       }
     }
     result->reset(new PosixSequentialFile(
-        fname, file, fd, GetLogicalBlockSize(fname, fd), options));
+        fname, file, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
+        options));
     return IOStatus::OK();
   }
 
@@ -244,7 +245,8 @@ class PosixFileSystem : public FileSystem {
 #endif
       }
       result->reset(new PosixRandomAccessFile(
-          fname, fd, GetLogicalBlockSize(fname, fd), options
+          fname, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
+          options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
           thread_local_io_urings_.get()
@@ -331,13 +333,17 @@ class PosixFileSystem : public FileSystem {
       }
 #endif
       result->reset(new PosixWritableFile(
-          fname, fd, GetLogicalBlockSize(fname, fd), options));
+          fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
+          options));
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(
-          fname, fd, GetLogicalBlockSize(fname, fd), no_mmap_writes_options));
+      result->reset(
+          new PosixWritableFile(fname, fd,
+                                GetLogicalBlockSizeForWriteIfNeeded(
+                                    no_mmap_writes_options, fname, fd),
+                                no_mmap_writes_options));
     }
     return s;
   }
@@ -433,13 +439,17 @@ class PosixFileSystem : public FileSystem {
       }
 #endif
       result->reset(new PosixWritableFile(
-          fname, fd, GetLogicalBlockSize(fname, fd), options));
+          fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
+          options));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(
-          fname, fd, GetLogicalBlockSize(fname, fd), no_mmap_writes_options));
+      result->reset(
+          new PosixWritableFile(fname, fd,
+                                GetLogicalBlockSizeForWriteIfNeeded(
+                                    no_mmap_writes_options, fname, fd),
+                                no_mmap_writes_options));
     }
     return s;
   }
@@ -918,6 +928,14 @@ class PosixFileSystem : public FileSystem {
   static LogicalBlockSizeCache logical_block_size_cache_;
 #endif
   static size_t GetLogicalBlockSize(const std::string& fname, int fd);
+  // In non-direct IO mode, this directly returns kDefaultPageSize.
+  // Otherwise call GetLogicalBlockSize.
+  static size_t GetLogicalBlockSizeForReadIfNeeded(const EnvOptions& options,
+                                                   const std::string& fname,
+                                                   int fd);
+  static size_t GetLogicalBlockSizeForWriteIfNeeded(const EnvOptions& options,
+                                                    const std::string& fname,
+                                                    int fd);
 };
 
 #ifdef OS_LINUX
@@ -928,9 +946,23 @@ size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
 #ifdef OS_LINUX
   return logical_block_size_cache_.GetLogicalBlockSize(fname, fd);
 #else
-  (void) fname;
+  (void)fname;
   return PosixHelper::GetLogicalBlockSizeOfFd(fd);
 #endif
+}
+
+size_t PosixFileSystem::GetLogicalBlockSizeForReadIfNeeded(
+    const EnvOptions& options, const std::string& fname, int fd) {
+  return options.use_direct_reads
+             ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
+             : kDefaultPageSize;
+}
+
+size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
+    const EnvOptions& options, const std::string& fname, int fd) {
+  return options.use_direct_writes
+             ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
+             : kDefaultPageSize;
 }
 
 PosixFileSystem::PosixFileSystem()
