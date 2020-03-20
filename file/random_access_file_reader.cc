@@ -20,11 +20,11 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
-                                    char* scratch,
-                                    std::unique_ptr<const char[]>* internal_buf,
+                                    char* scratch, AlignedBuf* aligned_buf,
                                     bool for_compaction) const {
-  (void) internal_buf;
+  (void)aligned_buf;
   Status s;
   uint64_t elapsed = 0;
   {
@@ -81,11 +81,11 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       size_t res_len = 0;
       if (s.ok() && offset_advance < buf.CurrentSize()) {
         res_len = std::min(buf.CurrentSize() - offset_advance, n);
-        if (internal_buf == nullptr) {
+        if (aligned_buf == nullptr) {
           buf.Read(scratch, offset_advance, res_len);
         } else {
           scratch = buf.BufferStart();
-          internal_buf->reset(buf.Release());
+          aligned_buf->reset(buf.Release());
         }
       }
       *result = Slice(scratch, res_len);
@@ -154,17 +154,88 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
+size_t End(const FSReadRequest& r) {
+  return static_cast<size_t>(r.offset) + r.len;
+}
+
+FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
+  FSReadRequest req;
+  req.offset = static_cast<uint64_t>(
+    TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
+  req.len = Roundup(End(r), alignment) - req.offset;
+  return req;
+}
+
+// Try to merge src to dest if they have overlap.
+//
+// Each request represents an inclusive interval [offset, offset + len].
+// If the intervals have overlap, update offset and len to represent the
+// merged interval, and return true.
+// Otherwise, do nothing and return false.
+bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
+  size_t dest_offset = static_cast<size_t>(dest->offset);
+  size_t src_offset = static_cast<size_t>(src.offset);
+  size_t dest_end = End(*dest);
+  size_t src_end = End(src);
+  if (std::max(dest_offset, dest_offset) > std::min(dest_end, src_end)) {
+    return false;
+  }
+  dest->offset = static_cast<uint64_t>(std::min(dest_offset, src_offset));
+  dest->len = std::max(dest_end, src_end) - dest->offset;
+  return true;
+}
+
 Status RandomAccessFileReader::MultiRead(FSReadRequest* read_reqs,
-                                         size_t num_reqs) const {
+                                         size_t num_reqs,
+                                         AlignedBuf* aligned_buf) const {
+  (void)aligned_buf;  // suppress warning of unused variable in LITE mode
+  assert(num_reqs > 0);
   Status s;
   uint64_t elapsed = 0;
-  assert(!use_direct_io());
   {
     StopWatch sw(env_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
     IOSTATS_TIMER_GUARD(read_nanos);
+
+    FSReadRequest* fs_reqs = read_reqs;
+    size_t num_fs_reqs = num_reqs;
+#ifndef ROCKSDB_LITE
+    std::vector<FSReadRequest> aligned_reqs;
+    if (use_direct_io()) {
+      // num_reqs is the max possible size,
+      // this can reduce std::vecector's internal resize operations.
+      aligned_reqs.reserve(num_reqs);
+      // Align and merge the read requests.
+      size_t alignment = file_->GetRequiredBufferAlignment();
+      aligned_reqs.push_back(Align(read_reqs[0], alignment));
+      for (size_t i = 1; i < num_reqs; i++) {
+        const auto& r = Align(read_reqs[i], alignment);
+        if (!TryMerge(&aligned_reqs.back(), r)) {
+          aligned_reqs.push_back(r);
+        }
+      }
+
+      // Allocate aligned buffer and let scratch buffers point to it.
+      size_t total_len = 0;
+      for (const auto& r : aligned_reqs) {
+        total_len += r.len;
+      }
+      AlignedBuffer buf;
+      buf.Alignment(alignment);
+      buf.AllocateNewBuffer(total_len);
+      char* scratch = buf.BufferStart();
+      for (auto& r : aligned_reqs) {
+        r.scratch = scratch;
+        scratch += r.len;
+      }
+
+      aligned_buf->reset(buf.Release());
+      fs_reqs = aligned_reqs.data();
+      num_fs_reqs = aligned_reqs.size();
+    }
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
     FileOperationInfo::TimePoint start_ts;
@@ -174,8 +245,31 @@ Status RandomAccessFileReader::MultiRead(FSReadRequest* read_reqs,
 #endif  // ROCKSDB_LITE
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-      s = file_->MultiRead(read_reqs, num_reqs, IOOptions(), nullptr);
+      s = file_->MultiRead(fs_reqs, num_fs_reqs, IOOptions(), nullptr);
     }
+
+#ifndef ROCKSDB_LITE
+    if (use_direct_io()) {
+      // Populate results in the unaligned read requests.
+      size_t aligned_i = 0;
+      for (size_t i = 0; i < num_reqs; i++) {
+        auto& r = read_reqs[i];
+        if (static_cast<size_t>(r.offset) > End(aligned_reqs[aligned_i])) {
+          aligned_i++;
+        }
+        const auto& fs_r = fs_reqs[aligned_i];
+        r.status = fs_r.status;
+        if (r.status.ok()) {
+          uint64_t offset = r.offset - fs_r.offset;
+          size_t len = std::min(r.len, static_cast<size_t>(fs_r.len - offset));
+          r.result = Slice(fs_r.scratch + offset, len);
+        } else {
+          r.result = Slice();
+        }
+      }
+    }
+#endif  // ROCKSDB_LITE
+
     for (size_t i = 0; i < num_reqs; ++i) {
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
@@ -194,4 +288,5 @@ Status RandomAccessFileReader::MultiRead(FSReadRequest* read_reqs,
 
   return s;
 }
+
 }  // namespace ROCKSDB_NAMESPACE

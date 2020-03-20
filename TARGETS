@@ -1301,6 +1301,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "random_access_file_reader_test",
+        "file/random_access_file_reader_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "random_test",
         "util/random_test.cc",
         "serial",

@@ -1607,7 +1607,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           req.scratch = scratch + buf_offset;
           buf_offset += req.len;
         }
-        req.status = IOStatus::OK();
         read_reqs.emplace_back(req);
       }
 
@@ -1628,11 +1627,10 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     } else {
       req.scratch = scratch + buf_offset;
     }
-    req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
   }
 
-  file->MultiRead(&read_reqs[0], read_reqs.size());
+  file->MultiRead(&read_reqs[0], read_reqs.size(), nullptr);
 
   idx_in_batch = 0;
   size_t valid_batch_idx = 0;
@@ -1699,7 +1697,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // in each read request. Checksum is stored in the block trailer,
         // which is handle.size() + 1.
         s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
-                                              req.result.data() + req_offset,
+                                              data + req_offset,
                                               handle.size() + 1, expected);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
