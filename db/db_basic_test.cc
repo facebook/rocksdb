@@ -1777,7 +1777,18 @@ class DBBasicTestWithParallelIO
            compression_types[0] == kNoCompression)) {
         compression_enabled_ = false;
       } else {
-        options.compression = compression_types[0];
+        CompressionType tmp_type = kNoCompression;
+        for (auto c_type:compression_types) {
+          if (c_type != kNoCompression) {
+            tmp_type = c_type;
+            break;
+          }
+        }
+        if (tmp_type != kNoCompression) {
+          options.compression = tmp_type;
+        } else {
+          compression_enabled_ = false;
+        }
       }
     }
 #else
