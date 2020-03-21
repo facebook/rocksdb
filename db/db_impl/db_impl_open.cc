@@ -252,6 +252,12 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is incompatible with enable_pipelined_write");
   }
 
+  // TODO remove this restriction
+  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
+    return Status::InvalidArgument(
+        "atomic_flush is currently incompatible with best-efforts recovery");
+  }
+
   return Status::OK();
 }
 
@@ -419,7 +425,17 @@ Status DBImpl::Recover(
     }
   }
   assert(db_id_.empty());
-  Status s = versions_->Recover(column_families, read_only, &db_id_);
+  Status s;
+  bool missing_table_file = false;
+  if (!immutable_db_options_.best_efforts_recovery) {
+    s = versions_->Recover(column_families, read_only, &db_id_);
+  } else {
+    s = versions_->TryRecover(column_families, read_only, &db_id_,
+                              &missing_table_file);
+    if (s.ok()) {
+      s = CleanupFilesAfterRecovery();
+    }
+  }
   if (!s.ok()) {
     return s;
   }
@@ -499,7 +515,9 @@ Status DBImpl::Recover(
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
     std::vector<std::string> filenames;
-    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    if (!immutable_db_options_.best_efforts_recovery) {
+      s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    }
     if (s.IsNotFound()) {
       return Status::InvalidArgument("wal_dir not found",
                                      immutable_db_options_.wal_dir);

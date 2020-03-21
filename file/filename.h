@@ -29,6 +29,12 @@ class Env;
 class Directory;
 class WritableFileWriter;
 
+#ifdef OS_WIN
+const char kFilePathSeparator = '\\';
+#else
+const char kFilePathSeparator = '/';
+#endif
+
 enum FileType {
   kLogFile,
   kDBLockFile,
@@ -183,4 +189,6 @@ extern Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
                               const std::string& dbname,
                               std::string* parent_dir,
                               std::vector<std::string>* file_names);
+
+extern std::string NormalizePath(const std::string& path);
 }  // namespace ROCKSDB_NAMESPACE

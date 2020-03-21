@@ -10,6 +10,7 @@
 #include "db/version_set.h"
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
+#include "env/mock_env.h"
 #include "logging/logging.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
@@ -611,16 +612,37 @@ class VersionSetTestBase {
   const static std::string kColumnFamilyName3;
   int num_initial_edits_;
 
-  VersionSetTestBase()
-      : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
-        dbname_(test::PerThreadDBPath("version_set_test")),
-        db_options_(),
+  explicit VersionSetTestBase(const std::string& name)
+      : mem_env_(nullptr),
+        env_(nullptr),
+        env_guard_(),
+        fs_(),
+        dbname_(test::PerThreadDBPath(name)),
+        options_(),
+        db_options_(options_),
+        cf_options_(options_),
+        immutable_cf_options_(db_options_, cf_options_),
         mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    Env* base_env = nullptr;
+    if (test_env_uri) {
+      Status s = Env::LoadEnv(test_env_uri, &base_env, &env_guard_);
+      EXPECT_OK(s);
+      EXPECT_NE(Env::Default(), base_env);
+    } else {
+      base_env = Env::Default();
+    }
+    EXPECT_NE(nullptr, base_env);
+    if (getenv("MEM_ENV")) {
+      mem_env_ = new MockEnv(base_env);
+    }
+    env_ = mem_env_ ? mem_env_ : base_env;
+
+    fs_ = std::make_shared<LegacyFileSystemWrapper>(env_);
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
 
     db_options_.env = env_;
@@ -628,23 +650,38 @@ class VersionSetTestBase {
     versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                    table_cache_.get(), &write_buffer_manager_,
                                    &write_controller_,
-                                   /*block_cache_tracer=*/nullptr)),
-        reactive_versions_ = std::make_shared<ReactiveVersionSet>(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
-            &write_buffer_manager_, &write_controller_);
+                                   /*block_cache_tracer=*/nullptr));
+    reactive_versions_ = std::make_shared<ReactiveVersionSet>(
+        dbname_, &db_options_, env_options_, table_cache_.get(),
+        &write_buffer_manager_, &write_controller_);
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
   }
 
-  void PrepareManifest(std::vector<ColumnFamilyDescriptor>* column_families,
-                       SequenceNumber* last_seqno,
-                       std::unique_ptr<log::Writer>* log_writer) {
+  virtual ~VersionSetTestBase() {
+    if (getenv("KEEP_DB")) {
+      fprintf(stdout, "DB is still at %s\n", dbname_.c_str());
+    } else {
+      Options options;
+      options.env = env_;
+      EXPECT_OK(DestroyDB(dbname_, options));
+    }
+    if (mem_env_) {
+      delete mem_env_;
+      mem_env_ = nullptr;
+    }
+  }
+
+ protected:
+  virtual void PrepareManifest(
+      std::vector<ColumnFamilyDescriptor>* column_families,
+      SequenceNumber* last_seqno, std::unique_ptr<log::Writer>* log_writer) {
     assert(column_families != nullptr);
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
-      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
+      std::unique_ptr<DBImpl> impl(new DBImpl(DBOptions(), dbname_));
       std::string db_id;
       impl->GetDbIdentityFromIdentityFile(&db_id);
       new_db.SetDBId(db_id);
@@ -715,12 +752,25 @@ class VersionSetTestBase {
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   }
 
+  void VerifyManifest(std::string* manifest_path) const {
+    assert(manifest_path != nullptr);
+    uint64_t manifest_file_number = 0;
+    Status s = versions_->GetCurrentManifestPath(
+        dbname_, fs_.get(), manifest_path, &manifest_file_number);
+    ASSERT_OK(s);
+    ASSERT_EQ(1, manifest_file_number);
+  }
+
+  MockEnv* mem_env_;
   Env* env_;
+  std::shared_ptr<Env> env_guard_;
   std::shared_ptr<FileSystem> fs_;
   const std::string dbname_;
   EnvOptions env_options_;
+  Options options_;
   ImmutableDBOptions db_options_;
   ColumnFamilyOptions cf_options_;
+  ImmutableCFOptions immutable_cf_options_;
   MutableCFOptions mutable_cf_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
@@ -738,7 +788,7 @@ const std::string VersionSetTestBase::kColumnFamilyName3 = "charles";
 
 class VersionSetTest : public VersionSetTestBase, public testing::Test {
  public:
-  VersionSetTest() : VersionSetTestBase() {}
+  VersionSetTest() : VersionSetTestBase("version_set_test") {}
 };
 
 TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
@@ -780,7 +830,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
 class VersionSetAtomicGroupTest : public VersionSetTestBase,
                                   public testing::Test {
  public:
-  VersionSetAtomicGroupTest() : VersionSetTestBase() {}
+  VersionSetAtomicGroupTest()
+      : VersionSetTestBase("version_set_atomic_group_test") {}
 
   void SetUp() override {
     PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
@@ -1164,7 +1215,8 @@ TEST_F(VersionSetAtomicGroupTest,
 class VersionSetTestDropOneCF : public VersionSetTestBase,
                                 public testing::TestWithParam<std::string> {
  public:
-  VersionSetTestDropOneCF() : VersionSetTestBase() {}
+  VersionSetTestDropOneCF()
+      : VersionSetTestBase("version_set_test_drop_one_cf") {}
 };
 
 // This test simulates the following execution sequence
@@ -1279,6 +1331,706 @@ INSTANTIATE_TEST_CASE_P(
     testing::Values(VersionSetTestBase::kColumnFamilyName1,
                     VersionSetTestBase::kColumnFamilyName2,
                     VersionSetTestBase::kColumnFamilyName3));
+
+class EmptyDefaultCfNewManifest : public VersionSetTestBase,
+                                  public testing::Test {
+ public:
+  EmptyDefaultCfNewManifest() : VersionSetTestBase("version_set_new_db_test") {}
+  // Emulate DBImpl::NewDB()
+  void PrepareManifest(std::vector<ColumnFamilyDescriptor>* /*column_families*/,
+                       SequenceNumber* /*last_seqno*/,
+                       std::unique_ptr<log::Writer>* log_writer) override {
+    assert(log_writer != nullptr);
+    VersionEdit new_db;
+    new_db.SetLogNumber(0);
+    std::unique_ptr<WritableFile> file;
+    const std::string manifest_path = DescriptorFileName(dbname_, 1);
+    Status s = env_->NewWritableFile(
+        manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
+    ASSERT_OK(s);
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               manifest_path, env_options_));
+    log_writer->reset(new log::Writer(std::move(file_writer), 0, true));
+    std::string record;
+    ASSERT_TRUE(new_db.EncodeTo(&record));
+    s = (*log_writer)->AddRecord(record);
+    ASSERT_OK(s);
+    // Create new column family
+    VersionEdit new_cf;
+    new_cf.AddColumnFamily(VersionSetTestBase::kColumnFamilyName1);
+    new_cf.SetColumnFamily(1);
+    new_cf.SetLastSequence(2);
+    new_cf.SetNextFile(2);
+    record.clear();
+    ASSERT_TRUE(new_cf.EncodeTo(&record));
+    s = (*log_writer)->AddRecord(record);
+    ASSERT_OK(s);
+  }
+
+ protected:
+  bool write_dbid_to_manifest_ = false;
+  std::unique_ptr<log::Writer> log_writer_;
+};
+
+// Create db, create column family. Cf creation will switch to a new MANIFEST.
+// Then reopen db, trying to recover.
+TEST_F(EmptyDefaultCfNewManifest, Recover) {
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  log_writer_.reset();
+  Status s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
+  column_families.emplace_back(VersionSetTestBase::kColumnFamilyName1,
+                               cf_options_);
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(
+      manifest_path, column_families, false, &db_id, &has_missing_table_file);
+  ASSERT_OK(s);
+  ASSERT_FALSE(has_missing_table_file);
+}
+
+class VersionSetTestEmptyDb
+    : public VersionSetTestBase,
+      public testing::TestWithParam<
+          std::tuple<bool, bool, std::vector<std::string>>> {
+ public:
+  static const std::string kUnknownColumnFamilyName;
+  VersionSetTestEmptyDb() : VersionSetTestBase("version_set_test_empty_db") {}
+
+ protected:
+  void PrepareManifest(std::vector<ColumnFamilyDescriptor>* /*column_families*/,
+                       SequenceNumber* /*last_seqno*/,
+                       std::unique_ptr<log::Writer>* log_writer) override {
+    assert(nullptr != log_writer);
+    VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      std::unique_ptr<DBImpl> impl(new DBImpl(DBOptions(), dbname_));
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
+    const std::string manifest_path = DescriptorFileName(dbname_, 1);
+    std::unique_ptr<WritableFile> file;
+    Status s = env_->NewWritableFile(
+        manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
+    ASSERT_OK(s);
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               manifest_path, env_options_));
+    {
+      log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
+      std::string record;
+      new_db.EncodeTo(&record);
+      s = (*log_writer)->AddRecord(record);
+      ASSERT_OK(s);
+    }
+  }
+
+  std::unique_ptr<log::Writer> log_writer_;
+};
+
+const std::string VersionSetTestEmptyDb::kUnknownColumnFamilyName = "unknown";
+
+TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
+  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  log_writer_.reset();
+  Status s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+
+  bool read_only = std::get<1>(GetParam());
+  const std::vector<std::string> cf_names = std::get<2>(GetParam());
+
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (const auto& cf_name : cf_names) {
+    column_families.emplace_back(cf_name, cf_options_);
+  }
+
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
+  auto iter =
+      std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
+  if (iter == cf_names.end()) {
+    ASSERT_TRUE(s.IsInvalidArgument());
+  } else {
+    ASSERT_TRUE(s.IsCorruption());
+  }
+}
+
+TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
+  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  // Only a subset of column families in the MANIFEST.
+  VersionEdit new_cf1;
+  new_cf1.AddColumnFamily(VersionSetTestBase::kColumnFamilyName1);
+  new_cf1.SetColumnFamily(1);
+  Status s;
+  {
+    std::string record;
+    new_cf1.EncodeTo(&record);
+    s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer_.reset();
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+
+  bool read_only = std::get<1>(GetParam());
+  const std::vector<std::string>& cf_names = std::get<2>(GetParam());
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (const auto& cf_name : cf_names) {
+    column_families.emplace_back(cf_name, cf_options_);
+  }
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
+  auto iter =
+      std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
+  if (iter == cf_names.end()) {
+    ASSERT_TRUE(s.IsInvalidArgument());
+  } else {
+    ASSERT_TRUE(s.IsCorruption());
+  }
+}
+
+TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
+  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  // Write all column families but no log_number, next_file_number and
+  // last_sequence.
+  const std::vector<std::string> all_cf_names = {
+      kDefaultColumnFamilyName, kColumnFamilyName1, kColumnFamilyName2,
+      kColumnFamilyName3};
+  uint32_t cf_id = 1;
+  Status s;
+  for (size_t i = 1; i != all_cf_names.size(); ++i) {
+    VersionEdit new_cf;
+    new_cf.AddColumnFamily(all_cf_names[i]);
+    new_cf.SetColumnFamily(cf_id++);
+    std::string record;
+    ASSERT_TRUE(new_cf.EncodeTo(&record));
+    s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer_.reset();
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+
+  bool read_only = std::get<1>(GetParam());
+  const std::vector<std::string>& cf_names = std::get<2>(GetParam());
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (const auto& cf_name : cf_names) {
+    column_families.emplace_back(cf_name, cf_options_);
+  }
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
+  auto iter =
+      std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
+  if (iter == cf_names.end()) {
+    ASSERT_TRUE(s.IsInvalidArgument());
+  } else {
+    ASSERT_TRUE(s.IsCorruption());
+  }
+}
+
+TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
+  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  // Write all column families but no log_number, next_file_number and
+  // last_sequence.
+  const std::vector<std::string> all_cf_names = {
+      kDefaultColumnFamilyName, kColumnFamilyName1, kColumnFamilyName2,
+      kColumnFamilyName3};
+  uint32_t cf_id = 1;
+  Status s;
+  for (size_t i = 1; i != all_cf_names.size(); ++i) {
+    VersionEdit new_cf;
+    new_cf.AddColumnFamily(all_cf_names[i]);
+    new_cf.SetColumnFamily(cf_id++);
+    std::string record;
+    ASSERT_TRUE(new_cf.EncodeTo(&record));
+    s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  {
+    VersionEdit tmp_edit;
+    tmp_edit.SetColumnFamily(4);
+    tmp_edit.SetLogNumber(0);
+    tmp_edit.SetNextFile(2);
+    tmp_edit.SetLastSequence(0);
+    std::string record;
+    ASSERT_TRUE(tmp_edit.EncodeTo(&record));
+    s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer_.reset();
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+
+  bool read_only = std::get<1>(GetParam());
+  const std::vector<std::string>& cf_names = std::get<2>(GetParam());
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (const auto& cf_name : cf_names) {
+    column_families.emplace_back(cf_name, cf_options_);
+  }
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
+  auto iter =
+      std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
+  if (iter == cf_names.end()) {
+    ASSERT_TRUE(s.IsInvalidArgument());
+  } else {
+    ASSERT_TRUE(s.IsCorruption());
+  }
+}
+
+TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
+  db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
+  PrepareManifest(nullptr, nullptr, &log_writer_);
+  // Write all column families but no log_number, next_file_number and
+  // last_sequence.
+  const std::vector<std::string> all_cf_names = {
+      kDefaultColumnFamilyName, kColumnFamilyName1, kColumnFamilyName2,
+      kColumnFamilyName3};
+  uint32_t cf_id = 1;
+  Status s;
+  for (size_t i = 1; i != all_cf_names.size(); ++i) {
+    VersionEdit new_cf;
+    new_cf.AddColumnFamily(all_cf_names[i]);
+    new_cf.SetColumnFamily(cf_id++);
+    std::string record;
+    ASSERT_TRUE(new_cf.EncodeTo(&record));
+    s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  {
+    VersionEdit tmp_edit;
+    tmp_edit.SetLogNumber(0);
+    tmp_edit.SetNextFile(2);
+    tmp_edit.SetLastSequence(0);
+    std::string record;
+    ASSERT_TRUE(tmp_edit.EncodeTo(&record));
+    s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+  log_writer_.reset();
+  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  ASSERT_OK(s);
+
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+
+  bool read_only = std::get<1>(GetParam());
+  const std::vector<std::string>& cf_names = std::get<2>(GetParam());
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (const auto& cf_name : cf_names) {
+    column_families.emplace_back(cf_name, cf_options_);
+  }
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families,
+                                           read_only, &db_id,
+                                           &has_missing_table_file);
+  auto iter =
+      std::find(cf_names.begin(), cf_names.end(), kDefaultColumnFamilyName);
+  if (iter == cf_names.end()) {
+    ASSERT_TRUE(s.IsInvalidArgument());
+  } else if (read_only) {
+    ASSERT_OK(s);
+    ASSERT_FALSE(has_missing_table_file);
+  } else if (cf_names.size() == all_cf_names.size()) {
+    ASSERT_OK(s);
+    ASSERT_FALSE(has_missing_table_file);
+  } else if (cf_names.size() < all_cf_names.size()) {
+    ASSERT_TRUE(s.IsInvalidArgument());
+  } else {
+    ASSERT_OK(s);
+    ASSERT_FALSE(has_missing_table_file);
+    ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(
+        kUnknownColumnFamilyName);
+    ASSERT_EQ(nullptr, cfd);
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    BestEffortRecovery, VersionSetTestEmptyDb,
+    testing::Combine(
+        /*write_dbid_to_manifest=*/testing::Bool(),
+        /*read_only=*/testing::Bool(),
+        /*cf_names=*/
+        testing::Values(
+            std::vector<std::string>(),
+            std::vector<std::string>({kDefaultColumnFamilyName}),
+            std::vector<std::string>({VersionSetTestBase::kColumnFamilyName1,
+                                      VersionSetTestBase::kColumnFamilyName2,
+                                      VersionSetTestBase::kColumnFamilyName3}),
+            std::vector<std::string>({kDefaultColumnFamilyName,
+                                      VersionSetTestBase::kColumnFamilyName1}),
+            std::vector<std::string>({kDefaultColumnFamilyName,
+                                      VersionSetTestBase::kColumnFamilyName1,
+                                      VersionSetTestBase::kColumnFamilyName2,
+                                      VersionSetTestBase::kColumnFamilyName3}),
+            std::vector<std::string>(
+                {kDefaultColumnFamilyName,
+                 VersionSetTestBase::kColumnFamilyName1,
+                 VersionSetTestBase::kColumnFamilyName2,
+                 VersionSetTestBase::kColumnFamilyName3,
+                 VersionSetTestEmptyDb::kUnknownColumnFamilyName}))));
+
+class VersionSetTestMissingFiles : public VersionSetTestBase,
+                                   public testing::Test {
+ public:
+  VersionSetTestMissingFiles()
+      : VersionSetTestBase("version_set_test_missing_files"),
+        block_based_table_options_(),
+        table_factory_(std::make_shared<BlockBasedTableFactory>(
+            block_based_table_options_)),
+        internal_comparator_(
+            std::make_shared<InternalKeyComparator>(options_.comparator)) {}
+
+ protected:
+  void PrepareManifest(std::vector<ColumnFamilyDescriptor>* column_families,
+                       SequenceNumber* last_seqno,
+                       std::unique_ptr<log::Writer>* log_writer) override {
+    assert(column_families != nullptr);
+    assert(last_seqno != nullptr);
+    assert(log_writer != nullptr);
+    const std::string manifest = DescriptorFileName(dbname_, 1);
+    std::unique_ptr<WritableFile> file;
+    Status s = env_->NewWritableFile(
+        manifest, &file, env_->OptimizeForManifestWrite(env_options_));
+    ASSERT_OK(s);
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
+    log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
+    VersionEdit new_db;
+    if (db_options_.write_dbid_to_manifest) {
+      std::unique_ptr<DBImpl> impl(new DBImpl(DBOptions(), dbname_));
+      std::string db_id;
+      impl->GetDbIdentityFromIdentityFile(&db_id);
+      new_db.SetDBId(db_id);
+    }
+    {
+      std::string record;
+      ASSERT_TRUE(new_db.EncodeTo(&record));
+      s = (*log_writer)->AddRecord(record);
+      ASSERT_OK(s);
+    }
+    const std::vector<std::string> cf_names = {
+        kDefaultColumnFamilyName, kColumnFamilyName1, kColumnFamilyName2,
+        kColumnFamilyName3};
+    uint32_t cf_id = 1;  // default cf id is 0
+    cf_options_.table_factory = table_factory_;
+    for (const auto& cf_name : cf_names) {
+      column_families->emplace_back(cf_name, cf_options_);
+      if (cf_name == kDefaultColumnFamilyName) {
+        continue;
+      }
+      VersionEdit new_cf;
+      new_cf.AddColumnFamily(cf_name);
+      new_cf.SetColumnFamily(cf_id);
+      std::string record;
+      ASSERT_TRUE(new_cf.EncodeTo(&record));
+      s = (*log_writer)->AddRecord(record);
+      ASSERT_OK(s);
+
+      VersionEdit cf_files;
+      cf_files.SetColumnFamily(cf_id);
+      cf_files.SetLogNumber(0);
+      record.clear();
+      ASSERT_TRUE(cf_files.EncodeTo(&record));
+      s = (*log_writer)->AddRecord(record);
+      ASSERT_OK(s);
+      ++cf_id;
+    }
+    SequenceNumber seq = 2;
+    {
+      VersionEdit edit;
+      edit.SetNextFile(7);
+      edit.SetLastSequence(seq);
+      std::string record;
+      ASSERT_TRUE(edit.EncodeTo(&record));
+      s = (*log_writer)->AddRecord(record);
+      ASSERT_OK(s);
+    }
+    *last_seqno = seq + 1;
+  }
+
+  struct SstInfo {
+    uint64_t file_number;
+    std::string column_family;
+    std::string key;  // the only key
+    int level = 0;
+    SstInfo(uint64_t file_num, const std::string& cf_name,
+            const std::string& _key)
+        : SstInfo(file_num, cf_name, _key, 0) {}
+    SstInfo(uint64_t file_num, const std::string& cf_name,
+            const std::string& _key, int lvl)
+        : file_number(file_num),
+          column_family(cf_name),
+          key(_key),
+          level(lvl) {}
+  };
+
+  // Create dummy sst, return their metadata. Note that only file name and size
+  // are used.
+  void CreateDummyTableFiles(const std::vector<SstInfo>& file_infos,
+                             std::vector<FileMetaData>* file_metas) {
+    assert(file_metas != nullptr);
+    for (const auto& info : file_infos) {
+      uint64_t file_num = info.file_number;
+      std::string fname = MakeTableFileName(dbname_, file_num);
+      std::unique_ptr<FSWritableFile> file;
+      Status s = fs_->NewWritableFile(fname, FileOptions(), &file, nullptr);
+      ASSERT_OK(s);
+      std::unique_ptr<WritableFileWriter> fwriter(
+          new WritableFileWriter(std::move(file), fname, FileOptions(), env_));
+      std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+          int_tbl_prop_collector_factories;
+
+      std::unique_ptr<TableBuilder> builder(table_factory_->NewTableBuilder(
+          TableBuilderOptions(
+              immutable_cf_options_, mutable_cf_options_, *internal_comparator_,
+              &int_tbl_prop_collector_factories, kNoCompression,
+              /*_sample_for_compression=*/0, CompressionOptions(),
+              /*_skip_filters=*/false, info.column_family, info.level),
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+          fwriter.get()));
+      InternalKey ikey(info.key, 0, ValueType::kTypeValue);
+      builder->Add(ikey.Encode(), "value");
+      ASSERT_OK(builder->Finish());
+      fwriter->Flush();
+      uint64_t file_size = 0;
+      s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
+      ASSERT_OK(s);
+      ASSERT_NE(0, file_size);
+      FileMetaData meta;
+      meta = FileMetaData(file_num, /*file_path_id=*/0, file_size, ikey, ikey,
+                          0, 0, false, 0, 0, 0, kUnknownFileChecksum,
+                          kUnknownFileChecksumFuncName);
+      file_metas->emplace_back(meta);
+    }
+  }
+
+  // This method updates last_sequence_.
+  void WriteFileAdditionAndDeletionToManifest(
+      uint32_t cf, const std::vector<std::pair<int, FileMetaData>>& added_files,
+      const std::vector<std::pair<int, uint64_t>>& deleted_files) {
+    VersionEdit edit;
+    edit.SetColumnFamily(cf);
+    for (const auto& elem : added_files) {
+      int level = elem.first;
+      edit.AddFile(level, elem.second);
+    }
+    for (const auto& elem : deleted_files) {
+      int level = elem.first;
+      edit.DeleteFile(level, elem.second);
+    }
+    edit.SetLastSequence(last_seqno_);
+    ++last_seqno_;
+    assert(log_writer_.get() != nullptr);
+    std::string record;
+    ASSERT_TRUE(edit.EncodeTo(&record));
+    Status s = log_writer_->AddRecord(record);
+    ASSERT_OK(s);
+  }
+
+  BlockBasedTableOptions block_based_table_options_;
+  std::shared_ptr<TableFactory> table_factory_;
+  std::shared_ptr<InternalKeyComparator> internal_comparator_;
+  std::vector<ColumnFamilyDescriptor> column_families_;
+  SequenceNumber last_seqno_;
+  std::unique_ptr<log::Writer> log_writer_;
+};
+
+TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
+  std::vector<SstInfo> existing_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a"),
+      SstInfo(102, kDefaultColumnFamilyName, "b"),
+      SstInfo(103, kDefaultColumnFamilyName, "c"),
+      SstInfo(107, kDefaultColumnFamilyName, "d"),
+      SstInfo(110, kDefaultColumnFamilyName, "e")};
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(existing_files, &file_metas);
+
+  PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (uint64_t file_num = 10; file_num < 15; ++file_num) {
+    std::string smallest_ukey = "a";
+    std::string largest_ukey = "b";
+    InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
+    InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
+    FileMetaData meta =
+        FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
+                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+    added_files.emplace_back(0, meta);
+  }
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
+  std::vector<std::pair<int, uint64_t>> deleted_files;
+  deleted_files.emplace_back(0, 10);
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
+  log_writer_.reset();
+  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
+                                           /*read_only=*/false, &db_id,
+                                           &has_missing_table_file);
+  ASSERT_OK(s);
+  ASSERT_TRUE(has_missing_table_file);
+  for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    const std::vector<FileMetaData*>& files = vstorage->LevelFiles(0);
+    ASSERT_TRUE(files.empty());
+  }
+}
+
+TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
+  std::vector<SstInfo> existing_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a"),
+      SstInfo(102, kDefaultColumnFamilyName, "b"),
+      SstInfo(103, kDefaultColumnFamilyName, "c"),
+      SstInfo(107, kDefaultColumnFamilyName, "d"),
+      SstInfo(110, kDefaultColumnFamilyName, "e")};
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(existing_files, &file_metas);
+
+  PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (size_t i = 3; i != 5; ++i) {
+    added_files.emplace_back(0, file_metas[i]);
+  }
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
+
+  added_files.clear();
+  for (uint64_t file_num = 120; file_num < 130; ++file_num) {
+    std::string smallest_ukey = "a";
+    std::string largest_ukey = "b";
+    InternalKey smallest_ikey(smallest_ukey, 1, ValueType::kTypeValue);
+    InternalKey largest_ikey(largest_ukey, 1, ValueType::kTypeValue);
+    FileMetaData meta =
+        FileMetaData(file_num, /*file_path_id=*/0, /*file_size=*/12,
+                     smallest_ikey, largest_ikey, 0, 0, false, 0, 0, 0,
+                     kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+    added_files.emplace_back(0, meta);
+  }
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
+  log_writer_.reset();
+  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
+                                           /*read_only=*/false, &db_id,
+                                           &has_missing_table_file);
+  ASSERT_OK(s);
+  ASSERT_TRUE(has_missing_table_file);
+  for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    const std::vector<FileMetaData*>& files = vstorage->LevelFiles(0);
+    if (cfd->GetName() == kDefaultColumnFamilyName) {
+      ASSERT_EQ(2, files.size());
+      for (const auto* fmeta : files) {
+        if (fmeta->fd.GetNumber() != 107 && fmeta->fd.GetNumber() != 110) {
+          ASSERT_FALSE(true);
+        }
+      }
+    } else {
+      ASSERT_TRUE(files.empty());
+    }
+  }
+}
+
+TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
+  std::vector<SstInfo> existing_files = {
+      SstInfo(100, kDefaultColumnFamilyName, "a"),
+      SstInfo(102, kDefaultColumnFamilyName, "b"),
+      SstInfo(103, kDefaultColumnFamilyName, "c"),
+      SstInfo(107, kDefaultColumnFamilyName, "d"),
+      SstInfo(110, kDefaultColumnFamilyName, "e")};
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles(existing_files, &file_metas);
+
+  PrepareManifest(&column_families_, &last_seqno_, &log_writer_);
+  std::vector<std::pair<int, FileMetaData>> added_files;
+  for (const auto& meta : file_metas) {
+    added_files.emplace_back(0, meta);
+  }
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
+  std::vector<std::pair<int, uint64_t>> deleted_files;
+  deleted_files.emplace_back(/*level=*/0, 100);
+  WriteFileAdditionAndDeletionToManifest(
+      /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
+  log_writer_.reset();
+  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  ASSERT_OK(s);
+  std::string manifest_path;
+  VerifyManifest(&manifest_path);
+  std::string db_id;
+  bool has_missing_table_file = false;
+  s = versions_->TryRecoverFromOneManifest(manifest_path, column_families_,
+                                           /*read_only=*/false, &db_id,
+                                           &has_missing_table_file);
+  ASSERT_OK(s);
+  ASSERT_FALSE(has_missing_table_file);
+  for (ColumnFamilyData* cfd : *(versions_->GetColumnFamilySet())) {
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    const std::vector<FileMetaData*>& files = vstorage->LevelFiles(0);
+    if (cfd->GetName() == kDefaultColumnFamilyName) {
+      ASSERT_EQ(existing_files.size() - deleted_files.size(), files.size());
+      bool has_deleted_file = false;
+      for (const auto* fmeta : files) {
+        if (fmeta->fd.GetNumber() == 100) {
+          has_deleted_file = true;
+          break;
+        }
+      }
+      ASSERT_FALSE(has_deleted_file);
+    } else {
+      ASSERT_TRUE(files.empty());
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

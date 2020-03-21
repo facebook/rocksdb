@@ -21,6 +21,8 @@ class VersionStorageInfo;
 class VersionEdit;
 struct FileMetaData;
 class InternalStats;
+class Version;
+class ColumnFamilyData;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
@@ -42,6 +44,21 @@ class VersionBuilder {
  private:
   class Rep;
   std::unique_ptr<Rep> rep_;
+};
+
+// A wrapper of version builder which references the current version in
+// constructor and unref it in the destructor.
+// Both of the constructor and destructor need to be called inside DB Mutex.
+class BaseReferencedVersionBuilder {
+ public:
+  explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd);
+  BaseReferencedVersionBuilder(ColumnFamilyData* cfd, Version* v);
+  ~BaseReferencedVersionBuilder();
+  VersionBuilder* version_builder() const { return version_builder_.get(); }
+
+ private:
+  std::unique_ptr<VersionBuilder> version_builder_;
+  Version* version_;
 };
 
 extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);

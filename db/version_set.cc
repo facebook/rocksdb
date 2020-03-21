@@ -29,6 +29,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
+#include "db/version_edit_handler.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
@@ -1201,28 +1202,6 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
   }
 }
 }  // anonymous namespace
-
-// A wrapper of version builder which references the current version in
-// constructor and unref it in the destructor.
-// Both of the constructor and destructor need to be called inside DB Mutex.
-class BaseReferencedVersionBuilder {
- public:
-  explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd)
-      : version_builder_(new VersionBuilder(
-            cfd->current()->version_set()->file_options(), cfd->table_cache(),
-            cfd->current()->storage_info(), cfd->ioptions()->info_log)),
-        version_(cfd->current()) {
-    version_->Ref();
-  }
-  ~BaseReferencedVersionBuilder() {
-    version_->Unref();
-  }
-  VersionBuilder* version_builder() { return version_builder_.get(); }
-
- private:
-  std::unique_ptr<VersionBuilder> version_builder_;
-  Version* version_;
-};
 
 Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                                    const FileMetaData* file_meta,
@@ -3570,6 +3549,33 @@ VersionSet::~VersionSet() {
   obsolete_files_.clear();
 }
 
+void VersionSet::Reset() {
+  if (column_family_set_) {
+    Cache* table_cache = column_family_set_->get_table_cache();
+    WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
+    WriteController* wc = column_family_set_->write_controller();
+    column_family_set_.reset(new ColumnFamilySet(dbname_, db_options_,
+                                                 file_options_, table_cache,
+                                                 wbm, wc, block_cache_tracer_));
+  }
+  db_id_.clear();
+  next_file_number_.store(2);
+  min_log_number_to_keep_2pc_.store(0);
+  manifest_file_number_ = 0;
+  options_file_number_ = 0;
+  pending_manifest_file_number_ = 0;
+  last_sequence_.store(0);
+  last_allocated_sequence_.store(0);
+  last_published_sequence_.store(0);
+  prev_log_number_ = 0;
+  descriptor_log_.reset();
+  current_version_number_ = 0;
+  manifest_writers_.clear();
+  manifest_file_size_ = 0;
+  obsolete_files_.clear();
+  obsolete_manifests_.clear();
+}
+
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
   // compute new compaction score
@@ -4452,8 +4458,6 @@ Status VersionSet::Recover(
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    Slice record;
-    std::string scratch;
     AtomicGroupReadBuffer read_buffer;
     s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
                        column_families_not_found, builders,
@@ -4576,6 +4580,159 @@ Status VersionSet::Recover(
                      "), log number is %" PRIu64 "\n",
                      cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
+  }
+
+  return s;
+}
+
+namespace {
+class ManifestPicker {
+ public:
+  explicit ManifestPicker(const std::string& dbname, FileSystem* fs);
+  void SeekToFirstManifest();
+  // REQUIRES Valid() == true
+  std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
+  bool Valid() const { return manifest_file_iter_ != manifest_files_.end(); }
+  const Status& status() const { return status_; }
+
+ private:
+  const std::string& dbname_;
+  FileSystem* const fs_;
+  // MANIFEST file names(s)
+  std::vector<std::string> manifest_files_;
+  std::vector<std::string>::const_iterator manifest_file_iter_;
+  Status status_;
+};
+
+ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs)
+    : dbname_(dbname), fs_(fs) {}
+
+void ManifestPicker::SeekToFirstManifest() {
+  assert(fs_ != nullptr);
+  std::vector<std::string> children;
+  Status s = fs_->GetChildren(dbname_, IOOptions(), &children, /*dbg=*/nullptr);
+  if (!s.ok()) {
+    status_ = s;
+    return;
+  }
+  for (const auto& fname : children) {
+    uint64_t file_num = 0;
+    FileType file_type;
+    bool parse_ok = ParseFileName(fname, &file_num, &file_type);
+    if (parse_ok && file_type == kDescriptorFile) {
+      manifest_files_.push_back(fname);
+    }
+  }
+  std::sort(manifest_files_.begin(), manifest_files_.end(),
+            [](const std::string& lhs, const std::string& rhs) {
+              uint64_t num1 = 0;
+              uint64_t num2 = 0;
+              FileType type1;
+              FileType type2;
+              bool parse_ok1 = ParseFileName(lhs, &num1, &type1);
+              bool parse_ok2 = ParseFileName(rhs, &num2, &type2);
+#ifndef NDEBUG
+              assert(parse_ok1);
+              assert(parse_ok2);
+#else
+              (void)parse_ok1;
+              (void)parse_ok2;
+#endif
+              return num1 > num2;
+            });
+  manifest_file_iter_ = manifest_files_.begin();
+}
+
+std::string ManifestPicker::GetNextManifest(uint64_t* number,
+                                            std::string* file_name) {
+  assert(status_.ok());
+  assert(Valid());
+  std::string ret;
+  if (manifest_file_iter_ != manifest_files_.end()) {
+    ret.assign(dbname_);
+    if (ret.back() != kFilePathSeparator) {
+      ret.push_back(kFilePathSeparator);
+    }
+    ret.append(*manifest_file_iter_);
+    if (number) {
+      FileType type;
+      bool parse = ParseFileName(*manifest_file_iter_, number, &type);
+      assert(type == kDescriptorFile);
+#ifndef NDEBUG
+      assert(parse);
+#else
+      (void)parse;
+#endif
+    }
+    if (file_name) {
+      *file_name = *manifest_file_iter_;
+    }
+    ++manifest_file_iter_;
+  }
+  return ret;
+}
+}  // namespace
+
+Status VersionSet::TryRecover(
+    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
+    std::string* db_id, bool* has_missing_table_file) {
+  ManifestPicker manifest_picker(dbname_, fs_);
+  manifest_picker.SeekToFirstManifest();
+  Status s = manifest_picker.status();
+  if (!s.ok()) {
+    return s;
+  }
+  if (!manifest_picker.Valid()) {
+    return Status::Corruption("Cannot locate MANIFEST file in " + dbname_);
+  }
+  std::string manifest_path =
+      manifest_picker.GetNextManifest(&manifest_file_number_, nullptr);
+  while (!manifest_path.empty()) {
+    s = TryRecoverFromOneManifest(manifest_path, column_families, read_only,
+                                  db_id, has_missing_table_file);
+    if (s.ok() || !manifest_picker.Valid()) {
+      break;
+    }
+    Reset();
+    manifest_path =
+        manifest_picker.GetNextManifest(&manifest_file_number_, nullptr);
+  }
+  return s;
+}
+
+Status VersionSet::TryRecoverFromOneManifest(
+    const std::string& manifest_path,
+    const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
+    std::string* db_id, bool* has_missing_table_file) {
+  ROCKS_LOG_INFO(db_options_->info_log, "Trying to recover from manifest: %s\n",
+                 manifest_path.c_str());
+  std::unique_ptr<SequentialFileReader> manifest_file_reader;
+  Status s;
+  {
+    std::unique_ptr<FSSequentialFile> manifest_file;
+    s = fs_->NewSequentialFile(manifest_path,
+                               fs_->OptimizeForManifestRead(file_options_),
+                               &manifest_file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+    manifest_file_reader.reset(
+        new SequentialFileReader(std::move(manifest_file), manifest_path,
+                                 db_options_->log_readahead_size));
+  }
+
+  VersionSet::LogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
+                     /*checksum=*/true, /*log_num=*/0);
+  {
+    VersionEditHandlerPointInTime handler_pit(read_only, column_families,
+                                              const_cast<VersionSet*>(this));
+
+    s = handler_pit.Iterate(reader, db_id);
+
+    assert(nullptr != has_missing_table_file);
+    *has_missing_table_file = handler_pit.HasMissingFiles();
   }
 
   return s;
@@ -5518,7 +5675,7 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
 }
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
-    const ColumnFamilyOptions& cf_options, VersionEdit* edit) {
+    const ColumnFamilyOptions& cf_options, const VersionEdit* edit) {
   assert(edit->is_column_family_add_);
 
   MutableCFOptions dummy_cf_options;
@@ -5571,6 +5728,18 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
     }
   }
   return total_files_size;
+}
+
+Status VersionSet::VerifyFileMetadata(const std::string& fpath,
+                                      const FileMetaData& meta) const {
+  uint64_t fsize = 0;
+  Status status = fs_->GetFileSize(fpath, IOOptions(), &fsize, nullptr);
+  if (status.ok()) {
+    if (fsize != meta.fd.GetFileSize()) {
+      status = Status::Corruption("File size mismatch: " + fpath);
+    }
+  }
+  return status;
 }
 
 ReactiveVersionSet::ReactiveVersionSet(const std::string& dbname,

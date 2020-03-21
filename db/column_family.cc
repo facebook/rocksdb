@@ -1397,8 +1397,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,
                                  const FileOptions& file_options,
                                  Cache* table_cache,
-                                 WriteBufferManager* write_buffer_manager,
-                                 WriteController* write_controller,
+                                 WriteBufferManager* _write_buffer_manager,
+                                 WriteController* _write_controller,
                                  BlockCacheTracer* const block_cache_tracer)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
@@ -1410,8 +1410,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       db_options_(db_options),
       file_options_(file_options),
       table_cache_(table_cache),
-      write_buffer_manager_(write_buffer_manager),
-      write_controller_(write_controller),
+      write_buffer_manager_(_write_buffer_manager),
+      write_controller_(_write_controller),
       block_cache_tracer_(block_cache_tracer) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;

@@ -528,4 +528,26 @@ Status VersionBuilder::LoadTableHandlers(
                                  is_initial_load, prefix_extractor);
 }
 
+BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
+    ColumnFamilyData* cfd)
+    : version_builder_(new VersionBuilder(
+          cfd->current()->version_set()->file_options(), cfd->table_cache(),
+          cfd->current()->storage_info(), cfd->ioptions()->info_log)),
+      version_(cfd->current()) {
+  version_->Ref();
+}
+
+BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
+    ColumnFamilyData* cfd, Version* v)
+    : version_builder_(new VersionBuilder(
+          cfd->current()->version_set()->file_options(), cfd->table_cache(),
+          v->storage_info(), cfd->ioptions()->info_log)),
+      version_(v) {
+  assert(version_ != cfd->current());
+}
+
+BaseReferencedVersionBuilder::~BaseReferencedVersionBuilder() {
+  version_->Unref();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

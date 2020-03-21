@@ -453,4 +453,16 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   return Status::OK();
 }
 
+std::string NormalizePath(const std::string& path) {
+  std::string dst;
+  for (auto c : path) {
+    if (!dst.empty() && c == kFilePathSeparator &&
+        dst.back() == kFilePathSeparator) {
+      continue;
+    }
+    dst.push_back(c);
+  }
+  return dst;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

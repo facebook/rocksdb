@@ -1734,6 +1734,158 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
                      keys.data(), values.data(), statuses.data(), true);
 }
 
+TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    for (size_t i = 0; i != 10000; ++i) {
+      std::string key_str = Key(static_cast<int>(i));
+      std::string value_str = std::to_string(cf) + "_" + std::to_string(i);
+
+      ASSERT_OK(Put(static_cast<int>(cf), key_str, value_str));
+      if (0 == (i % 1000)) {
+        ASSERT_OK(Flush(static_cast<int>(cf)));
+      }
+    }
+  }
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+  }
+  Close();
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    for (int i = 0; i != 10000; ++i) {
+      std::string key_str = Key(static_cast<int>(i));
+      std::string expected_value_str =
+          std::to_string(cf) + "_" + std::to_string(i);
+      ASSERT_EQ(expected_value_str, Get(static_cast<int>(cf), key_str));
+    }
+  }
+}
+
+namespace {
+class TableFileListener : public EventListener {
+ public:
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    InstrumentedMutexLock lock(&mutex_);
+    cf_to_paths_[info.cf_name].push_back(info.file_path);
+  }
+  std::vector<std::string>& GetFiles(const std::string& cf_name) {
+    InstrumentedMutexLock lock(&mutex_);
+    return cf_to_paths_[cf_name];
+  }
+
+ private:
+  InstrumentedMutex mutex_;
+  std::unordered_map<std::string, std::vector<std::string>> cf_to_paths_;
+};
+}  // namespace
+
+TEST_F(DBBasicTest, RecoverWithMissingFiles) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  TableFileListener* listener = new TableFileListener();
+  // Disable auto compaction to simplify SST file name tracking.
+  options.disable_auto_compactions = true;
+  options.listeners.emplace_back(listener);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  std::vector<std::string> all_cf_names = {kDefaultColumnFamilyName, "pikachu",
+                                           "eevee"};
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "0_value"));
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+    ASSERT_OK(Put(static_cast<int>(cf), "b", "0_value"));
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+    ASSERT_OK(Put(static_cast<int>(cf), "c", "0_value"));
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+  }
+
+  // Delete files
+  for (size_t i = 0; i < all_cf_names.size(); ++i) {
+    std::vector<std::string>& files = listener->GetFiles(all_cf_names[i]);
+    ASSERT_EQ(3, files.size());
+    for (int j = static_cast<int>(files.size() - 1); j >= static_cast<int>(i);
+         --j) {
+      ASSERT_OK(env_->DeleteFile(files[j]));
+    }
+  }
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies(all_cf_names, options);
+  // Verify data
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[0]));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    iter.reset(db_->NewIterator(read_opts, handles_[1]));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", iter->key());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    iter.reset(db_->NewIterator(read_opts, handles_[2]));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", iter->key());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("b", iter->key());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+  }
+}
+
+TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  TableFileListener* listener = new TableFileListener();
+  options.listeners.emplace_back(listener);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<std::string> kAllCfNames = {kDefaultColumnFamilyName, "pikachu"};
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(2, num_cfs);
+  for (int cf = 0; cf < static_cast<int>(kAllCfNames.size()); ++cf) {
+    ASSERT_OK(Put(cf, "a", "0_value"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "b", "0_value"));
+  }
+  // Delete files
+  for (size_t i = 0; i < kAllCfNames.size(); ++i) {
+    std::vector<std::string>& files = listener->GetFiles(kAllCfNames[i]);
+    ASSERT_EQ(1, files.size());
+    for (int j = static_cast<int>(files.size() - 1); j >= static_cast<int>(i);
+         --j) {
+      ASSERT_OK(env_->DeleteFile(files[j]));
+    }
+  }
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies(kAllCfNames, options);
+  // Verify WAL is not applied
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[0]));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  iter.reset(db_->NewIterator(read_opts, handles_[1]));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+}
+
 class DBBasicTestWithParallelIO
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {

@@ -688,6 +688,8 @@ class Version {
   FileSystem* fs_;
   friend class ReactiveVersionSet;
   friend class VersionSet;
+  friend class VersionEditHandler;
+  friend class VersionEditHandlerPointInTime;
 
   const InternalKeyComparator* internal_comparator() const {
     return storage_info_.internal_comparator_;
@@ -876,6 +878,17 @@ class VersionSet {
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only = false, std::string* db_id = nullptr);
 
+  Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                    bool read_only, std::string* db_id,
+                    bool* has_missing_table_file);
+
+  // Try to recover the version set to the most recent consistent state
+  // recorded in the specified manifest.
+  Status TryRecoverFromOneManifest(
+      const std::string& manifest_path,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      bool read_only, std::string* db_id, bool* has_missing_table_file);
+
   // Reads a manifest file and returns a list of column families in
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
@@ -1059,6 +1072,8 @@ class VersionSet {
   struct ManifestWriter;
 
   friend class Version;
+  friend class VersionEditHandler;
+  friend class VersionEditHandlerPointInTime;
   friend class DBImpl;
   friend class DBImplReadOnly;
 
@@ -1068,6 +1083,8 @@ class VersionSet {
       if (this->status->ok()) *this->status = s;
     }
   };
+
+  void Reset();
 
   // Returns approximated offset of a key in a file for a given version.
   uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
@@ -1091,7 +1108,7 @@ class VersionSet {
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
-                                       VersionEdit* edit);
+                                       const VersionEdit* edit);
 
   Status ReadAndRecover(
       log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
@@ -1115,8 +1132,10 @@ class VersionSet {
                                     const VersionEdit& from_edit,
                                     VersionEditParams* version_edit_params);
 
-  std::unique_ptr<ColumnFamilySet> column_family_set_;
+  Status VerifyFileMetadata(const std::string& fpath,
+                            const FileMetaData& meta) const;
 
+  std::unique_ptr<ColumnFamilySet> column_family_set_;
   Env* const env_;
   FileSystem* const fs_;
   const std::string dbname_;

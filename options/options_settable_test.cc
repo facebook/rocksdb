@@ -303,7 +303,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "atomic_flush=false;"
                              "avoid_unnecessary_blocking_io=false;"
                              "log_readahead_size=0;"
-                             "write_dbid_to_manifest=false",
+                             "write_dbid_to_manifest=false;"
+                             "best_efforts_recovery=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

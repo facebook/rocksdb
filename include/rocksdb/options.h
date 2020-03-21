@@ -1130,6 +1130,16 @@ struct DBOptions {
   //
   // Default: nullptr
   std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
+
+  // By default, RocksDB recovery fails if any table file referenced in
+  // MANIFEST are missing after scanning the MANIFEST.
+  // Best-efforts recovery is another recovery mode that
+  // tries to restore the database to the most recent point in time without
+  // missing file.
+  // Currently not compatible with atomic flush. Furthermore, WAL files will
+  // not be used for recovery if best_efforts_recovery is true.
+  // Default: false
+  bool best_efforts_recovery = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
