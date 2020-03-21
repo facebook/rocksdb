@@ -6,6 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#include <iostream>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -1765,6 +1768,10 @@ class DBBasicTestWithParallelIO
       compression_types = GetSupportedCompressions();
       // Not every platform may have compression libraries available, so
       // dynamically pick based on what's available
+      std::cout<<"compression_type size: "<<compression_types.size()<<"\n";
+      for (auto c:compression_types) {
+        std::cout<<CompressionTypeToString(c)<<"\n";
+      }
       if (compression_types.size() == 0 ||
           (compression_types.size() == 1 &&
            compression_types[0] == kNoCompression)) {
