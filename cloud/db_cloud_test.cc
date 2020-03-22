@@ -15,9 +15,10 @@
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "file/filename.h"
 #include "logging/logging.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/options.h"
-#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "test_util/testharness.h"
@@ -68,7 +69,8 @@ class CloudTest : public testing::Test {
                                     options_.info_log, &aenv);
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
-    Status st = aenv_->EmptyBucket(aenv_->GetSrcBucketName(), dbname_);
+    Status st = aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
+        aenv_->GetSrcBucketName(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     aenv_.reset();
 
@@ -106,7 +108,8 @@ class CloudTest : public testing::Test {
       Status st = CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
                                       options_.info_log, &aenv);
       if (st.ok()) {
-        aenv->EmptyBucket(aenv->GetSrcBucketName(), dbname_);
+        aenv->GetCloudEnvOptions().storage_provider->EmptyBucket(
+            aenv->GetSrcBucketName(), dbname_);
         delete aenv;
       }
     }
@@ -254,7 +257,8 @@ class CloudTest : public testing::Test {
     // loop through all the local files and validate
     for (std::string path: localFiles) {
       std::string cpath = aenv_->GetSrcObjectPath() + "/" + path;
-      ASSERT_OK(aenv_->GetObjectSize(aenv_->GetSrcBucketName(), cpath, &cloudSize));
+      ASSERT_OK(aenv_->GetCloudEnvOptions().storage_provider->GetObjectSize(
+          aenv_->GetSrcBucketName(), cpath, &cloudSize));
 
       // find the size of the file on local storage
       std::string lpath = dbname_ + "/" + path;
@@ -522,8 +526,10 @@ TEST_F(CloudTest, TrueClone) {
     // ASSERT_EQ(to_be_deleted.size(), 0);
   }
 
-  aenv_->EmptyBucket(aenv_->GetSrcBucketName(), clone_path1);
-  aenv_->EmptyBucket(aenv_->GetSrcBucketName(), clone_path2);
+  aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
+      aenv_->GetSrcBucketName(), clone_path1);
+  aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
+      aenv_->GetSrcBucketName(), clone_path2);
 }
 
 //
@@ -696,11 +702,14 @@ TEST_F(CloudTest, Savepoint) {
         ((CloudEnvImpl*)cloud_env.get())->RemapFilename(flist[0].name);
     // source path
     std::string spath = cloud_env->GetSrcObjectPath() + "/" + remapped_fname;
-    ASSERT_OK(cloud_env->ExistsObject(cloud_env->GetSrcBucketName(), spath));
+    ASSERT_OK(cloud_env->GetCloudEnvOptions().storage_provider->ExistsObject(
+        cloud_env->GetSrcBucketName(), spath));
 
     // Verify that the destination path does not have any sst files
     std::string dpath = dest_path + "/" + remapped_fname;
-    ASSERT_TRUE(cloud_env->ExistsObject(cloud_env->GetSrcBucketName(), dpath)
+    ASSERT_TRUE(cloud_env->GetCloudEnvOptions()
+                    .storage_provider
+                    ->ExistsObject(cloud_env->GetSrcBucketName(), dpath)
                     .IsNotFound());
 
     // write a new value to the clone
@@ -713,7 +722,8 @@ TEST_F(CloudTest, Savepoint) {
     ASSERT_OK(cloud_db->Savepoint());
 
     // check that the sst file is copied to dest path
-    ASSERT_OK(cloud_env->ExistsObject(cloud_env->GetSrcBucketName(), dpath));
+    ASSERT_OK(cloud_env->GetCloudEnvOptions().storage_provider->ExistsObject(
+        cloud_env->GetSrcBucketName(), dpath));
     ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
   {
@@ -731,7 +741,8 @@ TEST_F(CloudTest, Savepoint) {
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hell", &value));
     ASSERT_TRUE(value.compare("Done") == 0);
   }
-  aenv_->EmptyBucket(aenv_->GetSrcBucketName(), dest_path);
+  aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
+      aenv_->GetSrcBucketName(), dest_path);
 }
 
 TEST_F(CloudTest, Encryption) {
@@ -869,7 +880,8 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   auto firstManifestFile =
     aenv_->GetDestObjectPath() + "/" +
       ((CloudEnvImpl*)aenv_.get())->RemapFilename("MANIFEST-1");
-  EXPECT_OK(aenv_->ExistsObject(aenv_->GetDestBucketName(), firstManifestFile));
+  EXPECT_OK(aenv_->GetCloudEnvOptions().storage_provider->ExistsObject(
+      aenv_->GetDestBucketName(), firstManifestFile));
   // Create two files
   ASSERT_OK(db_->Put(WriteOptions(), "First", "File"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -930,7 +942,9 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // We need to sleep a bit because file deletion happens in a different thread,
   // so it might not be immediately deleted.
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  EXPECT_TRUE(aenv_->ExistsObject(aenv_->GetDestBucketName(), firstManifestFile)
+  EXPECT_TRUE(aenv_->GetCloudEnvOptions()
+                  .storage_provider
+                  ->ExistsObject(aenv_->GetDestBucketName(), firstManifestFile)
                   .IsNotFound());
   CloseDB();
 }
@@ -1244,9 +1258,9 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
   ASSERT_NOK(st);
 
   // Put the MANIFEST file back
-  aws_env->PutObject(dbname_ + "/" + manifest_file_name,
-                     aws_env->GetSrcBucketName(),
-                     aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
+  aws_env->GetCloudEnvOptions().storage_provider->PutObject(
+      dbname_ + "/" + manifest_file_name, aws_env->GetSrcBucketName(),
+      aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
 
   // Try one more time. This time it should succeed.
   clone_db.reset();
@@ -1400,39 +1414,8 @@ TEST_F(CloudTest, CheckpointToCloud) {
   ASSERT_EQ(value, "d");
   CloseDB();
 
-  aenv_->EmptyBucket(checkpoint_bucket.GetBucketName(),
-                     checkpoint_bucket.GetObjectPath());
-}
-
-TEST_F(CloudTest, ConstantSstFileManager) {
-  // This test open the main DB, and flush 2 SST files into disk and cloud.
-  // These 2 SST files are very small in size.
-  // We then open a clone with constant_sst_file_size_in_sst_file_manager =
-  // 1024. The SST File Manager in the clone DB should reports the total
-  // SST file size of 2048 bytes.
-  cloud_env_options_.keep_local_sst_files = true;
-  options_.level0_file_num_compaction_trigger = 100; // never compact
-
-  // Open main DB
-  OpenDB();
-  ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->Put(WriteOptions(), "c", "d"));
-  ASSERT_OK(db_->Flush(FlushOptions()));
-
-  // There should be 2 SST Files now
-  auto files = GetSSTFiles(dbname_);
-  ASSERT_EQ(2, files.size());
-  ASSERT_EQ(2, db_->GetDBOptions().sst_file_manager->GetTotalSize());
-
-  // Clone a DB with constant sized sst files
-  std::unique_ptr<DBCloud> clone_db;
-  std::unique_ptr<CloudEnv> cenv;
-  cloud_env_options_.constant_sst_file_size_in_sst_file_manager = 1024;
-  ASSERT_OK(CloneDB("clone1", "", "", &clone_db, &cenv));
-  ASSERT_EQ(2048, clone_db->GetDBOptions().sst_file_manager->GetTotalSize());
-  clone_db->Close();
-  CloseDB();
+  aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
+      checkpoint_bucket.GetBucketName(), checkpoint_bucket.GetObjectPath());
 }
 
 #ifdef AWS_DO_NOT_RUN

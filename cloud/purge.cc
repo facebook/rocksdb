@@ -2,13 +2,16 @@
 #ifndef ROCKSDB_LITE
 
 #include "cloud/purge.h"
+
 #include <chrono>
 #include <set>
+
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "file/filename.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -129,14 +132,15 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
     std::unique_ptr<SequentialFile> result;
     std::string mpath = iter->second;
 
-    BucketObjectMetadata objects;
-    st = ListObjects(bucket_name_prefix, mpath, &objects);
+    std::vector<std::string> objects;
+    st = cloud_env_options.storage_provider->ListObjects(bucket_name_prefix,
+                                                         mpath, &objects);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] Unable to list objects in bucketprefix %s path_prefix %s. %s",
           bucket_name_prefix.c_str(), mpath.c_str(), st.ToString().c_str());
     }
-    for (auto& o : objects.pathnames) {
+    for (auto& o : objects) {
       all_files.push_back(mpath + "/" + o);
     }
   }
@@ -167,7 +171,8 @@ Status CloudEnvImpl::FindObsoleteDbid(
     for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
       std::unique_ptr<SequentialFile> result;
       std::string path = CloudManifestFile(iter->second);
-      st = ExistsObject(GetDestBucketName(), path);
+      st = GetCloudEnvOptions().storage_provider->ExistsObject(
+          GetDestBucketName(), path);
       // this dbid can be cleaned up
       if (st.IsNotFound()) {
         to_delete_list->push_back(iter->first);
@@ -199,7 +204,8 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
     // download IDENTITY
     std::string cloudfile = iter->second + "/IDENTITY";
     std::string localfile = scratch + "/.rockset_IDENTITY." + random;
-    st = GetObject(bucket_name_prefix, cloudfile, localfile);
+    st = GetCloudEnvOptions().storage_provider->GetObject(bucket_name_prefix,
+                                                          cloudfile, localfile);
     if (!st.ok() && !st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] Unable to download IDENTITY file from "
