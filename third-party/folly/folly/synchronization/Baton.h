@@ -249,7 +249,12 @@ class Baton {
   bool tryWaitSlow(
       const std::chrono::time_point<Clock, Duration>& deadline,
       const WaitOptions& opt) noexcept {
+
+#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
     switch (detail::spin_pause_until(deadline, opt, [=] { return ready(); })) {
+#else
+    switch (detail::spin_pause_until(deadline, opt, [=, this] { return ready(); })) {
+#endif
       case detail::spin_result::success:
         return true;
       case detail::spin_result::timeout:
@@ -259,7 +264,11 @@ class Baton {
     }
 
     if (!MayBlock) {
+#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
       switch (detail::spin_yield_until(deadline, [=] { return ready(); })) {
+#else
+      switch (detail::spin_yield_until(deadline, [=, this] { return ready(); })) {
+#endif
         case detail::spin_result::success:
           return true;
         case detail::spin_result::timeout:
