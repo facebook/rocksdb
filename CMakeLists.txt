@@ -254,6 +254,26 @@ include(CheckCXXSourceCompiles)
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
+
+CHECK_CXX_SOURCE_COMPILES("
+
+struct test {
+  int lambda() {
+    return [=]() { return value_; }();
+  }
+
+  int value_;
+};
+
+int main() {
+  test t;
+  t.lambda();
+}
+" HAVE_IMPLICIT_THIS_LAMBDA_CAPTURE)
+if(HAVE_IMPLICIT_THIS_LAMBDA_CAPTURE)
+  add_definitions(-DROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE)
+endif()
+
 CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>

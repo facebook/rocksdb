@@ -622,7 +622,11 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsolete() {
   const SequenceNumber obsolete_seq = GetLatestSequenceNumber();
 
   MarkUnreferencedBlobFilesObsoleteImpl(
-      [=](const std::shared_ptr<BlobFile>& blob_file) {
+#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
+        [=](const std::shared_ptr<BlobFile>& blob_file) {
+#else
+        [=, this](const std::shared_ptr<BlobFile>& blob_file) {
+#endif
         WriteLock file_lock(&blob_file->mutex_);
         return MarkBlobFileObsoleteIfNeeded(blob_file, obsolete_seq);
       });
@@ -630,7 +634,11 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsolete() {
 
 void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteDuringOpen() {
   MarkUnreferencedBlobFilesObsoleteImpl(
+#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
       [=](const std::shared_ptr<BlobFile>& blob_file) {
+#else
+      [=, this](const std::shared_ptr<BlobFile>& blob_file) {
+#endif
         return MarkBlobFileObsoleteIfNeeded(blob_file, /* obsolete_seq */ 0);
       });
 }
