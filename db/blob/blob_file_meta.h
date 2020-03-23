@@ -8,7 +8,9 @@
 #include "rocksdb/rocksdb_namespace.h"
 
 #include <cassert>
+#include <iosfwd>
 #include <memory>
+#include <string>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -37,6 +39,8 @@ class SharedBlobFileMetaData {
   const std::string& GetChecksumMethod() const { return checksum_method_; }
   const std::string& GetChecksumValue() const { return checksum_value_; }
 
+  std::string DebugString() const;
+
  private:
   uint64_t blob_file_number_;
   uint64_t total_blob_count_;
@@ -44,6 +48,9 @@ class SharedBlobFileMetaData {
   std::string checksum_method_;
   std::string checksum_value_;
 };
+
+std::ostream& operator<<(std::ostream& os,
+                         const SharedBlobFileMetaData& shared_meta);
 
 class BlobFileMetaData {
  public:
@@ -90,10 +97,14 @@ class BlobFileMetaData {
   uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
   uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
+  std::string DebugString() const;
+
  private:
   std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
   uint64_t garbage_blob_count_;
   uint64_t garbage_blob_bytes_;
 };
+
+std::ostream& operator<<(std::ostream& os, const BlobFileMetaData& meta);
 
 }  // namespace ROCKSDB_NAMESPACE

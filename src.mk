@@ -6,6 +6,7 @@ LIB_SOURCES =                                                   \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_garbage.cc                                  \
+  db/blob/blob_file_meta.cc                                     \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \

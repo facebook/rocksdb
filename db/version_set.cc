@@ -3422,11 +3422,9 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
     //   17:123[1 .. 124]['a' .. 'd'](4096)
     r.append("--- level ");
     AppendNumberTo(&r, level);
-
     r.append(" --- version# ");
     AppendNumberTo(&r, version_number_);
-
-    r.append(" --- table files\n");
+    r.append(" ---\n");
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];
     for (size_t i = 0; i < files.size(); i++) {
       r.push_back(' ');
@@ -3455,11 +3453,19 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       }
       r.append("\n");
     }
+  }
 
-    r.append(" --- blob files\n");
-    const auto& blob_files = storage_info_.GetBlobFiles();
-    for (const auto& pair : blob_files) {  // TODO
-      (void)pair;
+  const auto& blob_files = storage_info_.GetBlobFiles();
+  if (!blob_files.empty()) {
+    r.append("--- blob files --- version# ");
+    AppendNumberTo(&r, version_number_);
+    r.append(" ---\n");
+    for (const auto& pair : blob_files) {
+      const auto& blob_file_meta = pair.second;
+      assert(blob_file_meta);
+
+      r.append(blob_file_meta->DebugString());
+      r.push_back('\n');
     }
   }
 
