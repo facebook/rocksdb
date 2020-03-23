@@ -319,6 +319,63 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
+// Consistency check:
+//  * oldest blob file reference points to valid (first file on level, not first
+//  file, also check kInvalidBlobFileNumber)
+//  * garbage count
+// ApplyBlobFileAddition:
+//  * success
+//  * already added (in base vstorage/changed)
+// ApplyBlobFileGarbage:
+//  * success (found in base vstorage/changed)
+//  * not found
+//  * multiple accumulate
+// SaveBlobFilesTo:
+//  * merging logic: only in base, only in changed, updated in changed, one list
+//  shorter cases
+//  * all garbage file does not get saved to new version
+
+TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t total_blob_count = 5678;
+  constexpr uint64_t total_blob_bytes = 999999;
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+
+  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                   checksum_method, checksum_value);
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  const auto& blob_files = new_vstorage.GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  const auto it = blob_files.find(blob_file_number);
+  ASSERT_NE(it, blob_files.end());
+
+  const auto& meta = it->second;
+
+  ASSERT_NE(meta, nullptr);
+  ASSERT_EQ(meta->GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(meta->GetTotalBlobCount(), total_blob_count);
+  ASSERT_EQ(meta->GetTotalBlobBytes(), total_blob_bytes);
+  ASSERT_EQ(meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(meta->GetChecksumValue(), checksum_value);
+}
+
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   const uint32_t kTotalSamples = 20;
   const uint32_t kNumLevels = 5;
