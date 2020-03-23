@@ -1011,6 +1011,8 @@ class FileSystemWrapper : public FileSystem {
   explicit FileSystemWrapper(std::shared_ptr<FileSystem> t) : target_(t) {}
   ~FileSystemWrapper() override {}
 
+  const char* Name() const override { return target_->Name(); }
+
   // Return the target to which this Env forwards all calls
   FileSystem* target() const { return target_.get(); }
 

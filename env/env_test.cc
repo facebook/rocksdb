@@ -2072,6 +2072,24 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                        ::testing::Bool()));
 
+// This test ensures that default Env and those allocated by
+// NewCompositeEnv() all share the same threadpool
+TEST_F(EnvTest, MultipleCompositeEnv) {
+  std::shared_ptr<FaultInjectionTestFS> fs1 =
+    std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::shared_ptr<FaultInjectionTestFS> fs2 =
+    std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::unique_ptr<Env> env1 = NewCompositeEnv(fs1);
+  std::unique_ptr<Env> env2 = NewCompositeEnv(fs2);
+  Env::Default()->SetBackgroundThreads(8, Env::HIGH);
+  Env::Default()->SetBackgroundThreads(16, Env::LOW);
+
+  ASSERT_EQ(env1->GetBackgroundThreads(Env::LOW), 16);
+  ASSERT_EQ(env1->GetBackgroundThreads(Env::HIGH), 8);
+  ASSERT_EQ(env2->GetBackgroundThreads(Env::LOW), 16);
+  ASSERT_EQ(env2->GetBackgroundThreads(Env::HIGH), 8);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
