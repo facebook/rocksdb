@@ -205,6 +205,10 @@ class VersionBuilder::Rep {
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
 
+      if (level_files.empty()) {
+        continue;
+      }
+
       assert(level_files[0]);
       Status s = CheckConsistencyOfOldestBlobFileReference(
           vstorage, level_files[0]->oldest_blob_file_number);
