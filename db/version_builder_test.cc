@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <cstring>
 #include <string>
 #include "db/version_edit.h"
 #include "db/version_set.h"
@@ -374,6 +375,30 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   ASSERT_EQ(meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(meta->GetChecksumValue(), checksum_value);
+}
+
+TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t total_blob_count = 5678;
+  constexpr uint64_t total_blob_bytes = 999999;
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+
+  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                   checksum_method, checksum_value);
+
+  // Attempt to add the same blob file twice.
+  ASSERT_OK(builder.Apply(&edit));
+
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 already added"));
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
