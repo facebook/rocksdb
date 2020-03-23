@@ -370,7 +370,7 @@ class VersionBuilder::Rep {
     return true;
   }
 
-  Status ProcessBlobFileAddition(const BlobFileAddition& blob_file_addition) {
+  Status ApplyBlobFileAddition(const BlobFileAddition& blob_file_addition) {
     const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
 
     auto meta = GetBlobFileMetaData(blob_file_number);
@@ -397,7 +397,7 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
-  Status ProcessBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
+  Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
     const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
 
     auto meta = GetBlobFileMetaData(blob_file_number);
@@ -474,7 +474,7 @@ class VersionBuilder::Rep {
 
     // Add new blob files
     for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
-      s = ProcessBlobFileAddition(blob_file_addition);
+      s = ApplyBlobFileAddition(blob_file_addition);
       if (!s.ok()) {
         return s;
       }
@@ -482,7 +482,7 @@ class VersionBuilder::Rep {
 
     // Increase the amount of garbage for blob files affected by GC
     for (const auto& blob_file_garbage : edit->GetBlobFileGarbages()) {
-      s = ProcessBlobFileGarbage(blob_file_garbage);
+      s = ApplyBlobFileGarbage(blob_file_garbage);
       if (!s.ok()) {
         return s;
       }
