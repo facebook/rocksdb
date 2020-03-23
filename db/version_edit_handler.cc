@@ -86,6 +86,9 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
   if (!s.ok()) {
     status_ = s;
   }
+  TEST_SYNC_POINT_CALLBACK("VersionEditHandler::Iterate:Finish",
+                           &recovered_edits);
+  return s;
 }
 
 Status VersionEditHandler::Initialize() {
@@ -292,6 +295,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     msg.append(" entry in MANIFEST");
     *s = Status::Corruption(msg);
   }
+  // There were some column families in the MANIFEST that weren't specified
+  // in the argument. This is OK in read_only mode
   if (s->ok() && !read_only_ && !column_families_not_found_.empty()) {
     std::string msg;
     for (const auto& cf : column_families_not_found_) {

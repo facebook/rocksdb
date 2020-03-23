@@ -32,6 +32,7 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -552,7 +553,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     std::vector<LiveFileMetaData> metadata;
     dbi->GetLiveFilesMetaData(&metadata);
-    ASSERT_GT(metadata.size(), size_t(0));
+    ASSERT_GT(metadata.size(), 0);
     std::string filename = dbname_ + metadata[0].name;
 
     delete db_;
@@ -568,7 +569,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     } else {  // delete the file
       ASSERT_OK(env_.DeleteFile(filename));
       Status x = TryReopen(&options);
-      ASSERT_TRUE(x.IsPathNotFound());
+      ASSERT_TRUE(x.IsCorruption());
     }
 
     ASSERT_OK(DestroyDB(dbname_, options_));

@@ -24,7 +24,8 @@ typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;
 // To use this class and its subclasses,
 // 1. Create an object of VersionEditHandler or its subclasses.
 //    VersionEditHandler handler(read_only, column_families, version_set,
-//                               track_missing_files, ignore_missing_files);
+//                               track_missing_files,
+//                               no_error_if_table_files_missing);
 // 2. Status s = handler.Iterate(reader, &db_id);
 // 3. Check s and handle possible errors.
 //
@@ -36,7 +37,7 @@ class VersionEditHandler {
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool ignore_missing_files, const std::shared_ptr<IOTracer>& io_tracer);
+      bool ignore_missing_files, bool no_error_if_table_files_missing, const std::shared_ptr<IOTracer>& io_tracer);
 
   virtual ~VersionEditHandler() {}
 
@@ -44,6 +45,10 @@ class VersionEditHandler {
                std::string* db_id);
 
   const Status& status() const { return status_; }
+
+  const VersionEditParams& GetVersionEditParams() const {
+    return version_edit_params_;
+  }
 
   bool HasMissingFiles() const;
 
@@ -87,6 +92,9 @@ class VersionEditHandler {
   AtomicGroupReadBuffer read_buffer_;
   std::unordered_map<uint32_t, VersionBuilderUPtr> builders_;
   std::unordered_map<std::string, ColumnFamilyOptions> name_to_options_;
+  // Keeps track of column families in manifest that were not found in
+  // column families parameters. if those column families are not dropped
+  // by subsequent manifest records, Recover() will return failure status.
   std::unordered_map<uint32_t, std::string> column_families_not_found_;
   VersionEditParams version_edit_params_;
   const bool track_missing_files_;
