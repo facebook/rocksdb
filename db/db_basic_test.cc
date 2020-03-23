@@ -1766,21 +1766,17 @@ class DBBasicTestWithParallelIO
       compression_types = GetSupportedCompressions();
       // Not every platform may have compression libraries available, so
       // dynamically pick based on what's available
-      if (compression_types.size() == 0) {
-        compression_enabled_ = false;
+      CompressionType tmp_type = kNoCompression;
+      for (auto c_type : compression_types) {
+        if (c_type != kNoCompression) {
+          tmp_type = c_type;
+          break;
+        }
+      }
+      if (tmp_type != kNoCompression) {
+        options.compression = tmp_type;
       } else {
-        CompressionType tmp_type = kNoCompression;
-        for (auto c_type:compression_types) {
-          if (c_type != kNoCompression) {
-            tmp_type = c_type;
-            break;
-          }
-        }
-        if (tmp_type != kNoCompression) {
-          options.compression = tmp_type;
-        } else {
-          compression_enabled_ = false;
-        }
+        compression_enabled_ = false;
       }
     }
 #else
@@ -1990,7 +1986,6 @@ class DBBasicTestWithParallelIO
   bool fill_cache_;
 };
 
-// TODO: fails on CircleCI's Windows env
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   std::vector<std::string> key_data(10);
   std::vector<Slice> keys;
