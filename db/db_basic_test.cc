@@ -1772,6 +1772,7 @@ TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 namespace {
 class TableFileListener : public EventListener {
  public:
@@ -1885,6 +1886,7 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
 }
+#endif  // !ROCKSDB_LITE
 
 class DBBasicTestWithParallelIO
     : public DBTestBase,
