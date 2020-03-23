@@ -146,6 +146,51 @@ class VersionBuilder::Rep {
     }
   }
 
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      uint64_t blob_file_number) const {
+    auto changed_it = changed_blob_files_.find(blob_file_number);
+    if (changed_it != changed_blob_files_.end()) {
+      return changed_it->second;
+    }
+
+    assert(base_vstorage_);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+
+    auto base_it = base_blob_files.find(blob_file_number);
+    if (base_it != base_blob_files.end()) {
+      return base_it->second;
+    }
+
+    return std::shared_ptr<BlobFileMetaData>();
+  }
+
+  Status CheckConsistencyOfOldestBlobFileReference(
+      const VersionStorageInfo* vstorage, uint64_t blob_file_number) const {
+    assert(vstorage);
+
+    // TODO: remove this check once we actually start recoding metadata for
+    // blob files in the MANIFEST.
+    if (vstorage->GetBlobFiles().empty()) {
+      return Status::OK();
+    }
+
+    if (blob_file_number == kInvalidBlobFileNumber) {
+      return Status::OK();
+    }
+
+    const auto meta = GetBlobFileMetaData(blob_file_number);
+    if (!meta) {
+      std::ostringstream oss;
+      oss << "Blob file #" << blob_file_number
+          << " is not part of this Version";
+
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    return Status::OK();
+  }
+
   Status CheckConsistency(VersionStorageInfo* vstorage) {
 #ifdef NDEBUG
     if (!vstorage->force_consistency_checks()) {
@@ -154,10 +199,27 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 #endif
-    // make sure the files are sorted correctly
+    // Make sure the files are sorted correctly and that the oldest blob file
+    // reference for each table file points to a valid blob file in this
+    // version.
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
+
+      assert(level_files[0]);
+      Status s = CheckConsistencyOfOldestBlobFileReference(
+          vstorage, level_files[0]->oldest_blob_file_number);
+      if (!s.ok()) {
+        return s;
+      }
+
       for (size_t i = 1; i < level_files.size(); i++) {
+        assert(level_files[i]);
+        s = CheckConsistencyOfOldestBlobFileReference(
+            vstorage, level_files[i]->oldest_blob_file_number);
+        if (!s.ok()) {
+          return s;
+        }
+
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
 #ifndef NDEBUG
@@ -224,9 +286,20 @@ class VersionBuilder::Rep {
       }
     }
 
-    // TODO: make sure that all oldest blob file numbers refer to a valid blob
-    // file in this version and that for each blob file, the amount (count and
-    // bytes) of garbage is less than the total amount
+    const auto& blob_files = vstorage->GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      const auto& blob_file_meta = pair.second;
+      assert(blob_file_meta);
+
+      if (!(blob_file_meta->GetGarbageBlobCount() <
+            blob_file_meta->GetTotalBlobCount())) {
+        std::ostringstream oss;
+        oss << "Blob file #" << blob_file_meta->GetBlobFileNumber()
+            << " consists entirely of garbage";
+
+        return Status::Corruption("VersionBuilder", oss.str());
+      }
+    }
 
     return Status::OK();
   }
@@ -291,25 +364,6 @@ class VersionBuilder::Rep {
       }
     }
     return true;
-  }
-
-  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
-      uint64_t blob_file_number) const {
-    auto changed_it = changed_blob_files_.find(blob_file_number);
-    if (changed_it != changed_blob_files_.end()) {
-      return changed_it->second;
-    }
-
-    assert(base_vstorage_);
-
-    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
-
-    auto base_it = base_blob_files.find(blob_file_number);
-    if (base_it != base_blob_files.end()) {
-      return base_it->second;
-    }
-
-    return std::shared_ptr<BlobFileMetaData>();
   }
 
   Status ProcessBlobFileAddition(const BlobFileAddition& blob_file_addition) {
