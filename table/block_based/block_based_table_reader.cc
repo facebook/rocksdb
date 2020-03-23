@@ -13,7 +13,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <iostream>
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
@@ -810,7 +809,6 @@ Status BlockBasedTable::ReadPropertiesBlock(
       rep_->blocks_maybe_compressed =
           rep_->table_properties->compression_name !=
           CompressionTypeToString(kNoCompression);
-      std::cout<<"table_properties->compression_name: "<<rep_->table_properties->compression_name<<"\n";
       rep_->blocks_definitely_zstd_compressed =
           (rep_->table_properties->compression_name ==
                CompressionTypeToString(kZSTD) ||
@@ -1581,11 +1579,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   size_t prev_len = 0;
   autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_idx_for_block;
   autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_offset_for_block;
-  if (scratch != nullptr) {
-    std::cout<<"read combine is triggered\n";
-  } else {
-    std::cout<<"read combine is NOT triggered\n";
-  }
   for (auto mget_iter = batch->begin(); mget_iter != batch->end();
        ++mget_iter, ++idx_in_batch) {
     const BlockHandle& handle = (*handles)[idx_in_batch];
