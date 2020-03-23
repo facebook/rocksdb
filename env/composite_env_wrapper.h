@@ -325,8 +325,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     std::unique_ptr<FSRandomAccessFile> file;
     Status status;
-    status = file_system_->NewRandomAccessFile(f, FileOptions(options), &file,
-                                                 &dbg);
+    status =
+        file_system_->NewRandomAccessFile(f, FileOptions(options), &file, &dbg);
     if (status.ok()) {
       r->reset(new CompositeRandomAccessFileWrapper(file));
     }
@@ -351,7 +351,7 @@ class CompositeEnvWrapper : public Env {
     Status status;
     std::unique_ptr<FSWritableFile> file;
     status = file_system_->ReopenWritableFile(fname, FileOptions(options),
-                                                &file, &dbg);
+                                              &file, &dbg);
     if (status.ok()) {
       result->reset(new CompositeWritableFileWrapper(file));
     }
@@ -364,8 +364,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     Status status;
     std::unique_ptr<FSWritableFile> file;
-    status = file_system_->ReuseWritableFile(
-        fname, old_fname, FileOptions(options), &file, &dbg);
+    status = file_system_->ReuseWritableFile(fname, old_fname,
+                                             FileOptions(options), &file, &dbg);
     if (status.ok()) {
       r->reset(new CompositeWritableFileWrapper(file));
     }
@@ -377,8 +377,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     std::unique_ptr<FSRandomRWFile> file;
     Status status;
-    status = file_system_->NewRandomRWFile(fname, FileOptions(options), &file,
-                                             &dbg);
+    status =
+        file_system_->NewRandomRWFile(fname, FileOptions(options), &file, &dbg);
     if (status.ok()) {
       result->reset(new CompositeRandomRWFileWrapper(file));
     }
@@ -416,8 +416,7 @@ class CompositeEnvWrapper : public Env {
       const std::string& dir, std::vector<FileAttributes>* result) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return file_system_->GetChildrenFileAttributes(dir, io_opts, result,
-                                                     &dbg);
+    return file_system_->GetChildrenFileAttributes(dir, io_opts, result, &dbg);
   }
   Status DeleteFile(const std::string& f) override {
     IOOptions io_opts;
@@ -455,7 +454,7 @@ class CompositeEnvWrapper : public Env {
     IOOptions io_opts;
     IODebugContext dbg;
     return file_system_->GetFileModificationTime(fname, io_opts, file_mtime,
-                                                   &dbg);
+                                                 &dbg);
   }
 
   Status RenameFile(const std::string& s, const std::string& t) override {
@@ -595,32 +594,28 @@ class CompositeEnvWrapper : public Env {
   }
   EnvOptions OptimizeForManifestRead(
       const EnvOptions& env_options) const override {
-    return file_system_->OptimizeForManifestRead(
-                                FileOptions(env_options));
+    return file_system_->OptimizeForManifestRead(FileOptions(env_options));
   }
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
                                  const DBOptions& db_options) const override {
     return file_system_->OptimizeForLogWrite(FileOptions(env_options),
-                                               db_options);
+                                             db_options);
   }
   EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const override {
-    return file_system_->OptimizeForManifestWrite(
-                                FileOptions(env_options));
+    return file_system_->OptimizeForManifestWrite(FileOptions(env_options));
   }
   EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
       const ImmutableDBOptions& immutable_ops) const override {
     return file_system_->OptimizeForCompactionTableWrite(
-                                FileOptions(env_options),
-                                immutable_ops);
+        FileOptions(env_options), immutable_ops);
   }
   EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const override {
     return file_system_->OptimizeForCompactionTableRead(
-                                FileOptions(env_options),
-                                db_options);
+        FileOptions(env_options), db_options);
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     IOOptions io_opts;

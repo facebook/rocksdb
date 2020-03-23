@@ -1992,9 +1992,9 @@ class EnvFSTestWithParam
     bool fs_default = std::get<2>(GetParam());
 
     env_ = env_non_null ? (env_default ? Env::Default() : nullptr) : nullptr;
-    fs_ = fs_default ? FileSystem::Default() :
-          std::make_shared<FaultInjectionTestFS>(
-              FileSystem::Default());
+    fs_ = fs_default
+              ? FileSystem::Default()
+              : std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
     if (env_non_null && env_default && !fs_default) {
       env_ptr_ = NewCompositeEnv(fs_);
     }
@@ -2063,6 +2063,10 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
   }
 }
 
+// The parameters are as follows -
+// 1. True means Options::env is non-null, false means null
+// 2. True means use Env::Default, false means custom
+// 3. True means use FileSystem::Default, false means custom
 INSTANTIATE_TEST_CASE_P(
     EnvFSTest, EnvFSTestWithParam,
     ::testing::Combine(::testing::Bool(), ::testing::Bool(),

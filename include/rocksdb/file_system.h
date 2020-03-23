@@ -266,7 +266,7 @@ class FileSystem {
                                      const std::string& old_fname,
                                      const FileOptions& file_opts,
                                      std::unique_ptr<FSWritableFile>* result,
-                                     IODebugContext* dbg) = 0;
+                                     IODebugContext* dbg);
 
   // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
