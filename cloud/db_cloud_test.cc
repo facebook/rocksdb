@@ -1247,7 +1247,7 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
   // MANIFEST is not yet uploaded from the durable shard.
   auto aws_env = dynamic_cast<AwsEnv*>(aenv_.get());
   ASSERT_TRUE(aws_env != nullptr);
-  aws_env->TEST_DeletePathInS3(
+  aws_env->GetCloudEnvOptions().storage_provider->DeleteObject(
       aws_env->GetSrcBucketName(),
       aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
 

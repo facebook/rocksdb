@@ -33,6 +33,7 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/ServerSideEncryption.h>
 #include <aws/transfer/TransferManager.h>
+#endif // USE_AWS
 
 #include <cassert>
 #include <cinttypes>
@@ -51,6 +52,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+#ifdef USE_AWS
 class CloudRequestCallbackGuard {
  public:
   CloudRequestCallbackGuard(CloudRequestCallback* callback,
@@ -870,11 +872,9 @@ Status S3StorageProvider::DoPutObject(const std::string& local_file,
       object_path.c_str(), file_size);
   return Status::OK();
 }
-}  // namespace
 
 #endif /* USE_AWS */
 
-namespace rocksdb {
 Status CloudStorageProviderImpl::CreateS3Provider(
     std::shared_ptr<CloudStorageProvider>* provider) {
 #ifndef USE_AWS
