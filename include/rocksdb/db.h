@@ -573,6 +573,10 @@ class DB {
     //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
 
+    //  "rocksdb.vlogringstats" - returns multi-line string containing the number
+    //      of files per ring and total size and fragmentation per ring (MB).
+    static const std::string kVLogRingStats;
+
     //  "rocksdb.num-immutable-mem-table" - returns number of immutable
     //      memtables that have not yet been flushed.
     static const std::string kNumImmutableMemTable;

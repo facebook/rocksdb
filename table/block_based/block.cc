@@ -368,10 +368,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 
   // Here we are conservative and only support a limited set of cases
   ValueType value_type = ExtractValueType(key_.GetKey());
-  if (value_type != ValueType::kTypeValue &&
-      value_type != ValueType::kTypeDeletion &&
-      value_type != ValueType::kTypeSingleDeletion &&
-      value_type != ValueType::kTypeBlobIndex) {
+  if (!IsTypeNotOpaqueForSeek(value_type)) {
     Seek(target);
     return true;
   }
@@ -535,10 +532,7 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
 
       ValueType value_type = ExtractValueType(key_.GetKey());
-      assert(value_type == ValueType::kTypeValue ||
-             value_type == ValueType::kTypeMerge ||
-             value_type == ValueType::kTypeDeletion ||
-             value_type == ValueType::kTypeRangeDeletion);
+      assert(IsTypeIngestible(value_type));
 
       if (key_pinned_) {
         // TODO(tec): Investigate updating the seqno in the loaded block

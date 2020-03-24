@@ -33,10 +33,16 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
                             files_.files + right, key, cmp) - files_.files);
 }
 
-Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
+Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle* column_family_handle,
                             const Slice& key, PinnableSlice* value) {
+  // Even though CompactedDB doesn't support merges, we need a MergeContext to hold the address of the VLog
+  // We could dispense with this at the cost of a segfault if the user turns on indirect in the CompactedDB
+  MergeContext merge_context;
+  // Fill in the VLog field in the merge_context from the column family
+  merge_context.SetCfd(reinterpret_cast<ColumnFamilyHandleImpl*>(column_family_handle)->cfd());
+  MergeContext *amergecontext = &merge_context;
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, key, value, nullptr, nullptr,
+                         GetContext::kNotFound, key, value, nullptr, amergecontext,
                          nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
   files_.files[FindFile(key)].fd.table_reader->Get(options, lkey.internal_key(),
@@ -48,7 +54,7 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
 }
 
 std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
-    const std::vector<ColumnFamilyHandle*>&,
+    const std::vector<ColumnFamilyHandle*>& column_family_handle,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   autovector<TableReader*, 16> reader_list;
   for (const auto& key : keys) {
@@ -63,6 +69,10 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
   }
   std::vector<Status> statuses(keys.size(), Status::NotFound());
   values->resize(keys.size());
+  // Even though CompactedDB doesn't support merges, we need a MergeContext to hold the address of the VLog
+  // We could dispense with this at the cost of a segfault if the user turns on indirect in the CompactedDB
+  MergeContext merge_context;
+  MergeContext *amergecontext = &merge_context;
   int idx = 0;
   for (auto* r : reader_list) {
     if (r != nullptr) {
@@ -70,8 +80,10 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
       std::string& value = (*values)[idx];
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, keys[idx], &pinnable_val,
-                             nullptr, nullptr, nullptr, nullptr);
+                             nullptr, amergecontext, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
+      // Fill in the VLog field in the merge_context from the column family
+      merge_context.SetCfd(reinterpret_cast<ColumnFamilyHandleImpl*>(column_family_handle[idx])->cfd());
       r->Get(options, lkey.internal_key(), &get_context, nullptr);
       value.assign(pinnable_val.data(), pinnable_val.size());
       if (get_context.State() == GetContext::kFound) {
@@ -93,6 +105,11 @@ Status CompactedDBImpl::Init(const Options& options) {
     cfd_ = reinterpret_cast<ColumnFamilyHandleImpl*>(
               DefaultColumnFamily())->cfd();
     cfd_->InstallSuperVersion(&sv_context, &mutex_);
+  }
+  // fill in the rings for each column family
+  if(!OpenVLogs(options).ok()){  //  Init the VLogs for the CFs that were opened
+    s = Status::Corruption(
+        "The VLog files could not be opened");
   }
   mutex_.Unlock();
   sv_context.Clean();

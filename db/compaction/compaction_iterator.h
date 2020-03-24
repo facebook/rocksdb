@@ -18,8 +18,11 @@
 #include "db/snapshot_checker.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
+#include "db/value_log.h"
 
 namespace rocksdb {
+
+class VLogCountingIterator;
 
 // This callback can be used to refresh the snapshot list from the db. It
 // includes logics to exponentially decrease the refresh rate to limit the
@@ -99,6 +102,9 @@ class CompactionIterator {
     virtual bool preserve_deletes() const {
       return compaction_->immutable_cf_options()->preserve_deletes;
     }
+    virtual CompactionReason compaction_reason() {
+      return const_cast<Compaction*>(compaction_)->compaction_reason();
+    }
 
    protected:
     CompactionProxy() = default;
@@ -156,6 +162,8 @@ class CompactionIterator {
   bool Valid() const { return valid_; }
   const Slice& user_key() const { return current_user_key_; }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
+  // the total length of all indirect data referred to, in each ring
+  void RingBytesRefd(std::vector<int64_t>& refbytes);
 
  private:
   // Processes the input stream to find the next output
@@ -192,8 +200,12 @@ class CompactionIterator {
   }
 
   bool IsInEarliestSnapshot(SequenceNumber sequence);
-
-  InternalIterator* input_;
+  // When indirect values are enabled, the compaction input must pass through
+  // a stage that counts all the indirect references in the input stream.
+  // This is how we account for size and frag of the VLogRings
+  // this iterator goes before input_ to count all the VLog references read during compaction
+  std::shared_ptr<VLogCountingIterator> input_;
+  InternalIterator* originput_;   // the iterator we were started with
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
   std::vector<SequenceNumber>* snapshots_;

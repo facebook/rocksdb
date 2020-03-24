@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "db/value_log.h"
 
 namespace rocksdb {
 
@@ -36,6 +37,8 @@ class CompactionFilter {
     kValue,
     kMergeOperand,
     kBlobIndex,  // used internally by BlobDB.
+    // value is an indirect reference and must be resolved before use
+    kValueIndirect,
   };
 
   enum class Decision {
@@ -168,6 +171,42 @@ class CompactionFilter {
       }
       case ValueType::kBlobIndex:
         return Decision::kKeep;
+      case ValueType::kValueIndirect:
+        break;  // will not happen in V2 format
+    }
+    assert(false);
+    return Decision::kKeep;
+  }
+
+  // Because deployed code will not be compatible with the VLog filter
+  // interface, we give it a new version number and call it only by option
+  virtual Decision FilterV3(int level, const Slice& key, ValueType value_type,
+                            const Slice& existing_value, std::string* new_value,
+                            std::string* /*skip_until*/,
+                            std::shared_ptr<VLog> pvlog
+                            // pointer to VLog, if any, for resolving indirect references
+    ) const {
+    Slice resolved_value{existing_value};
+    switch (value_type) {
+      case ValueType::kValueIndirect:
+        // resolve the indirect value, using new_value as a temp
+        if(pvlog)pvlog->VLogGet(existing_value,*new_value);
+        resolved_value = *new_value; // fallthrough
+        // use resolved_value below
+      case ValueType::kValue: {
+        bool value_changed = false;
+        bool rv = Filter(level, key, resolved_value, new_value, &value_changed);
+        if (rv) {
+          return Decision::kRemove;
+        }
+        return value_changed ? Decision::kChangeValue : Decision::kKeep;
+      }
+      case ValueType::kMergeOperand: {
+        bool rv = FilterMergeOperand(level, key, existing_value);
+        return rv ? Decision::kRemove : Decision::kKeep;
+      }
+      default:
+        break;
     }
     assert(false);
     return Decision::kKeep;

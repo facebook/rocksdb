@@ -80,6 +80,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
+      {"allow_trivial_move", "false"},
+      {"vlog_direct_IO", "false"},
       {"compaction_style", "kCompactionStyleLevel"},
       {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},

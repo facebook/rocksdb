@@ -179,7 +179,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, bool* matched,
                            Cleanable* value_pinner) {
   assert(matched);
-  assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
+  // place to read value into.  Persists through this function; the value must
+  // be copied before return
+  std::string resolved_value;
+  assert((state_ != kMerge && !IsTypeMerge(parsed_key.type)) ||
          merge_context_ != nullptr);
   if (ucmp_->CompareWithoutTimestamp(parsed_key.user_key, user_key_) == 0) {
     *matched = true;
@@ -190,6 +193,20 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     appendToReplayLog(replay_log_, parsed_key.type, value);
 
+    // set if the value was indirect, which means we can't pin it
+    bool value_was_indirect = false;
+    // resolve the Get() value before putting it through the merge maze
+    value_was_indirect = IsTypeIndirect(parsed_key.type);
+    if(value_was_indirect){   // remember if this was indirected; if so...
+      if(!(merge_context_->GetVlog()->VLogGet((Slice)value,resolved_value)).ok()) {
+        // error reading from log; will have been logged earlier.  Abort here
+        state_ = kCorrupt;  // indicate failure type
+        return false;  // ask for no more keys
+      }
+      // violates const correctness, but that's better than interface changes  scaf MUST PIN THIS
+      (Slice&)value = Slice(resolved_value);
+    }
+
     if (seq_ != nullptr) {
       // Set the sequence number if it is uninitialized
       if (*seq_ == kMaxSequenceNumber) {
@@ -199,12 +216,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if (IsTypeMemorSSTSingleValue(type) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
+      case kTypeIndirectValue:
       case kTypeValue:
       case kTypeBlobIndex:
         assert(state_ == kNotFound || state_ == kMerge);
@@ -268,11 +286,12 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         }
         return false;
 
+      case kTypeIndirectMerge:
       case kTypeMerge:
         assert(state_ == kNotFound || state_ == kMerge);
         state_ = kMerge;
         // value_pinner is not set from plain_table_reader.cc for example.
-        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
+        if (!value_was_indirect && pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
             value_pinner != nullptr) {
           value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
           merge_context_->PushOperand(value, true /*value_pinned*/);

@@ -650,7 +650,7 @@ static bool SaveValue(void* arg, const char* entry) {
 
     s->seq = seq;
 
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if (IsTypeMemtableSingleValue(type) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }

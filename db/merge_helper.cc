@@ -120,6 +120,19 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
+  // define workareas for resolving merge operands
+  // the VLog for this CF
+  std::shared_ptr<VLog> vlog = iter->GetVlogForIteratorCF();
+  // We resolve the values for the merge in different strings so that they can
+  // be pinned for the merge mill. The storage area is created at the
+  // compaction-iterator level, because a merge routine is allowed
+  // to return one of its operands; thus we might end up returning the buffer
+  // read here to the caller of this routine, and that would fail if the buffers
+  // were in the scope of this routine. We do assume that the caller has copied
+  // any value returned here to a safe area before they call here again, so we
+  // release any buffers read for the previous operation when we start
+  // processing a merge.
+  iter->resolved_indirect_values.clear();  // where the resolved values go
   keys_.clear();
   merge_context_.Clear();
   has_compaction_filter_skip_until_ = false;
@@ -133,11 +146,26 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // original_key_is_iter variable is just caching the information:
   // original_key_is_iter == (iter->key().ToString() == original_key)
   bool original_key_is_iter = true;
-  std::string original_key = iter->key().ToString();
+  Slice origkeyslice = iter->key();  // set the slice form of the original key
   // Important:
   // orig_ikey is backed by original_key if keys_.empty()
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
+#ifdef ROCKSDB_UBSAN_RUN
+  orig_ikey.type=kMaxValue; //Required to suppress maybe-uninitialized warning
+#endif
+  ParseInternalKey(origkeyslice, &orig_ikey);
+  // If the type was changed when the value was resolved, replicate that change
+  // here.  This is a pitiable kludge.  It would be better for the user's merge
+  // to be required to set the type properly, but the tests don't do that, never
+  // mind actual users.  We require that the merge fiter return a direct type
+  // (which may be converted to indirect by the compaction job)
+  if(IsTypeIndirect(orig_ikey.type)){
+    // the types we show to the merge filter are always direct
+    orig_ikey.type = orig_ikey.type==kTypeIndirectMerge ? kTypeMerge : kTypeValue;
+  }
+  // create string rep of (possibly updated) key
+  std::string original_key = *InternalKey(orig_ikey).rep();
   bool succ = ParseInternalKey(original_key, &orig_ikey);
   assert(succ);
   if (!succ) {
@@ -151,10 +179,13 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       return Status::ShutdownInProgress();
     }
 
+    Slice ikeyslice = iter->key();  // set the slice form of the next key
+    std::string ikeystring;  // place to save the modified key, if we modify it
+
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
-    if (!ParseInternalKey(iter->key(), &ikey)) {
+    if (!ParseInternalKey(ikeyslice, &ikey)) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
         assert(!"Corrupted internal key not expected.");
@@ -180,8 +211,31 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     // At this point we are guaranteed that we need to process this key.
 
-    assert(IsValueType(ikey.type));
-    if (ikey.type != kTypeMerge) {
+    assert(IsTypeMemorSST(ikey.type));
+    Slice val = (Slice) iter->value();
+    if(IsTypeIndirect(ikey.type)){
+      // The key specifies an indirect type.  Resolve it
+      // create a new string to hold the resolved value.  We keep all the values
+      // for a single result in separate strings, so that they are all available
+      // for merge.  The string is copied to the persistent name
+      // resolved_indirect_values before it is filled.  resolved_indirect_values
+      // is defined at the compaction-iterator level. The vector holds pointers
+      // to the strings so that resizing the vector doesn't invalidate them
+      // add a new empty string for upcoming read
+      iter->resolved_indirect_values.push_back(std::make_shared<std::string>());
+      // resolve the value in the new string.
+      // turn the reference into a value, in the string
+      vlog->VLogGet(val,*iter->resolved_indirect_values.back());
+      // create a slice for the resolved value
+      val = Slice(*iter->resolved_indirect_values.back());
+      // the types we give to the merge filter are always direct, for backward compatibility
+      ikey.type = ikey.type==kTypeIndirectMerge ? kTypeMerge : kTypeValue;
+      // save string form where it won't be freed till we've used it
+      ikeystring = InternalKey(ikey).Encode().ToString();
+      // keep the Slice form, which is what we refer to below, current
+      ikeyslice = ikeystring;
+    }
+    if (!IsTypeMerge(ikey.type)) {
 
       // hit a put/delete/single delete
       //   => merge the put value or a nullptr with operands_
@@ -200,6 +254,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // (almost) silently dropping the put/delete. That's probably not what we
       // want. Also if we're in compaction and it's a put, it would be nice to
       // run compaction filter on it.
+      const Slice* val_ptr = (IsTypeValueNonBlob(ikey.type)) ? &val : nullptr;
+      /*
       const Slice val = iter->value();
       const Slice* val_ptr;
       if (kTypeValue == ikey.type &&
@@ -210,6 +266,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       } else {
         val_ptr = nullptr;
       }
+      */
       std::string merge_result;
       s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
                          merge_context_.GetOperands(), &merge_result, logger_,
@@ -242,7 +299,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // Keep queuing keys and operands until we either meet a put / delete
       // request or later did a partial merge.
 
-      Slice value_slice = iter->value();
       // add an operand to the list if:
       // 1) it's included in one of the snapshots. in that case we *must* write
       // it out, no matter what compaction filter says
@@ -250,11 +306,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       CompactionFilter::Decision filter =
           ikey.sequence <= latest_snapshot_
               ? CompactionFilter::Decision::kKeep
-              : FilterMerge(orig_ikey.user_key, value_slice);
+              : FilterMerge(orig_ikey.user_key, val);
       if (filter != CompactionFilter::Decision::kRemoveAndSkipUntil &&
           range_del_agg != nullptr &&
           range_del_agg->ShouldDelete(
-              iter->key(), RangeDelPositioningMode::kForwardTraversal)) {
+              ikeyslice, RangeDelPositioningMode::kForwardTraversal)) {
         filter = CompactionFilter::Decision::kRemove;
       }
       if (filter == CompactionFilter::Decision::kKeep ||
@@ -263,7 +319,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           // this is just an optimization that saves us one memcpy
           keys_.push_front(std::move(original_key));
         } else {
-          keys_.push_front(iter->key().ToString());
+          keys_.push_front(ikeyslice.ToString());
         }
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
@@ -272,9 +328,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(
-              value_slice, iter->IsValuePinned() /* operand_pinned */);
+              val, iter->IsValuePinned() /* operand_pinned */);
         } else {  // kChangeValue
-          // Compaction filter asked us to change the operand from value_slice
+          // Compaction filter asked us to change the operand from val
           // to compaction_filter_value_.
           merge_context_.PushOperand(compaction_filter_value_, false);
         }
@@ -315,7 +371,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   if (surely_seen_the_beginning) {
     // do a final merge with nullptr as the existing value and say
     // bye to the merge type (it's now converted to a Put)
-    assert(kTypeMerge == orig_ikey.type);
+    assert(IsTypeMerge(orig_ikey.type));
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
@@ -362,6 +418,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         keys_.erase(keys_.begin(), keys_.end() - 1);
       }
     }
+    // ToDo: return unexecuted merge in its original form
+    // If there is only one merge, return it in its original form (indirect/direct)
   }
 
   return s;

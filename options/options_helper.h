@@ -81,6 +81,8 @@ enum class OptionType {
   kAccessHint,
   kInfoLogLevel,
   kLRUCacheOptions,
+  kVectorInt32,
+  kVectorInt64,
   kEnv,
   kUnknown,
 };

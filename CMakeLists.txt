@@ -537,6 +537,8 @@ set(SOURCES
         db/table_cache.cc
         db/table_properties_collector.cc
         db/transaction_log_impl.cc
+	db/value_log.cc
+	db/value_log_iterator.cc
         db/version_builder.cc
         db/version_edit.cc
         db/version_set.cc
@@ -944,6 +946,7 @@ if(WITH_TESTS)
         db/version_builder_test.cc
         db/version_edit_test.cc
         db/version_set_test.cc
+	db/vlog_files_test.cc
         db/wal_manager_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc

@@ -11,6 +11,8 @@
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
+class ColumnFamilyData;
+class VLog;
 
 const std::vector<Slice> empty_operand_list;
 
@@ -18,8 +20,15 @@ const std::vector<Slice> empty_operand_list;
 // When doing a Get(), DB will create such a class and pass it when
 // issuing Get() operation to memtables and version_set. The operands
 // will be fetched from the context when issuing partial of full merge.
+// For indirect values, we use this operand as a way of passing in the column
+// info so we can get to the VLog
 class MergeContext {
  public:
+  MergeContext(){}
+  // Support for passing the VLog address via the MergeContext
+  MergeContext(ColumnFamilyData *cfd);
+  std::shared_ptr<VLog> GetVlog();
+  void SetCfd(ColumnFamilyData *cfd);
   // Clear all the operands
   void Clear() {
     if (operand_list_) {
@@ -129,6 +138,8 @@ class MergeContext {
   // Copy of operands that are not pinned.
   std::unique_ptr<std::vector<std::unique_ptr<std::string>>> copied_operands_;
   bool operands_reversed_ = true;
+
+  std::shared_ptr<VLog> vlog;  // the value log for this column family
 };
 
 } // namespace rocksdb

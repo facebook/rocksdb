@@ -34,6 +34,7 @@
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
+#include "db/value_log.h"
 
 namespace rocksdb {
 
@@ -118,6 +119,21 @@ void GetIntTblPropCollectorFactory(
   }
 }
 
+Status CheckRingCompressionSupported(const ColumnFamilyOptions& cf_options) {
+  if (!cf_options.ring_compression_style.empty()) {
+    for (size_t ring = 0; ring < cf_options.ring_compression_style.size();
+         ++ring) {
+      if (!CompressionTypeSupported(cf_options.ring_compression_style[ring])) {
+        return Status::InvalidArgument(
+            "Compression type " +
+            CompressionTypeToString(cf_options.ring_compression_style[ring]) +
+            " is not linked with the binary.");
+      }
+    }
+  }
+  return Status::OK();
+}
+
 Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   if (!cf_options.compression_per_level.empty()) {
     for (size_t level = 0; level < cf_options.compression_per_level.size();
@@ -149,7 +165,7 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           "should be nonzero if we're using zstd's dictionary generator.");
     }
   }
-  return Status::OK();
+  return CheckRingCompressionSupported(cf_options);
 }
 
 Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
@@ -335,6 +351,182 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
+  // perform consistency checks on the new options
+  bool vlogring_pass = true;
+  // Verify the elements in vlogring_activation_level are strictly increasing
+  for (size_t i = 0; i < result.vlogring_activation_level.size();
+    ++i) {
+    if (i > 0) {
+      if (result.vlogring_activation_level[i] <= result.vlogring_activation_level[i-1]) {
+        ROCKS_LOG_WARN(db_options.info_log.get(),
+                       "vlogring_activation_level[%" ROCKSDB_PRIszt
+		       "] must be strictly increasing",i);
+        vlogring_pass = false;
+      }
+    }
+  }
+
+  // Verify the first and last elements in vlogring_activation_level are set appropriately
+  for (size_t i = 0; i < result.vlogring_activation_level.size();
+    ++i) {
+    if (i == 0) {
+      if (result.vlogring_activation_level[i] < 0) {
+        ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "vlogring_activation_level[%" ROCKSDB_PRIszt "] must be greater than or equal to 0",i);
+        vlogring_pass = false;
+      }
+    } else if (i == result.vlogring_activation_level.size()-1) {
+      if (result.vlogring_activation_level[i] > result.num_levels) {
+        ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "vlogring_activation_level[%" ROCKSDB_PRIszt "] must be less than or equal to num_levels: %d",i,result.num_levels);
+        vlogring_pass = false;
+      }
+    }
+  }
+
+  if (!vlogring_pass) {
+    //Revert to default settings.
+    result.vlogring_activation_level.clear();
+    result.vlogring_activation_level.emplace_back((int32_t)0);
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                 "INVALID CONFIGURATION: vlogring_activation_level set to default settings");
+  }
+
+  for (size_t i = 0; i < result.fraction_remapped_during_compaction.size();
+    ++i) {
+    if (result.fraction_remapped_during_compaction[i] < 0 || result.fraction_remapped_during_compaction[i] > 100) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "fraction_remapped_during_compaction[%" ROCKSDB_PRIszt "] must be between 0 and 100",i);
+      result.fraction_remapped_during_compaction[i] = 25;
+    }
+  }
+
+  for (size_t i = 0; i < result.fraction_remapped_during_active_recycling.size();
+    ++i) {
+    if (result.fraction_remapped_during_active_recycling[i] < 0 || result.fraction_remapped_during_active_recycling[i] > 100) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "fraction_remapped_during_active_recycling[%" ROCKSDB_PRIszt "] must be between 0 and 100",i);
+      result.fraction_remapped_during_active_recycling[i] = 15;
+    }
+  }
+
+  for (size_t i = 0; i < result.fragmentation_active_recycling_trigger.size();
+    ++i) {
+    if (result.fragmentation_active_recycling_trigger[i] < 0 || result.fragmentation_active_recycling_trigger[i] > 100) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "fragmentation_active_recycling_trigger[%" ROCKSDB_PRIszt "] must be between 0 and 100",i);
+      result.fragmentation_active_recycling_trigger[i] = 25;
+    }
+  }
+
+  for (size_t i = 0; i < result.fragmentation_active_recycling_klaxon.size();
+    ++i) {
+    if (result.fragmentation_active_recycling_klaxon[i] < 0 || result.fragmentation_active_recycling_klaxon[i] > 100) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "fragmentation_active_recycling_klaxon[%" ROCKSDB_PRIszt "] must be between 0 and 100",i);
+      result.fragmentation_active_recycling_klaxon[i] = 50;
+    }
+  }
+
+  if (result.fragmentation_active_recycling_trigger.size() == result.fragmentation_active_recycling_klaxon.size()) {
+    for (size_t i = 0; i < result.fragmentation_active_recycling_trigger.size();
+      ++i) {
+      if (result.fragmentation_active_recycling_trigger[i] > result.fragmentation_active_recycling_klaxon[i]) {
+        ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "fragmentation_active_recycling_klaxon[%" ROCKSDB_PRIszt "] must be greater than or equal to fragmentation_active_recycling_trigger[%" ROCKSDB_PRIszt "]",i,i);
+        result.fragmentation_active_recycling_klaxon[i] = result.fragmentation_active_recycling_trigger[i];
+      }
+    }
+  }
+
+  for (size_t i = 0; i < result.active_recycling_sst_minct.size();
+    ++i) {
+    if (result.active_recycling_sst_minct[i] <= 0) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "active_recycling_sst_minct[%" ROCKSDB_PRIszt "] must be greater than 0",i);
+      result.active_recycling_sst_minct[i] = 5;
+    }
+  }
+
+  for (size_t i = 0; i < result.active_recycling_sst_maxct.size();
+    ++i) {
+    if (result.active_recycling_sst_maxct[i] <= 0) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "active_recycling_sst_maxct[%" ROCKSDB_PRIszt "] must be greater than 0",i);
+      result.active_recycling_sst_maxct[i] = 15;
+    }
+  }
+
+  if (result.active_recycling_sst_minct.size() == result.active_recycling_sst_maxct.size()) {
+    for (size_t i = 0; i < result.active_recycling_sst_maxct.size();
+      ++i) {
+      if (result.active_recycling_sst_maxct[i] < result.active_recycling_sst_minct[i]) {
+        ROCKS_LOG_WARN(db_options.info_log.get(),
+                     "active_recycling_sst_maxct[%" ROCKSDB_PRIszt "] must be greater than or equal to active_recycling_sst_minct[%" ROCKSDB_PRIszt "]",i,i);
+        result.active_recycling_sst_maxct[i] = result.active_recycling_sst_minct[i];
+      }
+    }
+  }
+
+  for (size_t i = 0; i < result.active_recycling_vlogfile_freed_min.size();
+    ++i) {
+    if (result.active_recycling_vlogfile_freed_min[i] < 0) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "active_recycling_vlogfile_freed_min[%" ROCKSDB_PRIszt "] must be greater than 0",i);
+      result.active_recycling_vlogfile_freed_min[i] = 7;
+    }
+  }
+
+  for (size_t i = 0; i < result.compaction_picker_age_importance.size();
+    ++i) {
+    if (result.compaction_picker_age_importance[i] < 0 || result.compaction_picker_age_importance[i] > 100) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "compaction_picker_age_importance[%" ROCKSDB_PRIszt "] must be between 0 and 100",i);
+      result.compaction_picker_age_importance[i] = 100;
+    }
+  }
+
+  for (size_t i = 0; i < result.vlogfile_max_size.size();
+    ++i) {
+    if (result.vlogfile_max_size[i] <= 0) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "vlogfile_max_size[%" ROCKSDB_PRIszt "] must be greater than 0",i);
+      result.vlogfile_max_size[i] = 40 * (1LL << 20);
+    } else if (result.vlogfile_max_size[i] < (100LL << 10)) {
+      ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "vlogfile_max_size[%" ROCKSDB_PRIszt "] is recommended to be greater than to 100KB",i);
+      // obsolete we are content with the warning, since some testcases use short files result.vlogfile_max_size[i] = 40 * (1LL << 20);
+    }
+  }
+
+  // If vlogring_activation_level is larger than any other trocks options
+  // extend those options to be the same length as vlogring_activation_level
+  for (size_t i = 0; i < result.vlogring_activation_level.size(); ++i){
+    if (i >= result.min_indirect_val_size.size())
+      result.min_indirect_val_size.emplace_back(24);
+    if (i >= result.fraction_remapped_during_compaction.size())
+      result.fraction_remapped_during_compaction.emplace_back(25);
+    if (i >= result.fraction_remapped_during_active_recycling.size())
+      result.fraction_remapped_during_active_recycling.emplace_back(15);
+    if (i >= result.fragmentation_active_recycling_trigger.size())
+      result.fragmentation_active_recycling_trigger.emplace_back(25);
+    if (i >= result.fragmentation_active_recycling_klaxon.size())
+      result.fragmentation_active_recycling_klaxon.emplace_back(50);
+    if (i >= result.active_recycling_sst_minct.size())
+      result.active_recycling_sst_minct.emplace_back(5);
+    if (i >= result.active_recycling_sst_maxct.size())
+      result.active_recycling_sst_maxct.emplace_back(15);
+    if (i >= result.active_recycling_vlogfile_freed_min.size())
+      result.active_recycling_vlogfile_freed_min.emplace_back(7);
+    if (i >= result.active_recycling_size_trigger.size())
+      result.active_recycling_size_trigger.emplace_back(1LL<<30);
+    if (i >= result.vlogfile_max_size.size())
+      result.vlogfile_max_size.emplace_back(40 * (1LL << 20));
+    if (i >= result.compaction_picker_age_importance.size())
+      result.compaction_picker_age_importance.emplace_back(100);
+    if (i >= result.ring_compression_style.size())
+      result.ring_compression_style.emplace_back(kZlibCompression);
+  }
   return result;
 }
 
@@ -483,6 +675,9 @@ ColumnFamilyData::ColumnFamilyData(
     } else {
       ROCKS_LOG_INFO(ioptions_.info_log, "\t(skipping printing options)\n");
     }
+    // If the selected table doesn't support indirect values, leave the vlog_ pointer at its initial (nullptr) value
+    // If it supports indirect values, create a vlog
+    if(cf_options.table_factory->supports_indirect_values)vlog_ = std::make_shared<VLog>(this,db_options,env_options);
   }
 
   RecalculateWriteStallConditions(mutable_cf_options_);
@@ -544,6 +739,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
+  if(vlog_)vlog_->cfd_clear();
 }
 
 void ColumnFamilyData::SetDropped() {
@@ -554,6 +750,31 @@ void ColumnFamilyData::SetDropped() {
 
   // remove from column_family_set
   column_family_set_->RemoveColumnFamily(this);
+}
+
+void ColumnFamilyData::CheckForActiveRecycle(std::vector<CompactionInputFiles>& compaction_inputs,  // result: the files to Active Recycle, if any, each on its own 'level'.  If no AR needed, empty.
+     size_t& ringno,    // result: the ring number to be recycled, if any
+     VLogRingRefFileno& lastfileno,    // the last file# in the recycled region
+     const MutableCFOptions& compoptions   // options in effect for this compaction
+     ) {
+  compaction_inputs.clear();  // set to empty, to indicate no AR if we don't find one
+  if(vlog_==nullptr) return;  // If this CF doesn't support VLogs, return 'no AR'
+  // Loop for each ring, starting with the largest:
+  for(size_t i = vlog_->rings().size();i>0;) {
+    --i;
+    // See if this ring needs to be recycled: if it is large enough and its fragmentation is high enough
+    // 'large enough' means bigger than the user-specified limit, and also with more files than the deadband, so that any files we ask to delete will
+    // actually be deleted
+    ;
+    if((vlog_info[i].size<(int64_t)compoptions.active_recycling_size_trigger[i] /* obsolete && compoptions.active_recycling_size_trigger[i]!=armagictestingvalue */)   // VLog not big enough; if size_trigger is the testing value, always allow AR
+       || !vlog_->rings()[i]->NewFilesAreDeletable(compoptions.active_recycling_size_trigger[i])    // not enough VLog files
+       || vlog_info[i].fragfrac<=0.01*compoptions.fragmentation_active_recycling_trigger[i])continue;  // Not enough fragmentation  convert pct to frac
+    // AR found - fetch the files to be recycled and return them
+    compaction_inputs.reserve(compoptions.active_recycling_sst_maxct[i]);  // handle quite a few files at once.  The capacity of the ring tells the max # result SSTs
+    vlog_->rings()[i]->VLogRingFindLaggingSsts(compoptions.active_recycling_vlogfile_freed_min[i],compoptions.active_recycling_sst_minct[i],compaction_inputs,lastfileno);  //  find out what to recycle  min 5 vlog files, min 7 SSTs
+    ringno = i;  // tell the caller which ring to use
+    if(compaction_inputs.size()!=0)break;  // if we found an AR, stop looking
+  }
 }
 
 ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {

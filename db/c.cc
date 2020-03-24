@@ -3602,6 +3602,107 @@ void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level
   }
 }
 
+void rocksdb_options_set_allow_trivial_move(rocksdb_options_t* opt, int allow) {
+  opt->rep.allow_trivial_move = allow;
+}
+void rocksdb_options_set_vlog_direct_IO(rocksdb_options_t* opt, int allow) {
+  opt->rep.vlog_direct_IO = allow;
+}
+void rocksdb_options_set_compaction_score_limit_L0(rocksdb_options_t* opt, double score) {
+  opt->rep.compaction_score_limit_L0 = score;
+}
+void rocksdb_options_set_vlogring_activation_level(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.vlogring_activation_level.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.vlogring_activation_level[i] = values[i];
+  }
+}
+void rocksdb_options_set_min_indirect_val_size(
+    rocksdb_options_t* opt, uint64_t* values, size_t num_levels) {
+  opt->rep.min_indirect_val_size.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.min_indirect_val_size[i] = values[i];
+  }
+}
+void rocksdb_options_set_fraction_remapped_during_compaction(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.fraction_remapped_during_compaction.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.fraction_remapped_during_compaction[i] = values[i];
+  }
+}
+void rocksdb_options_set_fraction_remapped_during_active_recycling(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.fraction_remapped_during_active_recycling.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.fraction_remapped_during_active_recycling[i] = values[i];
+  }
+}
+void rocksdb_options_set_fragmentation_active_recycling_trigger(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.fragmentation_active_recycling_trigger.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.fragmentation_active_recycling_trigger[i] = values[i];
+  }
+}
+void rocksdb_options_set_fragmentation_active_recycling_klaxon(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.fragmentation_active_recycling_klaxon.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.fragmentation_active_recycling_klaxon[i] = values[i];
+  }
+}
+void rocksdb_options_set_active_recycling_sst_minct(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.active_recycling_sst_minct.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.active_recycling_sst_minct[i] = values[i];
+  }
+}
+void rocksdb_options_set_active_recycling_sst_maxct(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.active_recycling_sst_maxct.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.active_recycling_sst_maxct[i] = values[i];
+  }
+}
+void rocksdb_options_set_active_recycling_vlogfile_freed_min(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.active_recycling_vlogfile_freed_min.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.active_recycling_vlogfile_freed_min[i] = values[i];
+  }
+}
+void rocksdb_options_set_active_recycling_size_trigger(
+    rocksdb_options_t* opt, int64_t* values, size_t num_levels) {
+  opt->rep.active_recycling_size_trigger.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.active_recycling_size_trigger[i] = values[i];
+  }
+}
+void rocksdb_options_set_vlogfile_max_size(
+    rocksdb_options_t* opt, uint64_t* values, size_t num_levels) {
+  opt->rep.vlogfile_max_size.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.vlogfile_max_size[i] = values[i];
+  }
+}
+void rocksdb_options_set_compaction_picker_age_importance(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.compaction_picker_age_importance.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.compaction_picker_age_importance[i] = values[i];
+  }
+}
+void rocksdb_options_set_ring_compression_style(
+    rocksdb_options_t* opt, int32_t* values, size_t num_levels) {
+  opt->rep.ring_compression_style.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.ring_compression_style[i] = (CompressionType)values[i];
+  }
+}
+
 int rocksdb_livefiles_count(
   const rocksdb_livefiles_t* lf) {
   return static_cast<int>(lf->rep.size());

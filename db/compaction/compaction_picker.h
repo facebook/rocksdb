@@ -197,9 +197,17 @@ class CompactionPicker {
                                     int* start_level, int* output_level,
                                     CompactionInputFiles* start_level_inputs);
 
-  bool GetOverlappingL0Files(VersionStorageInfo* vstorage,
+  // The return from GetOverlappingL0Files used to be bool:
+  // false for error, true for OK.  Changed now.
+  // return -1=error, 0=OK, 1=OK, change output_level_ to last level
+  int64_t GetOverlappingL0Files(VersionStorageInfo* vstorage,
                              CompactionInputFiles* start_level_inputs,
-                             int output_level, int* parent_index);
+                             int output_level, int* parent_index,
+			     const ImmutableCFOptions *ioptions);
+
+  // return true if this compaction can be redirected to the bottom level
+  bool IsCompactIntoBottomLevel(VersionStorageInfo* vstorage, int output_level,
+                                InternalKey& smallkey, bool isdynamic);
 
   // Register this compaction in the set of running compactions
   void RegisterCompaction(Compaction* c);
@@ -213,6 +221,8 @@ class CompactionPicker {
   std::unordered_set<Compaction*>* compactions_in_progress() {
     return &compactions_in_progress_;
   }
+
+  const InternalKeyComparator *GetComparator() { return icmp_; }
 
  protected:
   const ImmutableCFOptions& ioptions_;

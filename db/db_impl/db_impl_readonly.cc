@@ -43,7 +43,9 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
     }
   }
   SuperVersion* super_version = cfd->GetSuperVersion();
-  MergeContext merge_context;
+  // Get() processing needs access to the VLog for the colmn family.
+  // We provide that through the merge context
+  MergeContext merge_context(cfd);
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);

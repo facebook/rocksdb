@@ -662,6 +662,11 @@ class DBImpl : public DB {
     // other write policies, it must be of size 1.
     std::map<SequenceNumber, BatchInfo> batches_;
 
+    // Number of sub-batched. A new sub-batch is created if we txn attempts to
+    // inserts a duplicate key,seq to memtable. This is currently used in
+    // WritePrparedTxn
+    size_t batch_cnt_;
+
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
                                   WriteBatch* batch, SequenceNumber seq,
                                   size_t batch_cnt, bool unprepared)
@@ -770,6 +775,9 @@ class DBImpl : public DB {
 
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
+
+  // Called after versions have been initialized, to create and populate VLogs
+  Status OpenVLogs(const DBOptions& db_options);
 
   // find stats map from stats_history_ with smallest timestamp in
   // the range of [start_time, end_time)

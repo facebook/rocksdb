@@ -64,8 +64,8 @@ class LevelCompactionBuilder {
   void SetupInitialFiles();
 
   // If the initial files are from L0 level, pick other L0
-  // files if needed.
-  bool SetupOtherL0FilesIfNeeded();
+  // files if needed.Return false if compaction should be aborted
+  int64_t SetupOtherL0FilesIfNeeded();
 
   // Based on initial files, setup other files need to be compacted
   // in this compaction, accordingly.
@@ -110,6 +110,10 @@ class LevelCompactionBuilder {
   CompactionInputFiles output_level_inputs_;
   std::vector<FileMetaData*> grandparents_;
   CompactionReason compaction_reason_ = CompactionReason::kUnknown;
+  // will hold the ring number if Active Recycling called for
+  size_t ringno_;
+  // will hold the file number of the last file in the recycled area
+  VLogRingRefFileno lastfileno_;
 
   const MutableCFOptions& mutable_cf_options_;
   const ImmutableCFOptions& ioptions_;
@@ -296,10 +300,10 @@ void LevelCompactionBuilder::SetupInitialFiles() {
   }
 }
 
-bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
+int64_t LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
   if (start_level_ == 0 && output_level_ != 0) {
     return compaction_picker_->GetOverlappingL0Files(
-        vstorage_, &start_level_inputs_, output_level_, &parent_index_);
+        vstorage_, &start_level_inputs_, output_level_, &parent_index_, &ioptions_);
   }
   return true;
 }
@@ -342,6 +346,56 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
 }
 
 Compaction* LevelCompactionBuilder::PickCompaction() {
+  // See if we need to perform an Active Recycling pass becase the fragmentation
+  // is getting too high
+  compaction_inputs_.clear();  // start with an empty set of files
+  // get pointer to CF.  Can be null only during tests that don't open a CF
+  ColumnFamilyData *cfd =  vstorage_->GetCfd();
+#ifndef NDEBUG
+    // notify the test code of the compaction-picking info
+    // inlevel, picked min ref0, min ref0 in lower levels, vlog file min,
+    // vlog file max, output level
+    size_t pickerinfo[8]={0,(size_t)~0,(size_t)~0,0,0,0,0};
+    pickerinfo[6]=(size_t)cfd;  // 6 cf
+#endif
+  if (cfd!=nullptr) {
+    // see if we select a set of files to recycle
+    cfd->CheckForActiveRecycle(compaction_inputs_, ringno_,
+                               lastfileno_, mutable_cf_options_);
+  }
+  if(!compaction_inputs_.empty()) {
+    // Active Recycling needed.  Indicate that as the reason for compaction.
+    // This reason code controls processing during the compaction
+    compaction_reason_ = CompactionReason::kActiveRecycling;
+    // Active Recycling processes SSTs in-place without changing any keys
+    // - it just remaps old VLog blocks.  We can skip most of the checking and
+    // stat-gathering for a full compaction.  Right here we will calculate the
+    // stats we need: start_level_ and output_level_.
+    // start_level_ is needed because it is used later to decide whether to
+    // suppress other level-0 compaction.  output_level_ is used only for things
+    // like figuring the path to use for the output files; we just set it to the
+    // largest level we find
+    // scaf problem: this sets compression for all levels to be the same as for
+    // the max level
+    start_level_ = output_level_ = compaction_inputs_[0].level;
+    for(size_t i = 1;i<compaction_inputs_.size();++i){
+      if (start_level_>compaction_inputs_[i].level) {
+	// find minimum level touched
+        start_level_ = compaction_inputs_[i].level;
+      }
+      if (output_level_<compaction_inputs_[i].level) {
+	// find maximum level touched
+        output_level_ = compaction_inputs_[i].level;
+      }
+    }
+#ifndef NDEBUG
+    // notify the test code of the compaction-picking info
+    pickerinfo[7]=1;  // 7 set to 1 if AR
+    pickerinfo[2] = compaction_inputs_.size();  // 2 # AR inputs
+#endif
+  } else {
+    // Not Active Recycling.  Do a normal compaction,  pick files, etc.
+
   // Pick up the first file to start compaction. It may have been extended
   // to a clean cut.
   SetupInitialFiles();
@@ -350,10 +404,25 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
   }
   assert(start_level_ >= 0 && output_level_ >= 0);
 
+#ifndef NDEBUG
+     // find the smallest ref0 in the input files (our expected ref0)
+    for(auto startfile : start_level_inputs_.files) {
+      ParsedFnameRing avgparent(startfile->avgparentfileno);
+      if (avgparent.fileno()!=0) {
+	// scaf wired to ring 0
+        pickerinfo[1]=std::min(pickerinfo[1],avgparent.fileno());
+      }
+    }
+#endif
+
   // If it is a L0 -> base level compaction, we need to set up other L0
   // files if needed.
-  if (!SetupOtherL0FilesIfNeeded()) {
+  int64_t l0status=SetupOtherL0FilesIfNeeded();
+  if (l0status<0) { //error
     return nullptr;
+  } else if (l0status>0) {
+    // if sequential-key load, load into last level
+    output_level_ = vstorage_->num_levels()-1;
   }
 
   // Pick files in the output level and expand more files in the start level
@@ -361,6 +430,33 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
   if (!SetupOtherInputsIfNeeded()) {
     return nullptr;
   }
+  // find the smallest ref0 among the descendants of the start level
+  for(auto cfiles : compaction_inputs_) {
+    if(cfiles.level>start_level_) {
+      // find the smallest ref0 in the input files (our expected ref0)
+      for(auto cfile : cfiles.files) {
+        if(cfile->indirect_ref_0.size() && cfile->indirect_ref_0[0]!=0) {
+	  // scaf wired to ring 0
+          pickerinfo[2]=std::min(pickerinfo[2],cfile->indirect_ref_0[0]);
+        }
+      }
+    }
+  }
+  } // if(!compaction_inputs_.empty())...else
+
+  // 0 start level
+  pickerinfo[0]=start_level_;
+  // 5 output level
+  pickerinfo[5]=output_level_;
+  // 3 4 get the current file limits from the VLog
+  if (cfd!=nullptr && cfd->vlog()!=nullptr &&
+     cfd->vlog()->rings().size()!=0) {
+    pickerinfo[3] = cfd->vlog()->rings()[0]->ringtail();
+    pickerinfo[4]=cfd->vlog()->rings()[0]->ringhead();
+  }
+  TEST_SYNC_POINT_CALLBACK("LevelCompactionBuilder::PickCompaction",
+                           &pickerinfo);
+
 
   // Form a compaction object containing the files we picked.
   Compaction* c = GetCompaction();
@@ -383,7 +479,9 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                          output_level_, vstorage_->base_level()),
       GetCompressionOptions(ioptions_, vstorage_, output_level_),
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
-      start_level_score_, false /* deletion_compaction */, compaction_reason_);
+      start_level_score_, false /* deletion_compaction */, compaction_reason_,
+      ringno_ , lastfileno_  , start_level_);
+      // parms for Active Recycling, used if compaction_reason_ indicates
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -452,6 +550,117 @@ uint32_t LevelCompactionBuilder::GetPathId(
 }
 
 bool LevelCompactionBuilder::PickFileToCompact() {
+  const std::vector<FileMetaData*>& level_files =
+      vstorage_->LevelFiles(start_level_);   // files at the current level
+
+  // actually this is OK whether you have indirect values or not.  It allows
+  // multiple L0 compactions.  If you keep this, make sure
+  // UpdateFilesByCompactionPri() uses kReverseOrder for L0
+  // If a compaction from L0 is running, usually there is no reason to bother
+  // trying to start another, since the keys usually overlap.
+  // The exception is sequential load, when each new L0 file has keys beyond the
+  // range of all previous L0 files.
+  // We want to detect this case as quickly as possible.  The point is that if a
+  // set of L0 files does not overlap any L0 file currently in compaction,
+  // it is safe to compact the lot.  It could be that the L0 files overlap some
+  // L1 file that overlaps (and thus is part of) a current L0 compaction, but we
+  // will detect that in the usual way, when we look for output-level files that
+  // are in compaction.
+  if (start_level_ == 0 &&
+      !compaction_picker_->level0_compactions_in_progress()->empty()) {
+    // If we are getting behind on a sequential load, the first compaction will
+    // have originally been a single file that was expanded by
+    // GetOverlappingL0Files, throwing in all the L0 files.  That means that for
+    // us to need to start another compaction, there must be at least twice as
+    // many files in L0 as needed to trigger a compaction.  This test will turn
+    // away all normal cases except when we are unable to keep up with Puts.
+    if (level_files.size()<
+        (size_t)(2*mutable_cf_options_.level0_file_num_compaction_trigger)) {
+      TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
+      return false;
+    }
+    // Go through the files for level 0, to find the index of the first file
+    // that is being compacted and the index of the first file NOT being
+    // compacted. We scan through the files from back to front since any files
+    // not in the current compaction will normally have been added at the end
+    // If there is no file not being compacted, return failure.
+    // index to a file being compacted, and one that is not
+    int64_t compactx, noncompactx;
+    for (noncompactx = level_files.size()-1;noncompactx>=0;--noncompactx) {
+      if (!level_files[noncompactx]->being_compacted) break;
+    }
+    // if there can't be enough non-compacting to start a compaction, stop looking
+    if (noncompactx+1<mutable_cf_options_.level0_file_num_compaction_trigger) {
+      TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
+      return false;
+    }
+    for (compactx = 0;compactx<(int64_t)level_files.size();++compactx) {
+      if (level_files[compactx]->being_compacted) break;
+    }
+    if(compactx<(int64_t)level_files.size()){
+      // There is a file being compacted.  We have to make sure the
+      // non-compacting files do not overlap the keys of the compacting files.
+      // We will check only for the ascending-key case, i. e. highest compacting
+      // key less than smallest non-compacting key
+      // It is possible that the L1 files being created by the running
+      // compaction will overlap with the files we select here: that will be
+      // detected later in the usual way
+      // the user's comparator
+      const InternalKeyComparator *icmp = compaction_picker_->GetComparator();
+
+      // To give an early exit, compare the keys for the first 2 files and avoid
+      // further searching if there is overlap
+      // if overlap. we can't process it
+      if (icmp->Compare(level_files[compactx]->largest,
+            level_files[noncompactx]->smallest)>=0) {
+        TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
+	return false;
+      }
+      // No overlap in the first compare.  There's a very good chance that this
+      // is a sequential write.  Compare the rest of the files
+      // Find the smallest key among the noncompacting files, and the largest
+      // key among the compacting
+      // loop sets minx to index of noncompacting file with smallest smallest
+      // key; n iis number of noncompacted files
+      int64_t minx = noncompactx, noncompactn = 1;
+      for(--noncompactx;noncompactx>=0;--noncompactx){
+        if(!level_files[noncompactx]->being_compacted){
+          ++noncompactn;
+          if(icmp->Compare(level_files[noncompactx]->smallest,
+               level_files[minx]->smallest)<0) {
+             minx=noncompactx;
+          }
+        }
+      }
+      // If there aren't enough noncompacted files to start a compaction, abort
+      if (noncompactn<mutable_cf_options_.level0_file_num_compaction_trigger) {
+        TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
+        return false;
+      }
+      // loop sets maxx to index of compacting file with largest largest key
+      int64_t maxx = compactx;
+      for(++compactx;compactx<(int64_t)level_files.size();++compactx){
+        if(level_files[compactx]->being_compacted &&
+           icmp->Compare(level_files[compactx]->largest,
+             level_files[maxx]->largest)>0) {
+          maxx=compactx;
+        }
+      }
+      // abort if there is overlap
+      // if overlap. we can't process it
+      if (icmp->Compare(level_files[maxx]->largest,level_files[minx]->smallest)>=0) {
+        TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
+	return false;
+      }
+    }
+    // no overlap, OK to continue with the compaction picking.  We will pick the
+    // earliest uncompacted file (regardless of
+    // level0_file_num_compaction_trigger) and then expand the selection with
+    // anything that overlaps it.  Eventually we will throw in all the other
+    // files L0 too, known to be safe since they don't overlap any existing
+    // compaction.
+  }
+  /*
   // level 0 files are overlapping. So we cannot pick more
   // than one concurrent compactions at this level. This
   // could be made better by looking at key-ranges that are
@@ -461,6 +670,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
     return false;
   }
+  */
 
   start_level_inputs_.clear();
 
@@ -470,8 +680,6 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   // being compacted
   const std::vector<int>& file_size =
       vstorage_->FilesByCompactionPri(start_level_);
-  const std::vector<FileMetaData*>& level_files =
-      vstorage_->LevelFiles(start_level_);
 
   unsigned int cmp_idx;
   for (cmp_idx = vstorage_->NextCompactionIndex(start_level_);

@@ -28,7 +28,7 @@ namespace rocksdb {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
-    uint64_t next_file_number, SuperVersion* sv) {
+    uint64_t /* next_file_number */, SuperVersion* sv) {
   Status status;
 
   // Read the information of files we are ingesting
@@ -90,7 +90,8 @@ Status ExternalSstFileIngestionJob::Prepare(
   // Copy/Move external files into DB
   std::unordered_set<size_t> ingestion_path_ids;
   for (IngestedFileInfo& f : files_to_ingest_) {
-    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
+    // Get the path ID as if for L0
+    f.fd = FileDescriptor(versions_->NewFileNumber(), 0, f.file_size);
     f.copy_file = false;
     const std::string path_outside_db = f.external_file_path;
     const std::string path_inside_db =
@@ -237,6 +238,8 @@ Status ExternalSstFileIngestionJob::Run() {
     if (!status.ok()) {
       return status;
     }
+    // assign earliest_ref to ingested file
+    // Leave ref0 field empty, indicating no references
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key(),
                   f.largest_internal_key(), f.assigned_seqno, f.assigned_seqno,

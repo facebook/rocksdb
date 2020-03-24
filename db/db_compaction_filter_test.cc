@@ -34,6 +34,9 @@ class DBTestCompactionFilterWithCompactParam
     Destroy(last_options_);
     auto options = CurrentOptions();
     if (option_config_ == kDefault || option_config_ == kUniversalCompaction ||
+        option_config_ == kDefaultInd ||
+        option_config_ == kUniversalCompactionInd ||
+        option_config_ == kUniversalCompactionMultiLevelInd ||
         option_config_ == kUniversalCompactionMultiLevel) {
       options.create_if_missing = true;
     }
@@ -53,7 +56,10 @@ INSTANTIATE_TEST_CASE_P(
                       DBTestBase::OptionConfig::kUniversalCompaction,
                       DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
                       DBTestBase::OptionConfig::kLevelSubcompactions,
-                      DBTestBase::OptionConfig::kUniversalSubcompactions));
+                      DBTestBase::OptionConfig::kUniversalSubcompactions,
+                      DBTestBase::OptionConfig::kDefaultInd,
+                      DBTestBase::OptionConfig::kUniversalCompactionInd,
+                      DBTestBase::OptionConfig::kUniversalCompactionMultiLevelInd));
 #else
 // Run fewer cases in valgrind
 INSTANTIATE_TEST_CASE_P(DBTestCompactionFilterWithCompactOption,
@@ -497,6 +503,7 @@ TEST_P(DBTestCompactionFilterWithCompactParam,
   // push all files to  lower levels
   ASSERT_OK(Flush(1));
   if (option_config_ != kUniversalCompactionMultiLevel &&
+      option_config_ != kUniversalCompactionMultiLevelInd &&
       option_config_ != kUniversalSubcompactions) {
     dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
@@ -516,6 +523,7 @@ TEST_P(DBTestCompactionFilterWithCompactParam,
   // invoke the compaction filter for all 100000 keys.
   ASSERT_OK(Flush(1));
   if (option_config_ != kUniversalCompactionMultiLevel &&
+      option_config_ != kUniversalCompactionMultiLevelInd &&
       option_config_ != kUniversalSubcompactions) {
     dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);

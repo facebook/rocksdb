@@ -324,6 +324,15 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
     }
+    // The SST is about to be deleted.  Remove it from any VLog queues it is
+    // attached to. We have to do this explicitly rather than in a destructor
+    // because FileMetaData blocks get copied & put on queues with no regard for
+    // ownership.  Rather than try to enforce no-copy semantics everywhere we
+    // root out all the delete calls and put this there
+    if(file.metadata->vlog)file.metadata->vlog->VLogSstDelete(*file.metadata);
+    // it is possible that files on the added list were never actually added to
+    // the rings.  Those files will not have a vlog pointer so we won't try to
+    // take them off the rings.
     file.DeleteMetadata();
   }
 
@@ -446,6 +455,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       case kMetaDatabase:
       case kBlobFile:
         keep = true;
+        break;
+      default:
         break;
     }
 

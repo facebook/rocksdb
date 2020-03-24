@@ -81,6 +81,8 @@ enum class CompactionReason : int {
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction
   kFilesMarkedForCompaction,
+  // Old VLog files need removal to allow deletions
+  kActiveRecycling,
   // [Level] Automatic compaction within bottommost level to cleanup duplicate
   // versions of same user key, usually due to a released snapshot.
   kBottommostFiles,

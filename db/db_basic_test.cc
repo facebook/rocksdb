@@ -72,6 +72,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
 
 TEST_F(DBBasicTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
+  const uint64_t kHalfFileSize = kFileSize >> 1;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.write_buffer_size = kFileSize;
@@ -79,31 +80,40 @@ TEST_F(DBBasicTest, CompactedDB) {
   options.max_bytes_for_level_base = 1 << 30;
   options.compression = kNoCompression;
   Reopen(options);
+  bool values_are_indirect = false;  // Set if we are using VLogging
+  values_are_indirect = options.vlogring_activation_level.size()!=0;
   // 1 L0 file, use CompactedDB if max_open_files = -1
-  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
+  ASSERT_OK(Put(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'1'),values_are_indirect)));
   Flush();
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   Status s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
-  ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'1'),values_are_indirect),
+            Get(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect)));
   Close();
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported in compacted db mode.");
-  ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'1'),values_are_indirect),
+            Get(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect)));
   Close();
   Reopen(options);
   // Add more L0 files
-  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
+  ASSERT_OK(Put(KeyInvInd(std::string("bbb"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'2'),values_are_indirect)));
   Flush();
-  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
+  ASSERT_OK(Put(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'a'),values_are_indirect)));
   Flush();
-  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
-  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
+  ASSERT_OK(Put(KeyInvInd(std::string("bbb"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'b'),values_are_indirect)));
+  ASSERT_OK(Put(KeyInvInd(std::string("eee"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'e'),values_are_indirect)));
   Flush();
   Close();
 
@@ -117,10 +127,14 @@ TEST_F(DBBasicTest, CompactedDB) {
   // Full compaction
   Reopen(options);
   // Add more keys
-  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
-  ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
-  ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
-  ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
+  ASSERT_OK(Put(KeyInvInd(std::string("fff"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'f'),values_are_indirect)));
+  ASSERT_OK(Put(KeyInvInd(std::string("hhh"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'h'),values_are_indirect)));
+  ASSERT_OK(Put(KeyInvInd(std::string("iii"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'i'),values_are_indirect)));
+  ASSERT_OK(Put(KeyInvInd(std::string("jjj"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'j'),values_are_indirect)));
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(3, NumTableFilesAtLevel(1));
   Close();
@@ -130,40 +144,59 @@ TEST_F(DBBasicTest, CompactedDB) {
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported in compacted db mode.");
-  ASSERT_EQ("NOT_FOUND", Get("abc"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), Get("aaa"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'b'), Get("bbb"));
-  ASSERT_EQ("NOT_FOUND", Get("ccc"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), Get("eee"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'f'), Get("fff"));
-  ASSERT_EQ("NOT_FOUND", Get("ggg"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'h'), Get("hhh"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
-  ASSERT_EQ("NOT_FOUND", Get("kkk"));
+  ASSERT_EQ("NOT_FOUND",
+            Get(KeyInvInd(std::string("abc"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'a'),values_are_indirect),
+            Get(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'b'),values_are_indirect),
+            Get(KeyInvInd(std::string("bbb"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ("NOT_FOUND",
+            Get(KeyInvInd(std::string("ccc"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'e'),values_are_indirect),
+            Get(KeyInvInd(std::string("eee"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'f'),values_are_indirect),
+            Get(KeyInvInd(std::string("fff"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ("NOT_FOUND",
+            Get(KeyInvInd(std::string("ggg"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'h'),values_are_indirect),
+            Get(KeyInvInd(std::string("hhh"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'i'),values_are_indirect),
+            Get(KeyInvInd(std::string("iii"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'j'),values_are_indirect),
+            Get(KeyInvInd(std::string("jjj"),kHalfFileSize,values_are_indirect)));
+  ASSERT_EQ("NOT_FOUND",
+            Get(KeyInvInd(std::string("kkk"),kHalfFileSize,values_are_indirect)));
 
   // MultiGet
   std::vector<std::string> values;
   std::vector<Status> status_list = dbfull()->MultiGet(
       ReadOptions(),
-      std::vector<Slice>({Slice("aaa"), Slice("ccc"), Slice("eee"),
-                          Slice("ggg"), Slice("iii"), Slice("kkk")}),
+      std::vector<Slice>({Slice(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect)),
+                          Slice(KeyInvInd(std::string("ccc"),kHalfFileSize,values_are_indirect)),
+                          Slice(KeyInvInd(std::string("eee"),kHalfFileSize,values_are_indirect)),
+                          Slice(KeyInvInd(std::string("ggg"),kHalfFileSize,values_are_indirect)),
+                          Slice(KeyInvInd(std::string("iii"),kHalfFileSize,values_are_indirect)),
+                          Slice(KeyInvInd(std::string("kkk"),kHalfFileSize,values_are_indirect))}),
       &values);
   ASSERT_EQ(status_list.size(), static_cast<uint64_t>(6));
   ASSERT_EQ(values.size(), static_cast<uint64_t>(6));
   ASSERT_OK(status_list[0]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), values[0]);
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'a'),values_are_indirect),
+            values[0]);
   ASSERT_TRUE(status_list[1].IsNotFound());
   ASSERT_OK(status_list[2]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), values[2]);
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'e'),values_are_indirect),
+            values[2]);
   ASSERT_TRUE(status_list[3].IsNotFound());
   ASSERT_OK(status_list[4]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), values[4]);
+  ASSERT_EQ(ValueInvInd(std::string(kHalfFileSize,'i'),values_are_indirect),
+            values[4]);
   ASSERT_TRUE(status_list[5].IsNotFound());
 
   Reopen(options);
   // Add a key
-  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  ASSERT_OK(Put(KeyInvInd(std::string("fff"),kHalfFileSize,values_are_indirect),
+                ValueInvInd(std::string(kHalfFileSize,'f'),values_are_indirect)));
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   s = Put("new", "value");
@@ -174,11 +207,14 @@ TEST_F(DBBasicTest, CompactedDB) {
 TEST_F(DBBasicTest, LevelLimitReopen) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
+  bool values_are_indirect = false;  // Set if we are using VLogging
+  values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   const std::string value(1024 * 1024, ' ');
   int i = 0;
   while (NumTableFilesAtLevel(2, 1) == 0) {
-    ASSERT_OK(Put(1, Key(i++), value));
+    ASSERT_OK(Put(1, KeyInvInd(i++,value.size(),values_are_indirect),
+                  ValueInvInd(value,values_are_indirect)));
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }

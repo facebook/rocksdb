@@ -23,24 +23,27 @@ namespace rocksdb {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeBlobIndex;
+// kValueTypeForSeek must be the highest type that is recognized by IsTypeExtended
+const ValueType kValueTypeForSeek = kTypeIndirectMerge;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 
 uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(t));
+  assert(IsTypeExtended(t));
   return (seq << 8) | t;
 }
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
     case kTypeValue:
+    case kTypeIndirectValue:
       return kEntryPut;
     case kTypeDeletion:
       return kEntryDelete;
     case kTypeSingleDeletion:
       return kEntrySingleDelete;
     case kTypeMerge:
+    case kTypeIndirectMerge:
       return kEntryMerge;
     case kTypeRangeDeletion:
       return kEntryRangeDeletion;
@@ -67,7 +70,7 @@ void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
   *t = static_cast<ValueType>(packed & 0xff);
 
   assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
+  assert(IsTypeExtended(*t));
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {

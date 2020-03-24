@@ -21,6 +21,8 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
+#include "value_log.h"
+#include "value_log_iterator.h"
 
 namespace rocksdb {
 
@@ -82,6 +84,10 @@ extern Status BuildTable(
     TableProperties* table_properties = nullptr, int level = -1,
     const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
-    const uint64_t file_creation_time = 0);
+    const uint64_t file_creation_time = 0,
+    // if we should wsrite values to the VLog, this is the VLog; otherwise nullptr
+    ColumnFamilyData* cfd=nullptr,
+    // vlog info that needs to go to edit and stats
+    VLogEditStats *vlog_flush_info=nullptr);
 
 }  // namespace rocksdb

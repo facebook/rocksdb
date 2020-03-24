@@ -546,6 +546,12 @@ std::string IsFastCrc32Supported() {
   crc##1 = _mm_crc32_u64(crc##1, *(buf##1 + offset)); \
   crc##2 = _mm_crc32_u64(crc##2, *(buf##2 + offset));
 
+#define CRCtripletpp(crc, buf) {                      \
+  crc##0 = _mm_crc32_u64(crc##0, *buf##0++);          \
+  crc##1 = _mm_crc32_u64(crc##1, *buf##1++);          \
+  crc##2 = _mm_crc32_u64(crc##2, *buf##2++);          \
+}
+
 #define CRCduplet(crc, buf, offset)                   \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
   crc##1 = _mm_crc32_u64(crc##1, *(buf##1 + offset));
@@ -553,74 +559,78 @@ std::string IsFastCrc32Supported() {
 #define CRCsinglet(crc, buf, offset)                    \
   crc = _mm_crc32_u64(crc, *(uint64_t*)(buf + offset));
 
+#define CRCsingletpp(crc, buf)                    \
+  crc = _mm_crc32_u64(crc, *buf);
 
-// Numbers taken directly from intel whitepaper.
+// Each pair has 2 polynomials, corresponding to a delay of 2n+3 and n+3 8-byte
+// words. The polynomial for a delay of x 64-bit words is 2^(32+64*x) mod CRC,
+// bit-reflected within the low 33 bits of the 64-bit word
 // clang-format off
 const uint64_t clmul_constants[] = {
-    0x14cd00bd6, 0x105ec76f0, 0x0ba4fc28e, 0x14cd00bd6,
-    0x1d82c63da, 0x0f20c0dfe, 0x09e4addf8, 0x0ba4fc28e,
-    0x039d3b296, 0x1384aa63a, 0x102f9b8a2, 0x1d82c63da,
-    0x14237f5e6, 0x01c291d04, 0x00d3b6092, 0x09e4addf8,
-    0x0c96cfdc0, 0x0740eef02, 0x18266e456, 0x039d3b296,
-    0x0daece73e, 0x0083a6eec, 0x0ab7aff2a, 0x102f9b8a2,
-    0x1248ea574, 0x1c1733996, 0x083348832, 0x14237f5e6,
-    0x12c743124, 0x02ad91c30, 0x0b9e02b86, 0x00d3b6092,
-    0x018b33a4e, 0x06992cea2, 0x1b331e26a, 0x0c96cfdc0,
-    0x17d35ba46, 0x07e908048, 0x1bf2e8b8a, 0x18266e456,
-    0x1a3e0968a, 0x11ed1f9d8, 0x0ce7f39f4, 0x0daece73e,
-    0x061d82e56, 0x0f1d0f55e, 0x0d270f1a2, 0x0ab7aff2a,
-    0x1c3f5f66c, 0x0a87ab8a8, 0x12ed0daac, 0x1248ea574,
-    0x065863b64, 0x08462d800, 0x11eef4f8e, 0x083348832,
-    0x1ee54f54c, 0x071d111a8, 0x0b3e32c28, 0x12c743124,
-    0x0064f7f26, 0x0ffd852c6, 0x0dd7e3b0c, 0x0b9e02b86,
-    0x0f285651c, 0x0dcb17aa4, 0x010746f3c, 0x018b33a4e,
-    0x1c24afea4, 0x0f37c5aee, 0x0271d9844, 0x1b331e26a,
-    0x08e766a0c, 0x06051d5a2, 0x093a5f730, 0x17d35ba46,
-    0x06cb08e5c, 0x11d5ca20e, 0x06b749fb2, 0x1bf2e8b8a,
-    0x1167f94f2, 0x021f3d99c, 0x0cec3662e, 0x1a3e0968a,
-    0x19329634a, 0x08f158014, 0x0e6fc4e6a, 0x0ce7f39f4,
-    0x08227bb8a, 0x1a5e82106, 0x0b0cd4768, 0x061d82e56,
-    0x13c2b89c4, 0x188815ab2, 0x0d7a4825c, 0x0d270f1a2,
-    0x10f5ff2ba, 0x105405f3e, 0x00167d312, 0x1c3f5f66c,
-    0x0f6076544, 0x0e9adf796, 0x026f6a60a, 0x12ed0daac,
-    0x1a2adb74e, 0x096638b34, 0x19d34af3a, 0x065863b64,
-    0x049c3cc9c, 0x1e50585a0, 0x068bce87a, 0x11eef4f8e,
-    0x1524fa6c6, 0x19f1c69dc, 0x16cba8aca, 0x1ee54f54c,
-    0x042d98888, 0x12913343e, 0x1329d9f7e, 0x0b3e32c28,
-    0x1b1c69528, 0x088f25a3a, 0x02178513a, 0x0064f7f26,
-    0x0e0ac139e, 0x04e36f0b0, 0x0170076fa, 0x0dd7e3b0c,
-    0x141a1a2e2, 0x0bd6f81f8, 0x16ad828b4, 0x0f285651c,
-    0x041d17b64, 0x19425cbba, 0x1fae1cc66, 0x010746f3c,
-    0x1a75b4b00, 0x18db37e8a, 0x0f872e54c, 0x1c24afea4,
-    0x01e41e9fc, 0x04c144932, 0x086d8e4d2, 0x0271d9844,
-    0x160f7af7a, 0x052148f02, 0x05bb8f1bc, 0x08e766a0c,
-    0x0a90fd27a, 0x0a3c6f37a, 0x0b3af077a, 0x093a5f730,
-    0x04984d782, 0x1d22c238e, 0x0ca6ef3ac, 0x06cb08e5c,
-    0x0234e0b26, 0x063ded06a, 0x1d88abd4a, 0x06b749fb2,
-    0x04597456a, 0x04d56973c, 0x0e9e28eb4, 0x1167f94f2,
-    0x07b3ff57a, 0x19385bf2e, 0x0c9c8b782, 0x0cec3662e,
-    0x13a9cba9e, 0x0e417f38a, 0x093e106a4, 0x19329634a,
-    0x167001a9c, 0x14e727980, 0x1ddffc5d4, 0x0e6fc4e6a,
-    0x00df04680, 0x0d104b8fc, 0x02342001e, 0x08227bb8a,
-    0x00a2a8d7e, 0x05b397730, 0x168763fa6, 0x0b0cd4768,
-    0x1ed5a407a, 0x0e78eb416, 0x0d2c3ed1a, 0x13c2b89c4,
-    0x0995a5724, 0x1641378f0, 0x19b1afbc4, 0x0d7a4825c,
-    0x109ffedc0, 0x08d96551c, 0x0f2271e60, 0x10f5ff2ba,
-    0x00b0bf8ca, 0x00bf80dd2, 0x123888b7a, 0x00167d312,
-    0x1e888f7dc, 0x18dcddd1c, 0x002ee03b2, 0x0f6076544,
-    0x183e8d8fe, 0x06a45d2b2, 0x133d7a042, 0x026f6a60a,
-    0x116b0f50c, 0x1dd3e10e8, 0x05fabe670, 0x1a2adb74e,
-    0x130004488, 0x0de87806c, 0x000bcf5f6, 0x19d34af3a,
-    0x18f0c7078, 0x014338754, 0x017f27698, 0x049c3cc9c,
-    0x058ca5f00, 0x15e3e77ee, 0x1af900c24, 0x068bce87a,
-    0x0b5cfca28, 0x0dd07448e, 0x0ded288f8, 0x1524fa6c6,
-    0x059f229bc, 0x1d8048348, 0x06d390dec, 0x16cba8aca,
-    0x037170390, 0x0a3e3e02c, 0x06353c1cc, 0x042d98888,
-    0x0c4584f5c, 0x0d73c7bea, 0x1f16a3418, 0x1329d9f7e,
-    0x0531377e2, 0x185137662, 0x1d8d9ca7c, 0x1b1c69528,
-    0x0b25b29f2, 0x18a08b5bc, 0x19fb2a8b0, 0x02178513a,
-    0x1a08fe6ac, 0x1da758ae0, 0x045cddf4e, 0x0e0ac139e,
-    0x1a91647f2, 0x169cf9eb0, 0x1a0f717c4, 0x0170076fa,
+     0x0f20c0dfe, 0x0f20c0dfe, 0x1384aa63a, 0x0ba4fc28e,
+     0x01c291d04, 0x1384aa63a, 0x0740eef02, 0x1d82c63da,
+     0x0083a6eec, 0x01c291d04, 0x1c1733996, 0x09e4addf8,
+     0x02ad91c30, 0x0740eef02, 0x06992cea2, 0x039d3b296,
+     0x07e908048, 0x0083a6eec, 0x11ed1f9d8, 0x102f9b8a2,
+     0x0f1d0f55e, 0x1c1733996, 0x0a87ab8a8, 0x14237f5e6,
+     0x08462d800, 0x02ad91c30, 0x071d111a8, 0x00d3b6092,
+     0x0ffd852c6, 0x06992cea2, 0x0dcb17aa4, 0x0c96cfdc0,
+     0x0f37c5aee, 0x07e908048, 0x06051d5a2, 0x18266e456,
+     0x11d5ca20e, 0x11ed1f9d8, 0x021f3d99c, 0x0daece73e,
+     0x08f158014, 0x0f1d0f55e, 0x1a5e82106, 0x0ab7aff2a,
+     0x188815ab2, 0x0a87ab8a8, 0x105405f3e, 0x1248ea574,
+     0x0e9adf796, 0x08462d800, 0x096638b34, 0x083348832,
+     0x1e50585a0, 0x071d111a8, 0x19f1c69dc, 0x12c743124,
+     0x12913343e, 0x0ffd852c6, 0x088f25a3a, 0x0b9e02b86,
+     0x04e36f0b0, 0x0dcb17aa4, 0x0bd6f81f8, 0x018b33a4e,
+     0x19425cbba, 0x0f37c5aee, 0x18db37e8a, 0x1b331e26a,
+     0x04c144932, 0x06051d5a2, 0x052148f02, 0x17d35ba46,
+     0x0a3c6f37a, 0x11d5ca20e, 0x1d22c238e, 0x1bf2e8b8a,
+     0x063ded06a, 0x021f3d99c, 0x04d56973c, 0x1a3e0968a,
+     0x19385bf2e, 0x08f158014, 0x0e417f38a, 0x0ce7f39f4,
+     0x14e727980, 0x1a5e82106, 0x0d104b8fc, 0x061d82e56,
+     0x05b397730, 0x188815ab2, 0x0e78eb416, 0x0d270f1a2,
+     0x1641378f0, 0x105405f3e, 0x08d96551c, 0x1c3f5f66c,
+     0x00bf80dd2, 0x0e9adf796, 0x18dcddd1c, 0x12ed0daac,
+     0x06a45d2b2, 0x096638b34, 0x1dd3e10e8, 0x065863b64,
+     0x0de87806c, 0x1e50585a0, 0x014338754, 0x11eef4f8e,
+     0x15e3e77ee, 0x19f1c69dc, 0x0dd07448e, 0x1ee54f54c,
+     0x1d8048348, 0x12913343e, 0x0a3e3e02c, 0x0b3e32c28,
+     0x0d73c7bea, 0x088f25a3a, 0x185137662, 0x0064f7f26,
+     0x18a08b5bc, 0x04e36f0b0, 0x1da758ae0, 0x0dd7e3b0c,
+     0x169cf9eb0, 0x0bd6f81f8, 0x0fe314258, 0x0f285651c,
+     0x00d8373a0, 0x19425cbba, 0x019e3635e, 0x010746f3c,
+     0x029f268b4, 0x18db37e8a, 0x01dc0632a, 0x1c24afea4,
+     0x01614f396, 0x04c144932, 0x19bc5e522, 0x0271d9844,
+     0x06bebd73c, 0x052148f02, 0x063ae91e6, 0x08e766a0c,
+     0x0f8c9da7a, 0x0a3c6f37a, 0x191b66f30, 0x093a5f730,
+     0x1eb6e6546, 0x1d22c238e, 0x196946b36, 0x06cb08e5c,
+     0x1c928d748, 0x063ded06a, 0x1a72eaf80, 0x06b749fb2,
+     0x01cad4452, 0x04d56973c, 0x1717e50f0, 0x1167f94f2,
+     0x1c0b3085a, 0x19385bf2e, 0x1a47a55d8, 0x0cec3662e,
+     0x128db71b8, 0x0e417f38a, 0x13c91f250, 0x19329634a,
+     0x079113270, 0x14e727980, 0x1b96d0ef2, 0x0e6fc4e6a,
+     0x18d074af6, 0x0d104b8fc, 0x06e4cb630, 0x08227bb8a,
+     0x071971d5c, 0x05b397730, 0x0f33b8bc6, 0x0b0cd4768,
+     0x09fb3bbc0, 0x0e78eb416, 0x16b1e5dd2, 0x13c2b89c4,
+     0x0ce2df768, 0x1641378f0, 0x1e0d63936, 0x0d7a4825c,
+     0x0be60a91a, 0x08d96551c, 0x118167ce4, 0x10f5ff2ba,
+     0x08ec52396, 0x00bf80dd2, 0x10b9a1de0, 0x00167d312,
+     0x0475846a4, 0x18dcddd1c, 0x0b2a3dfa6, 0x0f6076544,
+     0x0dc1a160c, 0x06a45d2b2, 0x079afdf1c, 0x026f6a60a,
+     0x007ac6e46, 0x1dd3e10e8, 0x1101424a2, 0x1a2adb74e,
+     0x11e00522c, 0x0de87806c, 0x149dabbaa, 0x19d34af3a,
+     0x1e54e58d8, 0x014338754, 0x179c71828, 0x049c3cc9c,
+     0x10313fe0c, 0x15e3e77ee, 0x0f7317cf0, 0x068bce87a,
+     0x1645a92fa, 0x0dd07448e, 0x0de8a97f8, 0x1524fa6c6,
+     0x18d1a62b4, 0x1d8048348, 0x0d4520e9e, 0x16cba8aca,
+     0x109b55d24, 0x0a3e3e02c, 0x13d018c02, 0x042d98888,
+     0x177278a2a, 0x0d73c7bea, 0x1316f4754, 0x1329d9f7e,
+     0x1c67b0ae8, 0x185137662, 0x0dafaea7c, 0x1b1c69528,
+     0x073db4c04, 0x18a08b5bc, 0x072675ce8, 0x02178513a,
+     0x13b2e8972, 0x1da758ae0, 0x1ed2bd6e6, 0x0e0ac139e,
+     0x1caa78c1e, 0x169cf9eb0, 0x16e326c36, 0x0170076fa,
+     0x0ae1175c2, 0x0fe314258, 0x0f7506984, 0x141a1a2e2,
 };
 
 // Compute the crc32c value for buffer smaller than 8
@@ -654,6 +664,11 @@ inline void align_to_8(
 //
 // CombineCRC performs pclmulqdq multiplication of 2 partial CRC's and a well
 // chosen constant and xor's these with the remaining CRC.
+// This compines 3 CRCs that were computed on sequential blocks
+// each of size block_size into one CRC for the combined blocks.  CRC0 is
+// delayed by block_size, then CRC0 and CRC1 are delayed, then CRC2 is XORed in
+// (after one more input word is read and CRCd to it - note this input word is
+// at next2[-1]!)
 //
 inline uint64_t CombineCRC(
     size_t block_size,
@@ -683,12 +698,71 @@ __attribute__((__no_sanitize_undefined__))
 #endif
 #endif
 uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
-  const unsigned char* next = (const unsigned char*)buf;
-  uint64_t count;
+  //const unsigned char* next = (const unsigned char*)buf;
+  //uint64_t count;
+
   uint64_t crc0, crc1, crc2;
   crc0 = crc ^ 0xffffffffu;
 
+  // this is of general value, to save cache space and dispatch instructions
+  // faster
+  // This cache-friendly version by Henry H. Rich, January 2019
 
+  const unsigned char* ubuf = (const unsigned char*)buf;  // $%##!^ type checking
+  // if there is even one 8-byte aligned section, align to 8-byte boundary
+  if((((uintptr_t)ubuf+7)&-8) < (((uintptr_t)ubuf+len)&-8)){
+   uint64_t bytes_to_crc = -(intptr_t)ubuf & 7;  // see how many there are to do
+   align_to_8(bytes_to_crc, crc0, ubuf);  // crc0 and ubuf are updated
+   len -= bytes_to_crc;  // remove the aligned bytes from len too
+  }
+
+  // do all 24-byte triplets.  The triplets each take 1 word from each of 3 blocks, to produce 3 block CRCs in parallel
+  // Calculate #triplets, then loop through them in blocks of at most 128 triplets (that's the max size of our delay table)
+  uint64_t ntriplets = len/24;
+  len -= ntriplets*24;  // remove the length we are about to process
+  int64_t blocksize;  // number of triplets in the current block
+  uint64_t *block0 = (uint64_t *)ubuf;  // starting pointer to the first block
+  for(;ntriplets>0;ntriplets-=(blocksize+1)){
+    // calculate block size and starting block addresses.  We run blocksize+1 triplets
+    // The last triplet is entirely in block2, which is thus one triplet longer than block0 and block1
+    blocksize=((ntriplets-1)&127); uint64_t *block1=block0+blocksize, *block2=block1+blocksize;
+    // The multiplier gives the polynomials that correspond to a delay of blocksize+3 and of 2*blocksize+3
+    // This load will very likely miss in cache, so we start it before the loop
+    const auto multiplier =
+      *(reinterpret_cast<const __m128i*>(clmul_constants) + blocksize);
+    // loop through all the words of the block except the last, accumulating the CRCs
+    crc1 = crc2 = 0;  // init zero checksum for the later blocks.  crc0 has the checksum of previous words
+    for(int64_t i=blocksize; i>0; --i)CRCtripletpp(crc, block);  // run all triplets but the last
+    // Combine the CRCs.  This takes around 9 clocks (2019).  During that time, we squeeze off one more triplet, entirely in block2, while we are
+    // advancing block0 and block1 to match it using polynomial multiplication.  The last of the block2 triplet is in the final combination.
+    // Apply the 2*blocksize+3 polynomial to crc0
+    const auto crc0_xmm = _mm_set_epi64x(0, crc0);
+    const auto res0 = _mm_clmulepi64_si128(crc0_xmm, multiplier, 0x00);
+    // Apply the blocksize+3 polynomial to crc1
+    const auto crc1_xmm = _mm_set_epi64x(0, crc1);
+    CRCsingletpp(crc2,block2++);
+    const auto res1 = _mm_clmulepi64_si128(crc1_xmm, multiplier, 0x10);
+    CRCsingletpp(crc2,block2++);
+    // Combine the (lower parts of the) two, now moved to the same delay as *block2.
+    const auto res = _mm_xor_si128(res0, res1);
+    crc0 = _mm_cvtsi128_si64(res);
+    // res contains crc0^crc1, shifted to the same delay as *block2.  Combine that with *block2
+    crc0 = crc0 ^ *block2++;
+    // crc0/1 are 64 bits long, with the correct value mod the CRC polynomial.
+    // By running them through the CRC instruction we bring them down to 32 bits.
+    // fold *block2, and the two previous blocks, into crc2; move that to the output crc0
+    crc0 = _mm_crc32_u64(crc2, crc0);
+    block0 = block2;  // point block0 to start of next block for loop
+  }
+
+  // crc0 has the CRC, block0 points to the next input (it might not be aligned)
+  // there are at most 2 full qwords left.  process them
+  while(len>=8){CRCsingletpp(crc0, block0++); len-=8;}
+  // append the CRC for any trailing bytes
+  ubuf = (const unsigned char*)block0;  // $%##!^ type checking
+  align_to_8(len, crc0, ubuf);
+
+  /*
   if (len >= 8) {
     // if len > 216 then align and use triplets
     if (len > 216) {
@@ -1213,6 +1287,8 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
     align_to_8(len, crc0, next);
     return (uint32_t)crc0 ^ 0xffffffffu;
   }
+  */
+  return (uint32_t)crc0 ^ 0xffffffffu;
 }
 
 #endif //HAVE_SSE42 && HAVE_PCLMUL

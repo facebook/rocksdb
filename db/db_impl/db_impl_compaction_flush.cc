@@ -1266,11 +1266,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : vstorage->LevelFiles(level)) {
-      edit.DeleteFile(level, f->fd.GetNumber());
+      edit.DeleteFile(level, f);
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->fd.smallest_seqno, f->fd.largest_seqno,
-                   f->marked_for_compaction);
+                   f->marked_for_compaction, f->indirect_ref_0,
+                   f->avgparentfileno);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -2606,7 +2607,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                             compaction_job_stats, job_context->job_id);
 
     for (const auto& f : *c->inputs(0)) {
-      c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+      c->edit()->DeleteFile(c->level(), f);
     }
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
@@ -2645,11 +2646,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
       for (size_t i = 0; i < c->num_input_files(l); i++) {
         FileMetaData* f = c->input(l, i);
-        c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
+        c->edit()->DeleteFile(c->level(l), f);
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->fd.smallest_seqno,
-                           f->fd.largest_seqno, f->marked_for_compaction);
+                           f->fd.largest_seqno, f->marked_for_compaction,
+                           f->indirect_ref_0, f->avgparentfileno);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

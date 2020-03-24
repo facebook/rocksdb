@@ -17,10 +17,12 @@
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
 #include "util/autovector.h"
+#include "db/value_log.h"
 
 namespace rocksdb {
 
 class VersionSet;
+class ColumnFamilyData;
 
 const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 
@@ -116,6 +118,27 @@ struct FileMetaData {
 
   bool marked_for_compaction;  // True if client asked us nicely to compact this
                                // file.
+  // add earliest_ref to FileMetaData
+  // for each ring: filenumber of the oldest value referred to in this SST, or
+  // HIGH-VALUE if no reference
+  std::vector<uint64_t> indirect_ref_0;
+  // value of 0 means 'omitted', i. e. this file was created without a value for
+  // this field
+  // The SSTs are chained off the VLogRings on doubly-linked lists, one
+  // chain-pair per ring.  The SST is chained for as long as it is current,
+  // i. e. part of the current version
+  std::vector<FileMetaData*> ringfwdchain;
+  std::vector<FileMetaData*> ringbwdchain;
+  // The value log for the CF this file is in.  It's a shame to waste 8 bytes,
+  // but it's just too hard to get a pointer to the ColumnFamilyData down to all
+  // the routines that need it
+  std::shared_ptr<VLog> vlog;
+  // The level of this file, needed so that Active Recycling can put the file
+  // back to the same level
+  int level;
+  // average value of indirect_ref_0 for the parents (i. e. higher level) of
+  // this file, 0 if no parents, and the ring it is in (62/2 bits)
+  VLogRingRefFileno avgparentfileno;
 
   FileMetaData()
       : table_reader_handle(nullptr),
@@ -127,7 +150,13 @@ struct FileMetaData {
         refs(0),
         being_compacted(false),
         init_stats_from_file(false),
-        marked_for_compaction(false) {}
+        marked_for_compaction(false),
+       	indirect_ref_0(std::vector<uint64_t>()),  // 0 means 'omitted'
+        ringfwdchain(std::vector<FileMetaData*>()),
+        ringbwdchain(std::vector<FileMetaData*>()),
+        vlog(nullptr),   // vlog is filled in when we add the file to a CF
+        level(-1),
+        avgparentfileno(0) {}
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
@@ -139,6 +168,11 @@ struct FileMetaData {
     fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
     fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
+
+  // After the last kv has been written to the file, install the earliest refs
+  // that were found in the file, one for each ring (0 means no ref)
+  void InstallRef0(int outputlevel, const std::vector<uint64_t> &earliestref,
+                   ColumnFamilyData *cfd);
 
   // Unlike UpdateBoundaries, ranges do not need to be presented in any
   // particular order.
@@ -242,7 +276,9 @@ class VersionEdit {
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno,
-               bool marked_for_compaction) {
+               bool marked_for_compaction,
+	       const std::vector<uint64_t>& indirect_ref_0 = std::vector<uint64_t>(),
+               const uint64_t avgparentfileno = 0) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
@@ -252,6 +288,10 @@ class VersionEdit {
     f.fd.smallest_seqno = smallest_seqno;
     f.fd.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
+    // older code doesn't know about indirect_ref; use 'omitted' (0) then
+    f.indirect_ref_0=indirect_ref_0;  // set the earliest refs, if any
+    f.level = level;  // save level # in the metadata so VLogRing can get to it
+    f.avgparentfileno = avgparentfileno;  // higher-level information
     new_files_.emplace_back(level, std::move(f));
   }
 
@@ -264,6 +304,22 @@ class VersionEdit {
   void DeleteFile(int level, uint64_t file) {
     deleted_files_.insert({level, file});
   }
+  void DeleteFile(int level, FileMetaData *f) {
+    // At this point we are committed to deleting the input file f, but that's
+    // a ways in the future.  We are holding the mutex for compaction/copy, but
+    // we are still before the lock point on &w (in LogAndApply) at which
+    // writers get queued.  We mustn't UnCurrent f right now, until we know that
+    // we have processed, for manifest purposes, the SST actions that justify
+    // this deletion. So, we enqueue f on retiring_files_ (analogous to
+    // new_files_ for added files).  As the edits are applied we will move
+    // these files to retiredfiles in the rep, and will UnCurrent them in SaveTo
+    // If the file was never installed, the sizes may be different
+    assert(f->indirect_ref_0.size()==f->ringfwdchain.size());
+    assert(f->indirect_ref_0.size()==f->ringbwdchain.size());
+    retiring_files_.push_back(f);
+    DeleteFile(level, f->fd.GetNumber());
+  }
+
 
   // Number of edits
   size_t NumEntries() { return new_files_.size() + deleted_files_.size(); }
@@ -274,6 +330,10 @@ class VersionEdit {
 
   void SetColumnFamily(uint32_t column_family_id) {
     column_family_ = column_family_id;
+  }
+
+  void SetVLogStats(std::vector<VLogRingRestartInfo>& vstats) {
+    vlog_additions = vstats;
   }
 
   // set column family ID by calling SetColumnFamily()
@@ -305,6 +365,11 @@ class VersionEdit {
   const std::vector<std::pair<int, FileMetaData>>& GetNewFiles() {
     return new_files_;
   }
+
+  const std::vector<FileMetaData*>& GetRetiringFiles() {
+    return retiring_files_;
+  }
+  std::vector<VLogRingRestartInfo>& VLogAdditions() { return vlog_additions; }
 
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
@@ -341,6 +406,12 @@ class VersionEdit {
 
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;
+  // Files (from compaction/copy) that we will need to mark UnCurrent in SaveTo.
+  // Files deleted during recovery don't go here.
+  std::vector<FileMetaData*> retiring_files_;
+  // files and bytes added/removed, one set per ring.
+  std::vector<VLogRingRestartInfo> vlog_additions;
+
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

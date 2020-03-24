@@ -12,6 +12,8 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 #include "table/format.h"
+#include <memory>
+#include "db/value_log.h"
 
 namespace rocksdb {
 
@@ -145,6 +147,15 @@ class InternalIteratorBase : public Cleanable {
     return Status::NotSupported("");
   }
 
+  // The iterator remembers the VLog for the column family it is a part of
+  void SetVlogForIteratorCF(std::shared_ptr<VLog> vlog) { iterator_vlog = vlog; }
+  std::shared_ptr<VLog> GetVlogForIteratorCF() { return iterator_vlog; }
+  std::vector<std::shared_ptr<std::string>> resolved_indirect_values;
+  // workarea holding resolved values.  Because vector<> copies its contents on
+  // reallocation, we have to store pointers.  unique_ptrs don't copy so we use
+  // shared workarea holding resolved values.  vecotr<> reallocates & copies,
+  // but the contents should stay put
+
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
     Seek(target);
@@ -158,6 +169,9 @@ class InternalIteratorBase : public Cleanable {
   bool is_mutable_;
 
  private:
+  // The iterator remembers the VLog for the column family it is a part of
+  std::shared_ptr<VLog> iterator_vlog;
+
   // No copying allowed
   InternalIteratorBase(const InternalIteratorBase&) = delete;
   InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;

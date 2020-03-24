@@ -51,8 +51,10 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
+#include "db/value_log.h"
 
 namespace rocksdb {
+void DetectVLogDeletions(ColumnFamilyData *, std::vector<VLogRingRestartInfo> *);
 
 namespace {
 
@@ -1384,6 +1386,34 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         level, level_size, std::move(files));
     cf_meta->size += level_size;
   }
+  // If there are rings, collect the stats for them
+  std::vector<VLogRingRestartInfo>& vli = cfd_->vloginfo();
+  cf_meta->vlog_filecount.clear();
+  cf_meta->vlog_totalsize.clear();
+  cf_meta->vlog_totalfrag.clear();
+  for(uint32_t i = 0;i<vli.size();++i) {  // for each ring...
+    // number of files per ring
+    uint64_t nfiles = 0;
+    uint64_t vfx=0;  // running index of file-pair
+    // end of previous interval, starting with 0 or delete interval.
+    // The first file is file 1
+    uint64_t prevend;
+    // the first filenumber-pair may be a delete record, if the first file# is
+    // 0. In that case, remember the delete-to point and skip over the pair
+    if (vli[i].valid_files.size()>1 && vli[i].valid_files[0]==0) {
+      prevend=vli[i].valid_files[1];
+      vfx+=2;
+    } else { prevend = 0; }
+    for (;vfx<vli[i].valid_files.size();vfx+=2) {
+      // interval is (start,end)
+      nfiles += vli[i].valid_files[vfx+1] - std::max(prevend+1,vli[i].valid_files[vfx]) + 1;
+    }
+    cf_meta->vlog_filecount.push_back(nfiles);
+    // the number of bytes allocated in each VLog ring
+    cf_meta->vlog_totalsize.push_back(vli[i].size);
+    // the amount of fragmentation in each ring, i. e. bytes in VLogs
+    cf_meta->vlog_totalfrag.push_back(vli[i].frag);
+  }
 }
 
 uint64_t Version::GetSstFilesSize() {
@@ -1573,7 +1603,7 @@ VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
-    bool _force_consistency_checks)
+    bool _force_consistency_checks, ColumnFamilyData *cfd)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -1600,7 +1630,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
       finalized_(false),
-      force_consistency_checks_(_force_consistency_checks) {
+      force_consistency_checks_(_force_consistency_checks),
+      cfd_(cfd) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -1636,7 +1667,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           (cfd_ == nullptr || cfd_->current() == nullptr)
               ? nullptr
               : cfd_->current()->storage_info(),
-          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks),
+          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks,
+	  column_family_data),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -2297,9 +2329,34 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
-          score = std::max(
-              score, static_cast<double>(total_size) /
-                     mutable_cf_options.max_bytes_for_level_base);
+          // Since the files produced by L0->L0 compactions are
+          // sized to target_file_size_base, this limit comes into play when the
+	  // target_file_size_base is larger than the memtable size
+	  // (write_buffer_size) which makes the number of files an inadequate
+	  // proxy for their size. With indirect values, the opposite problem
+	  // arises: the target file size is much smaller than the memtable; in
+	  // fact the max_bytes_for_level_base is likely smaller than a single
+	  // memtable.  In this case, comparing the size of a memtable against
+          // max_bytes_for_level_base will lead to artificially large compaction
+	  // score.  So we suppress the test if L0 contains indirect values
+          // DO NOT MOVE - affects block below
+          if (!(GetCfd()!=nullptr &&
+                GetCfd()->vlog()!=nullptr &&
+                GetCfd()->vlog()->nrings() &&
+                GetCfd()->vlog()->starting_level_for_ring(0)==0)) {
+            // NOTE DO NOT MOVE - this block is affected by the preceding
+            double projectedl0score = static_cast<double>(total_size) /
+                      mutable_cf_options.max_bytes_for_level_base;
+            score = std::max(score, projectedl0score);
+          }  // end DO NOT MOVE
+          // When the host Write stream outruns the compactions, score starts to
+	  // grow, and can grow very large.  When it gets too big, it makes all
+	  // the other compaction scores meaningless, and the levels do not
+	  // assume reasonable proportions.  When the L0 score is X, L1 grows
+          // to X times normal size before getting any compactions.  To prevent
+	  // that from happening, we put a limit on X.  scaf this may not be
+	  // needed, if the preceding block works
+          score = std::min(score,mutable_cf_options.compaction_score_limit_L0);
         }
       }
     } else {
@@ -2613,7 +2670,32 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
     if (num > temp.size()) {
       num = temp.size();
     }
-    switch (compaction_pri) {
+    // see if the current CF has VLogs, and get the scope of the result ring if so
+    int ring; VLogRingRefFileno file0; VLogRingRefFileno nfiles; int32_t age_importance;
+    GetVLogReshapingParms(level, ring, file0, nfiles, age_importance);
+    // if there are VLogs, override the compaction and always use oldest VLog
+    // entry, except for L0: then keep the files in original order, i. e.
+    // oldest first.  This is good for non-VLog systems too, because there's not
+    // much reason to choose one file over another and sorting is just a waste
+    // of time.  Moreover, sorting interferes with detecting sequential loads:
+    // we want to pick the oldest file so that when we compare all the others
+    // against it we find that all the others have later keys: then we can grab
+    // them all for an overlapped compaction
+    CompactionPri compaction_pri_to_use =
+        (level==0)?kReverseOrder:file0?kReservedInternal:compaction_pri;
+    switch (compaction_pri_to_use) {
+      case kReservedInternal:  // means 'VLog in use'
+        // if there are rings for this level, include the file numbers that will
+	// be freed in the computation of which file to compact
+        // We want to give preference to compactions that will free up files
+	// near the tail of the VLog, because the fragmentation added
+        // by those compactions will be cleaned up earliest
+        std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                [this,ring,file0,nfiles,age_importance](const Fsize& f1, const Fsize& f2) -> bool {
+                  return GetFileVLogCompactionPriority(f1.file,ring,file0,nfiles,age_importance)
+                       > GetFileVLogCompactionPriority(f2.file,ring,file0,nfiles,age_importance);
+                });
+        break;
       case kByCompensatedSize:
         std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareCompensatedSizeDescending);
@@ -2635,6 +2717,13 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       case kMinOverlappingRatio:
         SortFileByOverlappingRatio(*internal_comparator_, files_[level],
                                    files_[level + 1], &temp);
+        break;
+      case kReverseOrder:
+        // Start with the oldest file, which in L0 is the last one.  Could use
+	// kOldestSmallestSeqFirst, but why sort?
+        for (size_t i = 0; i < files.size(); i++) {
+          temp[i].index = files.size()-1-i;  // descending vector.  file numbers not used
+        }
         break;
       default:
         assert(false);
@@ -2975,6 +3064,13 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
       *next_smallest = nullptr;
     }
   }
+}
+
+int64_t VersionStorageInfo::NumRingBytes(int ring) const {
+  assert(ring >= 0);
+  std::vector<VLogRingRestartInfo>& vli = cfd_->vloginfo();
+  assert(ring < static_cast<int>(vli.size()));
+  return vli[ring].size;
 }
 
 uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
@@ -3429,6 +3525,34 @@ VersionSet::~VersionSet() {
       table_cache->Release(file.metadata->table_reader_handle);
       TableCache::Evict(table_cache, file.metadata->fd.GetNumber());
     }
+    // The SST is about to be deleted.  Remove it from any VLog queues it is
+    // attached to. We have to do this explicitly rather than in a destructor
+    // because FileMetaData blocks get copied & put on queues with no regard for
+    // ownership.  Rather than try to enforce no-copy semantics everywhere we
+    // root out all the delete calls and put this there
+    if (file.metadata->vlog) {
+      file.metadata->vlog->AcquireLock();
+      if (file.metadata->vlog->cfd_exists()) {
+        file.metadata->vlog->VLogSstDelete(*file.metadata);
+      }
+      file.metadata->vlog->ReleaseLock();
+    }
+    // The test for cfd_exists() is to cover a sporadic problem when the
+    // database closes while a file is waiting to be deleted. The cfd may be
+    // removed before we mark the VLogRings, and then we crash if we try to mark
+    // the VLogRings, because that refers to the cfd.  It is safe to ignore the
+    // deletion, because when the database is recovered it will simply not
+    // contain the file. No such protection is needed lest the VLog be deleted
+    // before the cfd, because we use shared_ptrs for the VLog, and the file
+    // is holding one; thus the VLog cannot go away early.
+    //
+    // In case the CF is being deleted at the same time we try to remove this
+    // file, we use the lock on the VLog to prevent a race.
+    //
+    // it is possible that files on the added list were never actually added to
+    // the rings.  Those files will not have a vlog pointer so we won't try to
+    // take them off the rings.
+
     file.DeleteMetadata();
   }
   obsolete_files_.clear();
@@ -3477,6 +3601,7 @@ Status VersionSet::ProcessManifestWrites(
   autovector<Version*> versions;
   autovector<const MutableCFOptions*> mutable_cf_options_ptrs;
   std::vector<std::unique_ptr<BaseReferencedVersionBuilder>> builder_guards;
+  std::vector<VLogRingRestartInfo> accum_vlog_edits;
 
   if (first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
     // No group commits for column family add or drop
@@ -3570,7 +3695,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(!builder_guards.empty() &&
              builder_guards.size() == versions.size());
       auto* builder = builder_guards[i]->version_builder();
-      builder->SaveTo(versions[i]->storage_info());
+      builder->SaveTo(versions[i]->storage_info(),last_writer->cfd);
+
+      // Add the edits from this builder into the collected edits for this CF.
+      Coalesce(accum_vlog_edits,builder->VLogAdditions(),true);
     }
   }
 
@@ -3635,6 +3763,8 @@ Status VersionSet::ProcessManifestWrites(
 
   {
     EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
+    // Before releasing mutex, make a copy of mutable_cf_options and pass to
+    // `PrepareApply` to avoided a potential data race with backgroundflush
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
@@ -3643,7 +3773,7 @@ Status VersionSet::ProcessManifestWrites(
         assert(!builder_guards.empty() &&
                builder_guards.size() == versions.size());
         assert(!mutable_cf_options_ptrs.empty() &&
-               builder_guards.size() == versions.size());
+               mutable_cf_options_ptrs.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
@@ -3681,6 +3811,38 @@ Status VersionSet::ProcessManifestWrites(
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         versions[i]->PrepareApply(*mutable_cf_options_ptrs[i], true);
       }
+    }
+
+    // Update the VLog information: the list of files and size/frag thereof.
+    // We wait till here because this information is kept for the database as a
+    // whole, not part of any Version.  We have (possibly) just completed
+    // writing out the entire old Version, before the current edit, and as part
+    // of that write we needed to include the VLog status before the current
+    // edit.  Presently we will write out the current edits.  So, to make sure
+    // we don't apply an edit twice, we must NOT include the VLog edits in
+    // the Snapshot we just created.
+    //
+    // The VLog changes include deleting files that have passed out of the new
+    // Version.  These files are detected here.  These changes must be put into
+    // both the current database and the manifest.  We do this by folding them
+    // into the last edit_batch entry and also the current CF.
+    // if the column doesn't exist yet, don't collect stats on it.  Do if it is
+    // being dropped, though   scaf need correct column info
+    if (last_writer->cfd!=nullptr && last_writer->cfd->vlog()) {
+      std::vector<VLogRingRestartInfo> vlog_deletions;
+      // compute the deletions  scaf need correct column
+      DetectVLogDeletions(last_writer->cfd,&vlog_deletions);
+      // apply them to the current edits
+      Coalesce(batch_edits.back()->vlog_additions,vlog_deletions,true);
+      // add deletions into accumulated edits
+      Coalesce(accum_vlog_edits,vlog_deletions,true);
+      // We have installed the SSTs; now allow VLogfile to be deleted
+      // scaf correct column
+      last_writer->cfd->vlog()->MarkVlogFilesDeletable(accum_vlog_edits);
+      Coalesce(last_writer->cfd->vloginfo(),accum_vlog_edits,false);
+      // apply accum edits, including deletions, to database.  false means
+      // 'don't include the delete', used for the CF version
+      // scaf correct column
     }
 
     // Write new records to MANIFEST log
@@ -4070,6 +4232,9 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     auto builder = builders.find(edit.column_family_);
     assert(builder != builders.end());
     builder->second->version_builder()->Apply(&edit);
+    if(edit.vlog_additions.size())   // If this edit contains vlog info
+      // fold them into the CF, eliding any deletion record
+      Coalesce(cfd->vloginfo(), edit.vlog_additions, false);
   }
   return ExtractInfoFromVersionEdit(
       cfd, edit, have_log_number, log_number, have_prev_log_number,
@@ -4385,7 +4550,8 @@ Status VersionSet::Recover(
       Version* v = new Version(cfd, this, env_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      // Must include cfd in the next line to install the new files into the SSTs
+      builder->SaveTo(v->storage_info(),cfd);
 
       // Install recovered version
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
@@ -4748,7 +4914,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       Version* v = new Version(cfd, this, env_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      builder->SaveTo(v->storage_info(),nullptr /* don't change CF */);
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
 
       printf("--------------- Column family \"%s\"  (ID %" PRIu32
@@ -4824,6 +4990,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       }
       edit.SetComparatorName(
           cfd->internal_comparator().user_comparator()->Name());
+      // install the current version VLog status as the starting point for this snapshot
+      edit.SetVLogStats(cfd->vloginfo());
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
@@ -4846,7 +5014,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction);
+                       f->marked_for_compaction, f->indirect_ref_0,
+		       f->avgparentfileno);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
@@ -5074,6 +5243,8 @@ InternalIterator* VersionSet::MakeInputIterator(
   InternalIterator* result =
       NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
                          static_cast<int>(num));
+  // Install the VLog object into the iterator so that resolving values can get to it
+  result->SetVlogForIteratorCF(cfd->vlog());
   delete[] list;
   return result;
 }
@@ -5092,6 +5263,9 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         c->column_family_data()->GetName().c_str());
 
     if (vstorage->compaction_style_ == kCompactionStyleLevel &&
+        // this audit does not apply to Active Recycling, which can spray files
+	// all around to any level
+        c->compaction_reason() != CompactionReason::kActiveRecycling &&
         c->start_level() == 0 && c->num_input_levels() > 2U) {
       // We are doing a L0->base_level compaction. The assumption is if
       // base level is not L1, levels from L1 to base_level - 1 is empty.

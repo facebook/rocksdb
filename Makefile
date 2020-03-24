@@ -565,6 +565,7 @@ TESTS = \
 	db_secondary_test \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
+	vlog_files_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1275,6 +1276,7 @@ external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.
 
 external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
+	if [ `ulimit -n` -lt 500000 ]; then echo "ulimit is too low. Please run 'ulimit -S -n 500000' before running tests."; exit 1; fi
 
 import_column_family_test: db/import_column_family_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -1606,6 +1608,9 @@ range_tombstone_fragmenter_test: db/range_tombstone_fragmenter_test.o db/db_test
 	$(AM_LINK)
 
 sst_file_reader_test: table/sst_file_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+vlog_files_test: db/vlog_files_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_secondary_test: db/db_impl/db_secondary_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

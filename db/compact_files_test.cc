@@ -60,8 +60,15 @@ class FlushedFileCollector : public EventListener {
   std::mutex mutex_;
 };
 
+// Test in both normal and indirect configurations
+#define INDOPTIONSBGN do{
+#define INDOPTIONSEND(opts) }while(opts.vlogring_activation_level.push_back(0),opts.min_indirect_val_size[0]=0,opts.vlogring_activation_level.size()<2);
+// The tests in this file are not self-contained (they chain to each other).  So we must run all the direct-value tests first, then indirect
+//static int useindirect = 0;  // set to make tests open with indirect values
+
 TEST_F(CompactFilesTest, L0ConflictsFiles) {
   Options options;
+  INDOPTIONSBGN
   // to trigger compaction more easily
   const int kWriteBufferSize = 10000;
   const int kLevel0Trigger = 2;
@@ -115,10 +122,12 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   delete db;
+  INDOPTIONSEND(options);
 }
 
 TEST_F(CompactFilesTest, ObsoleteFiles) {
   Options options;
+  INDOPTIONSBGN
   // to trigger compaction more easily
   const int kWriteBufferSize = 65536;
   options.create_if_missing = true;
@@ -155,10 +164,12 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
     ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
   delete db;
+  INDOPTIONSEND(options);
 }
 
 TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   // Disable RocksDB background compaction.
   options.compaction_style = kCompactionStyleNone;
@@ -195,10 +206,12 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 0));
   // no assertion failure
   delete db;
+  INDOPTIONSEND(options);
 }
 
 TEST_F(CompactFilesTest, CapturingPendingFiles) {
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   // Disable RocksDB background compaction.
   options.compaction_style = kCompactionStyleNone;
@@ -251,6 +264,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   ASSERT_TRUE(s.ok());
   assert(db);
   delete db;
+  INDOPTIONSEND(options);
 }
 
 TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
@@ -281,6 +295,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   std::shared_ptr<FilterWithGet> cf(new FilterWithGet());
 
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   options.compaction_filter = cf.get();
 
@@ -306,6 +321,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
 
 
   delete db;
+  INDOPTIONSEND(options);
 }
 
 TEST_F(CompactFilesTest, SentinelCompressionType) {
