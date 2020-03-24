@@ -338,9 +338,6 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
 //  * oldest blob file reference points to valid (first file on level, not first
 //  file, also check kInvalidBlobFileNumber)
 //  * garbage count
-// ApplyBlobFileAddition:
-//  * success
-//  * already added (in base vstorage/changed)
 // ApplyBlobFileGarbage:
 //  * success (found in base vstorage/changed)
 //  * not found
