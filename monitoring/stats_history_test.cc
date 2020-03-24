@@ -270,10 +270,10 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   }
   size_t stats_history_size = dbfull()->TEST_EstimateInMemoryStatsHistorySize();
   ASSERT_GE(slice_count, 9);
-  ASSERT_GE(stats_history_size, 12000);
-  // capping memory cost at 12000 bytes since one slice is around 10000~12000
-  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "12000"}}));
-  ASSERT_EQ(12000, dbfull()->GetDBOptions().stats_history_buffer_size);
+  ASSERT_GE(stats_history_size, 13000);
+  // capping memory cost at 13000 bytes since one slice is around 10000~13000
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "13000"}}));
+  ASSERT_EQ(13000, dbfull()->GetDBOptions().stats_history_buffer_size);
   // Wait for stats persist to finish
   for (; mock_time < 20; ++mock_time) {
     dbfull()->TEST_WaitForPersistStatsRun(
@@ -292,7 +292,7 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
       dbfull()->TEST_EstimateInMemoryStatsHistorySize();
   // only one slice can fit under the new stats_history_buffer_size
   ASSERT_LT(slice_count, 2);
-  ASSERT_TRUE(stats_history_size_reopen < 12000 &&
+  ASSERT_TRUE(stats_history_size_reopen < 13000 &&
               stats_history_size_reopen > 0);
   ASSERT_TRUE(stats_count_reopen < stats_count && stats_count_reopen > 0);
   Close();
