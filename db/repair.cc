@@ -672,10 +672,6 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 
 Status RepairDB(const std::string& dbname, const Options& options) {
   Options opts(options);
-  if (opts.file_system == nullptr) {
-    opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-    ;
-  }
 
   DBOptions db_options(opts);
   ColumnFamilyOptions cf_options(opts);

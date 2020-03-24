@@ -47,6 +47,7 @@
 #include <set>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
 #include "logging/logging.h"
 #include "logging/posix_logger.h"
@@ -79,6 +80,10 @@ namespace {
 
 inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
+}
+
+static uint64_t gettid() {
+  return Env::Default()->GetThreadID();
 }
 
 // list of pathnames that are locked
@@ -540,10 +545,34 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
   }
 
-  IOStatus NewLogger(const std::string& /*fname*/, const IOOptions& /*opts*/,
-                     std::shared_ptr<ROCKSDB_NAMESPACE::Logger>* /*ptr*/,
-                     IODebugContext* /*dbg*/) override {
-    return IOStatus::NotSupported();
+  IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
+                   std::shared_ptr<Logger>* result,
+                   IODebugContext* /*dbg*/) override {
+    FILE* f;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      f = fopen(fname.c_str(),
+                "w"
+#ifdef __GLIBC_PREREQ
+#if __GLIBC_PREREQ(2, 7)
+                "e"  // glibc extension to enable O_CLOEXEC
+#endif
+#endif
+      );
+    }
+    if (f == nullptr) {
+      result->reset();
+      return status_to_io_status(
+              IOError("when fopen a file for new logger", fname, errno));
+    } else {
+      int fd = fileno(f);
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
+#endif
+      SetFD_CLOEXEC(fd, nullptr);
+      result->reset(new PosixLogger(f, &gettid, Env::Default()));
+      return IOStatus::OK();
+    }
   }
 
   IOStatus FileExists(const std::string& fname, const IOOptions& /*opts*/,

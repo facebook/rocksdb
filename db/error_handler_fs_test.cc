@@ -44,7 +44,7 @@ class DBErrorHandlingFSTest : public DBTestBase {
 class DBErrorHandlingFS : public FileSystemWrapper {
  public:
   DBErrorHandlingFS()
-      : FileSystemWrapper(FileSystem::Default().get()),
+      : FileSystemWrapper(FileSystem::Default()),
         trig_no_space(false),
         trig_io_error(false) {}
 
@@ -150,12 +150,13 @@ class ErrorHandlerFSListener : public EventListener {
 };
 
 TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   Status s;
@@ -181,12 +182,13 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   Status s;
@@ -223,12 +225,13 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   Status s;
@@ -272,12 +275,13 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.emplace_back(listener);
@@ -344,12 +348,13 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.emplace_back(listener);
@@ -387,10 +392,11 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, CorruptionError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
   Status s;
@@ -426,12 +432,13 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   Status s;
@@ -460,12 +467,13 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   Status s;
@@ -487,12 +495,13 @@ TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, WALWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 32768;
   options.listeners.emplace_back(listener);
@@ -558,12 +567,13 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
-  FaultInjectionTestFS* fault_fs =
-      new FaultInjectionTestFS(FileSystem::Default().get());
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
-  options.file_system.reset(fault_fs);
+  options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 32768;
   options.listeners.emplace_back(listener);
@@ -643,6 +653,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
 TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(Env::Default());
+  std::vector<std::unique_ptr<Env>> fault_envs;
   std::vector<FaultInjectionTestFS*> fault_fs;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
@@ -654,12 +665,13 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     listener.emplace_back(new ErrorHandlerFSListener());
     options.emplace_back(GetDefaultOptions());
-    fault_fs.emplace_back(
-        new FaultInjectionTestFS(FileSystem::Default().get()));
+    fault_fs.emplace_back(new FaultInjectionTestFS(FileSystem::Default()));
+    std::shared_ptr<FileSystem> fs(fault_fs.back());
+    fault_envs.emplace_back(new CompositeEnvWrapper(def_env, fs));
+    options[i].env = fault_envs.back().get();
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
     options[i].writable_file_max_buffer_size = 32768;
-    options[i].file_system.reset(fault_fs[i]);
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
     DB* dbptr;
@@ -742,6 +754,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 
 TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(Env::Default());
+  std::vector<std::unique_ptr<Env>> fault_envs;
   std::vector<FaultInjectionTestFS*> fault_fs;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
@@ -753,12 +766,13 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     listener.emplace_back(new ErrorHandlerFSListener());
     options.emplace_back(GetDefaultOptions());
-    fault_fs.emplace_back(
-        new FaultInjectionTestFS(FileSystem::Default().get()));
+    fault_fs.emplace_back(new FaultInjectionTestFS(FileSystem::Default()));
+    std::shared_ptr<FileSystem> fs(fault_fs.back());
+    fault_envs.emplace_back(new CompositeEnvWrapper(def_env, fs));
+    options[i].env = fault_envs.back().get();
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
     options[i].writable_file_max_buffer_size = 32768;
-    options[i].file_system.reset(fault_fs[i]);
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
     DB* dbptr;

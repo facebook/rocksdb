@@ -22,6 +22,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Env::Env() : thread_status_updater_(nullptr) {
+  file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
+}
+
+Env::Env(std::shared_ptr<FileSystem> fs)
+  : thread_status_updater_(nullptr),
+    file_system_(fs) {}
+
 Env::~Env() {
 }
 
@@ -471,5 +479,15 @@ Status NewEnvLogger(const std::string& fname, Env* env,
       env);
   return Status::OK();
 }
+
+const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
+  return file_system_;
+}
+
+#ifdef OS_WIN
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
+}
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

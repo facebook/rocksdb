@@ -4928,9 +4928,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   Status s;
   {
     std::unique_ptr<FSSequentialFile> file;
-    s = options.file_system->NewSequentialFile(
+    const std::shared_ptr<FileSystem>& fs = options.env->GetFileSystem();
+    s = fs->NewSequentialFile(
         dscname,
-        options.file_system->OptimizeForManifestRead(file_options_), &file,
+        fs->OptimizeForManifestRead(file_options_), &file,
         nullptr);
     if (!s.ok()) {
       return s;

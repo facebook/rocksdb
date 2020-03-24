@@ -102,6 +102,9 @@ struct FileOptions : EnvOptions {
 
   FileOptions(const EnvOptions& opts)
     : EnvOptions(opts) {}
+
+  FileOptions(const FileOptions& opts)
+    : EnvOptions(opts), io_options(opts.io_options) {}
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -263,7 +266,7 @@ class FileSystem {
                                      const std::string& old_fname,
                                      const FileOptions& file_opts,
                                      std::unique_ptr<FSWritableFile>* result,
-                                     IODebugContext* dbg) = 0;
+                                     IODebugContext* dbg);
 
   // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
@@ -464,6 +467,10 @@ class FileSystem {
                                    const IOOptions& options,
                                    std::string* output_path,
                                    IODebugContext* dbg) = 0;
+
+  // Sanitize the FileOptions. Typically called by a FileOptions/EnvOptions
+  // copy constructor
+  virtual void SanitizeFileOptions(FileOptions* /*opts*/) const {}
 
   // OptimizeForLogRead will create a new FileOptions object that is a copy of
   // the FileOptions in the parameters, but is optimized for reading log files.
@@ -1001,11 +1008,13 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(FileSystem* t) : target_(t) {}
+  explicit FileSystemWrapper(std::shared_ptr<FileSystem> t) : target_(t) {}
   ~FileSystemWrapper() override {}
 
+  const char* Name() const override { return target_->Name(); }
+
   // Return the target to which this Env forwards all calls
-  FileSystem* target() const { return target_; }
+  FileSystem* target() const { return target_.get(); }
 
   // The following text is boilerplate that forwards all methods to target()
   IOStatus NewSequentialFile(const std::string& f,
@@ -1149,6 +1158,10 @@ class FileSystemWrapper : public FileSystem {
     return target_->NewLogger(fname, options, result, dbg);
   }
 
+  void SanitizeFileOptions(FileOptions* opts) const override {
+    target_->SanitizeFileOptions(opts);
+  }
+
   FileOptions OptimizeForLogRead(
                   const FileOptions& file_options) const override {
     return target_->OptimizeForLogRead(file_options);
@@ -1182,7 +1195,7 @@ class FileSystemWrapper : public FileSystem {
   }
 
  private:
-  FileSystem* target_;
+  std::shared_ptr<FileSystem> target_;
 };
 
 class FSSequentialFileWrapper : public FSSequentialFile {

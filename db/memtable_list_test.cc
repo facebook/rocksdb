@@ -92,7 +92,6 @@ class MemTableListTest : public testing::Test {
     CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
-    db_options.file_system = FileSystem::Default();
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
     std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
@@ -139,7 +138,6 @@ class MemTableListTest : public testing::Test {
     CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
-    db_options.file_system.reset(new LegacyFileSystemWrapper(db_options.env));
 
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;

@@ -396,11 +396,6 @@ struct DBOptions {
   // Default: Env::Default()
   Env* env = Env::Default();
 
-  // Use the specified object to interact with the storage to
-  // read/write files. This is in addition to env. This option should be used
-  // if the desired storage subsystem provides a FileSystem implementation.
-  std::shared_ptr<FileSystem> file_system = nullptr;
-
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
   // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.

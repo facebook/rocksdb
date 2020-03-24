@@ -26,6 +26,18 @@ Status FileSystem::Load(const std::string& value,
   return s;
 }
 
+IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
+                                       const std::string& old_fname,
+                                       const FileOptions& opts,
+                                       std::unique_ptr<FSWritableFile>* result,
+                                       IODebugContext* dbg) {
+  IOStatus s = RenameFile(old_fname, fname, opts.io_options, dbg);
+  if (!s.ok()) {
+    return s;
+  }
+  return NewWritableFile(fname, opts, result, dbg);
+}
+
 FileOptions FileSystem::OptimizeForLogRead(
               const FileOptions& file_options) const {
   FileOptions optimized_file_options(file_options);

@@ -35,16 +35,8 @@ Options SanitizeOptions(const std::string& dbname, const Options& src) {
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   DBOptions result(src);
 
-  if (result.file_system == nullptr) {
-    if (result.env == Env::Default()) {
-      result.file_system = FileSystem::Default();
-    } else {
-      result.file_system.reset(new LegacyFileSystemWrapper(result.env));
-    }
-  } else {
-    if (result.env == nullptr) {
-      result.env = Env::Default();
-    }
+  if (result.env == nullptr) {
+    result.env = Env::Default();
   }
 
   // result.max_open_files means an "infinite" open files.

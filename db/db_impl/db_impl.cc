@@ -150,7 +150,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
-      fs_(initial_db_options_.file_system),
+      fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
@@ -3478,12 +3478,8 @@ Status DBImpl::Close() {
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  FileSystem* fs = db_options.file_system.get();
-  LegacyFileSystemWrapper legacy_fs(db_options.env);
-  if (!fs) {
-    fs = &legacy_fs;
-  }
-  return VersionSet::ListColumnFamilies(column_families, name, fs);
+  const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
+  return VersionSet::ListColumnFamilies(column_families, name, fs.get());
 }
 
 Snapshot::~Snapshot() {}

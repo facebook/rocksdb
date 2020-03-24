@@ -181,8 +181,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
 TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   const OffsetGap kDBOptionsBlacklist = {
       {offsetof(struct DBOptions, env), sizeof(Env*)},
-      {offsetof(struct DBOptions, file_system),
-       sizeof(std::shared_ptr<FileSystem>)},
       {offsetof(struct DBOptions, rate_limiter),
        sizeof(std::shared_ptr<RateLimiter>)},
       {offsetof(struct DBOptions, sst_file_manager),

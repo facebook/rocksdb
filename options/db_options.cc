@@ -26,7 +26,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       env(options.env),
-      fs(options.file_system),
+      fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
