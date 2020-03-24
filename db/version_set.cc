@@ -3811,7 +3811,7 @@ Status VersionSet::ProcessManifestWrites(
                builder_guards.size() == versions.size());
         ColumnFamilyData* cfd = versions[i]->cfd_;
         s = builder_guards[i]->version_builder()->LoadTableHandlers(
-            cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
+            cfd->internal_stats(), 1 /* max_threads */,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
