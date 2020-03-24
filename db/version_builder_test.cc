@@ -384,19 +384,19 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
 
-  const auto& blob_files = new_vstorage.GetBlobFiles();
-  ASSERT_EQ(blob_files.size(), 1);
+  const auto& new_blob_files = new_vstorage.GetBlobFiles();
+  ASSERT_EQ(new_blob_files.size(), 1);
 
-  const auto meta = GetBlobFileMetaData(blob_files, blob_file_number);
+  const auto new_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
 
-  ASSERT_NE(meta, nullptr);
-  ASSERT_EQ(meta->GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(meta->GetTotalBlobCount(), total_blob_count);
-  ASSERT_EQ(meta->GetTotalBlobBytes(), total_blob_bytes);
-  ASSERT_EQ(meta->GetChecksumMethod(), checksum_method);
-  ASSERT_EQ(meta->GetChecksumValue(), checksum_value);
-  ASSERT_EQ(meta->GetGarbageBlobCount(), 0);
-  ASSERT_EQ(meta->GetGarbageBlobBytes(), 0);
+  ASSERT_NE(new_meta, nullptr);
+  ASSERT_EQ(new_meta->GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(new_meta->GetTotalBlobCount(), total_blob_count);
+  ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
+  ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
+  ASSERT_EQ(new_meta->GetGarbageBlobCount(), 0);
+  ASSERT_EQ(new_meta->GetGarbageBlobBytes(), 0);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
@@ -502,6 +502,56 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyInBase) {
             garbage_blob_count + new_garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(),
             garbage_blob_bytes + new_garbage_blob_bytes);
+}
+
+TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyApplied) {
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit addition;
+
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t total_blob_count = 5678;
+  constexpr uint64_t total_blob_bytes = 999999;
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+
+  addition.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                       checksum_method, checksum_value);
+
+  ASSERT_OK(builder.Apply(&addition));
+
+  constexpr uint64_t garbage_blob_count = 123;
+  constexpr uint64_t garbage_blob_bytes = 456789;
+
+  VersionEdit garbage;
+
+  garbage.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
+                             garbage_blob_bytes);
+
+  ASSERT_OK(builder.Apply(&garbage));
+
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  const auto& new_blob_files = new_vstorage.GetBlobFiles();
+  ASSERT_EQ(new_blob_files.size(), 1);
+
+  const auto new_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+
+  ASSERT_NE(new_meta, nullptr);
+  ASSERT_EQ(new_meta->GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(new_meta->GetTotalBlobCount(), total_blob_count);
+  ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
+  ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
+  ASSERT_EQ(new_meta->GetGarbageBlobCount(), garbage_blob_count);
+  ASSERT_EQ(new_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
