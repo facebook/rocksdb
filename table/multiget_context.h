@@ -29,10 +29,11 @@ struct KeyContext {
   bool key_exists;
   void* cb_arg;
   PinnableSlice* value;
+  std::string* timestamp;
   GetContext* get_context;
 
   KeyContext(ColumnFamilyHandle* col_family, const Slice& user_key,
-             PinnableSlice* val, Status* stat)
+             PinnableSlice* val, std::string* ts, Status* stat)
       : key(&user_key),
         lkey(nullptr),
         column_family(col_family),
@@ -41,6 +42,7 @@ struct KeyContext {
         key_exists(false),
         cb_arg(nullptr),
         value(val),
+        timestamp(ts),
         get_context(nullptr) {}
 
   KeyContext() = default;

@@ -188,6 +188,11 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys, std::vector<std::string>* values,
+      std::vector<std::string>* timestamps) override;
 
   // This MultiGet is a batched version, which may be faster than calling Get
   // multiple times, especially if the keys have some spatial locality that
@@ -201,10 +206,21 @@ class DBImpl : public DB {
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
                         const bool sorted_input = false) override;
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses,
+                        const bool sorted_input = false) override;
 
   virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
                         ColumnFamilyHandle** column_families, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
+                        const bool sorted_input = false) override;
+  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle** column_families, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses,
                         const bool sorted_input = false) override;
 
   virtual void MultiGetWithCallback(

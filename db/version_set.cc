@@ -1897,8 +1897,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, /*timestamp*/ nullptr, nullptr, &(iter->merge_context),
-        true, &iter->max_covering_tombstone_seq, this->env_, nullptr,
+        iter->value, iter->timestamp, nullptr, &(iter->merge_context), true,
+        &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context

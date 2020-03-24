@@ -580,7 +580,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
   std::vector<std::string> write_ts_list;
   std::vector<std::string> read_ts_list;
 
-  const auto& verify_record_func = [&](size_t i, size_t k,
+  const auto& verify_records_func = [&](size_t i, size_t begin, size_t end,
                                        ColumnFamilyHandle* cfh) {
     std::string value;
     std::string timestamp;
@@ -591,9 +591,11 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
     std::string expected_timestamp =
         std::string(write_ts_list[i].data(), write_ts_list[i].size());
 
-    ASSERT_OK(db_->Get(ropts, cfh, Key1(k), &value, &timestamp));
-    ASSERT_EQ("value_" + std::to_string(k) + "_" + std::to_string(i), value);
-    ASSERT_EQ(expected_timestamp, timestamp);
+    for (size_t j = begin; j <= end; ++j) {
+      ASSERT_OK(db_->Get(ropts, cfh, Key1(j), &value, &timestamp));
+      ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i), value);
+      ASSERT_EQ(expected_timestamp, timestamp);
+    }
   };
 
   for (size_t i = 0; i != kNumTimestamps; ++i) {
@@ -609,9 +611,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
                       "value_" + std::to_string(j) + "_" + std::to_string(i),
                       wopts));
         if (j == kSplitPosBase + i || j == kNumKeysPerTimestamp - 1) {
-          for (size_t k = memtable_get_start; k <= j; ++k) {
-            verify_record_func(i, k, handles_[cf]);
-          }
+          verify_records_func(i, memtable_get_start, j, handles_[cf]);
           memtable_get_start = j + 1;
 
           // flush all keys with the same timestamp to two sst files, split at
@@ -641,15 +641,104 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
                                      write_ts_list[i].size());
       for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
         ColumnFamilyHandle* cfh = handles_[cf];
-        for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-          verify_record_func(i, j, cfh);
-        }
+        verify_records_func(i, 0, kNumKeysPerTimestamp - 1, cfh);
       }
     }
   };
   verify_db_func();
   Close();
 }
+
+TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
+  const int kNumKeysPerFile = 8192;
+  const size_t kNumTimestamps = 2;
+  const size_t kNumKeysPerTimestamp = (kNumKeysPerFile - 1) / kNumTimestamps;
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+
+  size_t ts_sz = Timestamp(0, 0).size();
+  TestComparator test_cmp(ts_sz);
+  options.comparator = &test_cmp;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(
+      10 /*bits_per_key*/, false /*use_block_based_builder*/));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(2, num_cfs);
+  std::vector<std::string> write_ts_list;
+  std::vector<std::string> read_ts_list;
+
+  const auto& verify_records_func = [&](size_t i, ColumnFamilyHandle* cfh) {
+    std::vector<Slice> keys;
+    std::vector<std::string> key_vals;
+    std::vector<std::string> values;
+    std::vector<std::string> timestamps;
+
+    for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
+      key_vals.push_back(Key1(j));
+    }
+    for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
+      keys.push_back(key_vals[j]);
+    }
+
+    ReadOptions ropts;
+    const Slice read_ts = read_ts_list[i];
+    ropts.timestamp = &read_ts;
+    std::string expected_timestamp(write_ts_list[i].data(),
+                                   write_ts_list[i].size());
+
+    std::vector<ColumnFamilyHandle*> cfhs(keys.size(), cfh);
+    std::vector<Status> statuses =
+        db_->MultiGet(ropts, cfhs, keys, &values, &timestamps);
+    for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
+      ASSERT_OK(statuses[j]);
+      ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
+                values[j]);
+      ASSERT_EQ(expected_timestamp, timestamps[j]);
+    }
+  };
+
+  for (size_t i = 0; i != kNumTimestamps; ++i) {
+    write_ts_list.push_back(Timestamp(i * 2, 0));
+    read_ts_list.push_back(Timestamp(1 + i * 2, 0));
+    const Slice& write_ts = write_ts_list.back();
+    for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+      WriteOptions wopts;
+      WriteBatch batch(0, 0, ts_sz);
+      for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
+        ASSERT_OK(
+            batch.Put(handles_[cf], Key1(j),
+                      "value_" + std::to_string(j) + "_" + std::to_string(i)));
+      }
+      batch.AssignTimestamp(write_ts);
+      ASSERT_OK(db_->Write(wopts, &batch));
+
+      verify_records_func(i, handles_[cf]);
+
+      ASSERT_OK(Flush(cf));
+    }
+  }
+
+  const auto& verify_db_func = [&]() {
+    for (size_t i = 0; i != kNumTimestamps; ++i) {
+      ReadOptions ropts;
+      const Slice read_ts = read_ts_list[i];
+      ropts.timestamp = &read_ts;
+      for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
+        ColumnFamilyHandle* cfh = handles_[cf];
+        verify_records_func(i, cfh);
+      }
+    }
+  };
+  verify_db_func();
+  Close();
+}
+
 #endif  // !ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(

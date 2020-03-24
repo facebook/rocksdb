@@ -982,7 +982,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
 
     assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
            result == WriteBatchWithIndexInternal::Result::kNotFound);
-    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
+    key_context.emplace_back(column_family, keys[i], &values[i],
+                             /*timestamp*/ nullptr, &statuses[i]);
     merges.emplace_back(result, std::move(merge_context));
   }
 

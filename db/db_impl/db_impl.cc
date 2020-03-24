@@ -1687,12 +1687,20 @@ std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  return MultiGet(read_options, column_family, keys, values,
+                  /*timestamps*/ nullptr);
+}
+
+std::vector<Status> DBImpl::MultiGet(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values,
+    std::vector<std::string>* timestamps) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   SequenceNumber consistent_seqnum;
-  ;
 
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
@@ -1723,6 +1731,9 @@ std::vector<Status> DBImpl::MultiGet(
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
   values->resize(num_keys);
+  if (timestamps) {
+    timestamps->resize(num_keys);
+  }
 
   // Keep track of bytes that we read for statistics-recording later
   uint64_t bytes_read = 0;
@@ -1737,8 +1748,9 @@ std::vector<Status> DBImpl::MultiGet(
     merge_context.Clear();
     Status& s = stat_list[i];
     std::string* value = &(*values)[i];
+    std::string* timestamp = timestamps ? &(*timestamps)[i] : nullptr;
 
-    LookupKey lkey(keys[i], consistent_seqnum);
+    LookupKey lkey(keys[i], consistent_seqnum, read_options.timestamp);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
@@ -1750,13 +1762,12 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, /*timestamp=*/nullptr, &s,
-                                  &merge_context, &max_covering_tombstone_seq,
-                                  read_options)) {
+      if (super_version->mem->Get(lkey, value, timestamp, &s, &merge_context,
+                                  &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(
-                     lkey, value, nullptr, &s, &merge_context,
+                     lkey, value, timestamp, &s, &merge_context,
                      &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
@@ -1765,8 +1776,8 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, &pinnable_val,
-                                  /*timestamp=*/nullptr, &s, &merge_context,
+      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
+                                  &s, &merge_context,
                                   &max_covering_tombstone_seq);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
@@ -1929,6 +1940,14 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, Status* statuses,
                       const bool sorted_input) {
+  return MultiGet(read_options, num_keys, column_families, keys, values,
+                  /*timestamps*/ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableSlice* values, std::string* timestamps,
+                      Status* statuses, const bool sorted_input) {
   if (num_keys == 0) {
     return;
   }
@@ -1937,7 +1956,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(column_families[i], keys[i], &values[i],
-                             &statuses[i]);
+                             &timestamps[i], &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
@@ -2057,11 +2076,22 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses, const bool sorted_input) {
+  return MultiGet(read_options, column_family, num_keys, keys, values,
+                  /*timestamp=*/nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      std::string* timestamps, Status* statuses,
+                      const bool sorted_input) {
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
+    key_context.emplace_back(column_family, keys[i], &values[i],
+                             timestamps ? &timestamps[i] : nullptr,
+                             &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];

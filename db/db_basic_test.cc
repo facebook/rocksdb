@@ -925,44 +925,44 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 #endif
 
 class TestEnv : public EnvWrapper {
-  public:
-   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
+ public:
+  explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
 
-   class TestLogger : public Logger {
-    public:
-     using Logger::Logv;
-     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-     ~TestLogger() override {
-       if (!closed_) {
-         CloseHelper();
-       }
-     }
-     void Logv(const char* /*format*/, va_list /*ap*/) override {}
-
-    protected:
-     Status CloseImpl() override { return CloseHelper(); }
-
-    private:
-     Status CloseHelper() {
-       env->CloseCountInc();
-       ;
-       return Status::IOError();
-     }
-     TestEnv* env;
-   };
-
-    void CloseCountInc() { close_count++; }
-
-    int GetCloseCount() { return close_count; }
-
-    Status NewLogger(const std::string& /*fname*/,
-                     std::shared_ptr<Logger>* result) override {
-      result->reset(new TestLogger(this));
-      return Status::OK();
+  class TestLogger : public Logger {
+   public:
+    using Logger::Logv;
+    explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+    ~TestLogger() override {
+      if (!closed_) {
+        CloseHelper();
+      }
     }
+    void Logv(const char* /*format*/, va_list /*ap*/) override {}
+
+   protected:
+    Status CloseImpl() override { return CloseHelper(); }
 
    private:
-    int close_count;
+    Status CloseHelper() {
+      env->CloseCountInc();
+      ;
+      return Status::IOError();
+    }
+    TestEnv* env;
+  };
+
+  void CloseCountInc() { close_count++; }
+
+  int GetCloseCount() { return close_count; }
+
+  Status NewLogger(const std::string& /*fname*/,
+                   std::shared_ptr<Logger>* result) override {
+    result->reset(new TestLogger(this));
+    return Status::OK();
+  }
+
+ private:
+  int close_count;
 };
 
 TEST_F(DBBasicTest, DBClose) {
@@ -1014,7 +1014,7 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;
-  options.write_buffer_size=100;
+  options.write_buffer_size = 100;
   options.env = fault_injection_env.get();
 
   Reopen(options);
@@ -1464,7 +1464,8 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
   ASSERT_EQ(0, num_keys);
 
   for (int i = 0; i < 128; i += 9) {
-    ASSERT_OK(Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
+    ASSERT_OK(
+        Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
   }
 
   std::vector<std::string> keys;
@@ -1702,8 +1703,8 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   BlockBasedTableOptions table_options;
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   table_options.block_size = 16 * 1024;
-  assert(table_options.block_size >
-          BlockBasedTable::kMultiGetReadStackBufSize);
+  ASSERT_TRUE(table_options.block_size >
+            BlockBasedTable::kMultiGetReadStackBufSize);
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
 
@@ -1938,7 +1939,7 @@ class DBBasicTestWithParallelIO
     if (!Snappy_Supported()) {
       compression_enabled_ = false;
     }
-#endif //ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
@@ -2275,13 +2276,13 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   ro.fill_cache = fill_cache();
 
   SyncPoint::GetInstance()->SetCallBack(
-      "RetrieveMultipleBlocks:VerifyChecksum", [&](void *status) {
-      Status* s = static_cast<Status*>(status);
-      read_count++;
-      if (read_count == 2) {
-        *s = Status::Corruption();
-      }
-    });
+      "RetrieveMultipleBlocks:VerifyChecksum", [&](void* status) {
+        Status* s = static_cast<Status*>(status);
+        read_count++;
+        if (read_count == 2) {
+          *s = Status::Corruption();
+        }
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Warm up the cache first
@@ -2294,7 +2295,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data(), true);
   ASSERT_TRUE(CheckValue(0, values[0].ToString()));
-  //ASSERT_TRUE(CheckValue(50, values[1].ToString()));
+  // ASSERT_TRUE(CheckValue(50, values[1].ToString()));
   ASSERT_EQ(statuses[0], Status::OK());
   ASSERT_EQ(statuses[1], Status::Corruption());
 
@@ -2312,10 +2313,10 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   ro.fill_cache = fill_cache();
 
   SyncPoint::GetInstance()->SetCallBack(
-      "TableCache::MultiGet:FindTable", [&](void *status) {
-      Status* s = static_cast<Status*>(status);
-      *s = Status::IOError();
-    });
+      "TableCache::MultiGet:FindTable", [&](void* status) {
+        Status* s = static_cast<Status*>(status);
+        *s = Status::IOError();
+      });
   // DB open will create table readers unless we reduce the table cache
   // capacity.
   // SanitizeOptions will set max_open_files to minimum of 20. Table cache
@@ -2324,10 +2325,10 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   // prevent file open during DB open and force the file to be opened
   // during MultiGet
   SyncPoint::GetInstance()->SetCallBack(
-      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void *arg) {
-      int* max_open_files = (int*)arg;
-      *max_open_files = 11;
-    });
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+        int* max_open_files = (int*)arg;
+        *max_open_files = 11;
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(CurrentOptions());
@@ -2347,15 +2348,15 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(
-    ParallelIO, DBBasicTestWithParallelIO,
-    // Params are as follows -
-    // Param 0 - Compressed cache enabled
-    // Param 1 - Uncompressed cache enabled
-    // Param 2 - Data compression enabled
-    // Param 3 - ReadOptions::fill_cache
-    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                       ::testing::Bool(), ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
+                        // Params are as follows -
+                        // Param 0 - Compressed cache enabled
+                        // Param 1 - Uncompressed cache enabled
+                        // Param 2 - Data compression enabled
+                        // Param 3 - ReadOptions::fill_cache
+                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(),
+                                           ::testing::Bool()));
 
 
 }  // namespace ROCKSDB_NAMESPACE
