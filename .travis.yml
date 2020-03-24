@@ -118,17 +118,6 @@ matrix:
     env: TEST_GROUP=4
   - if: type = pull_request
     os : osx
-    env: JOB_NAME=java_test
-  - if: type = pull_request
-    os : linux
-    arch: arm64
-    env: JOB_NAME=java_test
-  - if: type = pull_request
-    os: linux
-    arch: ppc64le
-    env: JOB_NAME=java_test
-  - if: type = pull_request
-    os : osx
     env: JOB_NAME=lite_build
   - if: type = pull_request
     os : linux
