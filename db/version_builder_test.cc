@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <cstring>
+#include <memory>
 #include <string>
 #include "db/version_edit.h"
 #include "db/version_set.h"
@@ -74,6 +75,19 @@ class VersionBuilderTest : public testing::Test {
       f->init_stats_from_file = true;
       vstorage_.UpdateAccumulatedStats(f);
     }
+  }
+
+  void AddBlob(uint64_t blob_file_number, uint64_t total_blob_count,
+               uint64_t total_blob_bytes, std::string checksum_method,
+               std::string checksum_value, uint64_t garbage_blob_count,
+               uint64_t garbage_blob_bytes) {
+    auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        std::move(checksum_method), std::move(checksum_value));
+    auto meta = std::make_shared<BlobFileMetaData>(
+        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
+
+    vstorage_.AddBlobFile(std::move(meta));
   }
 
   void UpdateVersionStorageInfo() {
@@ -375,6 +389,32 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   ASSERT_EQ(meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(meta->GetChecksumValue(), checksum_value);
+}
+
+TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t total_blob_count = 5678;
+  constexpr uint64_t total_blob_bytes = 999999;
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr uint64_t garbage_blob_count = 123;
+  constexpr uint64_t garbage_blob_bytes = 456789;
+
+  AddBlob(blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+          checksum_value, garbage_blob_count, garbage_blob_bytes);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                   checksum_method, checksum_value);
+
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 already added"));
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
