@@ -350,10 +350,6 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
 //  * oldest blob file reference points to valid (first file on level, not first
 //  file, also check kInvalidBlobFileNumber)
 //  * garbage count
-// SaveBlobFilesTo:
-//  * merging logic: only in base, only in changed, updated in changed, one list
-//  shorter cases
-//  * all garbage file does not get saved to new version
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   EnvOptions env_options;
@@ -567,6 +563,84 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
   const Status s = builder.Apply(&edit);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 not found"));
+}
+
+TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
+  // Add three blob files to base version.
+  for (uint64_t i = 1; i <= 3; ++i) {
+    const uint64_t blob_file_number = i;
+    const uint64_t total_blob_count = i * 1000;
+    const uint64_t total_blob_bytes = i * 1000000;
+    const uint64_t garbage_blob_count = i * 100;
+    const uint64_t garbage_blob_bytes = i * 20000;
+
+    AddBlob(blob_file_number, total_blob_count, total_blob_bytes,
+            /* checksum_method */ std::string(),
+            /* checksum_value */ std::string(), garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  // Add some garbage to the second and third blob files. The second blob file
+  // remains valid since it does not consist entirely of garbage yet. The third
+  // blob file is all garbage after the edit and will not be part of the new
+  // version.
+  edit.AddBlobFileGarbage(/* blob_file_number */ 2,
+                          /* garbage_blob_count */ 200,
+                          /* garbage_blob_bytes */ 100000);
+  edit.AddBlobFileGarbage(/* blob_file_number */ 3,
+                          /* garbage_blob_count */ 2700,
+                          /* garbage_blob_bytes */ 2940000);
+
+  // Add a fourth blob file.
+  edit.AddBlobFile(/* blob_file_number */ 4, /* total_blob_count */ 4000,
+                   /* total_blob_bytes */ 4000000,
+                   /* checksum_method */ std::string(),
+                   /* checksum_value */ std::string());
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  const auto& new_blob_files = new_vstorage.GetBlobFiles();
+  ASSERT_EQ(new_blob_files.size(), 3);
+
+  const auto meta1 = GetBlobFileMetaData(new_blob_files, 1);
+
+  ASSERT_NE(meta1, nullptr);
+  ASSERT_EQ(meta1->GetBlobFileNumber(), 1);
+  ASSERT_EQ(meta1->GetTotalBlobCount(), 1000);
+  ASSERT_EQ(meta1->GetTotalBlobBytes(), 1000000);
+  ASSERT_EQ(meta1->GetGarbageBlobCount(), 100);
+  ASSERT_EQ(meta1->GetGarbageBlobBytes(), 20000);
+
+  const auto meta2 = GetBlobFileMetaData(new_blob_files, 2);
+
+  ASSERT_NE(meta2, nullptr);
+  ASSERT_EQ(meta2->GetBlobFileNumber(), 2);
+  ASSERT_EQ(meta2->GetTotalBlobCount(), 2000);
+  ASSERT_EQ(meta2->GetTotalBlobBytes(), 2000000);
+  ASSERT_EQ(meta2->GetGarbageBlobCount(), 400);
+  ASSERT_EQ(meta2->GetGarbageBlobBytes(), 140000);
+
+  const auto meta4 = GetBlobFileMetaData(new_blob_files, 4);
+
+  ASSERT_NE(meta4, nullptr);
+  ASSERT_EQ(meta4->GetBlobFileNumber(), 4);
+  ASSERT_EQ(meta4->GetTotalBlobCount(), 4000);
+  ASSERT_EQ(meta4->GetTotalBlobBytes(), 4000000);
+  ASSERT_EQ(meta4->GetGarbageBlobCount(), 0);
+  ASSERT_EQ(meta4->GetGarbageBlobBytes(), 0);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
