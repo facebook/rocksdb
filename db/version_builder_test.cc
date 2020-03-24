@@ -350,10 +350,6 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
 //  * oldest blob file reference points to valid (first file on level, not first
 //  file, also check kInvalidBlobFileNumber)
 //  * garbage count
-// ApplyBlobFileGarbage:
-//  * success (found in base vstorage/changed)
-//  * not found
-//  * multiple accumulate
 // SaveBlobFilesTo:
 //  * merging logic: only in base, only in changed, updated in changed, one list
 //  shorter cases
@@ -449,7 +445,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
   ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 already added"));
 }
 
-TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyInBase) {
+TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   constexpr uint64_t blob_file_number = 1234;
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
@@ -504,7 +500,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyInBase) {
             garbage_blob_bytes + new_garbage_blob_bytes);
 }
 
-TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyApplied) {
+TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   VersionBuilder builder(env_options, table_cache, &vstorage_);
@@ -552,6 +548,25 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyApplied) {
   ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
   ASSERT_EQ(new_meta->GetGarbageBlobCount(), garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+}
+
+TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t garbage_blob_count = 5678;
+  constexpr uint64_t garbage_blob_bytes = 999999;
+
+  edit.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
+                          garbage_blob_bytes);
+
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 not found"));
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
