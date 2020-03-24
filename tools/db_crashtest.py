@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 import os
 import sys
 import time
@@ -132,7 +134,7 @@ def is_direct_io_supported(dbname):
     with tempfile.NamedTemporaryFile(dir=dbname) as f:
         try:
             os.open(f.name, os.O_DIRECT)
-        except:
+        except BaseException:
             return False
         return True
 
@@ -297,8 +299,8 @@ def blackbox_crash_main(args, unknown_args):
         killtime = time.time() + cmd_params['interval']
 
         cmd = gen_cmd(dict(
-            list(cmd_params.items()) +
-            list({'db': dbname}.items())), unknown_args)
+            list(cmd_params.items())
+            + list({'db': dbname}.items())), unknown_args)
 
         child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
@@ -417,7 +419,8 @@ def whitebox_crash_main(args, unknown_args):
             }
 
         cmd = gen_cmd(dict(list(cmd_params.items())
-            + list(additional_opts.items()) + list({'db': dbname}.items())), unknown_args)
+            + list(additional_opts.items())
+            + list({'db': dbname}.items())), unknown_args)
 
         print("Running:" + ' '.join(cmd) + "\n")  # noqa: E999 T25377293 Grandfathered in
 
