@@ -90,6 +90,18 @@ class VersionBuilderTest : public testing::Test {
     vstorage_.AddBlobFile(std::move(meta));
   }
 
+  static std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      const VersionStorageInfo::BlobFiles& blob_files,
+      uint64_t blob_file_number) {
+    const auto it = blob_files.find(blob_file_number);
+
+    if (it == blob_files.end()) {
+      return std::shared_ptr<BlobFileMetaData>();
+    }
+
+    return it->second;
+  }
+
   void UpdateVersionStorageInfo() {
     vstorage_.UpdateFilesByCompactionPri(ioptions_.compaction_pri);
     vstorage_.UpdateNumNonEmptyLevels();
@@ -375,10 +387,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   const auto& blob_files = new_vstorage.GetBlobFiles();
   ASSERT_EQ(blob_files.size(), 1);
 
-  const auto it = blob_files.find(blob_file_number);
-  ASSERT_NE(it, blob_files.end());
-
-  const auto& meta = it->second;
+  const auto meta = GetBlobFileMetaData(blob_files, blob_file_number);
 
   ASSERT_NE(meta, nullptr);
   ASSERT_EQ(meta->GetBlobFileNumber(), blob_file_number);
@@ -386,6 +395,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   ASSERT_EQ(meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(meta->GetChecksumValue(), checksum_value);
+  ASSERT_EQ(meta->GetGarbageBlobCount(), 0);
+  ASSERT_EQ(meta->GetGarbageBlobBytes(), 0);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
@@ -436,6 +447,61 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
   const Status s = builder.Apply(&edit);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "Blob file #1234 already added"));
+}
+
+TEST_F(VersionBuilderTest, ApplyBlobFileGarbageAlreadyInBase) {
+  constexpr uint64_t blob_file_number = 1234;
+  constexpr uint64_t total_blob_count = 5678;
+  constexpr uint64_t total_blob_bytes = 999999;
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] = "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+  constexpr uint64_t garbage_blob_count = 123;
+  constexpr uint64_t garbage_blob_bytes = 456789;
+
+  AddBlob(blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+          checksum_value, garbage_blob_count, garbage_blob_bytes);
+
+  const auto meta =
+      GetBlobFileMetaData(vstorage_.GetBlobFiles(), blob_file_number);
+  ASSERT_NE(meta, nullptr);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  constexpr uint64_t new_garbage_blob_count = 456;
+  constexpr uint64_t new_garbage_blob_bytes = 111111;
+
+  edit.AddBlobFileGarbage(blob_file_number, new_garbage_blob_count,
+                          new_garbage_blob_bytes);
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  const auto& new_blob_files = new_vstorage.GetBlobFiles();
+  ASSERT_EQ(new_blob_files.size(), 1);
+
+  const auto new_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+
+  ASSERT_NE(new_meta, nullptr);
+  ASSERT_EQ(new_meta->GetSharedMeta(), meta->GetSharedMeta());
+  ASSERT_EQ(new_meta->GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(new_meta->GetTotalBlobCount(), total_blob_count);
+  ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
+  ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
+  ASSERT_EQ(new_meta->GetGarbageBlobCount(),
+            garbage_blob_count + new_garbage_blob_count);
+  ASSERT_EQ(new_meta->GetGarbageBlobBytes(),
+            garbage_blob_bytes + new_garbage_blob_bytes);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
