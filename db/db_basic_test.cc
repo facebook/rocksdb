@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -1919,10 +1920,17 @@ class DBBasicTestWithParallelIO
       compression_types = GetSupportedCompressions();
       // Not every platform may have compression libraries available, so
       // dynamically pick based on what's available
-      if (compression_types.size() == 0) {
-        compression_enabled_ = false;
+      CompressionType tmp_type = kNoCompression;
+      for (auto c_type : compression_types) {
+        if (c_type != kNoCompression) {
+          tmp_type = c_type;
+          break;
+        }
+      }
+      if (tmp_type != kNoCompression) {
+        options.compression = tmp_type;
       } else {
-        options.compression = compression_types[0];
+        compression_enabled_ = false;
       }
     }
 #else
@@ -2132,8 +2140,6 @@ class DBBasicTestWithParallelIO
   bool fill_cache_;
 };
 
-// TODO: fails on CircleCI's Windows env
-#ifndef OS_WIN
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   std::vector<std::string> key_data(10);
   std::vector<Slice> keys;
@@ -2256,7 +2262,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
     }
   }
 }
-#endif // OS_WIN
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   std::vector<std::string> key_data(10);
