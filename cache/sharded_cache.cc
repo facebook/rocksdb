@@ -9,8 +9,10 @@
 
 #include "cache/sharded_cache.h"
 
+#include <algorithm>
 #include <string>
 
+#include "util/math.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -147,16 +149,15 @@ std::string ShardedCache::GetPrintableOptions() const {
   return ret;
 }
 int GetDefaultCacheShardBits(size_t capacity) {
-  int num_shard_bits = 0;
-  size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.
-  size_t num_shards = capacity / min_shard_size;
-  while (num_shards >>= 1) {
-    if (++num_shard_bits >= 6) {
-      // No more than 6.
-      return num_shard_bits;
-    }
-  }
-  return num_shard_bits;
+  // The number of shards should not exceed roughly sqrt(cache entries)/2
+  // to minimize clustering effects and metadata overhead. For example,
+  // 4 shard bits (16 shards) for 8MiB block cache (long time defaults) and
+  // 10 shard bits (1024 shards) for 16GiB block cache.
+  // (Performance improvement has been seen with 1024 shards or more, due to
+  // less lock contention.)
+  // Estimate one cache entry per 4KB (2^12 bytes).
+  // In base-2 logs, /2 for sqrt, -1 for /2.
+  return std::max((FloorLog2(capacity) - 12) / 2 - 1, int{0});
 }
 
 }  // namespace ROCKSDB_NAMESPACE

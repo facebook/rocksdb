@@ -734,17 +734,36 @@ TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
 TEST_P(CacheTest, DefaultShardBits) {
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
-  std::shared_ptr<Cache> cache = NewCache(16 * 1024L * 1024L);
-  ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
-  ASSERT_EQ(5, sc->GetNumShardBits());
+  std::shared_ptr<Cache> cache;
+  ShardedCache* sc;
 
-  cache = NewLRUCache(511 * 1024L, -1, true);
+  // 8 MiB
+  cache = NewCache(size_t{8} << 20);
   sc = dynamic_cast<ShardedCache*>(cache.get());
-  ASSERT_EQ(0, sc->GetNumShardBits());
+  EXPECT_EQ(4, sc->GetNumShardBits());
 
-  cache = NewLRUCache(1024L * 1024L * 1024L, -1, true);
+  // 16 MiB
+  cache = NewCache(size_t{16} << 20);
   sc = dynamic_cast<ShardedCache*>(cache.get());
-  ASSERT_EQ(6, sc->GetNumShardBits());
+  EXPECT_EQ(5, sc->GetNumShardBits());
+
+  // 511 KiB (used to be too small for > 1 shard, now considered ok)
+  cache = NewLRUCache(size_t{511} << 10, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  EXPECT_EQ(2, sc->GetNumShardBits());
+
+  // 1 GiB
+  cache = NewLRUCache(size_t{1} << 30, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  EXPECT_EQ(8, sc->GetNumShardBits());
+
+  if (sizeof(size_t) > 4) {
+    // 16 GiB
+    cache = NewLRUCache(size_t{16} << 30, -1, true);
+    sc = dynamic_cast<ShardedCache*>(cache.get());
+    // 1024 shards
+    EXPECT_EQ(10, sc->GetNumShardBits());
+  }
 }
 
 TEST_P(CacheTest, GetCharge) {
