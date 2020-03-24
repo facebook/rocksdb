@@ -3052,8 +3052,18 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     old_default_opts.OldDefaults(5, 18);
     ASSERT_TRUE(old_default_opts.compaction_pri ==
                 CompactionPri::kByCompensatedSize);
+    ASSERT_EQ(0, old_default_opts.memtable_prefix_bloom_size_ratio);
+    ASSERT_FALSE(old_default_opts.memtable_whole_key_filtering);
   }
 
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(6, 8);
+    ASSERT_EQ(0, old_default_opts.memtable_prefix_bloom_size_ratio);
+    ASSERT_FALSE(old_default_opts.memtable_whole_key_filtering);
+  }
+
+  
   Options small_opts;
   small_opts.OptimizeForSmallDb();
   ASSERT_EQ(2 << 20, small_opts.write_buffer_size);
