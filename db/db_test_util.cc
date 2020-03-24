@@ -344,6 +344,8 @@ Options DBTestBase::GetDefaultOptions() const {
   if (!env_->skip_fsync_) {
     options.track_and_verify_wals_in_manifest = true;
   }
+  options.memtable_whole_key_filtering = false;
+  options.memtable_prefix_bloom_size_ratio = 0;
   return options;
 }
 
