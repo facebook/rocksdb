@@ -163,6 +163,7 @@ FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
   req.offset = static_cast<uint64_t>(
     TruncateToPageBoundary(alignment, static_cast<size_t>(r.offset)));
   req.len = Roundup(End(r), alignment) - req.offset;
+  req.scratch = nullptr;
   return req;
 }
 
