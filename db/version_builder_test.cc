@@ -59,12 +59,13 @@ class VersionBuilderTest : public testing::Test {
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            uint64_t num_entries = 0, uint64_t num_deletions = 0,
            bool sampled = false, SequenceNumber smallest_seqno = 0,
-           SequenceNumber largest_seqno = 0) {
+           SequenceNumber largest_seqno = 0,
+           uint64_t oldest_blob_file_number = kInvalidBlobFileNumber) {
     assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, path_id, file_size, GetInternalKey(smallest, smallest_seq),
         GetInternalKey(largest, largest_seq), smallest_seqno, largest_seqno,
-        /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        /* marked_for_compact */ false, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     f->compensated_file_size = file_size;
@@ -641,6 +642,72 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta4->GetTotalBlobBytes(), 4000000);
   ASSERT_EQ(meta4->GetGarbageBlobCount(), 0);
   ASSERT_EQ(meta4->GetGarbageBlobBytes(), 0);
+}
+
+TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
+  // Initialize base version. The first table file points to a valid blob file
+  // in this version; the second one does not refer to any blob files.
+
+  Add(/* level */ 1, /* file_number */ 1, /* smallest */ "150",
+      /* largest */ "200", /* file_size */ 100,
+      /* path_id */ 0, /* smallest_seq */ 100, /* largest_seq */ 100,
+      /* num_entries */ 0, /* num_deletions */ 0,
+      /* sampled */ false, /* smallest_seqno */ 100, /* largest_seqno */ 100,
+      /* oldest_blob_file_number */ 16);
+  Add(/* level */ 1, /* file_number */ 23, /* smallest */ "201",
+      /* largest */ "300", /* file_size */ 100,
+      /* path_id */ 0, /* smallest_seq */ 200, /* largest_seq */ 200,
+      /* num_entries */ 0, /* num_deletions */ 0,
+      /* sampled */ false, /* smallest_seqno */ 200, /* largest_seqno */ 200,
+      kInvalidBlobFileNumber);
+
+  AddBlob(/* blob_file_number */ 16, /* total_blob_count */ 1000,
+          /* total_blob_bytes */ 1000000,
+          /* checksum_method */ std::string(),
+          /* checksum_value */ std::string(),
+          /* garbage_blob_count */ 500, /* garbage_blob_bytes */ 300000);
+
+  UpdateVersionStorageInfo();
+
+  // Add a new table file that points to the existing blob file, and add a
+  // new table file--blob file pair.
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  VersionEdit edit;
+
+  edit.AddFile(/* level */ 1, /* file_number */ 606, /* path_id */ 0,
+               /* file_size */ 100, /* smallest */ GetInternalKey("701"),
+               /* largest */ GetInternalKey("750"), /* smallest_seqno */ 200,
+               /* largest_seqno */ 200, /* marked_for_compaction */ false,
+               /* oldest_blob_file_number */ 16, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName);
+
+  edit.AddFile(/* level */ 1, /* file_number */ 700, /* path_id */ 0,
+               /* file_size */ 100, /* smallest */ GetInternalKey("801"),
+               /* largest */ GetInternalKey("850"), /* smallest_seqno */ 200,
+               /* largest_seqno */ 200, /* marked_for_compaction */ false,
+               /* oldest_blob_file_number */ 1000, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName);
+  edit.AddBlobFile(/* blob_file_number */ 1000, /* total_blob_count */ 2000,
+                   /* total_blob_bytes */ 200000,
+                   /* checksum_method */ std::string(),
+                   /* checksum_value */ std::string());
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  // Save to a new version in order to trigger consistency checks.
+  constexpr bool force_consistency_checks = false;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
