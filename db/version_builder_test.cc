@@ -347,11 +347,6 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-// Consistency check:
-//  * oldest blob file reference points to valid (first file on level, not first
-//  file, also check kInvalidBlobFileNumber)
-//  * garbage count
-
 TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
