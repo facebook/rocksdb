@@ -12,7 +12,7 @@
 #endif
 #include <type_traits>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 template <typename T>
 inline int FloorLog2(T v) {
@@ -40,4 +40,4 @@ inline int FloorLog2(T v) {
 #endif
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
