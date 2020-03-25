@@ -1510,7 +1510,12 @@ Status DBImpl::RunManualCompaction(
       }
       manual.incomplete = false;
       bg_compaction_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+      Env::Priority thread_pool_pri = Env::Priority::LOW;
+      if (compaction->bottommost_level() &&
+          env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
+        thread_pool_pri = Env::Priority::BOTTOM;
+      }
+      env_->Schedule(&DBImpl::BGWorkCompaction, ca, thread_pool_pri, this,
                      &DBImpl::UnscheduleCompactionCallback);
       scheduled = true;
     }

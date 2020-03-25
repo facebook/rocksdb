@@ -9,9 +9,6 @@
 
 #include "util/threadpool_imp.h"
 
-#include "monitoring/thread_status_util.h"
-#include "port/port.h"
-
 #ifndef OS_WIN
 #  include <unistd.h>
 #endif
@@ -30,6 +27,10 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+
+#include "monitoring/thread_status_util.h"
+#include "port/port.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -262,6 +263,10 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     (void)decrease_io_priority;  // avoid 'unused variable' error
     (void)decrease_cpu_priority;
 #endif
+
+    TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::Impl::BGThread:BeforeRun",
+                             &priority_);
+
     func();
   }
 }
