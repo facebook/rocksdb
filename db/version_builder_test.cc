@@ -498,7 +498,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
-  // Increase the amount of garbage for a blob file added using a VersionEdit.
+  // Increase the amount of garbage for a blob file added using a version edit.
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -551,7 +551,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
   // Attempt to increase the amount of garbage for a blob file that is
-  // neither in the base version, nor was it added using a VersionEdit.
+  // neither in the base version, nor was it added using a version edit.
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
