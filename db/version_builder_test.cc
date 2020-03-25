@@ -100,7 +100,10 @@ class VersionBuilderTest : public testing::Test {
       return std::shared_ptr<BlobFileMetaData>();
     }
 
-    return it->second;
+    const auto& meta = it->second;
+    assert(meta);
+
+    return meta;
   }
 
   void UpdateVersionStorageInfo() {

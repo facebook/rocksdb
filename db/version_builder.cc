@@ -150,7 +150,10 @@ class VersionBuilder::Rep {
       uint64_t blob_file_number) const {
     auto changed_it = changed_blob_files_.find(blob_file_number);
     if (changed_it != changed_blob_files_.end()) {
-      return changed_it->second;
+      const auto& meta = changed_it->second;
+      assert(meta);
+
+      return meta;
     }
 
     assert(base_vstorage_);
@@ -159,7 +162,10 @@ class VersionBuilder::Rep {
 
     auto base_it = base_blob_files.find(blob_file_number);
     if (base_it != base_blob_files.end()) {
-      return base_it->second;
+      const auto& meta = base_it->second;
+      assert(meta);
+
+      return meta;
     }
 
     return std::shared_ptr<BlobFileMetaData>();
