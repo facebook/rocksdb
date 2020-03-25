@@ -593,6 +593,72 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
   }
 }
 
+TEST_F(DBCompactionTest, CompactRangeBottomPri) {
+  ASSERT_OK(Put(Key(50), ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(100), ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(200), ""));
+  ASSERT_OK(Flush());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+  }
+  ASSERT_EQ("0,0,3", FilesPerLevel(0));
+
+  ASSERT_OK(Put(Key(1), ""));
+  ASSERT_OK(Put(Key(199), ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(2), ""));
+  ASSERT_OK(Put(Key(199), ""));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("2,0,3", FilesPerLevel(0));
+
+  // Now we have 2 L0 files, and 3 L2 files, and a manual compaction will
+  // be triggered.
+  // Two compaction jobs will run. One compacts 2 L0 files in Low Pri Pool
+  // and one compact to L2 in bottom pri pool.
+  int low_pri_count = 0;
+  int bottom_pri_count = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "ThreadPoolImpl::Impl::BGThread:BeforeRun", [&](void* arg) {
+        Env::Priority* pri = reinterpret_cast<Env::Priority*>(arg);
+        // First time is low pri pool in the test case.
+        if (low_pri_count == 0 && bottom_pri_count == 0) {
+          ASSERT_EQ(Env::Priority::LOW, *pri);
+        }
+        if (*pri == Env::Priority::LOW) {
+          low_pri_count++;
+        } else {
+          bottom_pri_count++;
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  env_->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ(1, low_pri_count);
+  ASSERT_EQ(1, bottom_pri_count);
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  // Recompact bottom most level uses bottom pool
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  dbfull()->CompactRange(cro, nullptr, nullptr);
+  ASSERT_EQ(1, low_pri_count);
+  ASSERT_EQ(2, bottom_pri_count);
+
+  env_->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+  dbfull()->CompactRange(cro, nullptr, nullptr);
+  // Low pri pool is used if bottom pool has size 0.
+  ASSERT_EQ(2, low_pri_count);
+  ASSERT_EQ(2, bottom_pri_count);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
   uint64_t db_size[3];
   for (int test = 0; test < 2; ++test) {
