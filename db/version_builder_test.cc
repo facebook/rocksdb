@@ -416,7 +416,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
-  // Attempt to add the same blob file twice using VersionEdits.
+  // Attempt to add the same blob file twice using version edits.
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
