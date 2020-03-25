@@ -14,6 +14,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// SharedBlobFileMetaData represents the immutable part of blob files' metadata,
+// like the blob file number, total number and size of blobs, or checksum
+// method and value. There is supposed to be one object of this class per blob
+// file (shared across all Versions that include the blob file in question);
+// hence, the type is neither copyable nor movable. A blob file can be marked
+// obsolete when the corresponding SharedBlobFileMetaData object is destroyed.
 class SharedBlobFileMetaData {
  public:
   SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
@@ -27,8 +33,7 @@ class SharedBlobFileMetaData {
     assert(checksum_method_.empty() == checksum_value_.empty());
   }
 
-  ~SharedBlobFileMetaData() {
-  }  // TODO: this is when a blob file becomes obsolete
+  ~SharedBlobFileMetaData();
 
   SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
   SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
@@ -52,6 +57,13 @@ class SharedBlobFileMetaData {
 std::ostream& operator<<(std::ostream& os,
                          const SharedBlobFileMetaData& shared_meta);
 
+// BlobFileMetaData contains the part of the metadata for blob files that can
+// vary across Versions, like the amount of garbage in the blob file. In
+// addition, BlobFileMetaData objects point to and share the ownership of the
+// SharedBlobFileMetaData object for the corresponding blob file. Similarly to
+// SharedBlobFileMetaData, BlobFileMetaData are not copyable or movable. They
+// are meant to be jointly owned by the Versions in which the blob file has the
+// same (immutable *and* mutable) state.
 class BlobFileMetaData {
  public:
   BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,

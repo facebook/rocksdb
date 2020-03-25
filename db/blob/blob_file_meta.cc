@@ -10,6 +10,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+SharedBlobFileMetaData::~SharedBlobFileMetaData() {
+  // TODO: add the blob file to the list of obsolete files here
+}
+
 std::string SharedBlobFileMetaData::DebugString() const {
   std::ostringstream oss;
   oss << (*this);
