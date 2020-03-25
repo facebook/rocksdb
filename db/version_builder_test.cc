@@ -717,7 +717,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
 
 TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesNotInVersion) {
   // Initialize base version. The table file points to a blob file that is
-  // not in this Version.
+  // not in this version.
 
   Add(/* level */ 1, /* file_number */ 1, /* smallest */ "150",
       /* largest */ "200", /* file_size */ 100,
@@ -747,7 +747,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesNotInVersion) {
   const Status s = builder.SaveTo(&new_vstorage);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(
-      std::strstr(s.getState(), "Blob file #256 is not part of this Version"));
+      std::strstr(s.getState(), "Blob file #256 is not part of this version"));
 
   UnrefFilesInVersion(&new_vstorage);
 }

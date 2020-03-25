@@ -183,7 +183,7 @@ class VersionBuilder::Rep {
     if (!meta) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number
-          << " is not part of this Version";
+          << " is not part of this version";
 
       return Status::Corruption("VersionBuilder", oss.str());
     }
@@ -201,7 +201,7 @@ class VersionBuilder::Rep {
 #endif
     // Make sure the files are sorted correctly and that the oldest blob file
     // reference for each table file points to a valid blob file in this
-    // Version.
+    // version.
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
 
@@ -290,7 +290,7 @@ class VersionBuilder::Rep {
       }
     }
 
-    // Make sure that all blob files in the Version have non-garbage data.
+    // Make sure that all blob files in the version have non-garbage data.
     const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& pair : blob_files) {
       const auto& blob_file_meta = pair.second;
