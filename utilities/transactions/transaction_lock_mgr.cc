@@ -8,13 +8,8 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 
 #include <cinttypes>
-
 #include <algorithm>
-#include <condition_variable>
-#include <functional>
 #include <mutex>
-#include <string>
-#include <vector>
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
