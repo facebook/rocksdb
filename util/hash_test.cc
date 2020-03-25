@@ -13,6 +13,7 @@
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/hash.h"
+#include "util/math.h"
 
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
@@ -368,6 +369,31 @@ uint32_t fastrange32(uint32_t hash, uint32_t range) {
 // for inspection of disassembly
 size_t fastrange64(uint64_t hash, size_t range) {
   return ROCKSDB_NAMESPACE::fastrange64(hash, range);
+}
+
+// Tests of util/math.h here for now
+
+using ROCKSDB_NAMESPACE::FloorLog2;
+
+TEST(MathTest, FloorLog2Test) {
+  // Test everything up to 2^16, different types
+  for (uint16_t i = 1; /* wrap around */ i > 0; ++i) {
+    int floor_log2 = FloorLog2(i);
+    uint16_t floor_pow2 = static_cast<uint16_t>(1U << floor_log2);
+    EXPECT_EQ(floor_pow2 & i, floor_pow2);
+    EXPECT_LT(i / 2, floor_pow2);
+
+    EXPECT_EQ(floor_log2, FloorLog2(uint32_t{i}));
+    EXPECT_EQ(floor_log2, FloorLog2(unsigned{i}));
+    EXPECT_EQ(floor_log2, FloorLog2(uint64_t{i}));
+  }
+
+  // Test all 2^n and (2^n)-1 within 64 bits
+  EXPECT_EQ(FloorLog2(1U), 0);
+  for (int bit_pos = 1; bit_pos < 64; ++bit_pos) {
+    EXPECT_EQ(FloorLog2(uint64_t{1} << bit_pos), bit_pos);
+    EXPECT_EQ(FloorLog2((uint64_t{1} << bit_pos) - 1), bit_pos - 1);
+  }
 }
 
 int main(int argc, char** argv) {

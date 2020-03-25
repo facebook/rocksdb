@@ -10,27 +10,27 @@
 #ifdef _MSC_VER
 #include <intrin.h>
 #endif
+#include <type_traits>
 
 namespace rocksdb {
 
 template <typename T>
 inline int FloorLog2(T v) {
   static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_unsigned<T>::value, "must be unsigned");
   assert(v > 0);
 #ifdef _MSC_VER
-  static_assert(sizeof(T) >= sizeof(uint32_t), "type too small");
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
   unsigned long lz = 0;
-  if (sizeof(T) == sizeof(uint32_t)) {
+  if (sizeof(T) <= sizeof(uint32_t)) {
     _BitScanReverse(&lz, static_cast<uint32_t>(v));
   } else {
     _BitScanReverse64(&lz, static_cast<uint64_t>(v));
   }
   return 63 - static_cast<int>(lz);
 #else
-  static_assert(sizeof(T) >= sizeof(unsigned int), "type too small");
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");
-  if (sizeof(T) == sizeof(unsigned int)) {
+  if (sizeof(T) <= sizeof(unsigned int)) {
     int lz = __builtin_clz(static_cast<unsigned int>(v));
     return int{sizeof(unsigned int)} * 8 - 1 - lz;
   } else {
