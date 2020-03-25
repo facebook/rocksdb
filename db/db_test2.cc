@@ -1071,6 +1071,8 @@ TEST_F(DBTest2, PresetCompressionDict) {
   if (ZSTD_Supported()) {
     compression_types.push_back(kZSTD);
   }
+  // this test does not apply to indirect values
+  if(options.vlogring_activation_level.size())return;
 
   enum DictionaryTypes : int {
     kWithoutDict,
@@ -1190,6 +1192,8 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
+  // this test does not apply to indirect values
+  if(options.vlogring_activation_level.size())return;
 
   Random rnd(301);
   for (int i = 0; i < kNumFiles; ++i) {
@@ -1284,7 +1288,10 @@ TEST_F(DBTest2, CompressionOptions) {
   options.listeners.emplace_back(listener);
 
   const int kKeySize = 5;
-  const int kValSize = 20;
+  int kValSize = 20;
+  // references compress so well that we have to expect only 4 out of 16 bytes
+  // after compression
+  if(options.vlogring_activation_level.size())kValSize = 20+(16-4);
   Random rnd(301);
 
   for (int iter = 0; iter <= 2; iter++) {
@@ -1312,11 +1319,13 @@ TEST_F(DBTest2, CompressionOptions) {
     }
 
     DestroyAndReopen(options);
+    bool values_are_indirect = options.vlogring_activation_level.size()!=0;
     // Write 10 random files
     for (int i = 0; i < 10; i++) {
       for (int j = 0; j < 5; j++) {
         ASSERT_OK(
-            Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValSize)));
+            PutInvInd(RandomString(&rnd, kKeySize),
+                      RandomString(&rnd, kValSize),values_are_indirect));
       }
       ASSERT_OK(Flush());
       dbfull()->TEST_WaitForCompact();
@@ -1721,13 +1730,15 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
   options.target_file_size_base = 100 << 10;
   // Infinite for full compaction.
   options.max_compaction_bytes = options.target_file_size_base * 100;
+  options.allow_trivial_move = true;
 
   Reopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   Random rnd(301);
 
   for (int num = 0; num < 8; num++) {
-    GenerateNewRandomFile(&rnd);
+    GenerateNewRandomFileInvInd(&rnd,values_are_indirect);
   }
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
@@ -1736,13 +1747,26 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
 
   // When compact from Ln -> Ln+1, cut a file if the file overlaps with
   // more than three files in Ln+1.
+  // The standard code has a bug in compaction_job.cc that doesn't count a
+  // grandparent as overlapping unless the LAST key in the grandparent is before
+  // the key going into the output file.  Thus, the last grandparent is not
+  // counted in the size, and we get by with smaller max_compaction to create 3
+  // pieces
   options.max_compaction_bytes = options.target_file_size_base * 3;
+  // The max_compaction must be big enough to hold 3 grandparents plus 1/3 of
+  // the file from Ln, to allow the file to be split into just 3 pieces
+  if (options.vlogring_activation_level.size()) {
+    options.max_compaction_bytes =
+        (uint64_t)((double)options.target_file_size_base * 3.4);
+  }
   Reopen(options);
+  values_are_indirect = options.vlogring_activation_level.size()!=0;
 
-  GenerateNewRandomFile(&rnd);
+  GenerateNewRandomFileInvInd(&rnd,values_are_indirect);
   // Add three more small files that overlap with the previous file
   for (int i = 0; i < 3; i++) {
     Put("a", "z");
+    //Put("key5", "z");
     ASSERT_OK(Flush());
   }
   dbfull()->TEST_WaitForCompact();
@@ -2264,6 +2288,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.IncreaseParallelism(20);
+  options.allow_trivial_move=true;
   DestroyAndReopen(options);
 
   ASSERT_OK(Put(Key(0), "a"));
@@ -2339,6 +2364,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   options.num_levels = 2;
   options.IncreaseParallelism(20);
   options.disable_auto_compactions = true;
+  options.allow_trivial_move=true;
   DestroyAndReopen(options);
 
   ASSERT_OK(Put(Key(0), "a"));
@@ -2735,6 +2761,7 @@ TEST_F(DBTest2, ReadCallbackTest) {
   Options options;
   options.disable_auto_compactions = true;
   options.num_levels = 7;
+  options.allow_trivial_move=true;
   Reopen(options);
   std::vector<const Snapshot*> snapshots;
   // Try to create a db with multiple layers and a memtable

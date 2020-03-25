@@ -640,8 +640,7 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
       ASSERT_OK(Put(Key(k), values[k]));
     }
     dbfull()->TEST_WaitForFlushMemTable();
-    db
-	    full()->TEST_WaitForCompact();
+    dbfull()->TEST_WaitForCompact();
     db_size[0] = Size(Key(0), Key(kTestSize - 1));
     Close();
 

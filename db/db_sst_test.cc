@@ -119,7 +119,7 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
 
   Reopen(options);
   for (int k = 0; k < key_id; ++k) {
-    ASSERT_NE("NOT_FOUND", Get(Key(k)));
+    ASSERT_NE("NOT_FOUND", Get(KeyNewFile(k)));
   }
   Destroy(options);
 }
@@ -135,13 +135,14 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
   options.level0_file_num_compaction_trigger =
       2;  // trigger compaction when we have 2 files
   DestroyAndReopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   Random rnd(301);
   // Create two 1MB sst files
   for (int i = 0; i < 2; ++i) {
     // Create 1MB sst file
     for (int j = 0; j < 100; ++j) {
-      ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+      ASSERT_OK(PutInvInd(Key(i * 50 + j), RandomString(&rnd, 10 * 1024),values_are_indirect));
     }
     ASSERT_OK(Flush());
   }
@@ -183,13 +184,14 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   options.listeners.emplace_back(listener);
 
   Reopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   Random rnd(301);
   // Create two 1MB sst files
   for (int i = 0; i < 2; ++i) {
     // Create 1MB sst file
     for (int j = 0; j < 100; ++j) {
-      ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+      ASSERT_OK(PutInvInd(Key(i * 50 + j), RandomString(&rnd, 10 * 1024),values_are_indirect));
     }
     ASSERT_OK(Flush());
   }
@@ -220,7 +222,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   // write_buffer_size. The flush will be blocked with block_first_time
   // pending_file is protecting all the files created after
   for (int j = 0; j < 256; ++j) {
-    ASSERT_OK(Put(Key(j), RandomString(&rnd, 10 * 1024)));
+    ASSERT_OK(PutInvInd(Key(j), RandomString(&rnd, 10 * 1024),values_are_indirect));
   }
   blocking_thread.WaitUntilSleeping();
 
@@ -964,6 +966,7 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
     } else {
       options.max_file_opening_threads = 5;
     }
+    options.allow_trivial_move=true;
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -1023,6 +1026,9 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 10; j++) {
       std::string val = "val_file_" + ToString(i);
+      // for indirect values, make sure the data has the same length in all
+      // levels, by making the length the length of a reference
+      if(options.vlogring_activation_level.size())val.resize(16,'*');
       ASSERT_OK(Put(Key(j), val));
     }
     Flush();
@@ -1113,6 +1119,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
+  options.allow_trivial_move=true;
   DestroyAndReopen(options);
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {

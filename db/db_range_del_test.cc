@@ -91,6 +91,7 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   table_options.block_size_deviation = 50;  // each block holds two keys
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   // snapshot protects range tombstone from dropping due to becoming obsolete.
   const Snapshot* snapshot = db_->GetSnapshot();
@@ -102,7 +103,7 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
     // Write 12K (4 values, each 3K)
     for (int j = 0; j < kNumPerFile; j++) {
       values.push_back(RandomString(&rnd, 3 << 10));
-      ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
+      ASSERT_OK(PutInvInd(Key(i * kNumPerFile + j), values[j],values_are_indirect));
       if (j == 0 && i > 0) {
         dbfull()->TEST_WaitForFlushMemTable();
       }
@@ -117,10 +118,16 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                               true /* disallow_trivial_move */);
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  // If each file is overlong by 1 kv, they fit into 2 files.
+  int expfiles = 2;
+  // We try to honor the file-size limit of 9K, and there are 24K of kvs.  That takes 3 files
+  if(values_are_indirect)expfiles = 3;
+  ASSERT_EQ(expfiles, NumTableFilesAtLevel(1));
   db_->ReleaseSnapshot(snapshot);
 }
 
+// this test has key-lengths wired to 8 bytes, so we cannot replace Put;
+// thus it won't run with indirect values
 TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   // Ensures range deletion spanning multiple compaction output files that are
   // cut by max_compaction_bytes will have non-overlapping key-ranges.
@@ -341,7 +348,9 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
   options.num_levels = 3;
   options.target_file_size_base = kFileBytes;
   options.target_file_size_multiplier = 1;
+  options.allow_trivial_move = true;
   Reopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   Random rnd(301);
   for (int i = 0; i < 2; ++i) {
@@ -356,7 +365,7 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
       // Write 100KB (100 values, each 1K)
       for (int k = 0; k < kNumPerFile; k++) {
         values.push_back(RandomString(&rnd, 990));
-        ASSERT_OK(Put(Key(j * kNumPerFile + k), values[k]));
+	ASSERT_OK(PutInvInd(Key(j * kNumPerFile + k), values[k],values_are_indirect));
       }
       // put extra key to trigger flush
       ASSERT_OK(Put("", ""));
@@ -949,6 +958,12 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   options.memtable_factory.reset(
       new SpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
+  if(values_are_indirect){
+    // allow 2 keys per file for both indirect and direct values
+    options.target_file_size_base = (uint64_t)(kValueBytes*1.7);
+    options.allow_trivial_move = true;
+  }
   // i == 0: CompactFiles
   // i == 1: CompactRange
   // i == 2: automatic compaction
@@ -969,8 +984,8 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
     std::string value = RandomString(&rnd, kValueBytes);
     for (int j = 0; j < kNumFilesPerLevel; ++j) {
       // give files overlapping key-ranges to prevent trivial move
-      ASSERT_OK(Put(Key(j), value));
-      ASSERT_OK(Put(Key(2 * kNumFilesPerLevel - 1 - j), value));
+      ASSERT_OK(PutInvInd(Key(j), value,values_are_indirect));
+      ASSERT_OK(PutInvInd(Key(2 * kNumFilesPerLevel - 1 - j), value,values_are_indirect));
       if (j > 0) {
         dbfull()->TEST_WaitForFlushMemTable();
         ASSERT_EQ(j, NumTableFilesAtLevel(0));
@@ -1128,7 +1143,7 @@ TEST_F(DBRangeDelTest, UnorderedTombstones) {
   ASSERT_EQ("c", files[0][0].largest.user_key());
 
   std::string v;
-  auto s = db_->Get(ReadOptions(), "a", &v);
+  auto s = db_->Get(ReadOptions(), cf, "a", &v);
   ASSERT_TRUE(s.IsNotFound());
 }
 

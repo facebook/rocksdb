@@ -113,12 +113,23 @@ class VersionStorageInfoTest : public testing::Test {
         options_(GetOptionsWithNumLevels(6, logger_)),
         ioptions_(options_),
         mutable_cf_options_(options_),
-        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr, false) {}
+        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr, false,
+        nullptr) {} //needs to be &c_f_d for AR compactions
 
   ~VersionStorageInfoTest() override {
     for (int i = 0; i < vstorage_.num_levels(); i++) {
       for (auto* f : vstorage_.LevelFiles(i)) {
         if (--f->refs == 0) {
+          // The SST is about to be deleted.  Remove it from any VLog queues it
+          // is attached to. We have to do this explicitly rather than in a
+          // destructor because FileMetaData blocks get copied & put on queues
+          // with no regard for ownership.  Rather than try to enforce no-copy
+          // semantics everywhere we root out all the delete calls and put this
+          // there
+          if(f->vlog)f->vlog->VLogSstDelete(*f);
+          // it is possible that files on the added list were never actually
+          // added to the rings.  Those files will not have a vlog pointer so we
+          // won't try to take them off the rings.
           delete f;
         }
       }

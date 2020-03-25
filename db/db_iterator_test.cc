@@ -671,6 +671,7 @@ TEST_P(DBIteratorTest, IterMultiWithDelete) {
       // TODO: merge operator does not support backward iteration yet
       if (kPlainTableAllBytesPrefix != option_config_ &&
           kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
+          kBlockBasedTableWithWholeKeyHashIndexInd != option_config_ &&
           kHashLinkList != option_config_ &&
           kHashSkipList != option_config_) {  // doesn't support SeekToLast
         iter->Prev();
@@ -738,6 +739,7 @@ TEST_P(DBIteratorTest, IterWithSnapshot) {
       // TODO: merge operator does not support backward iteration yet
       if (kPlainTableAllBytesPrefix != option_config_ &&
           kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
+          kBlockBasedTableWithWholeKeyHashIndexInd != option_config_ &&
           kHashLinkList != option_config_ && kHashSkipList != option_config_) {
         iter->Prev();
         ASSERT_EQ(IterStatus(iter), "key4->val4");
@@ -757,6 +759,7 @@ TEST_P(DBIteratorTest, IterWithSnapshot) {
       // TODO(gzh): merge operator does not support backward iteration yet
       if (kPlainTableAllBytesPrefix != option_config_ &&
           kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
+          kBlockBasedTableWithWholeKeyHashIndexInd != option_config_ &&
           kHashLinkList != option_config_ && kHashSkipList != option_config_) {
         iter->SeekForPrev("key1");
         ASSERT_EQ(IterStatus(iter), "key1->val1");
@@ -1446,6 +1449,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.disable_auto_compactions = true;
   options.write_buffer_size = 1024 * 1024 * 10;  // 10 Mb
+  options.allow_trivial_move=true;
   DestroyAndReopen(options);
 
   std::map<std::string, std::string> true_data;
@@ -2069,6 +2073,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
   table_options.block_size = 1024;
   table_options.no_block_cache = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.allow_trivial_move=true;
   Reopen(options);
 
   std::string value(1024, 'a');

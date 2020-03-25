@@ -521,6 +521,9 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
       ASSERT_EQ(expected_versions[i].sequence, versions[i].sequence);
       ASSERT_EQ(expected_versions[i].type, versions[i].type);
       if (versions[i].type != kTypeDeletion &&
+          // the value has been translated, don't check it
+          versions[i].type != kTypeIndirectValue &&
+          versions[i].type != kTypeIndirectMerge &&
           versions[i].type != kTypeSingleDeletion) {
         ASSERT_EQ(expected_versions[i].value, versions[i].value);
       }
@@ -2240,6 +2243,9 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
   VerifyKeys({{"foo", "bar"}});
   VerifyKeys({{"foo", "bar"}}, snapshot);
   VerifyInternalKeys({{"foo", "bar", 0, kTypeValue}});
+  int exptype = kTypeValue;
+  if(options.vlogring_activation_level.size())exptype = kTypeIndirectValue;
+  VerifyInternalKeys({{"foo", "bar", 0, exptype}});
   db->ReleaseSnapshot(snapshot);
 }
 
@@ -2307,19 +2313,23 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
       {"key6", "NOT_FOUND"},
       {"key7", "NOT_FOUND"},
   });
+  int valuetype = kTypeValue;
+  int mergetype = kTypeMerge;
+  if(options.vlogring_activation_level.size())valuetype = kTypeIndirectValue;
+  if(options.vlogring_activation_level.size())mergetype = kTypeIndirectMerge;
   VerifyInternalKeys({
-      {"key1", "value1_2", expected_seq, kTypeValue},
-      {"key1", "value1_1", 0, kTypeValue},
+      {"key1", "value1_2", expected_seq, valuetype},
+      {"key1", "value1_1", 0, valuetype},
       {"key2", "", expected_seq, kTypeDeletion},
-      {"key2", "value2_1", 0, kTypeValue},
+      {"key2", "value2_1", 0, valuetype},
       {"key3", "", expected_seq, kTypeSingleDeletion},
-      {"key3", "value3_1", 0, kTypeValue},
-      {"key4", "value4_2", expected_seq, kTypeMerge},
-      {"key4", "value4_1", 0, kTypeValue},
-      {"key5", "value5_3", expected_seq, kTypeMerge},
-      {"key5", "value5_1,value5_2", 0, kTypeValue},
-      {"key6", "value6_2", expected_seq, kTypeValue},
-      {"key7", "value7_2", expected_seq, kTypeValue},
+      {"key3", "value3_1", 0, valuetype},
+      {"key4", "value4_2", expected_seq, mergetype},
+      {"key4", "value4_1", 0, valuetype},
+      {"key5", "value5_3", expected_seq, mergetype},
+      {"key5", "value5_1,value5_2", 0, valuetype},
+      {"key6", "value6_2", expected_seq, valuetype},
+      {"key7", "value7_2", expected_seq, valuetype},
   });
   ASSERT_OK(transaction->Commit());
   VerifyKeys({
@@ -2389,12 +2399,14 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   VerifyKeys({{"key1", "value1_2"}, {"key2", "value2_2"}});
   VerifyKeys({{"key1", "value1_1"}, {"key2", "NOT_FOUND"}}, snapshot2);
+  int valuetype = kTypeValue;
+  if(options.vlogring_activation_level.size())valuetype = kTypeIndirectValue;
   VerifyInternalKeys({
-      {"key1", "value1_2", seq1, kTypeValue},
+      {"key1", "value1_2", seq1, valuetype},
       // "value1_1" is visible to snapshot2. Also keys at bottom level visible
       // to earliest snapshot will output with seq = 0.
-      {"key1", "value1_1", 0, kTypeValue},
-      {"key2", "value2_2", seq2, kTypeValue},
+      {"key1", "value1_1", 0, valuetype},
+      {"key2", "value2_2", seq2, valuetype},
   });
   db->ReleaseSnapshot(snapshot2);
 }
@@ -2769,11 +2781,13 @@ TEST_P(WritePreparedTransactionTest,
       {"key1", "NOT_FOUND"},
       {"key2", "value2"},
   });
+  int valuetype = kTypeValue;
+  if(options.vlogring_activation_level.size())valuetype = kTypeIndirectValue;
   VerifyInternalKeys({
       // "key1" has not been committed. It keeps its sequence number.
-      {"key1", "value1", seq1, kTypeValue},
+      {"key1", "value1", seq1, valuetype},
       // "key2" is committed and output with seq = 0.
-      {"key2", "value2", 0, kTypeValue},
+      {"key2", "value2", 0, valuetype},
   });
   ASSERT_OK(transaction->Commit());
   VerifyKeys({

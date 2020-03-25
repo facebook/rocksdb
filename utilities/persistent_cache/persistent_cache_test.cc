@@ -317,6 +317,7 @@ void PersistentCacheDBTest::RunTest(
     options.write_buffer_size =
       static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
+    options.allow_trivial_move=true;
     options = CurrentOptions(options);
 
     // setup page cache
@@ -376,12 +377,13 @@ void PersistentCacheDBTest::RunTest(
     }
 
     std::vector<std::string> values;
+    bool values_are_indirect;  // Insert will set if we are using indirect values
     // insert data
-    Insert(options, table_options, num_iter, &values);
+    Insert(options, table_options, num_iter, &values, values_are_indirect);
     // flush all data in cache to device
     pcache->TEST_Flush();
     // verify data
-    Verify(num_iter, values);
+    Verify(num_iter, values, values_are_indirect);
 
     auto block_miss = TestGetTickerCount(options, BLOCK_CACHE_MISS);
     auto compressed_block_hit =

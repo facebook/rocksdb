@@ -1175,6 +1175,8 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
         auto it = true_data.lower_bound(Key(range_start));
         if (option_config_ != kUniversalCompaction &&
             option_config_ != kUniversalCompactionMultiLevel &&
+            option_config_ != kUniversalCompactionInd &&
+            option_config_ != kUniversalCompactionMultiLevelInd &&
             option_config_ != kUniversalSubcompactions) {
           if (it != true_data.end() && it->first <= Key(range_end)) {
             // This range overlap with data already exist in DB

@@ -14,6 +14,10 @@
 
 namespace rocksdb {
 
+// Test in both normal and indirect configurations
+#define INDOPTIONSBGN do{
+#define INDOPTIONSEND(opts) }while(opts.vlogring_activation_level.push_back(0),opts.min_indirect_val_size[0]=0,opts.vlogring_activation_level.size()<2);
+
 class TestReadCallback : public ReadCallback {
  public:
   TestReadCallback(SnapshotChecker* snapshot_checker,
@@ -78,6 +82,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   };
 
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   // Use only the latest two merge operands.
   options.merge_operator =
@@ -128,28 +133,32 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_OK(Merge("k4", "de"));
   ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
   ASSERT_EQ(value, "cd,de");
+  INDOPTIONSEND(options)
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
-  Reopen(options);
+  DestroyAndReopen(options);  // Not required for traditional RocksDB
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Merge("k1", "corrupted"));
   std::string value;
   ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsCorruption());
   VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v1"}});
+  INDOPTIONSEND(options)
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.max_successive_merges = 3;
   options.env = env_;
-  Reopen(options);
+  DestroyAndReopen(options);  // Not required for traditional RocksDB
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Merge("k1", "v2"));
   // Will trigger a merge when hitting max_successive_merges and the merge
@@ -157,10 +166,12 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
   ASSERT_OK(Merge("k1", "corrupted"));
   // Data should stay unmerged after the error.
   VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v2"}, {"k1", "v1"}});
+  INDOPTIONSEND(options)
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   Options options;
+  INDOPTIONSBGN
   options.create_if_missing = true;
   options.merge_operator.reset(new TestPutOperator());
   options.env = env_;
@@ -197,6 +208,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   ASSERT_TRUE(iter->status().IsCorruption());
   delete iter;
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
+  INDOPTIONSEND(options)
 }
 
 
@@ -214,6 +226,7 @@ INSTANTIATE_TEST_CASE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
 #ifndef ROCKSDB_LITE
 TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   Options options = CurrentOptions();
+  INDOPTIONSBGN
   BlockBasedTableOptions table_options;
   table_options.block_size = 1;  // every block will contain one entry
   table_options.no_block_cache = disable_block_cache_;
@@ -222,6 +235,7 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   options.level0_slowdown_writes_trigger = (1 << 30);
   options.level0_stop_writes_trigger = (1 << 30);
   options.disable_auto_compactions = true;
+  options.allow_trivial_move=true;
   DestroyAndReopen(options);
 
   const int kKeysPerFile = 10;
@@ -273,6 +287,7 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   ASSERT_EQ(FilesPerLevel(), "3,1,3,1,3");
 
   VerifyDBFromMap(true_data);
+  INDOPTIONSEND(options)
 }
 
 TEST_P(MergeOperatorPinningTest, Randomized) {
@@ -487,6 +502,7 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
 
 TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   Options options = CurrentOptions();
+  INDOPTIONSBGN
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   DestroyAndReopen(options);
 
@@ -540,11 +556,13 @@ TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
   EXPECT_EQ(std::string("sst,memtable"), iter->value().ToString());
   EXPECT_TRUE(pushed_first_operand);
   EXPECT_TRUE(stepped_to_next_operand);
+  INDOPTIONSEND(options)
 }
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   Options options = CurrentOptions();
+  INDOPTIONSBGN
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
   DestroyAndReopen(options);
 
@@ -635,6 +653,7 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
 
   db_->ReleaseSnapshot(snapshot1);
   db_->ReleaseSnapshot(snapshot2);
+  INDOPTIONSEND(options)
 }
 
 }  // namespace rocksdb

@@ -44,6 +44,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
+#include "options/cf_options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/rate_limiter.h"
@@ -1231,6 +1232,52 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
     RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
                           &ValidateTableCacheNumshardbits);
 
+DEFINE_bool(allow_trivial_move, false, "Set to allow trivial move.  This does not update the VLogs and is used only to allow tests to run.");
+DEFINE_double(compaction_score_limit_L0, 1000.0, "Compaction limit for L0.  The calculated compaction priority is (level size/desired level size)."
+             "When the host Put()s faster than the system can compact, L0 starts to fill.  Its compaction priority gors."
+             "L0->L1 compactions start to have priority.  L1 grows too, but L0 grows faster.  Eventually the database is upside-down, with L1 larger than the lower levels."
+             "This problem is especially bad when there are indirect values, because the scheme for recycling them requires orderly picking of compactions from the oldest files."
+             "This parameter gives the maximum compaction priority that L0 can have."
+             "Setting a value such as, say, 2.0 will limit L1 to twice its natural size and cause compactions to be scheduled for lower levels."
+             "Default is to leave L0 unlimited");
+DEFINE_int32(vlogring_activation_level, 0, "Activation Level : values coming into this level are written to the ring. Level 1 is the smallest level on disk."
+             "Activation level should be in increasing order.  Values greater than 0 indicate the level; values less than 0 are relative to the END of the ring AT THE TIME THE VLOG IS CREATED, i. e."
+             "a value of -1 means 'the last level'");
+
+DEFINE_uint64(min_indirect_val_size , 24, "Minimum Indirect Value Size : only values this size or larger are written to the Value Log");
+
+DEFINE_int32(fraction_remapped_during_compaction, 20,"remapping fraction: During compaction, the oldest values will be copied from the tail of the VLog to the head.  This parameter tells how many:"
+             "25=just the oldest 1/4 of the values, 75=the oldest 3/4");
+
+DEFINE_int32(fraction_remapped_during_active_recycling, 15,"same idea, but the fraction to remap during active recycling."
+             "Usually smaller, to minimize the amount of fragmentation added"
+             "outside of the files being freed");
+
+DEFINE_int32(fragmentation_active_recycling_trigger,25,"Fragmentation Trigger : start Active Recycling if the fragmentation in the VLog exceeds this fraction of the VLog size");
+
+DEFINE_int32(fragmentation_active_recycling_klaxon,50,"Fragmentation Klaxon : apply emergency measures if fragmentation exceeds this");
+
+DEFINE_int32(active_recycling_sst_minct,5,"AR SST min: minimum number of SSTs to include in an active-recycling compaction");
+
+DEFINE_int32(active_recycling_sst_maxct,15,"AR SST max: maximum number of SSTs to include in an active-recycling compaction");
+
+DEFINE_int32(active_recycling_vlogfile_freed_min,7,"AR VLogFile min # freed: minimum number of VLogFiles to free per AR pass");
+
+DEFINE_uint64(active_recycling_size_trigger,{1LL << 30}, //1GB
+               "Fragmentation Trigger : start Active Recycling if the VLog is at least this big, and the fragmentation trigger is met. Default: 1GB");
+
+DEFINE_uint64(vlogfile_max_size,{40 * (1LL << 20)}, //40MB
+               "Max VLog Filesize : recommended limit in bytes for a Vlog file");
+
+DEFINE_int32(compaction_picker_age_importance,100,"Age over Size preference: use during compaction picking.  When 0, the age of the VLogFiles referred to by the SST is ignored, and size is the criterion.  The larger this number,"
+             "the more age matters.  A value of 100 makes age matter much more than size");
+
+DEFINE_string(ring_compression_style, "snappy",
+              "Ring Compression Style: indicates what kind of compression will be applied to the data");
+static enum rocksdb::CompressionType FLAGS_ring_compression_style_e = rocksdb::kSnappyCompression;
+
+DEFINE_bool(vlog_direct_IO, false, "Set to allow direct IO for vlog.");
+
 namespace rocksdb {
 
 namespace {
@@ -2236,8 +2283,8 @@ class Benchmark {
       }
 #endif
     }
-
-    auto compression = CompressionTypeToString(FLAGS_compression_type_e);
+    auto compression = CompressionTypeToString(FLAGS_ring_compression_style_e);
+    //auto compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression: %s\n", compression.c_str());
     fprintf(stdout, "Compression sampling rate: %" PRId64 "\n",
             FLAGS_sample_for_compression);
@@ -2272,13 +2319,15 @@ class Benchmark {
     fprintf(stdout,
             "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
-    if (FLAGS_compression_type_e != rocksdb::kNoCompression) {
+    if (FLAGS_ring_compression_style_e != rocksdb::kNoCompression) {
+    //if (FLAGS_compression_type_e != rocksdb::kNoCompression) {
       // The test string should not be too small.
       const int len = FLAGS_block_size;
       std::string input_str(len, 'y');
       std::string compressed;
       CompressionOptions opts;
-      CompressionContext context(FLAGS_compression_type_e);
+      CompressionContext context(FLAGS_ring_compression_style_e);
+      //CompressionContext context(FLAGS_compression_type_e);
       CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                            FLAGS_compression_type_e,
                            FLAGS_sample_for_compression);
@@ -3232,7 +3281,8 @@ class Benchmark {
     bool ok = true;
     std::string compressed;
     CompressionOptions opts;
-    CompressionContext context(FLAGS_compression_type_e);
+    CompressionContext context(FLAGS_ring_compression_style_e);
+    //CompressionContext context(FLAGS_compression_type_e);
     CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                          FLAGS_compression_type_e,
                          FLAGS_sample_for_compression);
@@ -3261,12 +3311,14 @@ class Benchmark {
     Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
-    CompressionContext compression_ctx(FLAGS_compression_type_e);
+    CompressionContext compression_ctx(FLAGS_ring_compression_style_e);
+    //CompressionContext compression_ctx(FLAGS_compression_type_e);
     CompressionOptions compression_opts;
     CompressionInfo compression_info(
         compression_opts, compression_ctx, CompressionDict::GetEmptyDict(),
         FLAGS_compression_type_e, FLAGS_sample_for_compression);
-    UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
+    UncompressionContext uncompression_ctx(FLAGS_ring_compression_style_e);
+    //UncompressionContext uncompression_ctx(FLAGS_compression_type_e);
     UncompressionInfo uncompression_info(uncompression_ctx,
                                          UncompressionDict::GetEmptyDict(),
                                          FLAGS_compression_type_e);
@@ -3276,7 +3328,8 @@ class Benchmark {
     int decompress_size;
     while (ok && bytes < 1024 * 1048576) {
       CacheAllocationPtr uncompressed;
-      switch (FLAGS_compression_type_e) {
+      switch (FLAGS_ring_compression_style_e) {
+      //switch (FLAGS_compression_type_e) {
         case rocksdb::kSnappyCompression: {
           // get size and allocate here to make comparison fair
           size_t ulength = 0;
@@ -3622,6 +3675,22 @@ class Benchmark {
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
+    options.allow_trivial_move = FLAGS_allow_trivial_move;
+    options.compaction_score_limit_L0 = FLAGS_compaction_score_limit_L0;
+    options.vlog_direct_IO = FLAGS_vlog_direct_IO;
+    options.vlogring_activation_level = std::vector<int32_t>({FLAGS_vlogring_activation_level});
+    options.min_indirect_val_size = std::vector<uint64_t>({FLAGS_min_indirect_val_size});
+    options.fraction_remapped_during_compaction = std::vector<int32_t>({FLAGS_fraction_remapped_during_compaction});
+    options.fraction_remapped_during_active_recycling = std::vector<int32_t>({FLAGS_fraction_remapped_during_active_recycling});
+    options.fragmentation_active_recycling_trigger = std::vector<int32_t>({FLAGS_fragmentation_active_recycling_trigger});
+    options.fragmentation_active_recycling_klaxon = std::vector<int32_t>({FLAGS_fragmentation_active_recycling_klaxon});
+    options.active_recycling_sst_minct = std::vector<int32_t>({FLAGS_active_recycling_sst_minct});
+    options.active_recycling_sst_maxct = std::vector<int32_t>({FLAGS_active_recycling_sst_maxct});
+    options.active_recycling_vlogfile_freed_min = std::vector<int32_t>({FLAGS_active_recycling_vlogfile_freed_min});
+    options.active_recycling_size_trigger = std::vector<uint64_t>({FLAGS_active_recycling_size_trigger});
+    options.vlogfile_max_size = std::vector<uint64_t>({FLAGS_vlogfile_max_size});
+    options.compaction_picker_age_importance = std::vector<int32_t>({FLAGS_compaction_picker_age_importance});
+    options.ring_compression_style = std::vector<CompressionType>({FLAGS_ring_compression_style_e});
     options.compression = FLAGS_compression_type_e;
     options.sample_for_compression = FLAGS_sample_for_compression;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
@@ -4329,7 +4398,8 @@ class Benchmark {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
-        compactionOptions.compression = FLAGS_compression_type_e;
+        compactionOptions.compression = FLAGS_ring_compression_style_e;
+        //compactionOptions.compression = FLAGS_compression_type_e;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
@@ -4381,7 +4451,8 @@ class Benchmark {
       for (size_t i = 0; i < num_db; i++) {
         auto db = db_list[i];
         auto compactionOptions = CompactionOptions();
-        compactionOptions.compression = FLAGS_compression_type_e;
+        compactionOptions.compression = FLAGS_ring_compression_style_e;
+        //compactionOptions.compression = FLAGS_compression_type_e;
         auto options = db->GetOptions();
         MutableCFOptions mutable_cf_options(options);
         for (size_t j = 0; j < sorted_runs[i].size(); j++) {
@@ -6396,6 +6467,8 @@ int db_bench_tool(int argc, char** argv) {
 #endif
   }
 
+  FLAGS_ring_compression_style_e =
+    StringToCompressionType(FLAGS_ring_compression_style.c_str());
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
 

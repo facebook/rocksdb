@@ -128,7 +128,9 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
   options.env = env_;
+  options.allow_trivial_move=true;
   Reopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
   int counter = 0;
   int low_bytes_per_sync = 0;
   int i = 0;
@@ -142,7 +144,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   WriteOptions write_opts;
   // should sync approximately 40MB/1MB ~= 40 times.
   for (i = 0; i < 40; i++) {
-    Put(Key(i), kValue, write_opts);
+    PutInvInd(i, kValue,values_are_indirect, write_opts);
   }
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -158,7 +160,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   // should sync approximately 40MB*2/8MB ~= 10 times.
   // data will be 40*2MB because of previous Puts too.
   for (i = 0; i < 40; i++) {
-    Put(Key(i), kValue, write_opts);
+    PutInvInd(i, kValue,values_are_indirect, write_opts);
   }
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -179,6 +181,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
   options.env = env_;
+  options.allow_trivial_move=true;
   Reopen(options);
   ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
   int counter = 0;
@@ -381,6 +384,7 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 1000;
   options.env = env_;
+  options.allow_trivial_move=true;
   Reopen(options);
   for (int i = 0; i < 3; i++) {
     // Need to insert two keys to avoid trivial move.
