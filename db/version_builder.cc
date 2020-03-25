@@ -492,8 +492,22 @@ class VersionBuilder::Rep {
     return s;
   }
 
+  void AddBlobFileIfNeeded(
+      VersionStorageInfo* vstorage,
+      const std::shared_ptr<BlobFileMetaData>& meta) const {
+    assert(vstorage);
+    assert(meta);
+
+    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount()) {
+      vstorage->AddBlobFile(meta);
+    }
+  }
+
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
     // Merge the base version with the changes (edits) applied.
+
+    assert(base_vstorage_);
+    assert(vstorage);
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
     auto base_it = base_blob_files.begin();
@@ -509,17 +523,19 @@ class VersionBuilder::Rep {
       const auto& base_meta = base_it->second;
       const auto& changed_meta = changed_it->second;
 
+      assert(base_meta);
+      assert(changed_meta);
+
       if (base_blob_file_number < changed_blob_file_number) {
         assert(base_meta->GetGarbageBlobCount() <
                base_meta->GetTotalBlobCount());
 
         vstorage->AddBlobFile(base_meta);
+
         ++base_it;
       } else if (changed_blob_file_number < base_blob_file_number) {
-        assert(changed_meta->GetGarbageBlobCount() <
-               changed_meta->GetTotalBlobCount());
+        AddBlobFileIfNeeded(vstorage, changed_meta);
 
-        vstorage->AddBlobFile(changed_meta);
         ++changed_it;
       } else {
         assert(base_blob_file_number == changed_blob_file_number);
@@ -529,10 +545,7 @@ class VersionBuilder::Rep {
         assert(base_meta->GetGarbageBlobBytes() <=
                changed_meta->GetGarbageBlobBytes());
 
-        if (changed_meta->GetGarbageBlobCount() <
-            changed_meta->GetTotalBlobCount()) {
-          vstorage->AddBlobFile(changed_meta);
-        }
+        AddBlobFileIfNeeded(vstorage, changed_meta);
 
         ++base_it;
         ++changed_it;
@@ -541,6 +554,7 @@ class VersionBuilder::Rep {
 
     while (base_it != base_it_end) {
       const auto& base_meta = base_it->second;
+      assert(base_meta);
       assert(base_meta->GetGarbageBlobCount() < base_meta->GetTotalBlobCount());
 
       vstorage->AddBlobFile(base_meta);
@@ -549,10 +563,9 @@ class VersionBuilder::Rep {
 
     while (changed_it != changed_it_end) {
       const auto& changed_meta = changed_it->second;
-      assert(changed_meta->GetGarbageBlobCount() <
-             changed_meta->GetTotalBlobCount());
+      assert(changed_meta);
 
-      vstorage->AddBlobFile(changed_meta);
+      AddBlobFileIfNeeded(vstorage, changed_meta);
       ++changed_it;
     }
   }
