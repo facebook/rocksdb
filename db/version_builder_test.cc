@@ -700,12 +700,86 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
   ASSERT_OK(builder.Apply(&edit));
 
   // Save to a new version in order to trigger consistency checks.
-  constexpr bool force_consistency_checks = false;
+  constexpr bool force_consistency_checks = true;
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, &vstorage_,
                                   force_consistency_checks);
 
   ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesNotInVersion) {
+  // Initialize base version. The table file points to a blob file that is
+  // not in this Version.
+
+  Add(/* level */ 1, /* file_number */ 1, /* smallest */ "150",
+      /* largest */ "200", /* file_size */ 100,
+      /* path_id */ 0, /* smallest_seq */ 100, /* largest_seq */ 100,
+      /* num_entries */ 0, /* num_deletions */ 0,
+      /* sampled */ false, /* smallest_seqno */ 100, /* largest_seqno */ 100,
+      /* oldest_blob_file_number */ 256);
+
+  AddBlob(/* blob_file_number */ 16, /* total_blob_count */ 1000,
+          /* total_blob_bytes */ 1000000,
+          /* checksum_method */ std::string(),
+          /* checksum_value */ std::string(),
+          /* garbage_blob_count */ 500, /* garbage_blob_bytes */ 300000);
+
+  UpdateVersionStorageInfo();
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  // Save to a new version in order to trigger consistency checks.
+  constexpr bool force_consistency_checks = true;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  const Status s = builder.SaveTo(&new_vstorage);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(
+      std::strstr(s.getState(), "Blob file #256 is not part of this Version"));
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
+  // Initialize base version. The table file points to a blob file that is
+  // all garbage.
+
+  Add(/* level */ 1, /* file_number */ 1, /* smallest */ "150",
+      /* largest */ "200", /* file_size */ 100,
+      /* path_id */ 0, /* smallest_seq */ 100, /* largest_seq */ 100,
+      /* num_entries */ 0, /* num_deletions */ 0,
+      /* sampled */ false, /* smallest_seqno */ 100, /* largest_seqno */ 100,
+      /* oldest_blob_file_number */ 16);
+
+  AddBlob(/* blob_file_number */ 16, /* total_blob_count */ 1000,
+          /* total_blob_bytes */ 1000000,
+          /* checksum_method */ std::string(),
+          /* checksum_value */ std::string(),
+          /* garbage_blob_count */ 1000, /* garbage_blob_bytes */ 1000000);
+
+  UpdateVersionStorageInfo();
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  VersionBuilder builder(env_options, table_cache, &vstorage_);
+
+  // Save to a new version in order to trigger consistency checks.
+  constexpr bool force_consistency_checks = true;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  const Status s = builder.SaveTo(&new_vstorage);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(
+      std::strstr(s.getState(), "Blob file #16 consists entirely of garbage"));
 
   UnrefFilesInVersion(&new_vstorage);
 }
