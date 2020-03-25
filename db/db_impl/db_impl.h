@@ -828,14 +828,19 @@ class DBImpl : public DB {
       bool sanitize) override;
 
   // This registered service will be called to do a remote compaction
-  virtual Status RegisterPluggableCompactionService(std::unique_ptr<PluggableCompactionService> rservice) override {
+  virtual Status RegisterPluggableCompactionService(
+      std::unique_ptr<PluggableCompactionService> rservice) override {
+    mutex_.Lock();
     remote_compaction_service_ = std::move(rservice);
+    mutex_.Unlock();
     return Status::OK();
   }
 
   // Clearoff any registered pluggable compaction service
   virtual void UnRegisterPluggableCompactionService() override {
-    remote_compaction_service_.reset(nullptr);
+    mutex_.Lock();
+    remote_compaction_service_ = nullptr;
+    mutex_.Unlock();
   }
 
   // Print information of all tombstones of all iterators to the std::string
@@ -1973,7 +1978,8 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   // The pluggable compaction service, if registered.
-  std::unique_ptr<PluggableCompactionService> remote_compaction_service_;
+  // Protected by mutex_
+  std::shared_ptr<PluggableCompactionService> remote_compaction_service_;
 
   Status doCompact(const CompactionOptions& compact_options,
       ColumnFamilyData* cfd,

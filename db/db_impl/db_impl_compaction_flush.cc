@@ -2750,15 +2750,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
                             compaction_job_stats, job_context->job_id);
 
+    // Make a copy of remote compaction service here, because it could be
+    // cleared once mutex_ is unlocked.
+    auto remote_compaction_service = remote_compaction_service_;
     mutex_.Unlock();
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
 
-    // This check is not thread safe. XXX
-    bool remote = (remote_compaction_service_ != nullptr);
-
-    if (remote) {
-      compaction_job.RunRemote(remote_compaction_service_.get());
+    if (remote_compaction_service) {
+      compaction_job.RunRemote(remote_compaction_service.get());
     } else {
       compaction_job.Run();
     }
