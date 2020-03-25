@@ -388,6 +388,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
+  // Attempt to add a blob file that is already present in the base version.
+
   constexpr uint64_t blob_file_number = 1234;
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
@@ -414,6 +416,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
+  // Attempt to add the same blob file twice using VersionEdits.
+
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   VersionBuilder builder(env_options, table_cache, &vstorage_);
@@ -429,7 +433,6 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
 
-  // Attempt to add the same blob file twice.
   ASSERT_OK(builder.Apply(&edit));
 
   const Status s = builder.Apply(&edit);
@@ -438,6 +441,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
+  // Increase the amount of garbage for a blob file present in the base version.
+
   constexpr uint64_t blob_file_number = 1234;
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
@@ -493,6 +498,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
+  // Increase the amount of garbage for a blob file added using a VersionEdit.
+
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   VersionBuilder builder(env_options, table_cache, &vstorage_);
@@ -543,6 +550,9 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
+  // Attempt to increase the amount of garbage for a blob file that is
+  // neither in the base version, nor was it added using a VersionEdit.
+
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   VersionBuilder builder(env_options, table_cache, &vstorage_);
