@@ -201,7 +201,7 @@ class VersionBuilder::Rep {
 #endif
     // Make sure the files are sorted correctly and that the oldest blob file
     // reference for each table file points to a valid blob file in this
-    // version.
+    // Version.
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
 
@@ -290,6 +290,7 @@ class VersionBuilder::Rep {
       }
     }
 
+    // Make sure that all blob files in the Version have non-garbage data.
     const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& pair : blob_files) {
       const auto& blob_file_meta = pair.second;
@@ -492,6 +493,8 @@ class VersionBuilder::Rep {
   }
 
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+    // Merge the base version with the changes (edits) applied.
+
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
     auto base_it = base_blob_files.begin();
     const auto base_it_end = base_blob_files.end();
