@@ -231,8 +231,6 @@ static size_t GetPageSize() {
 
 const size_t kPageSize = GetPageSize();
 
-const ThreadId kCurrentThreadId = 0;
-
 void SetCpuPriority(ThreadId id, int priority) {
 #ifdef OS_LINUX
   setpriority(PRIO_PROCESS, id, priority);
