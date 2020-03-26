@@ -2013,7 +2013,6 @@ void CompactionJob::LogCompaction() {
         sprintf(buf,"%zd[%zd]",f->fd.GetNumber(),
           f->indirect_ref_0.size()?f->indirect_ref_0[0]:0);
         stream << buf;
-        stream << f->fd.GetNumber();
       }
       stream.EndArray();
     }

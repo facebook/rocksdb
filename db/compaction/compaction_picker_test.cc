@@ -1078,7 +1078,6 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri1) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 900000000U;
-  mutable_cf_options_.allow_trivial_move=true;
 
   // 6 L0 files, score 3.
   Add(0, 1U, "000", "400", 1U);
@@ -1111,6 +1110,7 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri2) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 900000000U;
+  mutable_cf_options_.allow_trivial_move=true;
 
   // 6 L0 files, score 3.
   Add(0, 1U, "000", "400", 1U);

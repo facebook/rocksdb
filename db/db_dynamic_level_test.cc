@@ -388,6 +388,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   const int random_part_size = 100;
   for (int i = 0; i < total_keys; i++) {
     std::string value;
+    PutFixed32(&value, static_cast<uint32_t>(i));
     value.append(RandomString(&rnd, random_part_size));
     ASSERT_OK(Put(KeyInvInd(i, random_part_size,values_are_indirect),
                   ValueInvInd(value,values_are_indirect)));

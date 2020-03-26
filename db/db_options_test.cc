@@ -292,6 +292,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       options.soft_pending_compaction_bytes_limit =
           std::numeric_limits<uint64_t>::max();
       options.env = env_;
+      options.allow_trivial_move=true;
 
       DestroyAndReopen(options);
       int i = 0;

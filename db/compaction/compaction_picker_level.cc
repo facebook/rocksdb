@@ -405,7 +405,7 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
   assert(start_level_ >= 0 && output_level_ >= 0);
 
 #ifndef NDEBUG
-     // find the smallest ref0 in the input files (our expected ref0)
+    // find the smallest ref0 in the input files (our expected ref0)
     for(auto startfile : start_level_inputs_.files) {
       ParsedFnameRing avgparent(startfile->avgparentfileno);
       if (avgparent.fileno()!=0) {
@@ -430,6 +430,7 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
   if (!SetupOtherInputsIfNeeded()) {
     return nullptr;
   }
+#ifndef NDEBUG
   // find the smallest ref0 among the descendants of the start level
   for(auto cfiles : compaction_inputs_) {
     if(cfiles.level>start_level_) {
@@ -442,8 +443,9 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
       }
     }
   }
+#endif
   } // if(!compaction_inputs_.empty())...else
-
+#ifndef NDEBUG
   // 0 start level
   pickerinfo[0]=start_level_;
   // 5 output level
@@ -456,7 +458,7 @@ Compaction* LevelCompactionBuilder::PickCompaction() {
   }
   TEST_SYNC_POINT_CALLBACK("LevelCompactionBuilder::PickCompaction",
                            &pickerinfo);
-
+#endif
 
   // Form a compaction object containing the files we picked.
   Compaction* c = GetCompaction();

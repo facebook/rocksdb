@@ -4533,7 +4533,9 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
   Compact(1, "p1", "p9");
   ASSERT_EQ(readahead, options.use_direct_reads);
-  ASSERT_EQ("0,0,1", FilesPerLevel(1));
+  SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_EQ("0,0,1", FilesPerLevel(1));a
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   Destroy(options);
   delete options.env;
 }

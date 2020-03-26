@@ -409,7 +409,9 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
   options.num_levels = kNumLevels;
   options.target_file_size_base = kNumPerFile << 10;
   options.target_file_size_multiplier = 1;
+  options.allow_trivial_move = true;
   Reopen(options);
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   Random rnd(301);
   for (int i = 0; i < kNumLevels - 1; ++i) {
@@ -425,7 +427,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       // Write 100KB (100 values, each 1K)
       for (int k = 0; k < kNumPerFile; k++) {
         values.push_back(RandomString(&rnd, 990));
-        ASSERT_OK(Put(Key(j * kNumPerFile + k), values[k]));
+        ASSERT_OK(PutInvInd(Key(j * kNumPerFile + k), values[k],values_are_indirect));
       }
       // put extra key to trigger flush
       ASSERT_OK(Put("", ""));

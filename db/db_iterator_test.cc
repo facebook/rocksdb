@@ -1652,6 +1652,7 @@ TEST_P(DBIteratorTest, IterSeekForPrevCrossingFiles) {
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.allow_trivial_move=true;
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("a1", "va1"));

@@ -1057,14 +1057,14 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   const int kNumEntriesPerFile = 1000;
 
   Options options = CurrentOptions();
-  options.compression_per_level = {kNoCompression, kSnappyCompression};
-  options.disable_auto_compactions = true;
-  options.num_levels = 2;
-  Reopen(options);
   // can't measure SST compression when there are indirect values
   if (options.vlogring_activation_level.size()) {
     return;
   }
+  options.compression_per_level = {kNoCompression, kSnappyCompression};
+  options.disable_auto_compactions = true;
+  options.num_levels = 2;
+  Reopen(options);
 
   // compression ratio is -1.0 when no open files at level
   ASSERT_EQ(CompressionRatioAtLevel(0), -1.0);
