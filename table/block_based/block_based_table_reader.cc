@@ -1905,7 +1905,9 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // 2) Compare(prefix(key), key) <= 0.
 // 3) If Compare(key1, key2) <= 0, then Compare(prefix(key1), prefix(key2)) <= 0
 //
-// Otherwise, this method guarantees no I/O will be incurred.
+// If read_options.read_tier == kBlockCacheTier, this method will do no I/O and
+// will return true if the filter block is not in memory and not found in block
+// cache.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(
@@ -1939,12 +1941,14 @@ bool BlockBasedTable::PrefixMayMatch(
   FilterBlockReader* const filter = rep_->filter.get();
   bool filter_checked = true;
   if (filter != nullptr) {
+    const bool no_io = read_options.read_tier == kBlockCacheTier;
+
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
           read_options.iterate_upper_bound, user_key, prefix_extractor,
           rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-          &filter_checked, need_upper_bound_check, lookup_context);
+          &filter_checked, need_upper_bound_check, no_io, lookup_context);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
       if (need_upper_bound_check) {
@@ -1997,7 +2001,7 @@ bool BlockBasedTable::PrefixMayMatch(
         // is the only on could potentially contain the prefix.
         BlockHandle handle = iiter->value().handle;
         may_match = filter->PrefixMayMatch(
-            prefix, prefix_extractor, handle.offset(), /*no_io=*/false,
+            prefix, prefix_extractor, handle.offset(), no_io,
             /*const_key_ptr=*/nullptr, /*get_context=*/nullptr, lookup_context);
       }
     }

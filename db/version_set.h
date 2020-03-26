@@ -698,10 +698,6 @@ class Version {
     return storage_info_.user_comparator_;
   }
 
-  bool PrefixMayMatch(const ReadOptions& read_options,
-                      InternalIterator* level_iter,
-                      const Slice& internal_prefix) const;
-
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
   // the filter block may already be cached, but we still do not access it such
