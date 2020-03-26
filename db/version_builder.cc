@@ -302,8 +302,8 @@ class VersionBuilder::Rep {
       const auto& blob_file_meta = pair.second;
       assert(blob_file_meta);
 
-      if (!(blob_file_meta->GetGarbageBlobCount() <
-            blob_file_meta->GetTotalBlobCount())) {
+      if (blob_file_meta->GetGarbageBlobCount() >=
+          blob_file_meta->GetTotalBlobCount()) {
         std::ostringstream oss;
         oss << "Blob file #" << blob_file_meta->GetBlobFileNumber()
             << " consists entirely of garbage";
@@ -509,9 +509,9 @@ class VersionBuilder::Rep {
     }
   }
 
+  // Merge the blob file metadata from the base version with the changes (edits)
+  // applied, and save the result into *vstorage.
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
-    // Merge the base version with the changes (edits) applied.
-
     assert(base_vstorage_);
     assert(vstorage);
 
