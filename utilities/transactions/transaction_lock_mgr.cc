@@ -255,7 +255,7 @@ std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
 bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
                                        const LockInfo& lock_info, Env* env,
                                        uint64_t* expire_time) {
-  if (lock_info.expiration_time <= 0) {
+  if (lock_info.expiration_time == 0) {
     *expire_time = 0;
     return false;
   }
