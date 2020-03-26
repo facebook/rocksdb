@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <vector>
 #include "memory/allocator.h"
+#include "port/likely.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -34,6 +35,7 @@ class Arena : public Allocator {
   static const size_t kInlineSize = 2048;
   static const size_t kMinBlockSize;
   static const size_t kMaxBlockSize;
+  static const uint32_t kRefShift = 2;
 
   // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
   // supported hugepage size of the system), block allocation will try huge
@@ -56,14 +58,45 @@ class Arena : public Allocator {
   // normal cases. The messages will be logged to logger. So when calling with
   // huge_page_tlb_size > 0, we highly recommend a logger is passed in.
   // Otherwise, the error message will be printed out to stderr directly.
-  char* AllocateAligned(size_t bytes, size_t huge_page_size = 0,
-                        Logger* logger = nullptr) override;
+  char* AllocateAligned(
+      size_t bytes,
+      size_t huge_page_size = 0,
+      Logger* logger = nullptr,
+      size_t align_unit = alignof(max_align_t)) override;
+
+  // This will a 32-bit "reference" to a freshly allocated pointer
+  // that can be translated back to the raw pointer using ConvertRef().
+  // References to objects aligned to 4-byte boundaries support up to 16G of
+  // address space, which should be more than enough to be used for memtables.
+  // To keep things peformant one should get a ref to a pointer only once
+  // soon after it has been allocated.
+  uint32_t GetRef(char* ptr);
+
+  // Performs simple ref arithmetic within one allocated block.
+  // We don't need this for negative offsets right now so let's keep it simple.
+  inline uint32_t AdvanceRef(uint32_t ref, uint32_t offset_bytes) {
+    return ref + (offset_bytes >> kRefShift);
+  }
+
+  // Converts a ref back to the raw pointer.
+  inline char* ConvertRef(uint32_t ref) {
+    assert(ref != 0xFFFFFFFF);
+    const uint32_t block_index = ref >> (kBlockShift - kRefShift);
+    const uint32_t offset =
+        ((ref & ((1 << (kBlockShift - kRefShift)) - 1)) << kRefShift);
+    if (UNLIKELY(block_index == 0)) {
+         return &inline_block_[offset];
+    } else {
+      assert(block_index <= blocks_size_);
+      return blocks_[block_index - 1] + offset;
+    }
+  }
 
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (exclude the space allocated but not yet used for future
   // allocations).
   size_t ApproximateMemoryUsage() const {
-    return blocks_memory_ + blocks_.capacity() * sizeof(char*) -
+    return blocks_memory_ + blocks_capacity_ * sizeof(char*) * 2 -
            alloc_bytes_remaining_;
   }
 
@@ -78,16 +111,25 @@ class Arena : public Allocator {
   size_t BlockSize() const override { return kBlockSize; }
 
   bool IsInInlineBlock() const {
-    return blocks_.empty();
+    return blocks_size_ == 0;
   }
 
  private:
   char inline_block_[kInlineSize] __attribute__((__aligned__(alignof(max_align_t))));
-  // Number of bytes allocated in one block
+  // Number of bytes allocated in one block.
   const size_t kBlockSize;
+  // We should have kBlockSize == 1 << kBlockShift.
+  const uint32_t kBlockShift;
+  using Blocks = char**;
+  // Past and present vectors of blocks_ we need to keeep around
+  // for concurrent reads to be able to access them lock-free.
+  std::vector<Blocks> blocks_to_delete_;
+  // Last size of the blocks_ vector, atomic for concurrent reads.
+  std::atomic<uint32_t> blocks_size_;
+  // The allocated size of blocks_.
+  uint32_t blocks_capacity_;
   // Array of new[] allocated memory blocks
-  typedef std::vector<char*> Blocks;
-  Blocks blocks_;
+  std::atomic<Blocks> blocks_;
 
   struct MmapInfo {
     void* addr_;

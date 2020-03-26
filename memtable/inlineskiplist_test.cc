@@ -59,10 +59,12 @@ struct TestComparator {
   }
 };
 
-typedef InlineSkipList<TestComparator> TestInlineSkipList;
 
+template <typename NodeRef>
 class InlineSkipTest : public testing::Test {
  public:
+  typedef InlineSkipList<TestComparator, NodeRef> TestInlineSkipList;
+
   void Insert(TestInlineSkipList* list, Key key) {
     char* buf = list->AllocateKey(sizeof(Key));
     memcpy(buf, &key, sizeof(Key));
@@ -85,7 +87,7 @@ class InlineSkipTest : public testing::Test {
     }
     // Iterate over the list, make sure keys appears in order and no extra
     // keys exist.
-    TestInlineSkipList::Iterator iter(list);
+    typename TestInlineSkipList::Iterator iter(list);
     ASSERT_FALSE(iter.Valid());
     Key zero = 0;
     iter.Seek(Encode(&zero));
@@ -103,14 +105,19 @@ class InlineSkipTest : public testing::Test {
   std::set<Key> keys_;
 };
 
-TEST_F(InlineSkipTest, Empty) {
-  Arena arena;
+
+typedef ::testing::Types<BlockOffsetNodePtr, RawNodePtr> NodePtrTypes;
+TYPED_TEST_CASE(InlineSkipTest, NodePtrTypes);
+
+
+TYPED_TEST(InlineSkipTest, Empty) {
+  ConcurrentArena arena;
   TestComparator cmp;
-  InlineSkipList<TestComparator> list(cmp, &arena);
+  InlineSkipList<TestComparator, TypeParam> list(cmp, &arena);
   Key key = 10;
   ASSERT_TRUE(!list.Contains(Encode(&key)));
 
-  InlineSkipList<TestComparator>::Iterator iter(&list);
+  typename InlineSkipList<TestComparator, TypeParam>::Iterator iter(&list);
   ASSERT_TRUE(!iter.Valid());
   iter.SeekToFirst();
   ASSERT_TRUE(!iter.Valid());
@@ -123,14 +130,14 @@ TEST_F(InlineSkipTest, Empty) {
   ASSERT_TRUE(!iter.Valid());
 }
 
-TEST_F(InlineSkipTest, InsertAndLookup) {
+TYPED_TEST(InlineSkipTest, InsertAndLookup) {
   const int N = 2000;
   const int R = 5000;
   Random rnd(1000);
   std::set<Key> keys;
   ConcurrentArena arena;
   TestComparator cmp;
-  InlineSkipList<TestComparator> list(cmp, &arena);
+  InlineSkipList<TestComparator, TypeParam> list(cmp, &arena);
   for (int i = 0; i < N; i++) {
     Key key = rnd.Next() % R;
     if (keys.insert(key).second) {
@@ -150,7 +157,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 
   // Simple iterator tests
   {
-    InlineSkipList<TestComparator>::Iterator iter(&list);
+    typename InlineSkipList<TestComparator, TypeParam>::Iterator iter(&list);
     ASSERT_TRUE(!iter.Valid());
 
     uint64_t zero = 0;
@@ -174,7 +181,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 
   // Forward iteration test
   for (Key i = 0; i < R; i++) {
-    InlineSkipList<TestComparator>::Iterator iter(&list);
+    typename InlineSkipList<TestComparator, TypeParam>::Iterator iter(&list);
     iter.Seek(Encode(&i));
 
     // Compare against model iterator
@@ -194,7 +201,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 
   // Backward iteration test
   for (Key i = 0; i < R; i++) {
-    InlineSkipList<TestComparator>::Iterator iter(&list);
+    typename InlineSkipList<TestComparator, TypeParam>::Iterator iter(&list);
     iter.SeekForPrev(Encode(&i));
 
     // Compare against model iterator
@@ -212,26 +219,26 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
   }
 }
 
-TEST_F(InlineSkipTest, InsertWithHint_Sequential) {
+TYPED_TEST(InlineSkipTest, InsertWithHint_Sequential) {
   const int N = 100000;
-  Arena arena;
+  ConcurrentArena arena;
   TestComparator cmp;
-  TestInlineSkipList list(cmp, &arena);
+  InlineSkipList<TestComparator, TypeParam> list(cmp, &arena);
   void* hint = nullptr;
   for (int i = 0; i < N; i++) {
     Key key = i;
-    InsertWithHint(&list, key, &hint);
+    InlineSkipTest<TypeParam>::InsertWithHint(&list, key, &hint);
   }
-  Validate(&list);
+  InlineSkipTest<TypeParam>::Validate(&list);
 }
 
-TEST_F(InlineSkipTest, InsertWithHint_MultipleHints) {
+TYPED_TEST(InlineSkipTest, InsertWithHint_MultipleHints) {
   const int N = 100000;
   const int S = 100;
   Random rnd(534);
-  Arena arena;
+  ConcurrentArena arena;
   TestComparator cmp;
-  TestInlineSkipList list(cmp, &arena);
+  InlineSkipList<TestComparator, TypeParam> list(cmp, &arena);
   void* hints[S];
   Key last_key[S];
   for (int i = 0; i < S; i++) {
@@ -241,18 +248,18 @@ TEST_F(InlineSkipTest, InsertWithHint_MultipleHints) {
   for (int i = 0; i < N; i++) {
     Key s = rnd.Uniform(S);
     Key key = (s << 32) + (++last_key[s]);
-    InsertWithHint(&list, key, &hints[s]);
+    InlineSkipTest<TypeParam>::InsertWithHint(&list, key, &hints[s]);
   }
-  Validate(&list);
+  InlineSkipTest<TypeParam>::Validate(&list);
 }
 
-TEST_F(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
+TYPED_TEST(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
   const int N = 100000;
   const int S = 100;
   Random rnd(534);
-  Arena arena;
+  ConcurrentArena arena;
   TestComparator cmp;
-  TestInlineSkipList list(cmp, &arena);
+  InlineSkipList<TestComparator, TypeParam> list(cmp, &arena);
   void* hints[S];
   for (int i = 0; i < S; i++) {
     hints[i] = nullptr;
@@ -260,19 +267,19 @@ TEST_F(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
   for (int i = 0; i < N; i++) {
     Key s = rnd.Uniform(S);
     Key key = (s << 32) + rnd.Next();
-    InsertWithHint(&list, key, &hints[s]);
+    InlineSkipTest<TypeParam>::InsertWithHint(&list, key, &hints[s]);
   }
-  Validate(&list);
+  InlineSkipTest<TypeParam>::Validate(&list);
 }
 
-TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
+TYPED_TEST(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
   const int N = 100000;
   const int S1 = 100;
   const int S2 = 100;
   Random rnd(534);
-  Arena arena;
+  ConcurrentArena arena;
   TestComparator cmp;
-  TestInlineSkipList list(cmp, &arena);
+  InlineSkipList<TestComparator, TypeParam> list(cmp, &arena);
   std::unordered_set<Key> used;
   Key with_hint[S1];
   Key without_hint[S2];
@@ -300,13 +307,13 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
     Key s = rnd.Uniform(S1 + S2);
     if (s < S1) {
       Key key = (with_hint[s] << 32) + rnd.Next();
-      InsertWithHint(&list, key, &hints[s]);
+      InlineSkipTest<TypeParam>::InsertWithHint(&list, key, &hints[s]);
     } else {
       Key key = (without_hint[s - S1] << 32) + rnd.Next();
-      Insert(&list, key);
+      InlineSkipTest<TypeParam>::Insert(&list, key);
     }
   }
-  Validate(&list);
+  InlineSkipTest<TypeParam>::Validate(&list);
 }
 
 #ifndef ROCKSDB_VALGRIND_RUN
@@ -334,9 +341,12 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
 // calls to Next() and Seek().  For every key we encounter, we
 // check that it is either expected given the initial snapshot or has
 // been concurrently added since the iterator started.
+
+const uint32_t K = 8;
+
+template <typename TypeParam>
 class ConcurrentTest {
  public:
-  static const uint32_t K = 8;
 
  private:
   static uint64_t key(Key key) { return (key >> 40); }
@@ -395,7 +405,7 @@ class ConcurrentTest {
 
   // InlineSkipList is not protected by mu_.  We just use a single writer
   // thread to modify it.
-  InlineSkipList<TestComparator> list_;
+  InlineSkipList<TestComparator, TypeParam> list_;
 
  public:
   ConcurrentTest() : list_(TestComparator(), &arena_) {}
@@ -436,7 +446,7 @@ class ConcurrentTest {
     }
 
     Key pos = RandomTarget(rnd);
-    InlineSkipList<TestComparator>::Iterator iter(&list_);
+    typename InlineSkipList<TestComparator, TypeParam>::Iterator iter(&list_);
     iter.Seek(Encode(&pos));
     while (true) {
       Key current;
@@ -486,12 +496,11 @@ class ConcurrentTest {
     }
   }
 };
-const uint32_t ConcurrentTest::K;
 
 // Simple test that does single-threaded testing of the ConcurrentTest
 // scaffolding.
-TEST_F(InlineSkipTest, ConcurrentReadWithoutThreads) {
-  ConcurrentTest test;
+TYPED_TEST(InlineSkipTest, ConcurrentReadWithoutThreads) {
+  ConcurrentTest<TypeParam> test;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 10000; i++) {
     test.ReadStep(&rnd);
@@ -499,21 +508,22 @@ TEST_F(InlineSkipTest, ConcurrentReadWithoutThreads) {
   }
 }
 
-TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
-  ConcurrentTest test;
+TYPED_TEST(InlineSkipTest, ConcurrentInsertWithoutThreads) {
+  ConcurrentTest<TypeParam> test;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 10000; i++) {
     test.ReadStep(&rnd);
     uint32_t base = rnd.Next();
     for (int j = 0; j < 4; ++j) {
-      test.ConcurrentWriteStep((base + j) % ConcurrentTest::K);
+      test.ConcurrentWriteStep((base + j) % K);
     }
   }
 }
 
+template <typename TypeParam>
 class TestState {
  public:
-  ConcurrentTest t_;
+  ConcurrentTest<TypeParam> t_;
   bool use_hint_;
   int seed_;
   std::atomic<bool> quit_flag_;
@@ -567,25 +577,28 @@ class TestState {
   port::CondVar state_cv_;
 };
 
+template <typename TypeParam>
 static void ConcurrentReader(void* arg) {
-  TestState* state = reinterpret_cast<TestState*>(arg);
+  TestState<TypeParam>* state = reinterpret_cast<TestState<TypeParam>*>(arg);
   Random rnd(state->seed_);
   int64_t reads = 0;
-  state->Change(TestState::RUNNING);
+  state->Change(TestState<TypeParam>::RUNNING);
   while (!state->quit_flag_.load(std::memory_order_acquire)) {
     state->t_.ReadStep(&rnd);
     ++reads;
   }
-  state->Change(TestState::DONE);
+  state->Change(TestState<TypeParam>::DONE);
 }
 
+template <typename TypeParam>
 static void ConcurrentWriter(void* arg) {
-  TestState* state = reinterpret_cast<TestState*>(arg);
-  uint32_t k = state->next_writer_++ % ConcurrentTest::K;
+  TestState<TypeParam>* state = reinterpret_cast<TestState<TypeParam>*>(arg);
+  uint32_t k = state->next_writer_++ % K;
   state->t_.ConcurrentWriteStep(k, state->use_hint_);
   state->AdjustPendingWriters(-1);
 }
 
+template <typename TypeParam>
 static void RunConcurrentRead(int run) {
   const int seed = test::RandomSeed() + (run * 100);
   Random rnd(seed);
@@ -595,18 +608,19 @@ static void RunConcurrentRead(int run) {
     if ((i % 100) == 0) {
       fprintf(stderr, "Run %d of %d\n", i, N);
     }
-    TestState state(seed + 1);
+    TestState<TypeParam> state(seed + 1);
     Env::Default()->SetBackgroundThreads(1);
-    Env::Default()->Schedule(ConcurrentReader, &state);
-    state.Wait(TestState::RUNNING);
+    Env::Default()->Schedule(ConcurrentReader<TypeParam>, &state);
+    state.Wait(TestState<TypeParam>::RUNNING);
     for (int k = 0; k < kSize; ++k) {
       state.t_.WriteStep(&rnd);
     }
     state.quit_flag_.store(true, std::memory_order_release);
-    state.Wait(TestState::DONE);
+    state.Wait(TestState<TypeParam>::DONE);
   }
 }
 
+template <typename TypeParam>
 static void RunConcurrentInsert(int run, bool use_hint = false,
                                 int write_parallelism = 4) {
   Env::Default()->SetBackgroundThreads(1 + write_parallelism,
@@ -619,39 +633,45 @@ static void RunConcurrentInsert(int run, bool use_hint = false,
     if ((i % 100) == 0) {
       fprintf(stderr, "Run %d of %d\n", i, N);
     }
-    TestState state(seed + 1);
+    TestState<TypeParam> state(seed + 1);
     state.use_hint_ = use_hint;
-    Env::Default()->Schedule(ConcurrentReader, &state);
-    state.Wait(TestState::RUNNING);
+    Env::Default()->Schedule(ConcurrentReader<TypeParam>, &state);
+    state.Wait(TestState<TypeParam>::RUNNING);
     for (int k = 0; k < kSize; k += write_parallelism) {
       state.next_writer_ = rnd.Next();
       state.AdjustPendingWriters(write_parallelism);
       for (int p = 0; p < write_parallelism; ++p) {
-        Env::Default()->Schedule(ConcurrentWriter, &state);
+        Env::Default()->Schedule(ConcurrentWriter<TypeParam>, &state);
       }
       state.WaitForPendingWriters();
     }
     state.quit_flag_.store(true, std::memory_order_release);
-    state.Wait(TestState::DONE);
+    state.Wait(TestState<TypeParam>::DONE);
   }
 }
 
-TEST_F(InlineSkipTest, ConcurrentRead1) { RunConcurrentRead(1); }
-TEST_F(InlineSkipTest, ConcurrentRead2) { RunConcurrentRead(2); }
-TEST_F(InlineSkipTest, ConcurrentRead3) { RunConcurrentRead(3); }
-TEST_F(InlineSkipTest, ConcurrentRead4) { RunConcurrentRead(4); }
-TEST_F(InlineSkipTest, ConcurrentRead5) { RunConcurrentRead(5); }
-TEST_F(InlineSkipTest, ConcurrentInsert1) { RunConcurrentInsert(1); }
-TEST_F(InlineSkipTest, ConcurrentInsert2) { RunConcurrentInsert(2); }
-TEST_F(InlineSkipTest, ConcurrentInsert3) { RunConcurrentInsert(3); }
-TEST_F(InlineSkipTest, ConcurrentInsertWithHint1) {
-  RunConcurrentInsert(1, true);
+TYPED_TEST(InlineSkipTest, ConcurrentRead1) { RunConcurrentRead<TypeParam>(1); }
+TYPED_TEST(InlineSkipTest, ConcurrentRead2) { RunConcurrentRead<TypeParam>(2); }
+TYPED_TEST(InlineSkipTest, ConcurrentRead3) { RunConcurrentRead<TypeParam>(3); }
+TYPED_TEST(InlineSkipTest, ConcurrentRead4) { RunConcurrentRead<TypeParam>(4); }
+TYPED_TEST(InlineSkipTest, ConcurrentRead5) { RunConcurrentRead<TypeParam>(5); }
+TYPED_TEST(InlineSkipTest, ConcurrentInsert1) {
+  RunConcurrentInsert<TypeParam>(1);
 }
-TEST_F(InlineSkipTest, ConcurrentInsertWithHint2) {
-  RunConcurrentInsert(2, true);
+TYPED_TEST(InlineSkipTest, ConcurrentInsert2) {
+  RunConcurrentInsert<TypeParam>(2);
 }
-TEST_F(InlineSkipTest, ConcurrentInsertWithHint3) {
-  RunConcurrentInsert(3, true);
+TYPED_TEST(InlineSkipTest, ConcurrentInsert3) {
+  RunConcurrentInsert<TypeParam>(3);
+}
+TYPED_TEST(InlineSkipTest, ConcurrentInsertWithHint1) {
+  RunConcurrentInsert<TypeParam>(1, true);
+}
+TYPED_TEST(InlineSkipTest, ConcurrentInsertWithHint2) {
+  RunConcurrentInsert<TypeParam>(2, true);
+}
+TYPED_TEST(InlineSkipTest, ConcurrentInsertWithHint3) {
+  RunConcurrentInsert<TypeParam>(3, true);
 }
 
 #endif  // ROCKSDB_VALGRIND_RUN
