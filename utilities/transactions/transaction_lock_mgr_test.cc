@@ -77,19 +77,19 @@ TEST_F(TransactionLockMgrTest, LockStatus) {
   ASSERT_OK(locker_->TryLock(txn2, 2048, "k2", env_, false));
 
   auto s = locker_->GetLockStatusData();
-  ASSERT_EQ(s.size(), 4);
+  ASSERT_EQ(s.size(), 4u);
   for (uint32_t cf_id : {1024, 2048}) {
-    ASSERT_EQ(s.count(cf_id), 2);
+    ASSERT_EQ(s.count(cf_id), 2u);
     auto range = s.equal_range(cf_id);
     for (auto it = range.first; it != range.second; it++) {
       ASSERT_TRUE(it->second.key == "k1" || it->second.key == "k2");
       if (it->second.key == "k1") {
         ASSERT_EQ(it->second.exclusive, true);
-        ASSERT_EQ(it->second.ids.size(), 1);
+        ASSERT_EQ(it->second.ids.size(), 1u);
         ASSERT_EQ(it->second.ids[0], txn1->GetID());
       } else if (it->second.key == "k2") {
         ASSERT_EQ(it->second.exclusive, false);
-        ASSERT_EQ(it->second.ids.size(), 1);
+        ASSERT_EQ(it->second.ids.size(), 1u);
         ASSERT_EQ(it->second.ids[0], txn2->GetID());
       }
     }
@@ -250,11 +250,11 @@ TEST_F(TransactionLockMgrTest, Deadlock) {
   ASSERT_EQ(s.subcode(), Status::SubCode::kDeadlock);
 
   std::vector<DeadlockPath> deadlock_paths = locker_->GetDeadlockInfoBuffer();
-  ASSERT_EQ(deadlock_paths.size(), 1);
+  ASSERT_EQ(deadlock_paths.size(), 1u);
   ASSERT_FALSE(deadlock_paths[0].limit_exceeded);
 
   std::vector<DeadlockInfo> deadlocks = deadlock_paths[0].path;
-  ASSERT_EQ(deadlocks.size(), 2);
+  ASSERT_EQ(deadlocks.size(), 2u);
 
   ASSERT_EQ(deadlocks[0].m_txn_id, txn1->GetID());
   ASSERT_EQ(deadlocks[0].m_cf_id, 1);
@@ -314,7 +314,7 @@ TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
   ASSERT_EQ(s.subcode(), Status::SubCode::kDeadlock);
 
   std::vector<DeadlockPath> deadlock_paths = locker_->GetDeadlockInfoBuffer();
-  ASSERT_EQ(deadlock_paths.size(), 1);
+  ASSERT_EQ(deadlock_paths.size(), 1u);
   ASSERT_TRUE(deadlock_paths[0].limit_exceeded);
 
   locker_->UnLock(txn1, 1, "k1", env_);
