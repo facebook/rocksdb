@@ -491,10 +491,12 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
           {
             if (result->data() == scratch) {
               uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
-              uint32_t len = (uint32_t)std::min(result->size() - offset, 64UL);
+              uint64_t len =
+                std::min<uint64_t>(result->size() - offset, 64UL);
               assert(offset < result->size());
               assert(offset + len <= result->size());
-              std::string str = DBTestBase::RandomString(&ctx->rand, len);
+              std::string str = DBTestBase::RandomString(&ctx->rand,
+                                    static_cast<int>(len));
               memcpy(scratch + offset, str.data(), len);
               break;
             } else {
