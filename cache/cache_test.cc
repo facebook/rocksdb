@@ -737,20 +737,37 @@ TEST_P(CacheTest, DefaultShardBits) {
   std::shared_ptr<Cache> cache;
   ShardedCache* sc;
 
+  // No more than 1 shard if a shard would be smaller than 512KiB
+  // 123 KiB
+  cache = NewLRUCache(size_t{123} << 10, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  EXPECT_EQ(0, sc->GetNumShardBits());
+
+  // 1023 KiB
+  cache = NewLRUCache(size_t{1023} << 10, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  EXPECT_EQ(0, sc->GetNumShardBits());
+
+  // 1 MiB
+  cache = NewLRUCache(size_t{1} << 20, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  EXPECT_EQ(1, sc->GetNumShardBits());
+
   // 8 MiB
   cache = NewCache(size_t{8} << 20);
   sc = dynamic_cast<ShardedCache*>(cache.get());
   EXPECT_EQ(4, sc->GetNumShardBits());
 
+  // Now shards ~ sqrt(size), i.e. 1 more shard bit per 4x in size
   // 16 MiB
   cache = NewCache(size_t{16} << 20);
   sc = dynamic_cast<ShardedCache*>(cache.get());
   EXPECT_EQ(5, sc->GetNumShardBits());
 
-  // 511 KiB (used to be too small for > 1 shard, now considered ok)
-  cache = NewLRUCache(size_t{511} << 10, -1, true);
+  // 64 MiB
+  cache = NewCache(size_t{64} << 20);
   sc = dynamic_cast<ShardedCache*>(cache.get());
-  EXPECT_EQ(2, sc->GetNumShardBits());
+  EXPECT_EQ(6, sc->GetNumShardBits());
 
   // 1 GiB
   cache = NewLRUCache(size_t{1} << 30, -1, true);

@@ -150,14 +150,23 @@ std::string ShardedCache::GetPrintableOptions() const {
 }
 int GetDefaultCacheShardBits(size_t capacity) {
   // The number of shards should not exceed roughly sqrt(cache entries)/2
-  // to minimize clustering effects and metadata overhead. For example,
-  // 4 shard bits (16 shards) for 8MiB block cache (long time defaults) and
-  // 10 shard bits (1024 shards) for 16GiB block cache.
-  // (Performance improvement has been seen with 1024 shards or more, due to
-  // less lock contention.)
-  // Estimate one cache entry per 4KB (2^12 bytes).
+  // to minimize clustering effects and metadata overhead, but higher
+  // number of shards (1024 shards or more) can improve latency due to less
+  // lock contention.
+  // Estimate one cache entry per 4KiB (2^12 bytes).
   // In base-2 logs, /2 for sqrt, -1 for /2.
-  return std::max((FloorLog2(capacity) - 12) / 2 - 1, int{0});
+  int shard_bits_for_clustering =
+      std::max((FloorLog2(capacity) - 12) / 2 - 1, int{0});
+  // But also use 512KiB as minimum shard size.
+  int shard_bits_for_minimum_size =
+      FloorLog2(std::max(size_t{1}, capacity / (size_t{512} * 1024U)));
+
+  // For example,
+  // 0 shard bits (1 shard) for < 1MiB block cache
+  // 1 shard bits (2 shards) for 1MiB block cache
+  // 4 shard bits (16 shards) for 8MiB block cache (long time defaults)
+  // 10 shard bits (1024 shards) for 16GiB block cache.}
+  return std::min(shard_bits_for_minimum_size, shard_bits_for_clustering);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
