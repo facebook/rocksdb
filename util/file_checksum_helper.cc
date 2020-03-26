@@ -77,9 +77,4 @@ FileChecksumList* NewFileChecksumList() {
   return checksum_list;
 }
 
-FileChecksumFunc* CreateFileChecksumFuncCrc32c() {
-  FileChecksumFunc* file_checksum_crc32c = new FileChecksumFuncCrc32c();
-  return file_checksum_crc32c;
-}
-
 }  // namespace ROCKSDB_NAMESPACE

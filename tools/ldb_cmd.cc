@@ -48,7 +48,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class FileChecksumFuncCrc32c;
+class FileChecksumGenCrc32c;
+class FileChecksumGenCrc32cFactory;
 
 const std::string LDBCommand::ARG_ENV_URI = "env_uri";
 const std::string LDBCommand::ARG_DB = "db";

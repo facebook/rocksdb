@@ -16,24 +16,24 @@ namespace ROCKSDB_NAMESPACE {
 
 // This is the class to generate the file checksum based on Crc32. It
 // will be used as the default checksum method for SST file checksum
-class FileChecksumFuncCrc32c : public FileChecksumFunc {
+class FileChecksumGenCrc32c : public FileChecksumGenerator {
  public:
-  std::string Extend(const std::string& init_checksum, const char* data,
-                     size_t n) override {
-    assert(data != nullptr);
-    uint32_t checksum_value = StringToUint32(init_checksum);
-    return Uint32ToString(crc32c::Extend(checksum_value, data, n));
+  FileChecksumGenCrc32c(const FileChecksumGenOptions& options) {
+    is_inintilized_ = false;
+    file_name_ = options.file_name;
   }
 
-  std::string Value(const char* data, size_t n) override {
+  void Extend(const char* data, size_t n) override {
     assert(data != nullptr);
-    return Uint32ToString(crc32c::Value(data, n));
+    if (is_inintilized_ == false) {
+      checksum_ = crc32c::Value(data, n);
+      is_inintilized_ = true;
+    } else {
+      checksum_ = crc32c::Extend(checksum_, data, n);
+    }
   }
 
-  std::string ProcessChecksum(const std::string& checksum) override {
-    uint32_t checksum_value = StringToUint32(checksum);
-    return Uint32ToString(crc32c::Mask(checksum_value));
-  }
+  std::string GetChecksum() override { return Uint32ToString(checksum_); }
 
   const char* Name() const override { return "FileChecksumCrc32c"; }
 
@@ -84,6 +84,22 @@ class FileChecksumFuncCrc32c : public FileChecksumFunc {
     }
     return v;
   }
+
+ private:
+  uint32_t checksum_;
+  bool is_inintilized_;
+  std::string file_name_;
+};
+
+class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenOptions& options) override {
+    return std::unique_ptr<FileChecksumGenerator>(
+        new FileChecksumGenCrc32c(options));
+  }
+
+  const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
 };
 
 // The default implementaion of FileChecksumList

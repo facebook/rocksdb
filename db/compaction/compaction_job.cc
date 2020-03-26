@@ -1532,7 +1532,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   sub_compact->outfile.reset(
       new WritableFileWriter(std::move(writable_file), fname, file_options_,
                              env_, db_options_.statistics.get(), listeners,
-                             db_options_.sst_file_checksum_func.get()));
+                             db_options_.file_checksum_gen_factory.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

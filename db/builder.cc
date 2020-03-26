@@ -134,7 +134,7 @@ Status BuildTable(
 
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, env, ioptions.statistics,
-          ioptions.listeners, ioptions.sst_file_checksum_func));
+          ioptions.listeners, ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
