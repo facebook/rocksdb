@@ -1378,7 +1378,7 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
 TEST_F(EmptyDefaultCfNewManifest, Recover) {
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  Status s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -1440,7 +1440,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest0) {
   db_options_.write_dbid_to_manifest = std::get<0>(GetParam());
   PrepareManifest(nullptr, nullptr, &log_writer_);
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  Status s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1483,7 +1483,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromIncompleteManifest1) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1529,7 +1529,7 @@ TEST_P(VersionSetTestEmptyDb, OpenFromInCompleteManifest2) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1586,7 +1586,7 @@ TEST_P(VersionSetTestEmptyDb, OpenManifestWithUnknownCF) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1642,7 +1642,7 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
     ASSERT_OK(s);
   }
   log_writer_.reset();
-  s = SetCurrentFile(env_, dbname_, 1, /*directory_to_fsync=*/nullptr);
+  s = SetCurrentFile(fs_.get(), dbname_, 1, /*directory_to_fsync=*/nullptr);
   ASSERT_OK(s);
 
   std::string manifest_path;
@@ -1901,7 +1901,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -1952,7 +1952,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, added_files, std::vector<std::pair<int, uint64_t>>());
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);
@@ -2001,7 +2001,7 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
   WriteFileAdditionAndDeletionToManifest(
       /*cf=*/0, std::vector<std::pair<int, FileMetaData>>(), deleted_files);
   log_writer_.reset();
-  Status s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  Status s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
   ASSERT_OK(s);
   std::string manifest_path;
   VerifyManifest(&manifest_path);

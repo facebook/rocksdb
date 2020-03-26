@@ -311,6 +311,11 @@ Status DBImpl::ResumeImpl() {
     s = bg_error;
   }
 
+  // Make sure the IO Status stored in version set is set to OK.
+  if(s.ok()) {
+    versions_->SetIOStatusOK();
+  }
+
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
   // all the column families
   if (s.ok()) {

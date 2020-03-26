@@ -796,11 +796,6 @@ Status BlockBasedTableBuilder::status() const { return rep_->status; }
 
 IOStatus BlockBasedTableBuilder::io_status() const { return rep_->io_status; }
 
-static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
-  BlockContents* bc = reinterpret_cast<BlockContents*>(value);
-  delete bc;
-}
-
 //
 // Make a copy of the block contents and insert into compressed block cache
 //
