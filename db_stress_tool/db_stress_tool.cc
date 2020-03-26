@@ -93,10 +93,12 @@ int db_stress_tool(int argc, char** argv) {
   }
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in) {
-    FaultInjectionTestFS* fs = new FaultInjectionTestFS(FileSystem::Default().get());
+    FaultInjectionTestFS* fs =
+        new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
     fault_fs_guard->SetFilesystemDirectWritable(true);
-    fault_env_guard = std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard.get());
+    fault_env_guard =
+        std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
 
     SyncPoint::GetInstance()->SetCallBack("FilterReadError",
