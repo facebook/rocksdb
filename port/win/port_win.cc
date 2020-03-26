@@ -265,5 +265,14 @@ int GetMaxOpenFiles() { return -1; }
 // Assume 4KB page size
 const size_t kPageSize = 4U * 1024U;
 
+void SetCpuPriority(ThreadId id, int priority) {
+  // Not supported
+}
+
+ThreadId GetCurrentThreadId() {
+  // Not supported
+  return 0;
+}
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

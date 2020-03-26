@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <cstdlib>
@@ -229,6 +230,22 @@ static size_t GetPageSize() {
 }
 
 const size_t kPageSize = GetPageSize();
+
+const ThreadId kCurrentThreadId = 0;
+
+void SetCpuPriority(ThreadId id, int priority) {
+#ifdef OS_LINUX
+  setpriority(PRIO_PROCESS, id, priority);
+#endif
+}
+
+ThreadId GetCurrentThreadId() {
+#ifdef OS_LINUX
+  return syscall(SYS_gettid);
+#else
+  return 0;
+#endif
+}
 
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

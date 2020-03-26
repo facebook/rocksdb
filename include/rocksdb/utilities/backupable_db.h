@@ -142,6 +142,14 @@ struct BackupableDBOptions {
   }
 };
 
+struct CreateBackupOptions {
+  // If false, background_thread_cpu_priority is ignored.
+  bool enable_update_background_thread_cpu_priority = false;
+  // Currently only effective on Linux, value ranging from -20 to 19,
+  // 19 is the lowest priority.
+  int background_thread_cpu_priority = 0;
+};
+
 struct RestoreOptions {
   // If true, restore won't overwrite the existing log files in wal_dir. It will
   // also move all log files from archive directory to wal_dir. Use this option
@@ -262,18 +270,20 @@ class BackupEngine {
   // avoid losing unflushed key/value pairs from the memtable.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
-      std::function<void()> progress_callback = []() {}) = 0;
+      std::function<void()> progress_callback = []() {},
+      const CreateBackupOptions& opt = CreateBackupOptions()) = 0;
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
   // Flush will always trigger if 2PC is enabled.
   // If write-ahead logs are disabled, set flush_before_backup=true to
   // avoid losing unflushed key/value pairs from the memtable.
-  virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
-                                 std::function<void()> progress_callback =
-                                     []() {}) {
+  virtual Status CreateNewBackup(
+      DB* db, bool flush_before_backup = false,
+      std::function<void()> progress_callback = []() {},
+      const CreateBackupOptions& opt = CreateBackupOptions()) {
     return CreateNewBackupWithMetadata(db, "", flush_before_backup,
-                                       progress_callback);
+                                       progress_callback, opt);
   }
 
   // Deletes old backups, keeping latest num_backups_to_keep alive.

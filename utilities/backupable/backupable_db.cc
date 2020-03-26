@@ -91,10 +91,10 @@ class BackupEngineImpl : public BackupEngine {
   BackupEngineImpl(Env* db_env, const BackupableDBOptions& options,
                    bool read_only = false);
   ~BackupEngineImpl() override;
-  Status CreateNewBackupWithMetadata(DB* db, const std::string& app_metadata,
-                                     bool flush_before_backup = false,
-                                     std::function<void()> progress_callback =
-                                         []() {}) override;
+  Status CreateNewBackupWithMetadata(
+      DB* db, const std::string& app_metadata, bool flush_before_backup = false,
+      std::function<void()> progress_callback = []() {},
+      const CreateBackupOptions& options = CreateBackupOptions()) override;
   Status PurgeOldBackups(uint32_t num_backups_to_keep) override;
   Status DeleteBackup(BackupID backup_id) override;
   void StopBackup() override {
@@ -459,6 +459,7 @@ class BackupEngineImpl : public BackupEngine {
   std::mutex byte_report_mutex_;
   channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
   std::vector<port::Thread> threads_;
+  std::vector<port::ThreadId> thread_ids_;
   // Certain operations like PurgeOldBackups and DeleteBackup will trigger
   // automatic GarbageCollect (true) unless we've already done one in this
   // session and have not failed to delete backup files since then (false).
@@ -730,8 +731,22 @@ Status BackupEngineImpl::Initialize() {
 
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
+  threads_.reserve(options_.max_background_operations);
+  thread_ids_.resize(options_.max_background_operations);
+  port::Mutex mu;
+  port::CondVar cv(&mu);
+  size_t size = 0;
   for (int t = 0; t < options_.max_background_operations; t++) {
-    threads_.emplace_back([this]() {
+    threads_.emplace_back([&mu, &cv, &size, t, this]() {
+      auto id = port::GetCurrentThreadId();
+      {
+        MutexLock l(&mu);
+        thread_ids_[t] = id;
+        size++;
+        if (size == thread_ids_.size()) {
+          cv.SignalAll();
+        }
+      }
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
       pthread_setname_np(pthread_self(), "backup_engine");
@@ -750,6 +765,12 @@ Status BackupEngineImpl::Initialize() {
       }
     });
   }
+  {
+    MutexLock l(&mu);
+    while (size != thread_ids_.size()) {
+      cv.Wait();
+    }
+  }
   ROCKS_LOG_INFO(options_.info_log, "Initialized BackupEngine");
 
   return Status::OK();
@@ -757,11 +778,18 @@ Status BackupEngineImpl::Initialize() {
 
 Status BackupEngineImpl::CreateNewBackupWithMetadata(
     DB* db, const std::string& app_metadata, bool flush_before_backup,
-    std::function<void()> progress_callback) {
+    std::function<void()> progress_callback,
+    const CreateBackupOptions& options) {
   assert(initialized_);
   assert(!read_only_);
   if (app_metadata.size() > kMaxAppMetaSize) {
     return Status::InvalidArgument("App metadata too large");
+  }
+
+  if (options.enable_update_background_thread_cpu_priority) {
+    for (auto id : thread_ids_) {
+      port::SetCpuPriority(id, options.background_thread_cpu_priority);
+    }
   }
 
   BackupID new_backup_id = latest_backup_id_ + 1;
