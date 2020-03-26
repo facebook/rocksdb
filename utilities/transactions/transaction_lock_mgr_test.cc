@@ -287,10 +287,13 @@ TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
   auto txn4 = NewTxn(txn_opt);
   // "a ->(k) b" means transaction a is waiting for transaction b to release
   // the held lock on key k.
-  // txn4 ->(k3) -> txn3
-  // txn3 ->(k2) txn2 ->(k1) txn1
+  // txn4 ->(k3) -> txn3 ->(k2) txn2 ->(k1) txn1
   // txn3's deadlock detection will exceed the detection depth 1,
   // which will be viewed as a deadlock.
+  // NOTE:
+  // txn4 ->(k3) -> txn3 must be set up before
+  // txn3 ->(k2) -> txn2, because to trigger deadlock detection for txn3,
+  // it must have another txn waiting on it, which is txn4 in this case.
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
   port::Thread t1 = BlockUntilWaitingTxn([&]() {
