@@ -29,13 +29,16 @@ class FileChecksumGenerator {
  public:
   virtual ~FileChecksumGenerator() {}
 
-  // Extend the current result after process the data. For different checksum
-  // functions, the temporal results may be stored and used in Extend to
+  // Update the current result after process the data. For different checksum
+  // functions, the temporal results may be stored and used in Update to
   // include the new data.
-  virtual void Extend(const char* data, size_t n) = 0;
+  virtual void Update(const char* data, size_t n) = 0;
+
+  // Generate the final results if no further new data will be updated.
+  virtual void Finalize() = 0;
 
   // Get the checksum
-  virtual std::string GetChecksum() = 0;
+  virtual std::string GetChecksum() const = 0;
 
   // Returns a name that identifies the current file checksum function.
   virtual const char* Name() const = 0;

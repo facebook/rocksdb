@@ -1255,7 +1255,7 @@ class FileChecksumTestHelper {
       return s;
     }
     while (result.size() != 0) {
-      file_checksum_generator->Extend(scratch.get(), result.size());
+      file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
                              false);
@@ -1264,6 +1264,7 @@ class FileChecksumTestHelper {
       }
     }
     EXPECT_EQ(offset, static_cast<uint64_t>(table_builder_->FileSize()));
+    file_checksum_generator->Finalize();
     *checksum = file_checksum_generator->GetChecksum();
     return Status::OK();
   }

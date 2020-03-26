@@ -218,6 +218,7 @@ IOStatus WritableFileWriter::Flush() {
 
 std::string WritableFileWriter::GetFileChecksum() {
   if (checksum_generator_ != nullptr) {
+    checksum_generator_->Finalize();
     return checksum_generator_->GetChecksum();
   } else {
     return kUnknownFileChecksum;
@@ -341,7 +342,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 
 void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
   if (checksum_generator_ != nullptr) {
-    checksum_generator_->Extend(data.data(), data.size());
+    checksum_generator_->Update(data.data(), data.size());
   }
 }
 

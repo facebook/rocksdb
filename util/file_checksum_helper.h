@@ -18,12 +18,11 @@ namespace ROCKSDB_NAMESPACE {
 // will be used as the default checksum method for SST file checksum
 class FileChecksumGenCrc32c : public FileChecksumGenerator {
  public:
-  FileChecksumGenCrc32c(const FileChecksumGenOptions& options) {
-    is_inintilized_ = false;
-    file_name_ = options.file_name;
+  FileChecksumGenCrc32c(const FileChecksumGenOptions& /*options*/) {
+    checksum_ = 0;
   }
 
-  void Extend(const char* data, size_t n) override {
+  void Update(const char* data, size_t n) override {
     assert(data != nullptr);
     if (is_inintilized_ == false) {
       checksum_ = crc32c::Value(data, n);
@@ -33,7 +32,9 @@ class FileChecksumGenCrc32c : public FileChecksumGenerator {
     }
   }
 
-  std::string GetChecksum() override { return Uint32ToString(checksum_); }
+  void Finalize() override { checksum_str_ = Uint32ToString(checksum_); }
+
+  std::string GetChecksum() const override { return checksum_str_; }
 
   const char* Name() const override { return "FileChecksumCrc32c"; }
 
@@ -87,8 +88,7 @@ class FileChecksumGenCrc32c : public FileChecksumGenerator {
 
  private:
   uint32_t checksum_;
-  bool is_inintilized_;
-  std::string file_name_;
+  std::string checksum_str_;
 };
 
 class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
