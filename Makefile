@@ -582,6 +582,7 @@ TESTS = \
 	compaction_job_stats_test \
 	option_change_migration_test \
 	transaction_test \
+	transaction_lock_mgr_test \
 	ldb_cmd_test \
 	persistent_cache_test \
 	statistics_test \
@@ -628,6 +629,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
+	transaction_lock_mgr_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -1666,6 +1668,9 @@ write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 heap_test: util/heap_test.o $(GTEST)
+	$(AM_LINK)
+
+transaction_lock_mgr_test: utilities/transactions/transaction_lock_mgr_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
