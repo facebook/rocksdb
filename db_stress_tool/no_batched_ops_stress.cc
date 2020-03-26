@@ -175,6 +175,7 @@ class NonBatchedOpsStressTest : public StressTest {
             }
             free(strs);
           }
+          std::terminate();
         }
       }
 #endif // NDEBUG
@@ -307,6 +308,7 @@ class NonBatchedOpsStressTest : public StressTest {
             }
             free(strs);
           }
+          std::terminate();
         } else {
 #endif // NDEBUG
           // found case

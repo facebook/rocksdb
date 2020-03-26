@@ -129,7 +129,7 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   explicit TestFSRandomAccessFile(const std::string& fname,
                               std::unique_ptr<FSRandomAccessFile>&& f,
                               FaultInjectionTestFS* fs);
-  virtual ~TestFSRandomAccessFile();
+  ~TestFSRandomAccessFile() {}
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;

@@ -35,6 +35,8 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 
 KeyGenContext key_gen_ctx;
 #ifndef NDEBUG
+// If non-null, injects read error at a rate specified by the
+// read_fault_one_in flag
 std::shared_ptr<FaultInjectionTestFS> fault_fs_guard;
 #endif // NDEBUG
 std::shared_ptr<CompositeEnvWrapper> fault_env_guard;

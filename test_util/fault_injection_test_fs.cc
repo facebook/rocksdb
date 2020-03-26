@@ -204,9 +204,6 @@ TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
   assert(target_ != nullptr);
 }
 
-TestFSRandomAccessFile::~TestFSRandomAccessFile() {
-}
-
 IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
                                   const IOOptions& options, Slice* result,
                                   char* scratch, IODebugContext* dbg) const {
