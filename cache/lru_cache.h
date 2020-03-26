@@ -48,8 +48,10 @@ namespace ROCKSDB_NAMESPACE {
 // (to move into state 3).
 
 struct LRUHandle {
+  using Deleter = Cache::Deleter;
+
   void* value;
-  void (*deleter)(const Slice&, void* value);
+  Deleter* deleter;
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
@@ -209,9 +211,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Like Cache methods, but with an extra "hash" parameter.
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
-                        size_t charge,
-                        void (*deleter)(const Slice& key, void* value),
-                        Cache::Handle** handle,
+                        size_t charge, Deleter* deleter, Cache::Handle** handle,
                         Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
   virtual bool Ref(Cache::Handle* handle) override;
