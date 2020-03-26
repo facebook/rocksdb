@@ -334,9 +334,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
 
   // We capture a backtrace every time a fault is injected, for debugging
-  // purposes. This call returns the backtrace in the form of an array
-  // of char*
-  char** GetFaultBacktrace(int* frames);
+  // purposes. This call prints the backtrace to stderr and frees the
+  // saved callstack
+  void PrintFaultBacktrace();
 
  private:
   port::Mutex mutex_;
@@ -354,7 +354,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int one_in;
     int count;
     bool enable_error_injection;
-    void* callstack[128];
+    void* callstack;
     int frames;
 
     ErrorContext(uint32_t seed)

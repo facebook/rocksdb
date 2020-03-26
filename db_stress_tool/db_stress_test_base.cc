@@ -1727,6 +1727,7 @@ void StressTest::PrintEnv() const {
           FLAGS_max_write_batch_group_size_bytes);
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
+  fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
 
   fprintf(stdout, "------------------------------------------------\n");
 }

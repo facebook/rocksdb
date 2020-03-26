@@ -15,9 +15,9 @@
 // error can be returned when file system is not activated.
 
 #include "test_util/fault_injection_test_fs.h"
-#include <execinfo.h>
 #include <functional>
 #include <utility>
+#include "port/stack_trace.h"
 #include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -477,9 +477,7 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
 
   if (ctx->rand.OneIn(ctx->one_in)) {
     ctx->count++;
-#if defined(OS_LINUX)
-    ctx->frames = backtrace(ctx->callstack, 128);
-#endif
+    ctx->callstack = port::SaveStack(&ctx->frames);
     switch (op) {
       case kRead:
       {
@@ -526,19 +524,14 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
   return IOStatus::OK();
 }
 
-char** FaultInjectionTestFS::GetFaultBacktrace(int* frames) {
+void FaultInjectionTestFS::PrintFaultBacktrace() {
 #if defined(OS_LINUX)
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
   if (ctx == nullptr) {
-    *frames = 0;
-    return nullptr;
+    return;
   }
-  *frames = ctx->frames;
-  return backtrace_symbols(ctx->callstack, ctx->frames);
-#else
-  (void)frames;
-  return nullptr;
+  port::PrintAndFreeStack(ctx->callstack, ctx->frames);
 #endif
 }
 

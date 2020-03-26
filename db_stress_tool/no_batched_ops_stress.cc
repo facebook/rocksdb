@@ -165,16 +165,12 @@ class NonBatchedOpsStressTest : public StressTest {
 #ifndef NDEBUG
       if (fault_fs_guard) {
         if (error_count && !filter_read_error) {
+          // Grab mutex so multiple thread don't try to print the
+          // stack trace at the same time
+          MutexLock l(thread->shared->GetMutex());
           fprintf(stderr, "Didn't get expected error from Get\n");
-          int frames = 0;
-          char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
-          if (strs) {
-            fprintf(stderr, "Callstack that injected the error\n");
-            for (int i = 0; i < frames; ++i) {
-              fprintf(stderr, "%s\n", strs[i]);
-            }
-            free(strs);
-          }
+          fprintf(stderr, "Callstack that injected the error\n");
+          fault_fs_guard->PrintFaultBacktrace();
           std::terminate();
         }
       }
@@ -298,16 +294,12 @@ class NonBatchedOpsStressTest : public StressTest {
       if (s.ok()) {
 #ifndef NDEBUG
         if (fault_fs_guard && error_count && !filter_read_error) {
+          // Grab mutex so multiple thread don't try to print the
+          // stack trace at the same time
+          MutexLock l(thread->shared->GetMutex());
           fprintf(stderr, "Didn't get expected error from MultiGet\n");
-          int frames = 0;
-          char** strs = fault_fs_guard->GetFaultBacktrace(&frames);
-          if (strs) {
-            fprintf(stderr, "Callstack that injected the error\n");
-            for (int i = 0; i < frames; ++i) {
-              fprintf(stderr, "%s\n", strs[i]);
-            }
-            free(strs);
-          }
+          fprintf(stderr, "Callstack that injected the error\n");
+          fault_fs_guard->PrintFaultBacktrace();
           std::terminate();
         } else {
 #endif // NDEBUG
