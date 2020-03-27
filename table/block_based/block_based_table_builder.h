@@ -90,6 +90,11 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
+  // Estimated size of the file generated so far. This is used when
+  // FileSize() cannot estimate final SST size, e.g. parallel compression
+  // is enabled.
+  uint64_t EstimatedFileSize() const override;
+
   bool NeedCompact() const override;
 
   // Get table properties
@@ -103,6 +108,10 @@ class BlockBasedTableBuilder : public TableBuilder {
 
  private:
   bool ok() const { return status().ok(); }
+
+  void SetStatusAtom(Status status);
+
+  void SetIOStatusAtom(IOStatus io_status);
 
   // Transition state from buffered to unbuffered. See `Rep::State` API comment
   // for details of the states.
