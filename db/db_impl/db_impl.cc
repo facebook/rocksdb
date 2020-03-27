@@ -1165,11 +1165,11 @@ Status DBImpl::FlushWAL(bool sync) {
       // future writes
       IOStatusCheck(io_s);
       // whether sync or not, we should abort the rest of function upon error
-      return io_s;
+      return std::move(io_s);
     }
     if (!sync) {
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
-      return io_s;
+      return std::move(io_s);
     }
   }
   if (!sync) {
@@ -1262,7 +1262,7 @@ Status DBImpl::LockWAL() {
     // future writes
     WriteStatusCheck(status);
   }
-  return status;
+  return std::move(status);
 }
 
 Status DBImpl::UnlockWAL() {

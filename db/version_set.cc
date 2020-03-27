@@ -5206,7 +5206,7 @@ Status VersionSet::WriteCurrentStateToManifest(
     IOStatus io_s = log->AddRecord(db_id_record);
     if (!io_s.ok()) {
       io_status_ = io_s;
-      return io_s;
+      return std::move(io_s);
     }
   }
 
@@ -5234,7 +5234,7 @@ Status VersionSet::WriteCurrentStateToManifest(
       IOStatus io_s = log->AddRecord(record);
       if (!io_s.ok()) {
         io_status_ = io_s;
-        return io_s;
+        return std::move(io_s);
       }
     }
 
@@ -5266,7 +5266,7 @@ Status VersionSet::WriteCurrentStateToManifest(
       IOStatus io_s = log->AddRecord(record);
       if (!io_s.ok()) {
         io_status_ = io_s;
-        return io_s;
+        return std::move(io_s);
       }
     }
   }
