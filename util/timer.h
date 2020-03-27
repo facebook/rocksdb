@@ -104,7 +104,7 @@ class Timer {
 
  private:
 
-    void Run() {
+  void Run() {
     MutexLock l(&mutex_);
 
     while (running_) {
@@ -127,8 +127,8 @@ class Timer {
         current_fn->fn();
 
         // Remove the work from the heap once it is done executing.
-        // Note that we are just removing the pointer from the heap. Its memory
-        // is still managed in the map (as it holds a unique ptr).
+        // Note that we are just removing the pointer from the heap. Its
+        // memory is still managed in the map (as it holds a unique ptr).
         // So current_fn is still a valid ptr.
         heap_.pop();
 
@@ -174,9 +174,9 @@ class Timer {
     bool valid;
 
     FunctionInfo(std::function<void()>&& _fn,
-               const std::string& _name,
-               const uint64_t _next_run_time_us,
-               uint64_t _repeat_every_us)
+                 const std::string& _name,
+                 const uint64_t _next_run_time_us,
+                 uint64_t _repeat_every_us)
       : fn(std::move(_fn)),
         name(_name),
         next_run_time_us(_next_run_time_us),

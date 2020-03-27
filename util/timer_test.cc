@@ -18,203 +18,203 @@ class TimerTest : public testing::Test {
 };
 
 TEST_F(TimerTest, SingleScheduleOnceTest) {
-    const uint64_t kSecond = 1000000;  // 1sec = 1000000us
-    const int kIteration = 1;
-    ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-    ROCKSDB_NAMESPACE::port::Mutex mutex;
-    ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
-    ROCKSDB_NAMESPACE::Timer timer(env);
-    int count = 0;
-    timer.Add(
-        [&] {
-          ROCKSDB_NAMESPACE::MutexLock l(&mutex);
-          count++;
-          if (count >= kIteration) {
-            test_cv.SignalAll();
-          }
-        },
-        "fn_sch_test",
-        1 * kSecond,
-        0);
+  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+  const int kIterations = 1;
+  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  ROCKSDB_NAMESPACE::port::Mutex mutex;
+  ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
+  ROCKSDB_NAMESPACE::Timer timer(env);
+  int count = 0;
+  timer.Add(
+      [&] {
+        ROCKSDB_NAMESPACE::MutexLock l(&mutex);
+        count++;
+        if (count >= kIterations) {
+          test_cv.SignalAll();
+        }
+      },
+      "fn_sch_test",
+      1 * kSecond,
+      0);
 
-    ASSERT_TRUE(timer.Start());
+  ASSERT_TRUE(timer.Start());
 
-    // Wait for execution to finish
-    {
-      ROCKSDB_NAMESPACE::MutexLock l(&mutex);
-      while(count < kIteration) {
-        test_cv.Wait();
-      }
+  // Wait for execution to finish
+  {
+    ROCKSDB_NAMESPACE::MutexLock l(&mutex);
+    while(count < kIterations) {
+      test_cv.Wait();
     }
+  }
 
-    ASSERT_TRUE(timer.Shutdown());
+  ASSERT_TRUE(timer.Shutdown());
 
-    ASSERT_EQ(1, count);
+  ASSERT_EQ(1, count);
 }
 
 TEST_F(TimerTest, MultipleScheduleOnceTest) {
-    const uint64_t kSecond = 1000000;  // 1sec = 1000000us
-    const int kIteration = 1;
-    ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-    ROCKSDB_NAMESPACE::Timer timer(env);
+  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+  const int kIterations = 1;
+  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  ROCKSDB_NAMESPACE::Timer timer(env);
 
-    ROCKSDB_NAMESPACE::port::Mutex mutex1;
-    ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
-    int count1 = 0;
-    timer.Add(
-        [&] {
-            ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
-            count1++;
-            if (count1 >= kIteration) {
-            test_cv1.SignalAll();
-            }
-        },
-        "fn_sch_test1",
-        1 * kSecond,
-        0);
-
-    ROCKSDB_NAMESPACE::port::Mutex mutex2;
-    ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
-    int count2 = 0;
-    timer.Add(
-        [&] {
-            ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
-            count2 += 5;
-            if (count2 >= kIteration) {
-            test_cv2.SignalAll();
-            }
-        },
-        "fn_sch_test2",
-        3 * kSecond,
-        0);
-
-    ASSERT_TRUE(timer.Start());
-
-    // Wait for execution to finish
-    {
+  ROCKSDB_NAMESPACE::port::Mutex mutex1;
+  ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
+  int count1 = 0;
+  timer.Add(
+      [&] {
         ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
-        while(count1 < kIteration) {
-          test_cv1.Wait();
+        count1++;
+        if (count1 >= kIterations) {
+        test_cv1.SignalAll();
         }
+      },
+      "fn_sch_test1",
+      1 * kSecond,
+      0);
+
+  ROCKSDB_NAMESPACE::port::Mutex mutex2;
+  ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
+  int count2 = 0;
+  timer.Add(
+      [&] {
+          ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
+          count2 += 5;
+          if (count2 >= kIterations) {
+          test_cv2.SignalAll();
+          }
+      },
+      "fn_sch_test2",
+      3 * kSecond,
+      0);
+
+  ASSERT_TRUE(timer.Start());
+
+  // Wait for execution to finish
+  {
+      ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
+      while(count1 < kIterations) {
+        test_cv1.Wait();
+      }
+  }
+
+  ASSERT_EQ(1, count1);
+  ASSERT_EQ(0, count2);
+
+  // Wait for execution to finish
+  {
+    ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
+    while(count2 < kIterations) {
+      test_cv2.Wait();
     }
+  }
 
-    ASSERT_EQ(1, count1);
-    ASSERT_EQ(0, count2);
+  ASSERT_TRUE(timer.Shutdown());
 
-    // Wait for execution to finish
-    {
-        ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
-        while(count2 < kIteration) {
-          test_cv2.Wait();
-        }
-    }
-
-    ASSERT_TRUE(timer.Shutdown());
-
-    ASSERT_EQ(1, count1);
-    ASSERT_EQ(5, count2);
+  ASSERT_EQ(1, count1);
+  ASSERT_EQ(5, count2);
 }
 
 TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
-    const uint64_t kSecond = 1000000;  // 1sec = 1000000us
-    const int kIteration = 5;
-    ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-    ROCKSDB_NAMESPACE::port::Mutex mutex;
-    ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
-    ROCKSDB_NAMESPACE::Timer timer(env);
-    int count = 0;
-    timer.Add(
-        [&] {
-          ROCKSDB_NAMESPACE::MutexLock l(&mutex);
-          count++;
-          fprintf(stderr, "%d\n", count);
-          if (count >= kIteration) {
-            test_cv.SignalAll();
-          }
-        },
-        "fn_sch_test",
-        1 * kSecond,
-        1 * kSecond);
+  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+  const int kIterations = 5;
+  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  ROCKSDB_NAMESPACE::port::Mutex mutex;
+  ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
+  ROCKSDB_NAMESPACE::Timer timer(env);
+  int count = 0;
+  timer.Add(
+      [&] {
+        ROCKSDB_NAMESPACE::MutexLock l(&mutex);
+        count++;
+        fprintf(stderr, "%d\n", count);
+        if (count >= kIterations) {
+          test_cv.SignalAll();
+        }
+      },
+      "fn_sch_test",
+      1 * kSecond,
+      1 * kSecond);
 
-    ASSERT_TRUE(timer.Start());
+  ASSERT_TRUE(timer.Start());
 
-    // Wait for execution to finish
-    {
-      ROCKSDB_NAMESPACE::MutexLock l(&mutex);
-      while(count < kIteration) {
-        test_cv.Wait();
-      }
+  // Wait for execution to finish
+  {
+    ROCKSDB_NAMESPACE::MutexLock l(&mutex);
+    while(count < kIterations) {
+      test_cv.Wait();
     }
+  }
 
-    ASSERT_TRUE(timer.Shutdown());
+  ASSERT_TRUE(timer.Shutdown());
 
-    ASSERT_EQ(5, count);
+  ASSERT_EQ(5, count);
 }
 
 TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
-    const uint64_t kSecond = 1000000;  // 1sec = 1000000us
-    ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-    ROCKSDB_NAMESPACE::Timer timer(env);
+  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  ROCKSDB_NAMESPACE::Timer timer(env);
 
-    ROCKSDB_NAMESPACE::port::Mutex mutex1;
-    ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
-    const int kIteration1 = 5;
-    int count1 = 0;
-    timer.Add(
-        [&] {
-            ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
-            count1++;
-            fprintf(stderr, "hello\n");
-            if (count1 >= kIteration1) {
-            test_cv1.SignalAll();
-            }
-        },
-        "fn_sch_test1",
-        0,
-        2 * kSecond);
-
-    ROCKSDB_NAMESPACE::port::Mutex mutex2;
-    ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
-    const int kIteration2 = 3;
-    int count2 = 0;
-    timer.Add(
-        [&] {
-            ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
-            count2 += 5;
-            fprintf(stderr, "world\n");
-            if (count2 >= kIteration2) {
-            test_cv2.SignalAll();
-            }
-        },
-        "fn_sch_test2",
-        1 * kSecond,
-        5 * kSecond);
-
-    ASSERT_TRUE(timer.Start());
-
-    // Wait for execution to finish
-    {
+  ROCKSDB_NAMESPACE::port::Mutex mutex1;
+  ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
+  const int kIterations1 = 5;
+  int count1 = 0;
+  timer.Add(
+      [&] {
         ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
-        while(count1 < kIteration1) {
-          test_cv1.Wait();
+        count1++;
+        fprintf(stderr, "hello\n");
+        if (count1 >= kIterations1) {
+        test_cv1.SignalAll();
         }
-    }
+      },
+      "fn_sch_test1",
+      0,
+      2 * kSecond);
 
-    ASSERT_EQ(5, count1);
-    ASSERT_EQ(10, count2);
-
-    // Wait for execution to finish
-    {
+  ROCKSDB_NAMESPACE::port::Mutex mutex2;
+  ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
+  const int kIterations2 = 3;
+  int count2 = 0;
+  timer.Add(
+      [&] {
         ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
-        while(count2 < kIteration2) {
-          test_cv2.Wait();
+        count2 += 5;
+        fprintf(stderr, "world\n");
+        if (count2 >= kIterations2) {
+        test_cv2.SignalAll();
         }
+      },
+      "fn_sch_test2",
+      1 * kSecond,
+      5 * kSecond);
+
+  ASSERT_TRUE(timer.Start());
+
+  // Wait for execution to finish
+  {
+    ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
+    while(count1 < kIterations1) {
+      test_cv1.Wait();
     }
+}
 
-    ASSERT_TRUE(timer.Shutdown());
+  ASSERT_EQ(5, count1);
+  ASSERT_EQ(10, count2);
 
-    ASSERT_EQ(5, count1);
-    ASSERT_EQ(10, count2);
+  // Wait for execution to finish
+  {
+    ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
+    while(count2 < kIterations2) {
+      test_cv2.Wait();
+    }
+  }
+
+  ASSERT_TRUE(timer.Shutdown());
+
+  ASSERT_EQ(5, count1);
+  ASSERT_EQ(10, count2);
 }
 
 int main(int argc, char** argv) {
