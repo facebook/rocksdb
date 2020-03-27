@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 // will be used as the default checksum method for SST file checksum
 class FileChecksumGenCrc32c : public FileChecksumGenerator {
  public:
-  FileChecksumGenCrc32c(const FileChecksumGenOptions& /*options*/) {
+  FileChecksumGenCrc32c(const FileChecksumGenContext& /*context*/) {
     checksum_ = 0;
   }
 
@@ -88,9 +88,9 @@ class FileChecksumGenCrc32c : public FileChecksumGenerator {
 class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
  public:
   std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
-      const FileChecksumGenOptions& options) override {
+      const FileChecksumGenContext& context) override {
     return std::unique_ptr<FileChecksumGenerator>(
-        new FileChecksumGenCrc32c(options));
+        new FileChecksumGenCrc32c(context));
   }
 
   const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }

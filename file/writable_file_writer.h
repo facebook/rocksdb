@@ -112,11 +112,11 @@ class WritableFileWriter {
     (void)listeners;
 #endif
     if (file_checksum_gen_factory != nullptr) {
-      FileChecksumGenOptions checksum_gen_options;
-      checksum_gen_options.file_name = _file_name;
+      FileChecksumGenContext checksum_gen_context;
+      checksum_gen_context.file_name = _file_name;
       checksum_generator_ =
           file_checksum_gen_factory->CreateFileChecksumGenerator(
-              checksum_gen_options);
+              checksum_gen_context);
     }
   }
 

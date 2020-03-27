@@ -18,7 +18,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-struct FileChecksumGenOptions {
+struct FileChecksumGenContext {
   std::string file_name;
 };
 
@@ -50,7 +50,7 @@ class FileChecksumGenFactory {
 
   // Create a new FileChecksumGenerator.
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
-      const FileChecksumGenOptions& options) = 0;
+      const FileChecksumGenContext& context) = 0;
 
   // Return the name of this FileChecksumGenFactory.
   virtual const char* Name() const = 0;

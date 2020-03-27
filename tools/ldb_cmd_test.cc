@@ -133,10 +133,10 @@ class FileChecksumTestHelper {
       cur_checksum = kUnknownFileChecksum;
       checksum_func_name = kUnknownFileChecksumFuncName;
     } else {
-      FileChecksumGenOptions gen_options;
-      gen_options.file_name = file_meta.name;
+      FileChecksumGenContext gen_context;
+      gen_context.file_name = file_meta.name;
       std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
-          file_checksum_gen_factory->CreateFileChecksumGenerator(gen_options);
+          file_checksum_gen_factory->CreateFileChecksumGenerator(gen_context);
       checksum_func_name = file_checksum_gen->Name();
       s = file_reader->Read(2048, &result, scratch.get());
       if (!s.ok()) {
