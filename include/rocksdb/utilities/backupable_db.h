@@ -276,6 +276,7 @@ class BackupEngine {
       DB* db, const std::string& app_metadata,
       const CreateBackupOptions& options = CreateBackupOptions()) = 0;
 
+  // keep here for backward compatibility.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup,
       std::function<void()> progress_callback = []() {}) {
@@ -292,6 +293,7 @@ class BackupEngine {
     return CreateNewBackupWithMetadata(db, "", options);
   }
 
+  // keep here for backward compatibility.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup,
                                  std::function<void()> progress_callback =
                                      []() {}) {
