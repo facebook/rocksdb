@@ -11,8 +11,9 @@
 // newest version is called "current".  Older versions may be kept
 // around to provide a consistent view to live iterators.
 //
-// Each Version keeps track of a set of Table files per level.  The
-// entire set of versions is maintained in a VersionSet.
+// Each Version keeps track of a set of table files per level, as well as a
+// set of blob files. The entire set of versions is maintained in a
+// VersionSet.
 //
 // Version,VersionSet are thread-compatible, but require external
 // synchronization on all accesses.
@@ -28,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_meta.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/compaction_picker.h"
@@ -102,7 +104,7 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
 
 // Information of the storage associated with each Version, including number of
 // levels of LSM tree, files information at each level, files marked for
-// compaction, etc.
+// compaction, blob files, etc.
 class VersionStorageInfo {
  public:
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
@@ -118,6 +120,8 @@ class VersionStorageInfo {
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
   void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
+
+  void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
   void SetFinalized();
 
@@ -278,6 +282,10 @@ class VersionStorageInfo {
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
   }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
+  const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
     assert(level < static_cast<int>(level_files_brief_.size()));
@@ -453,6 +461,9 @@ class VersionStorageInfo {
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
 
+  // Map of blob files in version by number.
+  BlobFiles blob_files_;
+
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
@@ -553,8 +564,8 @@ class VersionStorageInfo {
 };
 
 using MultiGetRange = MultiGetContext::Range;
-// A column family's version consists of the SST files owned by the column
-// family at a certain point in time.
+// A column family's version consists of the table and blob files owned by
+// the column family at a certain point in time.
 class Version {
  public:
   // Append to *iters a sequence of iterators that will

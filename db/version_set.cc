@@ -2599,6 +2599,19 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   level_files->push_back(f);
 }
 
+void VersionStorageInfo::AddBlobFile(
+    std::shared_ptr<BlobFileMetaData> blob_file_meta) {
+  assert(blob_file_meta);
+
+  const uint64_t blob_file_number = blob_file_meta->GetBlobFileNumber();
+
+  auto it = blob_files_.lower_bound(blob_file_number);
+  assert(it == blob_files_.end() || it->first != blob_file_number);
+
+  blob_files_.insert(
+      it, BlobFiles::value_type(blob_file_number, std::move(blob_file_meta)));
+}
+
 // Version::PrepareApply() need to be called before calling the function, or
 // following functions called:
 // 1. UpdateNumNonEmptyLevels();
@@ -3441,6 +3454,21 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       r.append("\n");
     }
   }
+
+  const auto& blob_files = storage_info_.GetBlobFiles();
+  if (!blob_files.empty()) {
+    r.append("--- blob files --- version# ");
+    AppendNumberTo(&r, version_number_);
+    r.append(" ---\n");
+    for (const auto& pair : blob_files) {
+      const auto& blob_file_meta = pair.second;
+      assert(blob_file_meta);
+
+      r.append(blob_file_meta->DebugString());
+      r.push_back('\n');
+    }
+  }
+
   return r;
 }
 
