@@ -23,13 +23,7 @@ class FileChecksumGenCrc32c : public FileChecksumGenerator {
   }
 
   void Update(const char* data, size_t n) override {
-    assert(data != nullptr);
-    if (is_inintilized_ == false) {
-      checksum_ = crc32c::Value(data, n);
-      is_inintilized_ = true;
-    } else {
-      checksum_ = crc32c::Extend(checksum_, data, n);
-    }
+    checksum_ = crc32c::Extend(checksum_, data, n);
   }
 
   void Finalize() override { checksum_str_ = Uint32ToString(checksum_); }

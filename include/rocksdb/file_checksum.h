@@ -20,7 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 
 struct FileChecksumGenOptions {
   std::string file_name;
-  std::string db_name;
 };
 
 // FileChecksumGenerator is the class to generates the checksum value
@@ -53,7 +52,7 @@ class FileChecksumGenFactory {
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenOptions& options) = 0;
 
-  // REturn the name of this FileChecksumGenFactory.
+  // Return the name of this FileChecksumGenFactory.
   virtual const char* Name() const = 0;
 };
 
