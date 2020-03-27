@@ -255,12 +255,14 @@ std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
 bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
                                        const LockInfo& lock_info, Env* env,
                                        uint64_t* expire_time) {
+  if (lock_info.expiration_time == 0) {
+    *expire_time = 0;
+    return false;
+  }
+
   auto now = env->NowMicros();
-
-  bool expired =
-      (lock_info.expiration_time > 0 && lock_info.expiration_time <= now);
-
-  if (!expired && lock_info.expiration_time > 0) {
+  bool expired = lock_info.expiration_time <= now;
+  if (!expired) {
     // return how many microseconds until lock will be expired
     *expire_time = lock_info.expiration_time;
   } else {
@@ -272,9 +274,9 @@ bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
       bool success = txn_db_impl_->TryStealingExpiredTransactionLocks(id);
       if (!success) {
         expired = false;
+        *expire_time = 0;
         break;
       }
-      *expire_time = 0;
     }
   }
 
