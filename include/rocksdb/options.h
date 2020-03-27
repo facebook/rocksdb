@@ -51,6 +51,13 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 
+enum class CpuPriority {
+  kHigh,
+  kNormal,
+  kLow,
+  kIdle,
+};
+
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which

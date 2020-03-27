@@ -14,6 +14,7 @@
 #include <thread>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/options.h"
 
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
@@ -213,13 +214,6 @@ extern void Crash(const std::string& srcfile, int srcline);
 extern int GetMaxOpenFiles();
 
 extern const size_t kPageSize;
-
-enum class CpuPriority {
-  kHigh,
-  kNormal,
-  kLow,
-  kIdle,
-};
 
 using ThreadId = pid_t;
 

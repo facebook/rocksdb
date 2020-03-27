@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/stackable_db.h"
 
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -140,13 +141,6 @@ struct BackupableDBOptions {
         max_valid_backups_to_open(_max_valid_backups_to_open) {
     assert(share_table_files || !share_files_with_checksum);
   }
-};
-
-enum class CpuPriority {
-  kHigh,
-  kNormal,
-  kLow,
-  kIdle,
 };
 
 struct CreateBackupOptions {

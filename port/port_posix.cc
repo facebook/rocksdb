@@ -236,19 +236,19 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
   sched_param param;
   param.sched_priority = 0;
   switch (priority) {
-    case kHigh:
+    case CpuPriority::kHigh:
       sched_setscheduler(id, SCHED_OTHER, &param);
       setpriority(PRIO_PROCESS, id, -20);
       break;
-    case kNormal:
+    case CpuPriority::kNormal:
       sched_setscheduler(id, SCHED_OTHER, &param);
       setpriority(PRIO_PROCESS, id, 0);
       break;
-    case kLow:
+    case CpuPriority::kLow:
       sched_setscheduler(id, SCHED_OTHER, &param);
       setpriority(PRIO_PROCESS, id, 19);
       break;
-    case kIdle:
+    case CpuPriority::kIdle:
       sched_setscheduler(id, SCHED_IDLE, &param);
       break;
     default:
