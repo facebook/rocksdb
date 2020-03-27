@@ -3796,6 +3796,7 @@ Status VersionSet::ProcessManifestWrites(
 
   uint64_t new_manifest_file_size = 0;
   Status s;
+  IOStatus io_s;
 
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
@@ -3906,15 +3907,19 @@ Status VersionSet::ProcessManifestWrites(
         }
         ++idx;
 #endif /* !NDEBUG */
-        s = descriptor_log_->AddRecord(record);
-        if (!s.ok()) {
+        io_s = descriptor_log_->AddRecord(record);
+        if (!io_s.ok()) {
+          io_status_ = io_s;
+          s = io_s;
           break;
         }
       }
       if (s.ok()) {
-        s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
       }
-      if (!s.ok()) {
+      if (!io_s.ok()) {
+        io_status_ = io_s;
+        s = io_s;
         ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write %s\n",
                         s.ToString().c_str());
       }
@@ -3923,8 +3928,12 @@ Status VersionSet::ProcessManifestWrites(
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
-                         db_directory);
+      io_s = SetCurrentFile(fs_, dbname_, pending_manifest_file_number_,
+                            db_directory);
+      if (!io_s.ok()) {
+        io_status_ = io_s;
+        s = io_s;
+      }
       TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AfterNewManifest");
     }
 
@@ -5194,9 +5203,10 @@ Status VersionSet::WriteCurrentStateToManifest(
       return Status::Corruption("Unable to Encode VersionEdit:" +
                                 edit_for_db_id.DebugString(true));
     }
-    Status add_record = log->AddRecord(db_id_record);
-    if (!add_record.ok()) {
-      return add_record;
+    IOStatus io_s = log->AddRecord(db_id_record);
+    if (!io_s.ok()) {
+      io_status_ = io_s;
+      return std::move(io_s);
     }
   }
 
@@ -5221,9 +5231,10 @@ Status VersionSet::WriteCurrentStateToManifest(
         return Status::Corruption(
             "Unable to Encode VersionEdit:" + edit.DebugString(true));
       }
-      Status s = log->AddRecord(record);
-      if (!s.ok()) {
-        return s;
+      IOStatus io_s = log->AddRecord(record);
+      if (!io_s.ok()) {
+        io_status_ = io_s;
+        return std::move(io_s);
       }
     }
 
@@ -5252,9 +5263,10 @@ Status VersionSet::WriteCurrentStateToManifest(
         return Status::Corruption(
             "Unable to Encode VersionEdit:" + edit.DebugString(true));
       }
-      Status s = log->AddRecord(record);
-      if (!s.ok()) {
-        return s;
+      IOStatus io_s = log->AddRecord(record);
+      if (!io_s.ok()) {
+        io_status_ = io_s;
+        return std::move(io_s);
       }
     }
   }

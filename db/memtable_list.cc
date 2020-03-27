@@ -390,7 +390,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
     VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer,
-    std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info) {
+    std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
+    IOStatus* io_s) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
@@ -471,8 +472,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
       }
 
       // this can release and reacquire the mutex.
+      vset->SetIOStatusOK();
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);
+      *io_s = vset->io_status();
 
       // we will be changing the version in the next code path,
       // so we better create a new one, since versions are immutable

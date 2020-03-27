@@ -1075,6 +1075,12 @@ class VersionSet {
 
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
+  // Get the IO Status returned by written Manifest.
+  IOStatus io_status() const { return io_status_; }
+
+  // Set the IO Status to OK. Called before Manifest write if needed.
+  void SetIOStatusOK() { io_status_ = IOStatus::OK(); }
+
  protected:
   struct ManifestWriter;
 
@@ -1192,6 +1198,9 @@ class VersionSet {
   FileOptions file_options_;
 
   BlockCacheTracer* const block_cache_tracer_;
+
+  // Store the IO status when Manifest is written
+  IOStatus io_status_;
 
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
