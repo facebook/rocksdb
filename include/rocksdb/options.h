@@ -52,10 +52,10 @@ class WalFilter;
 class FileSystem;
 
 enum class CpuPriority {
-  kHigh,
-  kNormal,
-  kLow,
-  kIdle,
+  kIdle = 0,
+  kLow = 1,
+  kNormal = 2,
+  kHigh = 3,
 };
 
 // DB contents are stored in a set of blocks, each of which holds a

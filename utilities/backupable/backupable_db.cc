@@ -467,7 +467,7 @@ class BackupEngineImpl : public BackupEngine {
   std::mutex byte_report_mutex_;
   channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
   std::vector<port::Thread> threads_;
-  std::vector<port::ThreadId> thread_ids_;
+  std::atomic<CpuPriority> threads_cpu_priority_;
   // Certain operations like PurgeOldBackups and DeleteBackup will trigger
   // automatic GarbageCollect (true) unless we've already done one in this
   // session and have not failed to delete backup files since then (false).
@@ -739,29 +739,23 @@ Status BackupEngineImpl::Initialize() {
 
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
+  threads_cpu_priority_ = CpuPriority::kNormal;
   threads_.reserve(options_.max_background_operations);
-  thread_ids_.resize(options_.max_background_operations);
-  port::Mutex mu;
-  port::CondVar cv(&mu);
-  size_t size = 0;
   for (int t = 0; t < options_.max_background_operations; t++) {
-    threads_.emplace_back([&mu, &cv, &size, t, this]() {
-      auto id = port::GetCurrentThreadId();
-      {
-        MutexLock l(&mu);
-        thread_ids_[t] = id;
-        size++;
-        if (size == thread_ids_.size()) {
-          cv.SignalAll();
-        }
-      }
+    threads_.emplace_back([this]() {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
       pthread_setname_np(pthread_self(), "backup_engine");
 #endif
 #endif
+      CpuPriority current_priority = CpuPriority::kNormal;
       CopyOrCreateWorkItem work_item;
       while (files_to_copy_or_create_.read(work_item)) {
+        CpuPriority priority = threads_cpu_priority_;
+        if (current_priority != priority) {
+          port::SetCpuPriority(0, priority);
+          current_priority = priority;
+        }
         CopyOrCreateResult result;
         result.status = CopyOrCreateFile(
             work_item.src_path, work_item.dst_path, work_item.contents,
@@ -772,12 +766,6 @@ Status BackupEngineImpl::Initialize() {
         work_item.result.set_value(std::move(result));
       }
     });
-  }
-  {
-    MutexLock l(&mu);
-    while (size != thread_ids_.size()) {
-      cv.Wait();
-    }
   }
   ROCKS_LOG_INFO(options_.info_log, "Initialized BackupEngine");
 
@@ -793,9 +781,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     return Status::InvalidArgument("App metadata too large");
   }
 
-  if (options.enable_update_background_thread_cpu_priority) {
-    for (auto id : thread_ids_) {
-      port::SetCpuPriority(id, options.background_thread_cpu_priority);
+  if (options.decrease_background_thread_cpu_priority) {
+    if (options.background_thread_cpu_priority < threads_cpu_priority_) {
+      threads_cpu_priority_.store(options.background_thread_cpu_priority);
     }
   }
 

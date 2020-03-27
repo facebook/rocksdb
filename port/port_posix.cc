@@ -257,13 +257,5 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
 #endif
 }
 
-ThreadId GetCurrentThreadId() {
-#ifdef OS_LINUX
-  return syscall(SYS_gettid);
-#else
-  return 0;
-#endif
-}
-
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
