@@ -269,11 +269,15 @@ namespace ROCKSDB_NAMESPACE {
 extern std::shared_ptr<FaultInjectionTestFS> fault_fs_guard;
 #endif
 extern std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && defined(OS_LINUX)
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(OS_SOLARIS)
+extern __thread bool filter_read_error;
+#else
 extern thread_local bool filter_read_error;
+#endif // OS_SOLARIS
 #else
 extern bool filter_read_error;
-#endif
+#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
 inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {

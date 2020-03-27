@@ -45,11 +45,15 @@ std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 // local variable updated via sync points to keep track of errors injected
 // while reading filter blocks in order to ignore the Get/MultiGet result
 // for those calls
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && defined(OS_LINUX)
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(OS_SOLARIS)
+__thread bool filter_read_error;
+#else
 thread_local bool filter_read_error;
+#endif // OS_SOLARIS
 #else
 bool filter_read_error;
-#endif
+#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 void FilterReadErrorCallback(void*) {
   filter_read_error = true;
 }
