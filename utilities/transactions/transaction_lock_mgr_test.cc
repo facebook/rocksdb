@@ -257,12 +257,12 @@ TEST_F(TransactionLockMgrTest, Deadlock) {
   ASSERT_EQ(deadlocks.size(), 2u);
 
   ASSERT_EQ(deadlocks[0].m_txn_id, txn1->GetID());
-  ASSERT_EQ(deadlocks[0].m_cf_id, 1);
+  ASSERT_EQ(deadlocks[0].m_cf_id, 1u);
   ASSERT_TRUE(deadlocks[0].m_exclusive);
   ASSERT_EQ(deadlocks[0].m_waiting_key, "k2");
 
   ASSERT_EQ(deadlocks[1].m_txn_id, txn2->GetID());
-  ASSERT_EQ(deadlocks[1].m_cf_id, 1);
+  ASSERT_EQ(deadlocks[1].m_cf_id, 1u);
   ASSERT_TRUE(deadlocks[1].m_exclusive);
   ASSERT_EQ(deadlocks[1].m_waiting_key, "k1");
 
