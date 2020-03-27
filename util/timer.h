@@ -27,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 // Timer can be started by calling `Start()`, and ended by calling `Shutdown()`.
 // Work (in terms of a `void function`) can be scheduled by calling `Add` with
 // a unique function name and de-scheduled by calling `Cancel`.
-// Many functions can be added. 
+// Many functions can be added.
 //
 // Impl Details:
 // A heap is used to keep track of when the next timer goes off.
@@ -48,11 +48,11 @@ class Timer {
            uint64_t start_after_us,
            uint64_t repeat_every_us) {
     std::unique_ptr<FunctionInfo> fn_info(new FunctionInfo(
-        std::move(fn), 
+        std::move(fn),
         fn_name,
         env_->NowMicros() + start_after_us,
         repeat_every_us));
-    
+
     MutexLock l(&mutex_);
     heap_.push(fn_info.get());
     map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
@@ -81,7 +81,7 @@ class Timer {
       return false;
     }
 
-    thread_ = std::thread([&] { this->Run(); });
+    thread_.reset(new port::Thread(&Timer::Run, this));
     running_ = true;
     return true;
   }
@@ -98,7 +98,9 @@ class Timer {
       cond_var_.SignalAll();
     }
 
-    thread_.join();
+    if (thread_) {
+      thread_->join();
+    }
     return true;
   }
 
@@ -119,7 +121,7 @@ class Timer {
       if (!current_fn->IsValid()) {
         heap_.pop();
         map_.erase(current_fn->name);
-        continue; 
+        continue;
       }
 
       if (current_fn->next_run_time_us <= env_->NowMicros()) {
@@ -169,7 +171,7 @@ class Timer {
     // repeat interval
     uint64_t repeat_every_us;
     // controls whether this function is valid.
-    // A function is valid upon construction and until someone explictly
+    // A function is valid upon construction and until someone explicitly
     // calls `Cancel()`.
     bool valid;
 
@@ -192,7 +194,7 @@ class Timer {
     }
   };
 
-  struct fnHeapOrdering {
+  struct RunTimeOrder {
     bool operator()(const FunctionInfo* f1,
                     const FunctionInfo* f2) {
       return f1->next_run_time_us > f2->next_run_time_us;
@@ -204,14 +206,16 @@ class Timer {
   // making any changes in them.
   port::Mutex mutex_;
   port::CondVar cond_var_;
-  port::Thread thread_;
+  std::unique_ptr<port::Thread> thread_;
   bool running_;
+
 
   std::priority_queue<FunctionInfo*,
                       std::vector<FunctionInfo*>,
-                      fnHeapOrdering> heap_;
+                      RunTimeOrder> heap_;
 
-  // In addition to providing a mapping from a function name to 
+  // In addition to providing a mapping from a function name to a function,
+  // it is also responsible for memory management.
   std::unordered_map<std::string, std::unique_ptr<FunctionInfo>> map_;
 };
 
