@@ -340,8 +340,6 @@ using ThreadId = int;
 
 extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
-extern ThreadId GetCurrentThreadId();
-
 }  // namespace port
 
 

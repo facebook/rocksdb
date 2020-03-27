@@ -219,7 +219,5 @@ using ThreadId = pid_t;
 
 extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
-extern ThreadId GetCurrentThreadId();
-
 } // namespace port
 }  // namespace ROCKSDB_NAMESPACE

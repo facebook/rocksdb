@@ -153,7 +153,11 @@ struct CreateBackupOptions {
   std::function<void()> progress_callback = []() {};
 
   // If false, background_thread_cpu_priority is ignored.
-  bool enable_update_background_thread_cpu_priority = false;
+  // Otherwise, the cpu priority can be decreased,
+  // if you try to increase the priority, the priority will not change.
+  // The initial priority of the threads is CpuPriority::kNormal,
+  // so you can decrease to priorities lower than kNormal.
+  bool decrease_background_thread_cpu_priority = false;
   CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
 };
 

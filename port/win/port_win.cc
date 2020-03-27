@@ -269,10 +269,5 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
   // Not supported
 }
 
-ThreadId GetCurrentThreadId() {
-  // Not supported
-  return 0;
-}
-
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
