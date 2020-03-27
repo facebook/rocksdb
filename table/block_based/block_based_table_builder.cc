@@ -284,6 +284,10 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t offset = 0;
   Status status;
   IOStatus io_status;
+  // Synchronize status & io_status accesses across threads from main thread,
+  // compression thread and write thread in parallel compression.
+  std::mutex status_mutex;
+  std::mutex io_status_mutex;
   size_t alignment;
   BlockBuilder data_block;
   // Buffers uncompressed data blocks and keys to replay later. Needed when
@@ -300,12 +304,13 @@ struct BlockBasedTableBuilder::Rep {
   PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_key;
+  const Slice* first_key_in_next_block = nullptr;
   CompressionType compression_type;
   uint64_t sample_for_compression;
   CompressionOptions compression_opts;
   std::unique_ptr<CompressionDict> compression_dict;
-  CompressionContext compression_ctx;
-  std::unique_ptr<UncompressionContext> verify_ctx;
+  std::vector<std::unique_ptr<CompressionContext>> compression_ctxs;
+  std::vector<std::unique_ptr<UncompressionContext>> verify_ctxs;
   std::unique_ptr<UncompressionDict> verify_dict;
 
   size_t data_begin_offset = 0;
@@ -356,6 +361,8 @@ struct BlockBasedTableBuilder::Rep {
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
+  std::unique_ptr<ParallelCompressionRep> pc_rep;
+
   Rep(const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
       const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& icomparator,
@@ -390,7 +397,8 @@ struct BlockBasedTableBuilder::Rep {
         sample_for_compression(_sample_for_compression),
         compression_opts(_compression_opts),
         compression_dict(),
-        compression_ctx(_compression_type),
+        compression_ctxs(_compression_opts.parallel_threads),
+        verify_ctxs(_compression_opts.parallel_threads),
         verify_dict(),
         state((_compression_opts.max_dict_bytes > 0) ? State::kBuffered
                                                      : State::kUnbuffered),
@@ -407,6 +415,9 @@ struct BlockBasedTableBuilder::Rep {
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time) {
+    for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
+      compression_ctxs[i].reset(new CompressionContext(compression_type));
+    }
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -441,8 +452,10 @@ struct BlockBasedTableBuilder::Rep {
             table_options.index_type, table_options.whole_key_filtering,
             _moptions.prefix_extractor != nullptr));
     if (table_options.verify_compression) {
-      verify_ctx.reset(new UncompressionContext(UncompressionContext::NoCache(),
-                                                compression_type));
+      for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
+        verify_ctxs[i].reset(new UncompressionContext(
+            UncompressionContext::NoCache(), compression_type));
+      }
     }
   }
 
@@ -450,6 +463,148 @@ struct BlockBasedTableBuilder::Rep {
   Rep& operator=(const Rep&) = delete;
 
   ~Rep() {}
+};
+
+struct BlockBasedTableBuilder::ParallelCompressionRep {
+  // Keys is a wrapper of vector of strings avoiding
+  // releasing string memories during vector clear()
+  // in order to save memory allocation overhead
+  class Keys {
+   public:
+    Keys() : keys_(kKeysInitSize), size_(0) {}
+    void PushBack(const Slice& key) {
+      if (size_ == keys_.size()) {
+        keys_.emplace_back(key.data(), key.size());
+      } else {
+        keys_[size_].assign(key.data(), key.size());
+      }
+      size_++;
+    }
+    void SwapAssign(std::vector<std::string>& keys) {
+      size_ = keys.size();
+      std::swap(keys_, keys);
+    }
+    void Clear() { size_ = 0; }
+    size_t Size() { return size_; }
+    std::string& Back() { return keys_[size_ - 1]; }
+    std::string& operator[](size_t idx) {
+      assert(idx < size_);
+      return keys_[idx];
+    }
+
+   private:
+    const size_t kKeysInitSize = 32;
+    std::vector<std::string> keys_;
+    size_t size_;
+  };
+  std::unique_ptr<Keys> curr_block_keys;
+
+  class BlockRepSlot;
+
+  // BlockRep instances are fetched from and recycled to
+  // block_rep_pool during parallel compression.
+  struct BlockRep {
+    Slice contents;
+    std::unique_ptr<std::string> data;
+    std::unique_ptr<std::string> compressed_data;
+    CompressionType compression_type;
+    std::unique_ptr<std::string> first_key_in_next_block;
+    std::unique_ptr<Keys> keys;
+    std::unique_ptr<BlockRepSlot> slot;
+    Status status;
+  };
+  // Use a vector of BlockRep as a buffer for a determined number
+  // of BlockRep structures. All data referenced by pointers in
+  // BlockRep will be freed when this vector is destructed.
+  typedef std::vector<BlockRep> BlockRepBuffer;
+  BlockRepBuffer block_rep_buf;
+  // Use a thread-safe queue for concurrent access from block
+  // building thread and writer thread.
+  typedef WorkQueue<BlockRep*> BlockRepPool;
+  BlockRepPool block_rep_pool;
+
+  // Use BlockRepSlot to keep block order in write thread.
+  // slot_ will pass references to BlockRep
+  class BlockRepSlot {
+   public:
+    BlockRepSlot() : slot_(1) {}
+    template <typename T>
+    void Fill(T&& rep) {
+      slot_.push(std::forward<T>(rep));
+    };
+    void Take(BlockRep*& rep) { slot_.pop(rep); }
+
+   private:
+    // slot_ will pass references to BlockRep in block_rep_buf,
+    // and those references are always valid before the destruction of
+    // block_rep_buf.
+    WorkQueue<BlockRep*> slot_;
+  };
+
+  // Compression queue will pass references to BlockRep in block_rep_buf,
+  // and those references are always valid before the destruction of
+  // block_rep_buf.
+  typedef WorkQueue<BlockRep*> CompressQueue;
+  CompressQueue compress_queue;
+  std::vector<port::Thread> compress_thread_pool;
+
+  // Write queue will pass references to BlockRep::slot in block_rep_buf,
+  // and those references are always valid before the corresponding
+  // BlockRep::slot is destructed, which is before the destruction of
+  // block_rep_buf.
+  typedef WorkQueue<BlockRepSlot*> WriteQueue;
+  WriteQueue write_queue;
+  std::unique_ptr<port::Thread> write_thread;
+
+  // Raw bytes compressed so far.
+  uint64_t raw_bytes_compressed;
+  // Size of current block being appended.
+  uint64_t raw_bytes_curr_block;
+  // Raw bytes under compression and not appended yet.
+  std::atomic<uint64_t> raw_bytes_inflight;
+  // Number of blocks under compression and not appended yet.
+  std::atomic<uint64_t> blocks_inflight;
+  // Current compression ratio, maintained by BGWorkWriteRawBlock.
+  double curr_compression_ratio;
+  // Estimated SST file size.
+  uint64_t estimated_file_size;
+
+  // Wait for the completion of first block compression to get a
+  // non-zero compression ratio.
+  bool first_block;
+  std::condition_variable first_block_cond;
+  std::mutex first_block_mutex;
+
+  bool finished;
+
+  ParallelCompressionRep(uint32_t parallel_threads)
+      : curr_block_keys(new Keys()),
+        block_rep_buf(parallel_threads),
+        block_rep_pool(parallel_threads),
+        compress_queue(parallel_threads),
+        write_queue(parallel_threads),
+        raw_bytes_compressed(0),
+        raw_bytes_curr_block(0),
+        raw_bytes_inflight(0),
+        blocks_inflight(0),
+        curr_compression_ratio(0),
+        estimated_file_size(0),
+        first_block(true),
+        finished(false) {
+    for (uint32_t i = 0; i < parallel_threads; i++) {
+      block_rep_buf[i].contents = Slice();
+      block_rep_buf[i].data.reset(new std::string());
+      block_rep_buf[i].compressed_data.reset(new std::string());
+      block_rep_buf[i].compression_type = CompressionType();
+      block_rep_buf[i].first_key_in_next_block.reset(new std::string());
+      block_rep_buf[i].keys.reset(new Keys());
+      block_rep_buf[i].slot.reset(new BlockRepSlot());
+      block_rep_buf[i].status = Status::OK();
+      block_rep_pool.push(&block_rep_buf[i]);
+    }
+  }
+
+  ~ParallelCompressionRep() { block_rep_pool.finish(); }
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
