@@ -348,13 +348,11 @@ Status TransactionLockMgr::AcquireWithTimeout(
     do {
       // Decide how long to wait
       int64_t cv_end_time = -1;
-
-      // Check if held lock's expiration time is sooner than our timeout
-      if (expire_time_hint > 0 &&
-          (timeout < 0 || (timeout > 0 && expire_time_hint < end_time))) {
-        // expiration time is sooner than our timeout
+      if (expire_time_hint > 0 && end_time > 0) {
+        cv_end_time = std::min(expire_time_hint, end_time);
+      } else if (expire_time_hint > 0) {
         cv_end_time = expire_time_hint;
-      } else if (timeout >= 0) {
+      } else if (end_time > 0) {
         cv_end_time = end_time;
       }
 
