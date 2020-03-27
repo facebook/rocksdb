@@ -20,10 +20,12 @@ class TimerTest : public testing::Test {
 TEST_F(TimerTest, SingleScheduleOnceTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 1;
-  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  uint64_t time_counter = 0;
+  mock_env_->set_current_time(0);
   ROCKSDB_NAMESPACE::port::Mutex mutex;
   ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
-  ROCKSDB_NAMESPACE::Timer timer(env);
+
+  ROCKSDB_NAMESPACE::Timer timer(mock_env_.get());
   int count = 0;
   timer.Add(
       [&] {
@@ -43,6 +45,8 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex);
     while(count < kIterations) {
+      time_counter++;
+      mock_env_->set_current_time(time_counter);
       test_cv.Wait();
     }
   }
@@ -55,11 +59,12 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
 TEST_F(TimerTest, MultipleScheduleOnceTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 1;
-  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-  ROCKSDB_NAMESPACE::Timer timer(env);
-
+  uint64_t time_counter = 0;
+  mock_env_->set_current_time(0);
   ROCKSDB_NAMESPACE::port::Mutex mutex1;
   ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
+
+  ROCKSDB_NAMESPACE::Timer timer(mock_env_.get());
   int count1 = 0;
   timer.Add(
       [&] {
@@ -94,18 +99,19 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   {
       ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
       while(count1 < kIterations) {
-        test_cv1.Wait();
+        time_counter++;
+        mock_env_->set_current_time(time_counter);
+        test_cv1.TimedWait(time_counter);
       }
   }
-
-  ASSERT_EQ(1, count1);
-  ASSERT_EQ(0, count2);
 
   // Wait for execution to finish
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
     while(count2 < kIterations) {
-      test_cv2.Wait();
+      time_counter++;
+      mock_env_->set_current_time(time_counter);
+      test_cv2.TimedWait(time_counter);
     }
   }
 
@@ -118,10 +124,12 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
 TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 5;
-  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  uint64_t time_counter = 0;
+  mock_env_->set_current_time(0);
   ROCKSDB_NAMESPACE::port::Mutex mutex;
   ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
-  ROCKSDB_NAMESPACE::Timer timer(env);
+
+  ROCKSDB_NAMESPACE::Timer timer(mock_env_.get());
   int count = 0;
   timer.Add(
       [&] {
@@ -142,7 +150,9 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex);
     while(count < kIterations) {
-      test_cv.Wait();
+      time_counter++;
+      mock_env_->set_current_time(time_counter);
+      test_cv.TimedWait(time_counter);
     }
   }
 
@@ -153,8 +163,9 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
 
 TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
-  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
-  ROCKSDB_NAMESPACE::Timer timer(env);
+  uint64_t time_counter = 0;
+  mock_env_->set_current_time(0);
+  ROCKSDB_NAMESPACE::Timer timer(mock_env_.get());
 
   ROCKSDB_NAMESPACE::port::Mutex mutex1;
   ROCKSDB_NAMESPACE::port::CondVar test_cv1(&mutex1);
@@ -196,18 +207,19 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
     while(count1 < kIterations1) {
-      test_cv1.Wait();
+      time_counter++;
+      mock_env_->set_current_time(time_counter);
+      test_cv1.TimedWait(time_counter);
     }
-}
-
-  ASSERT_EQ(5, count1);
-  ASSERT_EQ(10, count2);
+  }
 
   // Wait for execution to finish
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
     while(count2 < kIterations2) {
-      test_cv2.Wait();
+      time_counter++;
+      mock_env_->set_current_time(time_counter);
+      test_cv2.TimedWait(time_counter);
     }
   }
 
