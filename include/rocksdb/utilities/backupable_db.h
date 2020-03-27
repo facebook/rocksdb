@@ -142,6 +142,13 @@ struct BackupableDBOptions {
   }
 };
 
+enum class CpuPriority {
+  kHigh,
+  kNormal,
+  kLow,
+  kIdle,
+};
+
 struct CreateBackupOptions {
   // Flush will always trigger if 2PC is enabled.
   // If write-ahead logs are disabled, set flush_before_backup=true to
@@ -153,7 +160,7 @@ struct CreateBackupOptions {
 
   // If false, background_thread_cpu_priority is ignored.
   bool enable_update_background_thread_cpu_priority = false;
-  port::CpuPriority background_thread_cpu_priority = port::CpuPriority::kNormal;
+  CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
 };
 
 struct RestoreOptions {

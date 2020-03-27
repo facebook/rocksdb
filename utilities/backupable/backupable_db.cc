@@ -784,6 +784,21 @@ Status BackupEngineImpl::Initialize() {
   return Status::OK();
 }
 
+port::CpuPriority ToPortablePriority(CpuPriority priority) {
+  switch (priority) {
+    case kHigh:
+      return port::CpuPriority::kHigh;
+    case kNormal:
+      return port::CpuPriority::kNormal;
+    case kLow:
+      return port::CpuPriority::kLow;
+    case kIdle:
+      return port::CpuPriority::kIdle;
+    default:
+      assert(false);
+  }
+}
+
 Status BackupEngineImpl::CreateNewBackupWithMetadata(
     DB* db, const std::string& app_metadata,
     const CreateBackupOptions& options) {
@@ -795,7 +810,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (options.enable_update_background_thread_cpu_priority) {
     for (auto id : thread_ids_) {
-      port::SetCpuPriority(id, options.background_thread_cpu_priority);
+      port::SetCpuPriority(
+        id, ToPortablePriority(options.background_thread_cpu_priority));
     }
   }
 
