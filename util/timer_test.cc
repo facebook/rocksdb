@@ -127,6 +127,7 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
         [&] {
           ROCKSDB_NAMESPACE::MutexLock l(&mutex);
           count++;
+          fprintf(stderr, "%d\n", count);
           if (count >= kIteration) {
             test_cv.SignalAll();
           }

@@ -10,6 +10,7 @@
 #include <memory>
 #include <queue>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "port/port.h"
@@ -24,12 +25,13 @@ namespace ROCKSDB_NAMESPACE {
 // It is better to leave long running work to a dedicated thread pool.
 //
 // Timer can be started by calling `Start()`, and ended by calling `Shutdown()`.
-// A new function can be added by called `Add` with a unique function name.
+// Work (in terms of a `void function`) can be scheduled by calling `Add` with
+// a unique function name and de-scheduled by calling `Cancel`.
 // Many functions can be added. 
 //
 // Impl Details:
 // A heap is used to keep track of when the next timer goes off.
-// A map from a function name to the function is keep track of all the functions.
+// A map from a function name to the function keeps track of all the functions.
 class Timer {
  public:
   Timer(Env* env)
@@ -52,16 +54,18 @@ class Timer {
         repeat_every_us));
     
     MutexLock l(&mutex_);
-    map_[fn_name] = fn_info.get();
-    heap_.push(std::move(fn_info));
+    heap_.push(fn_info.get());
+    map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
   }
 
   void Cancel(std::string& fn_name) {
     MutexLock l(&mutex_);
+
     auto it = map_.find(fn_name);
     if (it != map_.end()) {
-      it->second->Cancel();
-      map_.erase(it);
+      if (it->second) {
+        it->second->Cancel();
+      }
     }
   }
 
@@ -100,7 +104,7 @@ class Timer {
 
  private:
 
-  void Run() {
+    void Run() {
     MutexLock l(&mutex_);
 
     while (running_) {
@@ -110,22 +114,30 @@ class Timer {
         continue;
       }
 
-      FunctionInfo *current_fn = heap_.top().get();
+      FunctionInfo* current_fn = heap_.top();
 
       if (!current_fn->IsValid()) {
-        map_.erase(current_fn->name);
         heap_.pop();
+        map_.erase(current_fn->name);
         continue; 
       }
 
       if (current_fn->next_run_time_us <= env_->NowMicros()) {
-        // execute the function
+        // Execute the work
         current_fn->fn();
+
+        // Remove the work from the heap once it is done executing.
+        // Note that we are just removing the pointer from the heap. Its memory
+        // is still managed in the map (as it holds a unique ptr).
+        // So current_fn is still a valid ptr.
         heap_.pop();
+
         if (current_fn->repeat_every_us > 0) {
           current_fn->next_run_time_us = env_->NowMicros() +
               current_fn->repeat_every_us;
-          heap_.push(std::unique_ptr<FunctionInfo>(current_fn));
+
+          // Schedule new work into the heap with new time.
+          heap_.push(current_fn);
         }
       } else {
         cond_var_.TimedWait(current_fn->next_run_time_us);
@@ -134,19 +146,32 @@ class Timer {
   }
 
   void CancelAllWithLock() {
-   for (auto it = map_.cbegin(); it != map_.cend(); ++it) {
-      it->second->Cancel();
-      map_.erase(it);
+    if (map_.empty() && heap_.empty()) {
+      return;
     }
+
+    while (!heap_.empty()) {
+      heap_.pop();
+    }
+
+    map_.clear();
   }
 
   // A wrapper around std::function to keep track when it should run next
   // and at what frequency.
   struct FunctionInfo {
+    // the actual work
     std::function<void()> fn;
+    // name of the function
     std::string name;
+    // when the function should run next
     uint64_t next_run_time_us;
+    // repeat interval
     uint64_t repeat_every_us;
+    // controls whether this function is valid.
+    // A function is valid upon construction and until someone explictly
+    // calls `Cancel()`.
+    bool valid;
 
     FunctionInfo(std::function<void()>&& _fn,
                const std::string& _name,
@@ -155,35 +180,39 @@ class Timer {
       : fn(std::move(_fn)),
         name(_name),
         next_run_time_us(_next_run_time_us),
-        repeat_every_us(_repeat_every_us) {}
+        repeat_every_us(_repeat_every_us),
+        valid(true) {}
 
     void Cancel() {
-      fn = {};
+      valid = false;
     }
 
     bool IsValid() {
-      return bool(fn);
+      return valid;
     }
   };
 
   struct fnHeapOrdering {
-    bool operator()(const std::unique_ptr<FunctionInfo>& f1,
-                    const std::unique_ptr<FunctionInfo>& f2) {
+    bool operator()(const FunctionInfo* f1,
+                    const FunctionInfo* f2) {
       return f1->next_run_time_us > f2->next_run_time_us;
     }
   };
 
   Env* const env_;
+  // This mutex controls both the heap_ and the map_. It needs to be held for
+  // making any changes in them.
   port::Mutex mutex_;
   port::CondVar cond_var_;
   port::Thread thread_;
   bool running_;
 
-  std::priority_queue<std::unique_ptr<FunctionInfo>,
-                      std::vector<std::unique_ptr<FunctionInfo>>,
+  std::priority_queue<FunctionInfo*,
+                      std::vector<FunctionInfo*>,
                       fnHeapOrdering> heap_;
 
-  std::unordered_map<std::string, FunctionInfo*> map_;
+  // In addition to providing a mapping from a function name to 
+  std::unordered_map<std::string, std::unique_ptr<FunctionInfo>> map_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
