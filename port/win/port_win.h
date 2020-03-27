@@ -336,9 +336,11 @@ extern int GetMaxOpenFiles();
 std::string utf16_to_utf8(const std::wstring& utf16);
 std::wstring utf8_to_utf16(const std::string& utf8);
 
+enum CpuPriority { kHigh, kNormal, kLow, kIdle };
+
 using ThreadId = int;
 
-extern void SetCpuPriority(ThreadId id, int priority);
+extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
 extern ThreadId GetCurrentThreadId();
 

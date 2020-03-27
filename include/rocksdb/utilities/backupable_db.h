@@ -143,11 +143,17 @@ struct BackupableDBOptions {
 };
 
 struct CreateBackupOptions {
+  // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
+  bool flush_before_backup = false;
+
+  // Callback for reporting progress.
+  std::function<void()> progress_callback = []() {};
+
   // If false, background_thread_cpu_priority is ignored.
   bool enable_update_background_thread_cpu_priority = false;
-  // Currently only effective on Linux, value ranging from -20 to 19,
-  // 19 is the lowest priority.
-  int background_thread_cpu_priority = 0;
+  port::CpuPriority background_thread_cpu_priority = port::CpuPriority::kNormal;
 };
 
 struct RestoreOptions {
@@ -264,26 +270,34 @@ class BackupEngine {
   static Status Open(Env* db_env, const BackupableDBOptions& options,
                      BackupEngine** backup_engine_ptr);
 
-  // same as CreateNewBackup, but stores extra application metadata
-  // Flush will always trigger if 2PC is enabled.
-  // If write-ahead logs are disabled, set flush_before_backup=true to
-  // avoid losing unflushed key/value pairs from the memtable.
+  // same as CreateNewBackup, but stores extra application metadata.
   virtual Status CreateNewBackupWithMetadata(
-      DB* db, const std::string& app_metadata, bool flush_before_backup = false,
-      std::function<void()> progress_callback = []() {},
-      const CreateBackupOptions& opt = CreateBackupOptions()) = 0;
+      DB* db, const std::string& app_metadata,
+      const CreateBackupOptions& options = CreateBackupOptions()) = 0;
+
+  virtual Status CreateNewBackupWithMetadata(
+      DB* db, const std::string& app_metadata, bool flush_before_backup,
+      std::function<void()> progress_callback = []() {}) {
+    CreateBackupOptions options;
+    options.flush_before_backup = flush_before_backup;
+    options.progress_callback = progress_callback;
+    return CreateNewBackupWithMetadata(db, app_metadata, options);
+  }
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
-  // Flush will always trigger if 2PC is enabled.
-  // If write-ahead logs are disabled, set flush_before_backup=true to
-  // avoid losing unflushed key/value pairs from the memtable.
   virtual Status CreateNewBackup(
-      DB* db, bool flush_before_backup = false,
-      std::function<void()> progress_callback = []() {},
-      const CreateBackupOptions& opt = CreateBackupOptions()) {
-    return CreateNewBackupWithMetadata(db, "", flush_before_backup,
-                                       progress_callback, opt);
+      DB* db, const CreateBackupOptions& options = CreateBackupOptions()) {
+    return CreateNewBackupWithMetadata(db, "", options);
+  }
+
+  virtual Status CreateNewBackup(DB* db, bool flush_before_backup,
+                                 std::function<void()> progress_callback =
+                                     []() {}) {
+    CreateBackupOptions options;
+    options.flush_before_backup = flush_before_backup;
+    options.progress_callback = progress_callback;
+    return CreateNewBackup(db, options);
   }
 
   // Deletes old backups, keeping latest num_backups_to_keep alive.

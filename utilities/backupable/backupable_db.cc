@@ -91,24 +91,32 @@ class BackupEngineImpl : public BackupEngine {
   BackupEngineImpl(Env* db_env, const BackupableDBOptions& options,
                    bool read_only = false);
   ~BackupEngineImpl() override;
+
+  using BackupEngine::CreateNewBackupWithMetadata;
   Status CreateNewBackupWithMetadata(
-      DB* db, const std::string& app_metadata, bool flush_before_backup = false,
-      std::function<void()> progress_callback = []() {},
+      DB* db, const std::string& app_metadata,
       const CreateBackupOptions& options = CreateBackupOptions()) override;
+
   Status PurgeOldBackups(uint32_t num_backups_to_keep) override;
+
   Status DeleteBackup(BackupID backup_id) override;
+
   void StopBackup() override {
     stop_backup_.store(true, std::memory_order_release);
   }
+
   Status GarbageCollect() override;
 
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info) override;
+
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
+
   Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) override;
+
   Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) override {
@@ -777,8 +785,7 @@ Status BackupEngineImpl::Initialize() {
 }
 
 Status BackupEngineImpl::CreateNewBackupWithMetadata(
-    DB* db, const std::string& app_metadata, bool flush_before_backup,
-    std::function<void()> progress_callback,
+    DB* db, const std::string& app_metadata,
     const CreateBackupOptions& options) {
   assert(initialized_);
   assert(!read_only_);
@@ -897,7 +904,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                 fname, src_env_options, rate_limiter, size_bytes,
                 size_limit_bytes,
                 options_.share_files_with_checksum && type == kTableFile,
-                progress_callback);
+                options.progress_callback);
           }
           return st;
         } /* copy_file_cb */,
@@ -908,9 +915,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
               false /* shared */, "" /* src_dir */, fname,
               EnvOptions() /* src_env_options */, rate_limiter, contents.size(),
               0 /* size_limit */, false /* shared_checksum */,
-              progress_callback, contents);
+              options.progress_callback, contents);
         } /* create_file_cb */,
-        &sequence_number, flush_before_backup ? 0 : port::kMaxUint64);
+        &sequence_number, options.flush_before_backup ? 0 : port::kMaxUint64);
     if (s.ok()) {
       new_backup->SetSequenceNumber(sequence_number);
     }

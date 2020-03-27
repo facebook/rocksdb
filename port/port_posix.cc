@@ -231,9 +231,29 @@ static size_t GetPageSize() {
 
 const size_t kPageSize = GetPageSize();
 
-void SetCpuPriority(ThreadId id, int priority) {
+void SetCpuPriority(ThreadId id, CpuPriority priority) {
 #ifdef OS_LINUX
-  setpriority(PRIO_PROCESS, id, priority);
+  sched_param param;
+  param.sched_priority = 0;
+  switch (priority) {
+    case kHigh:
+      sched_setscheduler(id, SCHED_OTHER, &param);
+      setpriority(PRIO_PROCESS, id, -20);
+      break;
+    case kNormal:
+      sched_setscheduler(id, SCHED_OTHER, &param);
+      setpriority(PRIO_PROCESS, id, 0);
+      break;
+    case kLow:
+      sched_setscheduler(id, SCHED_OTHER, &param);
+      setpriority(PRIO_PROCESS, id, 19);
+      break;
+    case kIdle:
+      sched_setscheduler(id, SCHED_IDLE, &param);
+      break;
+    default:
+      assert(false);
+  }
 #endif
 }
 

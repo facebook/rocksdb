@@ -214,9 +214,11 @@ extern int GetMaxOpenFiles();
 
 extern const size_t kPageSize;
 
+enum CpuPriority { kHigh, kNormal, kLow, kIdle };
+
 using ThreadId = pid_t;
 
-extern void SetCpuPriority(ThreadId id, int priority);
+extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
 extern ThreadId GetCurrentThreadId();
 

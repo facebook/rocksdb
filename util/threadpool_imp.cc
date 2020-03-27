@@ -233,8 +233,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
 #ifdef OS_LINUX
     if (decrease_cpu_priority) {
       // 0 means current thread.
-      // 19 is the lowest priority.
-      port::SetCpuPriority(0, 19);
+      port::SetCpuPriority(0, port::CpuPriority::kLow);
       low_cpu_priority = true;
     }
 
