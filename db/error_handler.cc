@@ -256,7 +256,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
     bg_error_ = bg_err;
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
-                                              db_mutex_, &auto_recovery);
+                                          db_mutex_, &auto_recovery);
     return bg_error_;
   } else if (bg_io_err.GetRetryable()) {
     // Second, check if the error is a retryable IO error or not. if it is

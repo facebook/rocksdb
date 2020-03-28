@@ -258,12 +258,8 @@ Status PlainTableBuilder::Finish() {
 
   // -- Write property block
   BlockHandle property_block_handle;
-  IOStatus s = WriteBlock(
-      property_block_builder.Finish(),
-      file_,
-      &offset_,
-      &property_block_handle
-  );
+  IOStatus s = WriteBlock(property_block_builder.Finish(), file_, &offset_,
+                          &property_block_handle);
   if (!s.ok()) {
     return std::move(s);
   }

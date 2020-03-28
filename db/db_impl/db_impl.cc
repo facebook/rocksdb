@@ -312,7 +312,7 @@ Status DBImpl::ResumeImpl() {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
-  if(s.ok()) {
+  if (s.ok()) {
     versions_->SetIOStatusOK();
   }
 

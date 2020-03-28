@@ -249,9 +249,10 @@ class BackupEngineReadOnly {
   // responsibility to synchronize the operation, i.e. don't delete the backup
   // when you're restoring from it
   // See also the corresponding doc in BackupEngine
-  virtual Status RestoreDBFromBackup(
-      const RestoreOptions& options,
-      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir) = 0;
+  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
+                                     BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
@@ -261,9 +262,9 @@ class BackupEngineReadOnly {
   }
 
   // See the corresponding doc in BackupEngine
-  virtual Status RestoreDBFromLatestBackup(
-      const RestoreOptions& options,
-      const std::string& db_dir, const std::string& wal_dir) = 0;
+  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
+                                           const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
@@ -302,8 +303,8 @@ class BackupEngine {
 
   // same as CreateNewBackup, but stores extra application metadata.
   virtual Status CreateNewBackupWithMetadata(
-      const CreateBackupOptions& options,
-      DB* db, const std::string& app_metadata) = 0;
+      const CreateBackupOptions& options, DB* db,
+      const std::string& app_metadata) = 0;
 
   // keep here for backward compatibility.
   virtual Status CreateNewBackupWithMetadata(
@@ -368,9 +369,10 @@ class BackupEngine {
   // database will diverge from backups 4 and 5 and the new backup will fail.
   // If you want to create new backup, you will first have to delete backups 4
   // and 5.
-  virtual Status RestoreDBFromBackup(
-      const RestoreOptions& options,
-      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir) = 0;
+  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
+                                     BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
@@ -380,9 +382,9 @@ class BackupEngine {
   }
 
   // restore from the latest backup
-  virtual Status RestoreDBFromLatestBackup(
-      const RestoreOptions& options,
-      const std::string& db_dir, const std::string& wal_dir) = 0;
+  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
+                                           const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(

@@ -159,20 +159,19 @@ DIR* opendir(const char* name) {
 
   std::unique_ptr<DIR> dir(new DIR);
 
-  dir->handle_ = RX_FindFirstFileEx(RX_FN(pattern).c_str(),
-    FindExInfoBasic, // Do not want alternative name
-    &dir->data_,
-    FindExSearchNameMatch,
-    NULL, // lpSearchFilter
-    0);
+  dir->handle_ =
+      RX_FindFirstFileEx(RX_FN(pattern).c_str(),
+                         FindExInfoBasic,  // Do not want alternative name
+                         &dir->data_, FindExSearchNameMatch,
+                         NULL,  // lpSearchFilter
+                         0);
 
   if (dir->handle_ == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
   RX_FILESTRING x(dir->data_.cFileName, RX_FNLEN(dir->data_.cFileName));
-  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name),
-           FN_TO_RX(x).c_str());
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), FN_TO_RX(x).c_str());
 
   return dir.release();
 }
@@ -267,8 +266,8 @@ const size_t kPageSize = 4U * 1024U;
 
 void SetCpuPriority(ThreadId id, CpuPriority priority) {
   // Not supported
-  (void) id;
-  (void) priority;
+  (void)id;
+  (void)priority;
 }
 
 }  // namespace port
