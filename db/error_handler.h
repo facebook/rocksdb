@@ -6,6 +6,7 @@
 
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/status.h"
 
@@ -33,6 +34,8 @@ class ErrorHandler {
                                      Status::SubCode subcode);
 
    Status SetBGError(const Status& bg_err, BackgroundErrorReason reason);
+
+   Status SetBGError(const IOStatus& bg_io_err, BackgroundErrorReason reason);
 
    Status GetBGError() { return bg_error_; }
 

@@ -238,6 +238,46 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   return bg_error_;
 }
 
+Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
+                                BackgroundErrorReason reason) {
+  db_mutex_->AssertHeld();
+  if (bg_io_err.ok()) {
+    return Status::OK();
+  }
+  if (recovery_in_prog_ && recovery_error_.ok()) {
+    recovery_error_ = bg_io_err;
+  }
+  Status new_bg_io_err = bg_io_err;
+  Status s;
+  if (bg_io_err.GetDataLoss()) {
+    // FIrst, data loss is treated as unrecoverable error. So it can directly
+    // overwrite any existing bg_error_.
+    bool auto_recovery = false;
+    Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
+    bg_error_ = bg_err;
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
+                                              db_mutex_, &auto_recovery);
+    return bg_error_;
+  } else if (bg_io_err.GetRetryable()) {
+    // Second, check if the error is a retryable IO error or not. if it is
+    // retryable error and its severity is higher than bg_error_, overwrite
+    // the bg_error_ with new error.
+    // In current stage, treat retryable error as HardError. No automatic
+    // recovery.
+    bool auto_recovery = false;
+    Status bg_err(new_bg_io_err, Status::Severity::kHardError);
+    EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
+                                          db_mutex_, &auto_recovery);
+    if (bg_err.severity() > bg_error_.severity()) {
+      bg_error_ = bg_err;
+    }
+    return bg_error_;
+  } else {
+    s = SetBGError(new_bg_io_err, reason);
+  }
+  return s;
+}
+
 Status ErrorHandler::OverrideNoSpaceError(Status bg_error,
                                           bool* auto_recovery) {
 #ifndef ROCKSDB_LITE

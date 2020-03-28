@@ -136,6 +136,9 @@ class TableBuilder {
   // Return non-ok iff some error has been detected.
   virtual Status status() const = 0;
 
+  // Return non-ok iff some error happens during IO.
+  virtual IOStatus io_status() const = 0;
+
   // Finish building the table.
   // REQUIRES: Finish(), Abandon() have not been called
   virtual Status Finish() = 0;

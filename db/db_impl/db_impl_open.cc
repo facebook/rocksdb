@@ -292,7 +292,7 @@ Status DBImpl::NewDB() {
   }
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, directories_.GetDbDir());
+    s = SetCurrentFile(fs_.get(), dbname_, 1, directories_.GetDbDir());
   } else {
     fs_->DeleteFile(manifest, IOOptions(), nullptr);
   }
@@ -1239,6 +1239,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
+      IOStatus io_s;
       s = BuildTable(
           dbname_, env_, fs_.get(), *cfd->ioptions(), mutable_cf_options,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),
@@ -1248,7 +1249,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.sample_for_compression,
           cfd->ioptions()->compression_opts, paranoid_file_checks,
-          cfd->internal_stats(), TableFileCreationReason::kRecovery,
+          cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
           &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, write_hint);
       LogFlush(immutable_db_options_.info_log);

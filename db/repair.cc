@@ -424,6 +424,7 @@ class Repairer {
       }
 
       LegacyFileSystemWrapper fs(env_);
+      IOStatus io_s;
       status = BuildTable(
           dbname_, env_, &fs, *cfd->ioptions(),
           *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_,
@@ -432,7 +433,7 @@ class Repairer {
           cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber,
           snapshot_checker, kNoCompression, 0 /* sample_for_compression */,
           CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, nullptr /* event_logger */,
+          TableFileCreationReason::kRecovery, &io_s, nullptr /* event_logger */,
           0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,

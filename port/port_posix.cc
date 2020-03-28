@@ -254,6 +254,9 @@ void SetCpuPriority(ThreadId id, CpuPriority priority) {
     default:
       assert(false);
   }
+#else
+  (void) id;
+  (void) priority;
 #endif
 }
 

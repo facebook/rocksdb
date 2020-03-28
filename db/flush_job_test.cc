@@ -108,7 +108,7 @@ class FlushJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
   }
 
   Env* env_;

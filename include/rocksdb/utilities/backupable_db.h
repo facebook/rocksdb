@@ -227,8 +227,13 @@ class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
                      BackupEngineReadOnly** backup_engine_ptr);
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngineReadOnly** backup_engine_ptr) {
+    return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
+  }
 
   // Returns info about backups in backup_info
   // You can GetBackupInfo safely, even with other BackupEngine performing
@@ -245,13 +250,27 @@ class BackupEngineReadOnly {
   // when you're restoring from it
   // See also the corresponding doc in BackupEngine
   virtual Status RestoreDBFromBackup(
+      const RestoreOptions& options,
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
+  virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  }
 
   // See the corresponding doc in BackupEngine
   virtual Status RestoreDBFromLatestBackup(
+      const RestoreOptions& options,
+      const std::string& db_dir, const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
+  virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
+  }
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
@@ -272,39 +291,44 @@ class BackupEngine {
 
   // BackupableDBOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
                      BackupEngine** backup_engine_ptr);
+
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngine** backup_engine_ptr) {
+    return BackupEngine::Open(options, db_env, backup_engine_ptr);
+  }
 
   // same as CreateNewBackup, but stores extra application metadata.
   virtual Status CreateNewBackupWithMetadata(
-      DB* db, const std::string& app_metadata,
-      const CreateBackupOptions& options = CreateBackupOptions()) = 0;
+      const CreateBackupOptions& options,
+      DB* db, const std::string& app_metadata) = 0;
 
   // keep here for backward compatibility.
   virtual Status CreateNewBackupWithMetadata(
-      DB* db, const std::string& app_metadata, bool flush_before_backup,
+      DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) {
     CreateBackupOptions options;
     options.flush_before_backup = flush_before_backup;
     options.progress_callback = progress_callback;
-    return CreateNewBackupWithMetadata(db, app_metadata, options);
+    return CreateNewBackupWithMetadata(options, db, app_metadata);
   }
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
-  virtual Status CreateNewBackup(
-      DB* db, const CreateBackupOptions& options = CreateBackupOptions()) {
-    return CreateNewBackupWithMetadata(db, "", options);
+  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db) {
+    return CreateNewBackupWithMetadata(options, db, "");
   }
 
   // keep here for backward compatibility.
-  virtual Status CreateNewBackup(DB* db, bool flush_before_backup,
+  virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {
     CreateBackupOptions options;
     options.flush_before_backup = flush_before_backup;
     options.progress_callback = progress_callback;
-    return CreateNewBackup(db, options);
+    return CreateNewBackup(options, db);
   }
 
   // Deletes old backups, keeping latest num_backups_to_keep alive.
@@ -345,13 +369,27 @@ class BackupEngine {
   // If you want to create new backup, you will first have to delete backups 4
   // and 5.
   virtual Status RestoreDBFromBackup(
+      const RestoreOptions& options,
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
+  virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  }
 
   // restore from the latest backup
   virtual Status RestoreDBFromLatestBackup(
+      const RestoreOptions& options,
+      const std::string& db_dir, const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
+  virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
+  }
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
