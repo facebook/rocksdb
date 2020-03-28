@@ -753,9 +753,12 @@ Status BackupEngineImpl::Initialize() {
       while (files_to_copy_or_create_.read(work_item)) {
         CpuPriority priority = threads_cpu_priority_;
         if (current_priority != priority) {
+          TEST_SYNC_POINT_CALLBACK(
+              "BackupEngineImpl::Initialize:SetCpuPriority", &priority);
           port::SetCpuPriority(0, priority);
           current_priority = priority;
         }
+        TEST_SYNC_POINT("BackupEngineImpl::Initialize:CopyOrCreateFile");
         CopyOrCreateResult result;
         result.status = CopyOrCreateFile(
             work_item.src_path, work_item.dst_path, work_item.contents,
