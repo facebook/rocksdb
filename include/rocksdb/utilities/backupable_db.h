@@ -251,7 +251,7 @@ class BackupEngineReadOnly {
   // See also the corresponding doc in BackupEngine
   virtual Status RestoreDBFromBackup(
       const RestoreOptions& options,
-      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir);
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
@@ -370,7 +370,7 @@ class BackupEngine {
   // and 5.
   virtual Status RestoreDBFromBackup(
       const RestoreOptions& options,
-      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir);
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
