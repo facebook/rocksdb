@@ -1230,7 +1230,10 @@ class FileChecksumTestHelper {
     return s;
   }
 
-  std::string GetFileChecksum() { return table_builder_->GetFileChecksum(); }
+  std::string GetFileChecksum() {
+    file_writer_->Close();
+    return table_builder_->GetFileChecksum();
+  }
 
   const char* GetFileChecksumFuncName() {
     return table_builder_->GetFileChecksumFuncName();

@@ -155,6 +155,11 @@ IOStatus WritableFileWriter::Close() {
   writable_file_.reset();
   TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
 
+  if (checksum_generator_ != nullptr && !checksum_finalized_) {
+    checksum_generator_->Finalize();
+    checksum_finalized_ = true;
+  }
+
   return s;
 }
 
@@ -218,10 +223,6 @@ IOStatus WritableFileWriter::Flush() {
 
 std::string WritableFileWriter::GetFileChecksum() {
   if (checksum_generator_ != nullptr) {
-    if (!checksum_finalized_) {
-      checksum_generator_->Finalize();
-      checksum_finalized_ = true;
-    }
     return checksum_generator_->GetChecksum();
   } else {
     return kUnknownFileChecksum;

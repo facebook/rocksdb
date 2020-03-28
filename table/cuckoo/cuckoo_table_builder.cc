@@ -390,10 +390,6 @@ Status CuckooTableBuilder::Finish() {
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
   io_status_ = file_->Append(footer_encoding);
-
-  if (file_ != nullptr) {
-    file_checksum_ = file_->GetFileChecksum();
-  }
   status_ = io_status_;
   return status_;
 }
@@ -518,6 +514,14 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     *bucket_id = tree[bucket_to_replace_pos].bucket_id;
   }
   return null_found;
+}
+
+std::string CuckooTableBuilder::GetFileChecksum() const {
+  if (file_ != nullptr) {
+    return file_->GetFileChecksum();
+  } else {
+    return kUnknownFileChecksum;
+  }
 }
 
 const char* CuckooTableBuilder::GetFileChecksumFuncName() const {
