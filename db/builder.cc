@@ -81,10 +81,11 @@ Status BuildTable(
     SnapshotChecker* snapshot_checker, const CompressionType compression,
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     bool paranoid_file_checks, InternalStats* internal_stats,
-    TableFileCreationReason reason, EventLogger* event_logger, int job_id,
-    const Env::IOPriority io_priority, TableProperties* table_properties,
-    int level, const uint64_t creation_time, const uint64_t oldest_key_time,
-    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
+    TableFileCreationReason reason, IOStatus* io_status,
+    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    TableProperties* table_properties, int level, const uint64_t creation_time,
+    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -185,11 +186,13 @@ Status BuildTable(
     tp = builder->GetTableProperties();
     bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
     s = c_iter.status();
+    TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
       s = builder->Finish();
     }
+    *io_status = builder->io_status();
 
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
@@ -209,11 +212,16 @@ Status BuildTable(
     // Finish and check for file errors
     if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-      s = file_writer->Sync(ioptions.use_fsync);
+      *io_status = file_writer->Sync(ioptions.use_fsync);
     }
-    if (s.ok() && !empty) {
-      s = file_writer->Close();
+    if (io_status->ok() && !empty) {
+      *io_status = file_writer->Close();
     }
+    if (!io_status->ok()) {
+      s = *io_status;
+    }
+
+    // TODO Also check the IO status when create the Iterator.
 
     if (s.ok() && !empty) {
       // Verify that the table is usable

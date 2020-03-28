@@ -15,6 +15,7 @@
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
 #include "table/table_builder.h"
@@ -137,6 +138,9 @@ class MockTableBuilder : public TableBuilder {
 
   // Return non-ok iff some error has been detected.
   Status status() const override { return Status::OK(); }
+
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override { return IOStatus::OK(); }
 
   Status Finish() override {
     MutexLock lock_guard(&file_system_->mutex);

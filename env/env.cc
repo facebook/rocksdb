@@ -369,20 +369,8 @@ void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync) {
-  std::unique_ptr<WritableFile> file;
-  EnvOptions soptions;
-  Status s = env->NewWritableFile(fname, &file, soptions);
-  if (!s.ok()) {
-    return s;
-  }
-  s = file->Append(data);
-  if (s.ok() && should_sync) {
-    s = file->Sync();
-  }
-  if (!s.ok()) {
-    env->DeleteFile(fname);
-  }
-  return s;
+  LegacyFileSystemWrapper lfsw(env);
+  return WriteStringToFile(&lfsw, data, fname, should_sync);
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {

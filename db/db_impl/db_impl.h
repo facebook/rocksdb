@@ -1364,7 +1364,7 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  Status SyncClosedLogs(JobContext* job_context);
+  IOStatus SyncClosedLogs(JobContext* job_context);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
@@ -1501,20 +1501,24 @@ class DBImpl : public DB {
                          WriteBatch* tmp_batch, size_t* write_with_wal,
                          WriteBatch** to_be_cached_state);
 
-  Status WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
-                    uint64_t* log_used, uint64_t* log_size);
+  IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                      uint64_t* log_used, uint64_t* log_size);
 
-  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
-                    log::Writer* log_writer, uint64_t* log_used,
-                    bool need_log_sync, bool need_log_dir_sync,
-                    SequenceNumber sequence);
+  IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
+                      log::Writer* log_writer, uint64_t* log_used,
+                      bool need_log_sync, bool need_log_dir_sync,
+                      SequenceNumber sequence);
 
-  Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
-                              uint64_t* log_used, SequenceNumber* last_sequence,
-                              size_t seq_inc);
+  IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
+                                uint64_t* log_used,
+                                SequenceNumber* last_sequence, size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void WriteStatusCheck(const Status& status);
+
+  // Used by WriteImpl to update bg_error_ when IO error happens, e.g., write
+  // WAL, sync WAL fails, if paranoid check is enabled.
+  void IOStatusCheck(const IOStatus& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);

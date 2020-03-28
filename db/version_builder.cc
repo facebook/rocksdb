@@ -14,13 +14,16 @@
 #include <cinttypes>
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
+#include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_meta.h"
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
@@ -100,6 +103,9 @@ class VersionBuilder::Rep {
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
 
+  // Metadata for all blob files affected by the series of version edits.
+  std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> changed_blob_files_;
+
  public:
   Rep(const FileOptions& file_options, Logger* info_log,
       TableCache* table_cache,
@@ -140,6 +146,57 @@ class VersionBuilder::Rep {
     }
   }
 
+  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
+      uint64_t blob_file_number) const {
+    auto changed_it = changed_blob_files_.find(blob_file_number);
+    if (changed_it != changed_blob_files_.end()) {
+      const auto& meta = changed_it->second;
+      assert(meta);
+
+      return meta;
+    }
+
+    assert(base_vstorage_);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+
+    auto base_it = base_blob_files.find(blob_file_number);
+    if (base_it != base_blob_files.end()) {
+      const auto& meta = base_it->second;
+      assert(meta);
+
+      return meta;
+    }
+
+    return std::shared_ptr<BlobFileMetaData>();
+  }
+
+  Status CheckConsistencyOfOldestBlobFileReference(
+      const VersionStorageInfo* vstorage, uint64_t blob_file_number) const {
+    assert(vstorage);
+
+    // TODO: remove this check once we actually start recoding metadata for
+    // blob files in the MANIFEST.
+    if (vstorage->GetBlobFiles().empty()) {
+      return Status::OK();
+    }
+
+    if (blob_file_number == kInvalidBlobFileNumber) {
+      return Status::OK();
+    }
+
+    const auto meta = GetBlobFileMetaData(blob_file_number);
+    if (!meta) {
+      std::ostringstream oss;
+      oss << "Blob file #" << blob_file_number
+          << " is not part of this version";
+
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    return Status::OK();
+  }
+
   Status CheckConsistency(VersionStorageInfo* vstorage) {
 #ifdef NDEBUG
     if (!vstorage->force_consistency_checks()) {
@@ -148,10 +205,31 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 #endif
-    // make sure the files are sorted correctly
+    // Make sure the files are sorted correctly and that the oldest blob file
+    // reference for each table file points to a valid blob file in this
+    // version.
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
+
+      if (level_files.empty()) {
+        continue;
+      }
+
+      assert(level_files[0]);
+      Status s = CheckConsistencyOfOldestBlobFileReference(
+          vstorage, level_files[0]->oldest_blob_file_number);
+      if (!s.ok()) {
+        return s;
+      }
+
       for (size_t i = 1; i < level_files.size(); i++) {
+        assert(level_files[i]);
+        s = CheckConsistencyOfOldestBlobFileReference(
+            vstorage, level_files[i]->oldest_blob_file_number);
+        if (!s.ok()) {
+          return s;
+        }
+
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
 #ifndef NDEBUG
@@ -217,6 +295,23 @@ class VersionBuilder::Rep {
         }
       }
     }
+
+    // Make sure that all blob files in the version have non-garbage data.
+    const auto& blob_files = vstorage->GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      const auto& blob_file_meta = pair.second;
+      assert(blob_file_meta);
+
+      if (blob_file_meta->GetGarbageBlobCount() >=
+          blob_file_meta->GetTotalBlobCount()) {
+        std::ostringstream oss;
+        oss << "Blob file #" << blob_file_meta->GetBlobFileNumber()
+            << " consists entirely of garbage";
+
+        return Status::Corruption("VersionBuilder", oss.str());
+      }
+    }
+
     return Status::OK();
   }
 
@@ -282,6 +377,56 @@ class VersionBuilder::Rep {
     return true;
   }
 
+  Status ApplyBlobFileAddition(const BlobFileAddition& blob_file_addition) {
+    const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
+
+    auto meta = GetBlobFileMetaData(blob_file_number);
+    if (meta) {
+      std::ostringstream oss;
+      oss << "Blob file #" << blob_file_number << " already added";
+
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
+        blob_file_number, blob_file_addition.GetTotalBlobCount(),
+        blob_file_addition.GetTotalBlobBytes(),
+        blob_file_addition.GetChecksumMethod(),
+        blob_file_addition.GetChecksumValue());
+
+    constexpr uint64_t garbage_blob_count = 0;
+    constexpr uint64_t garbage_blob_bytes = 0;
+    auto new_meta = std::make_shared<BlobFileMetaData>(
+        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
+
+    changed_blob_files_.emplace(blob_file_number, std::move(new_meta));
+
+    return Status::OK();
+  }
+
+  Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
+    const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
+
+    auto meta = GetBlobFileMetaData(blob_file_number);
+    if (!meta) {
+      std::ostringstream oss;
+      oss << "Blob file #" << blob_file_number << " not found";
+
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    assert(meta->GetBlobFileNumber() == blob_file_number);
+
+    auto new_meta = std::make_shared<BlobFileMetaData>(
+        meta->GetSharedMeta(),
+        meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
+        meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
+
+    changed_blob_files_[blob_file_number] = std::move(new_meta);
+
+    return Status::OK();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
     Status s = CheckConsistency(base_vstorage_);
@@ -333,7 +478,102 @@ class VersionBuilder::Rep {
         }
       }
     }
+
+    // Add new blob files
+    for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
+      s = ApplyBlobFileAddition(blob_file_addition);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    // Increase the amount of garbage for blob files affected by GC
+    for (const auto& blob_file_garbage : edit->GetBlobFileGarbages()) {
+      s = ApplyBlobFileGarbage(blob_file_garbage);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
     return s;
+  }
+
+  void AddBlobFileIfNeeded(
+      VersionStorageInfo* vstorage,
+      const std::shared_ptr<BlobFileMetaData>& meta) const {
+    assert(vstorage);
+    assert(meta);
+
+    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount()) {
+      vstorage->AddBlobFile(meta);
+    }
+  }
+
+  // Merge the blob file metadata from the base version with the changes (edits)
+  // applied, and save the result into *vstorage.
+  void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
+    assert(base_vstorage_);
+    assert(vstorage);
+
+    const auto& base_blob_files = base_vstorage_->GetBlobFiles();
+    auto base_it = base_blob_files.begin();
+    const auto base_it_end = base_blob_files.end();
+
+    auto changed_it = changed_blob_files_.begin();
+    const auto changed_it_end = changed_blob_files_.end();
+
+    while (base_it != base_it_end && changed_it != changed_it_end) {
+      const uint64_t base_blob_file_number = base_it->first;
+      const uint64_t changed_blob_file_number = changed_it->first;
+
+      const auto& base_meta = base_it->second;
+      const auto& changed_meta = changed_it->second;
+
+      assert(base_meta);
+      assert(changed_meta);
+
+      if (base_blob_file_number < changed_blob_file_number) {
+        assert(base_meta->GetGarbageBlobCount() <
+               base_meta->GetTotalBlobCount());
+
+        vstorage->AddBlobFile(base_meta);
+
+        ++base_it;
+      } else if (changed_blob_file_number < base_blob_file_number) {
+        AddBlobFileIfNeeded(vstorage, changed_meta);
+
+        ++changed_it;
+      } else {
+        assert(base_blob_file_number == changed_blob_file_number);
+        assert(base_meta->GetSharedMeta() == changed_meta->GetSharedMeta());
+        assert(base_meta->GetGarbageBlobCount() <=
+               changed_meta->GetGarbageBlobCount());
+        assert(base_meta->GetGarbageBlobBytes() <=
+               changed_meta->GetGarbageBlobBytes());
+
+        AddBlobFileIfNeeded(vstorage, changed_meta);
+
+        ++base_it;
+        ++changed_it;
+      }
+    }
+
+    while (base_it != base_it_end) {
+      const auto& base_meta = base_it->second;
+      assert(base_meta);
+      assert(base_meta->GetGarbageBlobCount() < base_meta->GetTotalBlobCount());
+
+      vstorage->AddBlobFile(base_meta);
+      ++base_it;
+    }
+
+    while (changed_it != changed_it_end) {
+      const auto& changed_meta = changed_it->second;
+      assert(changed_meta);
+
+      AddBlobFileIfNeeded(vstorage, changed_meta);
+      ++changed_it;
+    }
   }
 
   // Save the current state in *v.
@@ -389,6 +629,8 @@ class VersionBuilder::Rep {
         }
       }
     }
+
+    SaveBlobFilesTo(vstorage);
 
     s = CheckConsistency(vstorage);
     return s;

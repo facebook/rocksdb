@@ -119,7 +119,7 @@ class FullFilterBlockReader
                      const SliceTransform* prefix_extractor,
                      const Comparator* comparator,
                      const Slice* const const_ikey_ptr, bool* filter_checked,
-                     bool need_upper_bound_check,
+                     bool need_upper_bound_check, bool no_io,
                      BlockCacheLookupContext* lookup_context) override;
 
  private:

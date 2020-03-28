@@ -18,6 +18,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "cache/simple_deleter.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
 
@@ -283,6 +284,7 @@ struct BlockBasedTableBuilder::Rep {
   WritableFileWriter* file;
   uint64_t offset = 0;
   Status status;
+  IOStatus io_status;
   size_t alignment;
   BlockBuilder data_block;
   // Buffers uncompressed data blocks and keys to replay later. Needed when
@@ -724,8 +726,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
   assert(r->status.ok());
-  r->status = r->file->Append(block_contents);
-  if (r->status.ok()) {
+  assert(r->io_status.ok());
+  r->io_status = r->file->Append(block_contents);
+  if (r->io_status.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
     char* trailer_without_type = trailer + 1;
@@ -764,36 +767,34 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
     }
 
-    assert(r->status.ok());
+    assert(r->io_status.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
         static_cast<char*>(trailer));
-    r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
-    if (r->status.ok()) {
+    r->io_status = r->file->Append(Slice(trailer, kBlockTrailerSize));
+    if (r->io_status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
     }
-    if (r->status.ok()) {
+    if (r->status.ok() && r->io_status.ok()) {
       r->offset += block_contents.size() + kBlockTrailerSize;
       if (r->table_options.block_align && is_data_block) {
         size_t pad_bytes =
             (r->alignment - ((block_contents.size() + kBlockTrailerSize) &
                              (r->alignment - 1))) &
             (r->alignment - 1);
-        r->status = r->file->Pad(pad_bytes);
-        if (r->status.ok()) {
+        r->io_status = r->file->Pad(pad_bytes);
+        if (r->io_status.ok()) {
           r->offset += pad_bytes;
         }
       }
     }
   }
+  r->status = r->io_status;
 }
 
 Status BlockBasedTableBuilder::status() const { return rep_->status; }
 
-static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
-  BlockContents* bc = reinterpret_cast<BlockContents*>(value);
-  delete bc;
-}
+IOStatus BlockBasedTableBuilder::io_status() const { return rep_->io_status; }
 
 //
 // Make a copy of the block contents and insert into compressed block cache
@@ -829,7 +830,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     block_cache_compressed->Insert(
         key, block_contents_to_cache,
         block_contents_to_cache->ApproximateMemoryUsage(),
-        &DeleteCachedBlockContents);
+        SimpleDeleter<BlockContents>::GetInstance());
 
     // Invalidate OS cache.
     r->file->InvalidateCache(static_cast<size_t>(r->offset), size);
@@ -1054,10 +1055,12 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
   assert(r->status.ok());
-  r->status = r->file->Append(footer_encoding);
-  if (r->status.ok()) {
+  assert(r->io_status.ok());
+  r->io_status = r->file->Append(footer_encoding);
+  if (r->io_status.ok()) {
     r->offset += footer_encoding.size();
   }
+  r->status = r->io_status;
 }
 
 void BlockBasedTableBuilder::EnterUnbuffered() {

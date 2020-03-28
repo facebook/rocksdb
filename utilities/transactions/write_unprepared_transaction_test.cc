@@ -182,8 +182,8 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
     ReadOptions read_options;
 
     for (uint32_t i = 0; i < kNumIter; i++) {
-      std::set<std::string> owned_keys(&keys[id * kNumKeys],
-                                       &keys[(id + 1) * kNumKeys]);
+      std::set<std::string> owned_keys(keys.begin() + id * kNumKeys,
+                                       keys.begin() + (id + 1) * kNumKeys);
       // Add unowned keys to make the workload more interesting, but this
       // increases row lock contention, so just do it sometimes.
       if (rnd.OneIn(2)) {

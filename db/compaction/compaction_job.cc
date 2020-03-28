@@ -613,8 +613,13 @@ Status CompactionJob::Run() {
     }
   }
 
+  IOStatus io_s;
   if (status.ok() && output_directory_) {
-    status = output_directory_->Fsync(IOOptions(), nullptr);
+    io_s = output_directory_->Fsync(IOOptions(), nullptr);
+  }
+  if (!io_s.ok()) {
+    io_status_ = io_s;
+    status = io_s;
   }
 
   if (status.ok()) {
@@ -713,8 +718,12 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
+  versions_->SetIOStatusOK();
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
+  }
+  if (!versions_->io_status().ok()) {
+    io_status_ = versions_->io_status();
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
@@ -1294,6 +1303,10 @@ Status CompactionJob::FinishCompactionOutputFile(
   } else {
     sub_compact->builder->Abandon();
   }
+  if (!sub_compact->builder->io_status().ok()) {
+    io_status_ = sub_compact->builder->io_status();
+    s = io_status_;
+  }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
     // Add the checksum information to file metadata.
@@ -1307,12 +1320,17 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
+  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
-    s = sub_compact->outfile->Sync(db_options_.use_fsync);
+    io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
-  if (s.ok()) {
-    s = sub_compact->outfile->Close();
+  if (io_s.ok()) {
+    io_s = sub_compact->outfile->Close();
+  }
+  if (!io_s.ok()) {
+    io_status_ = io_s;
+    s = io_s;
   }
   sub_compact->outfile.reset();
 

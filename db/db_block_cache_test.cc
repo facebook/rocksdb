@@ -443,9 +443,8 @@ class MockCache : public LRUCache {
                  false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
   }
 
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value), Handle** handle,
-                Priority priority) override {
+  Status Insert(const Slice& key, void* value, size_t charge, Deleter* deleter,
+                Handle** handle, Priority priority) override {
     if (priority == Priority::LOW) {
       low_pri_insert_count++;
     } else {
