@@ -73,6 +73,7 @@ class WritableFileWriter {
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
+  bool checksum_finalized_;
 
  public:
   WritableFileWriter(
@@ -96,7 +97,8 @@ class WritableFileWriter {
         rate_limiter_(options.rate_limiter),
         stats_(stats),
         listeners_(),
-        checksum_generator_(nullptr) {
+        checksum_generator_(nullptr),
+        checksum_finalized_(false) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
