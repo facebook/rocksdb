@@ -1850,6 +1850,9 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  // 1 thread is easier to test, otherwise, we may not be sure which thread
+  // actually does the work during CreateNewBackup.
+  backupable_options_->max_background_operations = 1;
   OpenDBAndBackupEngine(true);
 
   {
@@ -1858,6 +1861,7 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     // by default, cpu priority is not changed.
     CreateBackupOptions options;
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
+
     ASSERT_EQ(priority, CpuPriority::kNormal);
   }
 
@@ -1869,6 +1873,7 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kLow;
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
+
     ASSERT_EQ(priority, CpuPriority::kLow);
   }
 
@@ -1881,6 +1886,7 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kNormal;
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
+
     ASSERT_EQ(priority, CpuPriority::kLow);
   }
 
@@ -1892,7 +1898,23 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kIdle;
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
+
     ASSERT_EQ(priority, CpuPriority::kIdle);
+  }
+
+  {
+    FillDB(db_.get(), 301, 400);
+
+    // reset priority to later verify that it's not updated by SetCpuPriority.
+    priority = CpuPriority::kNormal;
+
+    // setting the same cpu priority won't call SetCpuPriority.
+    CreateBackupOptions options;
+    options.decrease_background_thread_cpu_priority = true;
+    options.background_thread_cpu_priority = CpuPriority::kIdle;
+    ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
+
+    ASSERT_EQ(priority, CpuPriority::kNormal);
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
