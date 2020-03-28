@@ -382,7 +382,7 @@ class BackupEngine {
   // restore from the latest backup
   virtual Status RestoreDBFromLatestBackup(
       const RestoreOptions& options,
-      const std::string& db_dir, const std::string& wal_dir);
+      const std::string& db_dir, const std::string& wal_dir) = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
