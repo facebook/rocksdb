@@ -1844,14 +1844,11 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
 
 TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
   std::atomic<CpuPriority> priority(CpuPriority::kNormal);
-  std::atomic<bool> copy_started(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackupEngineImpl::Initialize:SetCpuPriority", [&](void* new_priority) {
         priority.store(*reinterpret_cast<CpuPriority*>(new_priority));
       });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackupEngineImpl::Initialize:CopyOrCreateFile",
-      [&](void*) { copy_started.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   OpenDBAndBackupEngine(true);
 
@@ -1860,12 +1857,7 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
 
     // by default, cpu priority is not changed.
     CreateBackupOptions options;
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
-    ASSERT_TRUE(copy_started);
     ASSERT_EQ(priority, CpuPriority::kNormal);
   }
 
@@ -1876,11 +1868,7 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     CreateBackupOptions options;
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kLow;
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
     ASSERT_EQ(priority, CpuPriority::kLow);
   }
 
@@ -1892,11 +1880,7 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     CreateBackupOptions options;
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kNormal;
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
     ASSERT_EQ(priority, CpuPriority::kLow);
   }
 
@@ -1907,14 +1891,11 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     CreateBackupOptions options;
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kIdle;
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-
     ASSERT_EQ(priority, CpuPriority::kIdle);
   }
 
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);

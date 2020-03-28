@@ -758,7 +758,6 @@ Status BackupEngineImpl::Initialize() {
           port::SetCpuPriority(0, priority);
           current_priority = priority;
         }
-        TEST_SYNC_POINT("BackupEngineImpl::Initialize:CopyOrCreateFile");
         CopyOrCreateResult result;
         result.status = CopyOrCreateFile(
             work_item.src_path, work_item.dst_path, work_item.contents,
