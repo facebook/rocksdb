@@ -208,7 +208,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok()&& !io_s.IsShutdownInProgress() && !io_s.IsColumnFamilyDropped()) {
+    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
+        !io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     } else {
       Status new_bg_error = s;
@@ -2876,11 +2877,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
                    status.ToString().c_str());
-        if (!io_s.ok()) {
-           error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
-        } else {
-          error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
-        }
+    if (!io_s.ok()) {
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
+    } else {
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    }
     if (c != nullptr && !is_manual && !error_handler_.IsBGWorkStopped()) {
       // Put this cfd back in the compaction queue so we can retry after some
       // time

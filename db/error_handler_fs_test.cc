@@ -183,7 +183,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
 
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
-          new FaultInjectionTestFS(FileSystem::Default()));
+      new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -289,7 +289,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
 
 TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
-              new FaultInjectionTestFS(FileSystem::Default()));
+      new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -457,7 +457,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
 
 TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
-              new FaultInjectionTestFS(FileSystem::Default()));
+      new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -556,7 +556,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
 
 TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
-              new FaultInjectionTestFS(FileSystem::Default()));
+      new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -778,7 +778,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
 
 TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
-              new FaultInjectionTestFS(FileSystem::Default()));
+      new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());

@@ -369,8 +369,8 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 }
 
 IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
-                      uint64_t descriptor_number,
-                      FSDirectory* directory_to_fsync) {
+                        uint64_t descriptor_number,
+                        FSDirectory* directory_to_fsync) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
