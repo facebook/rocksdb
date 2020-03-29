@@ -204,6 +204,7 @@ Status BuildTable(
         *table_properties = tp;
       }
     }
+    delete builder;
 
     // Finish and check for file errors
     if (s.ok() && !empty) {
@@ -215,10 +216,9 @@ Status BuildTable(
     }
     if (io_status->ok() && !empty) {
       // Add the checksum information to file metadata.
-      meta->file_checksum = builder->GetFileChecksum();
-      meta->file_checksum_func_name = builder->GetFileChecksumFuncName();
+      meta->file_checksum = file_writer->GetFileChecksum();
+      meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
     }
-    delete builder;
 
     if (!io_status->ok()) {
       s = *io_status;

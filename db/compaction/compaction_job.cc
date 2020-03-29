@@ -1325,9 +1325,9 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   if (io_s.ok()) {
     // Add the checksum information to file metadata.
-    meta->file_checksum = sub_compact->builder->GetFileChecksum();
+    meta->file_checksum = sub_compact->outfile->GetFileChecksum();
     meta->file_checksum_func_name =
-        sub_compact->builder->GetFileChecksumFuncName();
+        sub_compact->outfile->GetFileChecksumFuncName();
   }
   if (!io_s.ok()) {
     io_status_ = io_s;
