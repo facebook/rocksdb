@@ -95,7 +95,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       persist_stats_to_disk(options.persist_stats_to_disk),
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
-      sst_file_checksum_func(options.sst_file_checksum_func),
+      file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery) {
 }
 
@@ -247,9 +247,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);
-  ROCKS_LOG_HEADER(log, "                Options.sst_file_checksum_func: %s",
-                   sst_file_checksum_func
-                       ? sst_file_checksum_func->Name()
+  ROCKS_LOG_HEADER(log, "                Options.file_checksum_gen_factory: %s",
+                   file_checksum_gen_factory
+                       ? file_checksum_gen_factory->Name()
                        : kUnknownFileChecksumFuncName.c_str());
   ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
                    static_cast<int>(best_efforts_recovery));

@@ -1126,12 +1126,14 @@ struct DBOptions {
   // Default: 0
   size_t log_readahead_size = 0;
 
-  // If user does NOT provide SST file checksum function, the SST file checksum
-  // will NOT be used. The single checksum instance are shared by options and
-  // file writers. Make sure the algorithm is thread safe.
+  // If user does NOT provide the checksum generator factory, the file checksum
+  // will NOT be used. A new file checksum generator object will be created
+  // when a SST file is created. Therefore, each created FileChecksumGenerator
+  // will only be used from a single thread and so does not need to be
+  // thread-safe.
   //
   // Default: nullptr
-  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
+  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
   // By default, RocksDB recovery fails if any table file referenced in
   // MANIFEST are missing after scanning the MANIFEST.

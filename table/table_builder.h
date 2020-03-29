@@ -164,7 +164,7 @@ class TableBuilder {
   virtual TableProperties GetTableProperties() const = 0;
 
   // Return file checksum
-  virtual const std::string& GetFileChecksum() const = 0;
+  virtual std::string GetFileChecksum() const = 0;
 
   // Return file checksum function name
   virtual const char* GetFileChecksumFuncName() const = 0;

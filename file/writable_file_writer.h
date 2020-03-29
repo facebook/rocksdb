@@ -72,9 +72,8 @@ class WritableFileWriter {
   RateLimiter* rate_limiter_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  FileChecksumFunc* checksum_func_;
-  std::string file_checksum_ = kUnknownFileChecksum;
-  bool is_first_checksum_ = true;
+  std::unique_ptr<FileChecksumGenerator> checksum_generator_;
+  bool checksum_finalized_;
 
  public:
   WritableFileWriter(
@@ -82,7 +81,7 @@ class WritableFileWriter {
       const FileOptions& options, Env* env = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      FileChecksumFunc* checksum_func = nullptr)
+      FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
       : writable_file_(std::move(file)),
         file_name_(_file_name),
         env_(env),
@@ -98,7 +97,8 @@ class WritableFileWriter {
         rate_limiter_(options.rate_limiter),
         stats_(stats),
         listeners_(),
-        checksum_func_(checksum_func) {
+        checksum_generator_(nullptr),
+        checksum_finalized_(false) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -113,6 +113,13 @@ class WritableFileWriter {
 #else  // !ROCKSDB_LITE
     (void)listeners;
 #endif
+    if (file_checksum_gen_factory != nullptr) {
+      FileChecksumGenContext checksum_gen_context;
+      checksum_gen_context.file_name = _file_name;
+      checksum_generator_ =
+          file_checksum_gen_factory->CreateFileChecksumGenerator(
+              checksum_gen_context);
+    }
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;
@@ -150,11 +157,12 @@ class WritableFileWriter {
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
-  void TEST_SetFileChecksumFunc(FileChecksumFunc* checksum_func) {
-    checksum_func_ = checksum_func;
+  void TEST_SetFileChecksumGenerator(
+      FileChecksumGenerator* checksum_generator) {
+    checksum_generator_.reset(checksum_generator);
   }
 
-  const std::string& GetFileChecksum() const { return file_checksum_; }
+  std::string GetFileChecksum();
 
   const char* GetFileChecksumFuncName() const;
 

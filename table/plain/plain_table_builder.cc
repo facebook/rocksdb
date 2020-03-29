@@ -285,10 +285,6 @@ Status PlainTableBuilder::Finish() {
   if (io_status_.ok()) {
     offset_ += footer_encoding.size();
   }
-
-  if (file_ != nullptr) {
-    file_checksum_ = file_->GetFileChecksum();
-  }
   status_ = io_status_;
   return status_;
 }
@@ -303,6 +299,14 @@ uint64_t PlainTableBuilder::NumEntries() const {
 
 uint64_t PlainTableBuilder::FileSize() const {
   return offset_;
+}
+
+std::string PlainTableBuilder::GetFileChecksum() const {
+  if (file_ != nullptr) {
+    return file_->GetFileChecksum();
+  } else {
+    return kUnknownFileChecksum;
+  }
 }
 
 const char* PlainTableBuilder::GetFileChecksumFuncName() const {

@@ -71,7 +71,7 @@ class CuckooTableBuilder: public TableBuilder {
   TableProperties GetTableProperties() const override { return properties_; }
 
   // Get file checksum
-  const std::string& GetFileChecksum() const override { return file_checksum_; }
+  std::string GetFileChecksum() const override;
 
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
@@ -130,9 +130,6 @@ class CuckooTableBuilder: public TableBuilder {
   std::string smallest_user_key_ = "";
 
   bool closed_;  // Either Finish() or Abandon() has been called.
-
-  // Store file checksum. If checksum is disabled, its value is "0"
-  std::string file_checksum_ = kUnknownFileChecksum;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

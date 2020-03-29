@@ -88,7 +88,7 @@ class PlainTableBuilder: public TableBuilder {
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
   // Get file checksum
-  const std::string& GetFileChecksum() const override { return file_checksum_; }
+  std::string GetFileChecksum() const override;
 
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
@@ -118,9 +118,6 @@ class PlainTableBuilder: public TableBuilder {
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
   const SliceTransform* prefix_extractor_;
-
-  // Store file checksum. If checksum is disabled, its value is "0".
-  std::string file_checksum_ = kUnknownFileChecksum;
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key

@@ -134,7 +134,7 @@ Status BuildTable(
 
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, env, ioptions.statistics,
-          ioptions.listeners, ioptions.sst_file_checksum_func));
+          ioptions.listeners, ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
@@ -203,9 +203,6 @@ Status BuildTable(
       if (table_properties) {
         *table_properties = tp;
       }
-      // Add the checksum information to file metadata.
-      meta->file_checksum = builder->GetFileChecksum();
-      meta->file_checksum_func_name = builder->GetFileChecksumFuncName();
     }
     delete builder;
 
@@ -217,6 +214,12 @@ Status BuildTable(
     if (io_status->ok() && !empty) {
       *io_status = file_writer->Close();
     }
+    if (io_status->ok() && !empty) {
+      // Add the checksum information to file metadata.
+      meta->file_checksum = file_writer->GetFileChecksum();
+      meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
+    }
+
     if (!io_status->ok()) {
       s = *io_status;
     }

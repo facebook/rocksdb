@@ -155,6 +155,11 @@ IOStatus WritableFileWriter::Close() {
   writable_file_.reset();
   TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
 
+  if (s.ok() && checksum_generator_ != nullptr && !checksum_finalized_) {
+    checksum_generator_->Finalize();
+    checksum_finalized_ = true;
+  }
+
   return s;
 }
 
@@ -216,9 +221,17 @@ IOStatus WritableFileWriter::Flush() {
   return s;
 }
 
+std::string WritableFileWriter::GetFileChecksum() {
+  if (checksum_generator_ != nullptr) {
+    return checksum_generator_->GetChecksum();
+  } else {
+    return kUnknownFileChecksum;
+  }
+}
+
 const char* WritableFileWriter::GetFileChecksumFuncName() const {
-  if (checksum_func_ != nullptr) {
-    return checksum_func_->Name();
+  if (checksum_generator_ != nullptr) {
+    return checksum_generator_->Name();
   } else {
     return kUnknownFileChecksumFuncName.c_str();
   }
@@ -332,14 +345,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 }
 
 void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
-  if (checksum_func_ != nullptr) {
-    if (is_first_checksum_) {
-      file_checksum_ = checksum_func_->Value(data.data(), data.size());
-      is_first_checksum_ = false;
-    } else {
-      file_checksum_ =
-          checksum_func_->Extend(file_checksum_, data.data(), data.size());
-    }
+  if (checksum_generator_ != nullptr) {
+    checksum_generator_->Update(data.data(), data.size());
   }
 }
 
