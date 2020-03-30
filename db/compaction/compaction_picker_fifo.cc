@@ -95,6 +95,9 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   for (const auto& f : inputs[0].files) {
+    assert(f);
+    assert(f->fd.table_reader);
+    assert(f->fd.table_reader->GetTableProperties());
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with creation time %" PRIu64 " for deletion",
