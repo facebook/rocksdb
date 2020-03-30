@@ -234,6 +234,7 @@ IOStatus PosixSequentialFile::Read(size_t n, const IOOptions& /*opts*/,
   IOStatus s;
   size_t r = 0;
   do {
+    clearerr(file_);
     r = fread_unlocked(scratch, 1, n, file_);
   } while (r == 0 && ferror(file_) && errno == EINTR);
   *result = Slice(scratch, r);
