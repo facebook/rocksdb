@@ -58,7 +58,7 @@ class Timer {
     map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
   }
 
-  void Cancel(std::string& fn_name) {
+  void Cancel(const std::string& fn_name) {
     MutexLock l(&mutex_);
 
     auto it = map_.find(fn_name);

@@ -45,9 +45,9 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex);
     while(count < kIterations) {
-      time_counter++;
+      time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv.Wait();
+      test_cv.TimedWait(time_counter);
     }
   }
 
@@ -99,7 +99,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   {
       ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
       while(count1 < kIterations) {
-        time_counter++;
+        time_counter += kSecond;
         mock_env_->set_current_time(time_counter);
         test_cv1.TimedWait(time_counter);
       }
@@ -109,7 +109,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
     while(count2 < kIterations) {
-      time_counter++;
+      time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
       test_cv2.TimedWait(time_counter);
     }
@@ -150,7 +150,7 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex);
     while(count < kIterations) {
-      time_counter++;
+      time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
       test_cv.TimedWait(time_counter);
     }
@@ -177,7 +177,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
         count1++;
         fprintf(stderr, "hello\n");
         if (count1 >= kIterations1) {
-        test_cv1.SignalAll();
+          test_cv1.SignalAll();
         }
       },
       "fn_sch_test1",
@@ -186,20 +186,20 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
 
   ROCKSDB_NAMESPACE::port::Mutex mutex2;
   ROCKSDB_NAMESPACE::port::CondVar test_cv2(&mutex2);
-  const int kIterations2 = 3;
+  const int kIterations2 = 5;
   int count2 = 0;
   timer.Add(
       [&] {
         ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
-        count2 += 5;
+        count2++;
         fprintf(stderr, "world\n");
         if (count2 >= kIterations2) {
-        test_cv2.SignalAll();
+          test_cv2.SignalAll();
         }
       },
       "fn_sch_test2",
       1 * kSecond,
-      5 * kSecond);
+      2 * kSecond);
 
   ASSERT_TRUE(timer.Start());
 
@@ -207,26 +207,30 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex1);
     while(count1 < kIterations1) {
-      time_counter++;
+      time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
       test_cv1.TimedWait(time_counter);
     }
   }
 
+  timer.Cancel("fn_sch_test1");
+
   // Wait for execution to finish
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex2);
     while(count2 < kIterations2) {
-      time_counter++;
+      time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
       test_cv2.TimedWait(time_counter);
     }
   }
 
+  timer.Cancel("fn_sch_test2");
+
   ASSERT_TRUE(timer.Shutdown());
 
-  ASSERT_EQ(5, count1);
-  ASSERT_EQ(10, count2);
+  ASSERT_EQ(count1, 5);
+  ASSERT_EQ(count2, 5);
 }
 
 int main(int argc, char** argv) {
