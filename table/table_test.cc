@@ -1190,6 +1190,8 @@ class FileChecksumTestHelper {
   void SetFileChecksumGenerator(FileChecksumGenerator* checksum_generator) {
     if (file_writer_ != nullptr) {
       file_writer_->TEST_SetFileChecksumGenerator(checksum_generator);
+    } else {
+      delete checksum_generator;
     }
   }
 
