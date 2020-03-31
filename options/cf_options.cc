@@ -57,9 +57,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           cf_options.purge_redundant_kvs_while_flush),
       use_fsync(db_options.use_fsync),
       compression_per_level(cf_options.compression_per_level),
-      bottommost_compression(cf_options.bottommost_compression),
-      bottommost_compression_opts(cf_options.bottommost_compression_opts),
-      compression_opts(cf_options.compression_opts),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
       access_hint_on_compaction_start(

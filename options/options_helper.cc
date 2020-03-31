@@ -259,6 +259,8 @@ std::unordered_map<std::string, CompressionType>
 const std::string kNameComparator = "comparator";
 const std::string kNameEnv = "env";
 const std::string kNameMergeOperator = "merge_operator";
+const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
+const std::string kOptNameCompOpts = "compression_opts";
 
 template <typename T>
 Status GetStringFromStruct(
@@ -786,6 +788,66 @@ bool SerializeSingleOptionHelper(const char* opt_address,
   return true;
 }
 
+Status ParseCompressionOptions(const std::string& value,
+                               const std::string& name,
+                               CompressionOptions& compression_opts) {
+  size_t start = 0;
+  size_t end = value.find(':');
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.window_bits = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  end = value.find(':', start);
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.level = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  if (start >= value.size()) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  end = value.find(':', start);
+  compression_opts.strategy =
+      ParseInt(value.substr(start, value.size() - start));
+  // max_dict_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_dict_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // zstd_max_train_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.zstd_max_train_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // enabled is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.enabled =
+        ParseBoolean("", value.substr(start, value.size() - start));
+  }
+  return Status::OK();
+}
+
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -793,30 +855,50 @@ Status GetMutableOptionsFromStrings(
   assert(new_options);
   *new_options = base_options;
   for (const auto& o : options_map) {
+    auto& option_name = o.first;
+    auto& option_value = o.second;
+
     try {
-      auto iter = cf_options_type_info.find(o.first);
-      if (iter == cf_options_type_info.end()) {
-        return Status::InvalidArgument("Unrecognized option: " + o.first);
-      }
-      const auto& opt_info = iter->second;
-      if (!opt_info.is_mutable) {
-        return Status::InvalidArgument("Option not changeable: " + o.first);
-      }
-      if (opt_info.verification == OptionVerificationType::kDeprecated) {
-        // log warning when user tries to set a deprecated option but don't fail
-        // the call for compatibility.
-        ROCKS_LOG_WARN(info_log, "%s is a deprecated option and cannot be set",
-                       o.first.c_str());
-        continue;
-      }
-      bool is_ok = ParseOptionHelper(
-          reinterpret_cast<char*>(new_options) + opt_info.mutable_offset,
-          opt_info.type, o.second);
-      if (!is_ok) {
-        return Status::InvalidArgument("Error parsing " + o.first);
+      if (option_name == kOptNameBMCompOpts) {
+        Status s =
+            ParseCompressionOptions(option_value, option_name,
+                                    new_options->bottommost_compression_opts);
+        if (!s.ok()) {
+          return s;
+        }
+      } else if (option_name == kOptNameCompOpts) {
+        Status s = ParseCompressionOptions(option_value, option_name,
+                                           new_options->compression_opts);
+        if (!s.ok()) {
+          return s;
+        }
+      } else {
+        auto iter = cf_options_type_info.find(option_name);
+        if (iter == cf_options_type_info.end()) {
+          return Status::InvalidArgument("Unrecognized option: " + option_name);
+        }
+        const auto& opt_info = iter->second;
+        if (!opt_info.is_mutable) {
+          return Status::InvalidArgument("Option not changeable: " +
+                                         option_name);
+        }
+        if (opt_info.verification == OptionVerificationType::kDeprecated) {
+          // log warning when user tries to set a deprecated option but don't
+          // fail the call for compatibility.
+          ROCKS_LOG_WARN(info_log,
+                         "%s is a deprecated option and cannot be set",
+                         option_name.c_str());
+          continue;
+        }
+        bool is_ok = ParseOptionHelper(
+            reinterpret_cast<char*>(new_options) + opt_info.mutable_offset,
+            opt_info.type, option_value);
+        if (!is_ok) {
+          return Status::InvalidArgument("Error parsing " + option_name);
+        }
       }
     } catch (std::exception& e) {
-      return Status::InvalidArgument("Error parsing " + o.first + ":" +
+      return Status::InvalidArgument("Error parsing " + option_name + ":" +
                                      std::string(e.what()));
     }
   }
@@ -926,65 +1008,6 @@ Status StringToMap(const std::string& opts_str,
     }
   }
 
-  return Status::OK();
-}
-
-Status ParseCompressionOptions(const std::string& value, const std::string& name,
-                              CompressionOptions& compression_opts) {
-  size_t start = 0;
-  size_t end = value.find(':');
-  if (end == std::string::npos) {
-    return Status::InvalidArgument("unable to parse the specified CF option " +
-                                   name);
-  }
-  compression_opts.window_bits = ParseInt(value.substr(start, end - start));
-  start = end + 1;
-  end = value.find(':', start);
-  if (end == std::string::npos) {
-    return Status::InvalidArgument("unable to parse the specified CF option " +
-                                   name);
-  }
-  compression_opts.level = ParseInt(value.substr(start, end - start));
-  start = end + 1;
-  if (start >= value.size()) {
-    return Status::InvalidArgument("unable to parse the specified CF option " +
-                                   name);
-  }
-  end = value.find(':', start);
-  compression_opts.strategy =
-      ParseInt(value.substr(start, value.size() - start));
-  // max_dict_bytes is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
-      return Status::InvalidArgument(
-          "unable to parse the specified CF option " + name);
-    }
-    compression_opts.max_dict_bytes =
-        ParseInt(value.substr(start, value.size() - start));
-    end = value.find(':', start);
-  }
-  // zstd_max_train_bytes is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
-      return Status::InvalidArgument(
-          "unable to parse the specified CF option " + name);
-    }
-    compression_opts.zstd_max_train_bytes =
-        ParseInt(value.substr(start, value.size() - start));
-    end = value.find(':', start);
-  }
-  // enabled is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
-      return Status::InvalidArgument(
-          "unable to parse the specified CF option " + name);
-    }
-    compression_opts.enabled =
-        ParseBoolean("", value.substr(start, value.size() - start));
-  }
   return Status::OK();
 }
 
@@ -1986,8 +2009,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           false, 0}},
         {"bottommost_compression",
          {offset_of(&ColumnFamilyOptions::bottommost_compression),
-          OptionType::kCompressionType, OptionVerificationType::kNormal, false,
-          0}},
+          OptionType::kCompressionType, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, bottommost_compression)}},
         {kNameComparator,
          {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
           OptionVerificationType::kByName, false, 0}},

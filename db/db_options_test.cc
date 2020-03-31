@@ -861,6 +861,62 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
 
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBOptionsTest, ChangeCompression) {
+  if (!Snappy_Supported() || !LZ4_Supported()) {
+    return;
+  }
+  Options options;
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.create_if_missing = true;
+  options.compression = CompressionType::kLZ4Compression;
+  options.bottommost_compression = CompressionType::kNoCompression;
+  options.bottommost_compression_opts.level = 2;
+
+  ASSERT_OK(TryReopen(options));
+
+  CompressionType compression_used = CompressionType::kLZ4Compression;
+  CompressionOptions compression_opt_used;
+  bool compacted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* c = reinterpret_cast<Compaction*>(arg);
+        compression_used = c->output_compression();
+        compression_opt_used = c->output_compression_opts();
+        compacted = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kNoCompression, compression_used);
+  ASSERT_EQ(options.compression_opts.level, compression_opt_used.level);
+
+  compression_used = CompressionType::kLZ4Compression;
+  compacted = false;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"bottommost_compression", "kSnappyCompression"},
+       {"bottommost_compression_opts", "0:6:0:0:0:true"}}));
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kSnappyCompression, compression_used);
+  ASSERT_EQ(6, compression_opt_used.level);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

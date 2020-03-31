@@ -107,8 +107,9 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
-      kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      kNoCompression, mutable_cf_options.compression_opts,
+      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
   return c;
 }
@@ -148,7 +149,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
             0 /* output path ID */, mutable_cf_options.compression,
-            ioptions_.compression_opts, 0 /* max_subcompactions */, {},
+            mutable_cf_options.compression_opts, 0 /* max_subcompactions */, {},
             /* is manual */ false, vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
@@ -196,8 +197,9 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
-      kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      kNoCompression, mutable_cf_options.compression_opts,
+      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
