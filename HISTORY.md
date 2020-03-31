@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Behavior changes
+* Since RocksDB 6.8, ttl-based FIFO compaction can drop a file whose oldest key becomes older than options.ttl while others have not. This fix reverts this and makes ttl-based FIFO compaction use the file's flush time as the criterion. This fix also requires that max_open_files = -1 and compaction_options_fifo.allow_compaction = false to function properly.
+
 ## 6.9.0 (03/29/2020)
 ### Public API Change
 * Fix spelling so that API now has correctly spelled transaction state name `COMMITTED`, while the old misspelled `COMMITED` is still available as an alias.
