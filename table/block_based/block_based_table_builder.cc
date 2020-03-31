@@ -18,7 +18,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "cache/simple_deleter.h"
 #include "db/dbformat.h"
 #include "index_builder.h"
 
@@ -796,6 +795,11 @@ Status BlockBasedTableBuilder::status() const { return rep_->status; }
 
 IOStatus BlockBasedTableBuilder::io_status() const { return rep_->io_status; }
 
+static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
+  BlockContents* bc = reinterpret_cast<BlockContents*>(value);
+  delete bc;
+}
+
 //
 // Make a copy of the block contents and insert into compressed block cache
 //
@@ -830,7 +834,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     block_cache_compressed->Insert(
         key, block_contents_to_cache,
         block_contents_to_cache->ApproximateMemoryUsage(),
-        SimpleDeleter<BlockContents>::GetInstance());
+        &DeleteCachedBlockContents);
 
     // Invalidate OS cache.
     r->file->InvalidateCache(static_cast<size_t>(r->offset), size);

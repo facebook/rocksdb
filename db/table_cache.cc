@@ -9,7 +9,6 @@
 
 #include "db/table_cache.h"
 
-#include "cache/simple_deleter.h"
 #include "db/dbformat.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/snapshot_impl.h"
@@ -33,6 +32,12 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+template <class T>
+static void DeleteEntry(const Slice& /*key*/, void* value) {
+  T* typed_value = reinterpret_cast<T*>(value);
+  delete typed_value;
+}
 
 static void UnrefEntry(void* arg1, void* arg2) {
   Cache* cache = reinterpret_cast<Cache*>(arg1);
@@ -161,8 +166,8 @@ Status TableCache::FindTable(const FileOptions& file_options,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
-      s = cache_->Insert(key, table_reader.get(), 1,
-                         SimpleDeleter<TableReader>::GetInstance(), handle);
+      s = cache_->Insert(key, table_reader.get(), 1, &DeleteEntry<TableReader>,
+                         handle);
       if (s.ok()) {
         // Release ownership of table reader.
         table_reader.release();
@@ -420,7 +425,7 @@ Status TableCache::Get(const ReadOptions& options,
         row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
     void* row_ptr = new std::string(std::move(*row_cache_entry));
     ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                                SimpleDeleter<std::string>::GetInstance());
+                                &DeleteEntry<std::string>);
   }
 #endif  // ROCKSDB_LITE
 
@@ -540,7 +545,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
             row_cache_key.Size() + row_cache_entry.size() + sizeof(std::string);
         void* row_ptr = new std::string(std::move(row_cache_entry));
         ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                                    SimpleDeleter<std::string>::GetInstance());
+                                    &DeleteEntry<std::string>);
       }
     }
   }
