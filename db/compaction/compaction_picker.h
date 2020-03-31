@@ -305,9 +305,9 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
                                    int level, int base_level,
                                    const bool enable_compression = true);
 
-CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
-                                         const VersionStorageInfo* vstorage,
-                                         int level,
-                                         const bool enable_compression = true);
+CompressionOptions GetCompressionOptions(
+    const MutableCFOptions& mutable_cf_options,
+    const VersionStorageInfo* vstorage, int level,
+    const bool enable_compression = true);
 
 }  // namespace ROCKSDB_NAMESPACE

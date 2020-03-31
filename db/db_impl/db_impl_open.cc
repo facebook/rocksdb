@@ -1248,7 +1248,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.sample_for_compression,
-          cfd->ioptions()->compression_opts, paranoid_file_checks,
+          mutable_cf_options.compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
           &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, write_hint);
