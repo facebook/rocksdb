@@ -259,6 +259,8 @@ std::unordered_map<std::string, CompressionType>
 const std::string kNameComparator = "comparator";
 const std::string kNameEnv = "env";
 const std::string kNameMergeOperator = "merge_operator";
+const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
+const std::string kOptNameCompOpts = "compression_opts";
 
 template <typename T>
 Status GetStringFromStruct(
@@ -857,14 +859,14 @@ Status GetMutableOptionsFromStrings(
     auto& option_value = o.second;
 
     try {
-      if (option_name == "bottommost_compression_opts") {
+      if (option_name == kOptNameBMCompOpts) {
         Status s =
             ParseCompressionOptions(option_value, option_name,
                                     new_options->bottommost_compression_opts);
         if (!s.ok()) {
           return s;
         }
-      } else if (option_name == "compression_opts") {
+      } else if (option_name == kOptNameCompOpts) {
         Status s = ParseCompressionOptions(option_value, option_name,
                                            new_options->compression_opts);
         if (!s.ok()) {
