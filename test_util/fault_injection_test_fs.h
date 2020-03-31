@@ -137,7 +137,7 @@ class TestFSDirectory : public FSDirectory {
 
 class FaultInjectionTestFS : public FileSystemWrapper {
  public:
-  explicit FaultInjectionTestFS(FileSystem* base)
+  explicit FaultInjectionTestFS(std::shared_ptr<FileSystem> base)
       : FileSystemWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestFS() {}
 

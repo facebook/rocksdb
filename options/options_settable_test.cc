@@ -181,8 +181,6 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
 TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   const OffsetGap kDBOptionsBlacklist = {
       {offsetof(struct DBOptions, env), sizeof(Env*)},
-      {offsetof(struct DBOptions, file_system),
-       sizeof(std::shared_ptr<FileSystem>)},
       {offsetof(struct DBOptions, rate_limiter),
        sizeof(std::shared_ptr<RateLimiter>)},
       {offsetof(struct DBOptions, sst_file_manager),
@@ -199,8 +197,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
-      {offsetof(struct DBOptions, sst_file_checksum_func),
-       sizeof(std::shared_ptr<FileChecksumFunc>)},
+      {offsetof(struct DBOptions, file_checksum_gen_factory),
+       sizeof(std::shared_ptr<FileChecksumGenFactory>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -303,7 +301,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "atomic_flush=false;"
                              "avoid_unnecessary_blocking_io=false;"
                              "log_readahead_size=0;"
-                             "write_dbid_to_manifest=false",
+                             "write_dbid_to_manifest=false;"
+                             "best_efforts_recovery=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

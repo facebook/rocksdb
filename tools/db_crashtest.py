@@ -1,5 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 import os
 import sys
 import time
@@ -132,7 +134,7 @@ def is_direct_io_supported(dbname):
     with tempfile.NamedTemporaryFile(dir=dbname) as f:
         try:
             os.open(f.name, os.O_DIRECT)
-        except:
+        except BaseException:
             return False
         return True
 
@@ -297,8 +299,8 @@ def blackbox_crash_main(args, unknown_args):
         killtime = time.time() + cmd_params['interval']
 
         cmd = gen_cmd(dict(
-            cmd_params.items() +
-            {'db': dbname}.items()), unknown_args)
+            list(cmd_params.items())
+            + list({'db': dbname}.items())), unknown_args)
 
         child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
@@ -323,7 +325,7 @@ def blackbox_crash_main(args, unknown_args):
                 time.sleep(1)  # time to stabilize after a kill
 
         while True:
-            line = child.stderr.readline().strip()
+            line = child.stderr.readline().strip().decode('utf-8')
             if line == '':
                 break
             elif not line.startswith('WARNING'):
@@ -348,7 +350,7 @@ def whitebox_crash_main(args, unknown_args):
 
     cur_time = time.time()
     exit_time = cur_time + cmd_params['duration']
-    half_time = cur_time + cmd_params['duration'] / 2
+    half_time = cur_time + cmd_params['duration'] // 2
 
     print("Running whitebox-crash-test with \n"
           + "total-duration=" + str(cmd_params['duration']) + "\n")
@@ -374,9 +376,9 @@ def whitebox_crash_main(args, unknown_args):
                 })
             elif kill_mode == 1:
                 if cmd_params.get('disable_wal', 0) == 1:
-                    my_kill_odd = kill_random_test / 50 + 1
+                    my_kill_odd = kill_random_test // 50 + 1
                 else:
-                    my_kill_odd = kill_random_test / 10 + 1
+                    my_kill_odd = kill_random_test // 10 + 1
                 additional_opts.update({
                     "kill_random_test": my_kill_odd,
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
@@ -386,7 +388,7 @@ def whitebox_crash_main(args, unknown_args):
                 # TODO: May need to adjust random odds if kill_random_test
                 # is too small.
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 5000 + 1),
+                    "kill_random_test": (kill_random_test // 5000 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     "WritableFileWriter::WriteBuffered,"
                     "PosixMmapFile::Allocate,WritableFileWriter::Flush",
@@ -406,7 +408,7 @@ def whitebox_crash_main(args, unknown_args):
             # style is quite a bit slower on reads with lot of files
             additional_opts = {
                 "kill_random_test": None,
-                "ops_per_thread": cmd_params['ops_per_thread'] / 5,
+                "ops_per_thread": cmd_params['ops_per_thread'] // 5,
                 "compaction_style": 2,
             }
         else:
@@ -416,19 +418,24 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }
 
-        cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
-                           + {'db': dbname}.items()), unknown_args)
+        cmd = gen_cmd(dict(list(cmd_params.items())
+            + list(additional_opts.items())
+            + list({'db': dbname}.items())), unknown_args)
 
-        print "Running:" + ' '.join(cmd) + "\n"  # noqa: E999 T25377293 Grandfathered in
+        print("Running:" + ' '.join(cmd) + "\n")  # noqa: E999 T25377293 Grandfathered in
 
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
         stdoutdata, stderrdata = popen.communicate()
+        if stdoutdata:
+            stdoutdata = stdoutdata.decode('utf-8')
+        if stderrdata:
+            stderrdata = stderrdata.decode('utf-8')
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
                check_mode, additional_opts['kill_random_test'], retncode))
-        print msg
-        print stdoutdata
+        print(msg)
+        print(stdoutdata)
 
         expected = False
         if additional_opts['kill_random_test'] is None and (retncode == 0):
@@ -440,19 +447,19 @@ def whitebox_crash_main(args, unknown_args):
             expected = True
 
         if not expected:
-            print "TEST FAILED. See kill option and exit code above!!!\n"
+            print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
         stdoutdata = stdoutdata.lower()
         errorcount = (stdoutdata.count('error') -
                       stdoutdata.count('got errors 0 times'))
-        print "#times error occurred in output is " + str(errorcount) + "\n"
+        print("#times error occurred in output is " + str(errorcount) + "\n")
 
         if (errorcount > 0):
-            print "TEST FAILED. Output has 'error'!!!\n"
+            print("TEST FAILED. Output has 'error'!!!\n")
             sys.exit(2)
         if (stdoutdata.find('fail') >= 0):
-            print "TEST FAILED. Output has 'fail'!!!\n"
+            print("TEST FAILED. Output has 'fail'!!!\n")
             sys.exit(2)
 
         # First half of the duration, keep doing kill test. For the next half,
@@ -476,12 +483,12 @@ def main():
     parser.add_argument("--cf_consistency", action='store_true')
     parser.add_argument("--txn", action='store_true')
 
-    all_params = dict(default_params.items()
-                      + blackbox_default_params.items()
-                      + whitebox_default_params.items()
-                      + simple_default_params.items()
-                      + blackbox_simple_default_params.items()
-                      + whitebox_simple_default_params.items())
+    all_params = dict(list(default_params.items())
+                      + list(blackbox_default_params.items())
+                      + list(whitebox_default_params.items())
+                      + list(simple_default_params.items())
+                      + list(blackbox_simple_default_params.items())
+                      + list(whitebox_simple_default_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))

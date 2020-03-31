@@ -51,6 +51,13 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 
+enum class CpuPriority {
+  kIdle = 0,
+  kLow = 1,
+  kNormal = 2,
+  kHigh = 3,
+};
+
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which
@@ -395,11 +402,6 @@ struct DBOptions {
   // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
   Env* env = Env::Default();
-
-  // Use the specified object to interact with the storage to
-  // read/write files. This is in addition to env. This option should be used
-  // if the desired storage subsystem provides a FileSystem implementation.
-  std::shared_ptr<FileSystem> file_system = nullptr;
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
@@ -1124,12 +1126,24 @@ struct DBOptions {
   // Default: 0
   size_t log_readahead_size = 0;
 
-  // If user does NOT provide SST file checksum function, the SST file checksum
-  // will NOT be used. The single checksum instance are shared by options and
-  // file writers. Make sure the algorithm is thread safe.
+  // If user does NOT provide the checksum generator factory, the file checksum
+  // will NOT be used. A new file checksum generator object will be created
+  // when a SST file is created. Therefore, each created FileChecksumGenerator
+  // will only be used from a single thread and so does not need to be
+  // thread-safe.
   //
   // Default: nullptr
-  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
+  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
+
+  // By default, RocksDB recovery fails if any table file referenced in
+  // MANIFEST are missing after scanning the MANIFEST.
+  // Best-efforts recovery is another recovery mode that
+  // tries to restore the database to the most recent point in time without
+  // missing file.
+  // Currently not compatible with atomic flush. Furthermore, WAL files will
+  // not be used for recovery if best_efforts_recovery is true.
+  // Default: false
+  bool best_efforts_recovery = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

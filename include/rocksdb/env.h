@@ -57,6 +57,7 @@ struct MutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
+class FileSystem;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -140,7 +141,9 @@ class Env {
     uint64_t size_bytes;
   };
 
-  Env() : thread_status_updater_(nullptr) {}
+  Env();
+  // Construct an Env with a separate FileSystem implementation
+  Env(std::shared_ptr<FileSystem> fs);
   // No copying allowed
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
@@ -539,12 +542,19 @@ class Env {
 
   virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
 
+  // Get the FileSystem implementation this Env was constructed with. It
+  // could be a fully implemented one, or a wrapper class around the Env
+  const std::shared_ptr<FileSystem>& GetFileSystem() const;
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
   ThreadStatusUpdater* thread_status_updater_;
+
+  // Pointer to the underlying FileSystem implementation
+  std::shared_ptr<FileSystem> file_system_;
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
@@ -1602,5 +1612,7 @@ Env* NewTimedEnv(Env* base_env);
 // This is a factory method for EnvLogger declared in logging/env_logging.h
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result);
+
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs);
 
 }  // namespace ROCKSDB_NAMESPACE

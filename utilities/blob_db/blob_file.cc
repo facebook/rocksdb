@@ -139,11 +139,11 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 
   Slice result;
   std::string buf;
-  std::unique_ptr<const char[]> internal_buf;
+  AlignedBuf aligned_buf;
   Status s;
   if (ra_file_reader_->use_direct_io()) {
     s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
-                              nullptr, &internal_buf);
+                              nullptr, &aligned_buf);
   } else {
     buf.reserve(BlobLogFooter::kSize + 10);
     s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
@@ -263,11 +263,11 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
 
   // Read file header.
   std::string header_buf;
-  std::unique_ptr<const char[]> internal_buf;
+  AlignedBuf aligned_buf;
   Slice header_slice;
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, nullptr,
-                          &internal_buf);
+                          &aligned_buf);
   } else {
     header_buf.reserve(BlobLogHeader::kSize);
     s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice,
@@ -306,12 +306,14 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   std::string footer_buf;
   Slice footer_slice;
   if (file_reader->use_direct_io()) {
-    s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
-                          &footer_slice, nullptr, &internal_buf);
+    s = file_reader->Read(file_size - BlobLogFooter::kSize,
+                          BlobLogFooter::kSize, &footer_slice, nullptr,
+                          &aligned_buf);
   } else {
     footer_buf.reserve(BlobLogFooter::kSize);
-    s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
-                          &footer_slice, &footer_buf[0], nullptr);
+    s = file_reader->Read(file_size - BlobLogFooter::kSize,
+                          BlobLogFooter::kSize, &footer_slice, &footer_buf[0],
+                          nullptr);
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,

@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "cache/simple_deleter.h"
+
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
@@ -177,13 +179,6 @@ Status ReadBlockFromFile(
   }
 
   return s;
-}
-
-// Delete the entry resided in the cache.
-template <class Entry>
-void DeleteCachedEntry(const Slice& /*key*/, void* value) {
-  auto entry = reinterpret_cast<Entry*>(value);
-  delete entry;
 }
 
 // Release the cached entry and decrement its ref count.
@@ -1171,7 +1166,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
       s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                              &DeleteCachedEntry<TBlocklike>, &cache_handle);
+                              SimpleDeleter<TBlocklike>::GetInstance(),
+                              &cache_handle);
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1260,7 +1256,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     s = block_cache_compressed->Insert(
         compressed_block_cache_key, block_cont_for_comp_cache,
         block_cont_for_comp_cache->ApproximateMemoryUsage(),
-        &DeleteCachedEntry<BlockContents>);
+        SimpleDeleter<BlockContents>::GetInstance());
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
@@ -1275,8 +1271,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
     s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                            &DeleteCachedEntry<TBlocklike>, &cache_handle,
-                            priority);
+                            SimpleDeleter<TBlocklike>::GetInstance(),
+                            &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_block->SetCachedValue(block_holder.release(), block_cache,
@@ -1607,7 +1603,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           req.scratch = scratch + buf_offset;
           buf_offset += req.len;
         }
-        req.status = IOStatus::OK();
         read_reqs.emplace_back(req);
       }
 
@@ -1628,11 +1623,10 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     } else {
       req.scratch = scratch + buf_offset;
     }
-    req.status = IOStatus::OK();
     read_reqs.emplace_back(req);
   }
 
-  file->MultiRead(&read_reqs[0], read_reqs.size());
+  file->MultiRead(&read_reqs[0], read_reqs.size(), nullptr);
 
   idx_in_batch = 0;
   size_t valid_batch_idx = 0;
@@ -1699,7 +1693,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // in each read request. Checksum is stored in the block trailer,
         // which is handle.size() + 1.
         s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
-                                              req.result.data() + req_offset,
+                                              data + req_offset,
                                               handle.size() + 1, expected);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
@@ -1907,7 +1901,9 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // 2) Compare(prefix(key), key) <= 0.
 // 3) If Compare(key1, key2) <= 0, then Compare(prefix(key1), prefix(key2)) <= 0
 //
-// Otherwise, this method guarantees no I/O will be incurred.
+// If read_options.read_tier == kBlockCacheTier, this method will do no I/O and
+// will return true if the filter block is not in memory and not found in block
+// cache.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(
@@ -1941,12 +1937,14 @@ bool BlockBasedTable::PrefixMayMatch(
   FilterBlockReader* const filter = rep_->filter.get();
   bool filter_checked = true;
   if (filter != nullptr) {
+    const bool no_io = read_options.read_tier == kBlockCacheTier;
+
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
           read_options.iterate_upper_bound, user_key, prefix_extractor,
           rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-          &filter_checked, need_upper_bound_check, lookup_context);
+          &filter_checked, need_upper_bound_check, no_io, lookup_context);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
       if (need_upper_bound_check) {
@@ -1999,7 +1997,7 @@ bool BlockBasedTable::PrefixMayMatch(
         // is the only on could potentially contain the prefix.
         BlockHandle handle = iiter->value().handle;
         may_match = filter->PrefixMayMatch(
-            prefix, prefix_extractor, handle.offset(), /*no_io=*/false,
+            prefix, prefix_extractor, handle.offset(), no_io,
             /*const_key_ptr=*/nullptr, /*get_context=*/nullptr, lookup_context);
       }
     }

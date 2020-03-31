@@ -37,17 +37,15 @@ class DBLogicalBlockSizeCacheTest : public testing::Test {
         data_path_1_(dbname_ + "/data_path_1"),
         cf_path_0_(dbname_ + "/cf_path_0"),
         cf_path_1_(dbname_ + "/cf_path_1") {
-    auto get_fd_block_size = [&](int fd) {
-      return fd;
-    };
+    auto get_fd_block_size = [&](int fd) { return fd; };
     auto get_dir_block_size = [&](const std::string& /*dir*/, size_t* size) {
       *size = 1024;
       return Status::OK();
     };
-    cache_.reset(new LogicalBlockSizeCache(
-        get_fd_block_size, get_dir_block_size));
-    env_.reset(new EnvWithCustomLogicalBlockSizeCache(
-        Env::Default(), cache_.get()));
+    cache_.reset(
+        new LogicalBlockSizeCache(get_fd_block_size, get_dir_block_size));
+    env_.reset(
+        new EnvWithCustomLogicalBlockSizeCache(Env::Default(), cache_.get()));
   }
 
  protected:
@@ -507,7 +505,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif // OS_LINUX
+#endif  // OS_LINUX
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

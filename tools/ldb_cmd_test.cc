@@ -81,8 +81,6 @@ TEST_F(LdbCmdTest, MemEnv) {
   opts.env = env.get();
   opts.create_if_missing = true;
 
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-
   DB* db = nullptr;
   std::string dbname = test::TmpDir();
   ASSERT_OK(DB::Open(opts, dbname, &db));
@@ -128,33 +126,31 @@ class FileChecksumTestHelper {
       return s;
     }
     std::unique_ptr<char[]> scratch(new char[2048]);
-    bool first_read = true;
     Slice result;
-    FileChecksumFunc* file_checksum_func =
-        options_.sst_file_checksum_func.get();
-    if (file_checksum_func == nullptr) {
+    FileChecksumGenFactory* file_checksum_gen_factory =
+        options_.file_checksum_gen_factory.get();
+    if (file_checksum_gen_factory == nullptr) {
       cur_checksum = kUnknownFileChecksum;
       checksum_func_name = kUnknownFileChecksumFuncName;
     } else {
-      checksum_func_name = file_checksum_func->Name();
+      FileChecksumGenContext gen_context;
+      gen_context.file_name = file_meta.name;
+      std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
+          file_checksum_gen_factory->CreateFileChecksumGenerator(gen_context);
+      checksum_func_name = file_checksum_gen->Name();
       s = file_reader->Read(2048, &result, scratch.get());
       if (!s.ok()) {
         return s;
       }
       while (result.size() != 0) {
-        if (first_read) {
-          first_read = false;
-          cur_checksum =
-              file_checksum_func->Value(scratch.get(), result.size());
-        } else {
-          cur_checksum = file_checksum_func->Extend(cur_checksum, scratch.get(),
-                                                    result.size());
-        }
+        file_checksum_gen->Update(scratch.get(), result.size());
         s = file_reader->Read(2048, &result, scratch.get());
         if (!s.ok()) {
           return s;
         }
       }
+      file_checksum_gen->Finalize();
+      cur_checksum = file_checksum_gen->GetChecksum();
     }
 
     std::string stored_checksum = file_meta.file_checksum;
@@ -199,7 +195,7 @@ class FileChecksumTestHelper {
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,
-                                    options_.file_system.get());
+                                    immutable_db_options.fs.get());
     if (s.ok()) {
       std::vector<ColumnFamilyDescriptor> cf_list;
       for (const auto& name : cf_name_list) {
@@ -264,7 +260,6 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();
@@ -349,9 +344,9 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  opts.sst_file_checksum_func =
-      std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
-  opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
+  FileChecksumGenCrc32cFactory* file_checksum_gen_factory =
+      new FileChecksumGenCrc32cFactory();
+  opts.file_checksum_gen_factory.reset(file_checksum_gen_factory);
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();

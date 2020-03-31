@@ -14,6 +14,7 @@
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
 #include "file/file_util.h"
+#include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
 #include "util/autovector.h"
 
@@ -662,6 +663,57 @@ uint64_t PrecomputeMinLogNumberToKeep(
     min_log_number_to_keep = min_log_refed_by_mem;
   }
   return min_log_number_to_keep;
+}
+
+Status DBImpl::CleanupFilesAfterRecovery() {
+  mutex_.AssertHeld();
+  std::vector<std::string> paths;
+  paths.push_back(dbname_);
+  for (const auto& db_path : immutable_db_options_.db_paths) {
+    paths.push_back(db_path.path);
+  }
+  for (const auto* cfd : *versions_->GetColumnFamilySet()) {
+    for (const auto& cf_path : cfd->ioptions()->cf_paths) {
+      paths.push_back(cf_path.path);
+    }
+  }
+  // Dedup paths
+  std::sort(paths.begin(), paths.end());
+  paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+
+  uint64_t next_file_number = versions_->current_next_file_number();
+  uint64_t largest_file_number = next_file_number;
+  std::set<std::string> files_to_delete;
+  for (const auto& path : paths) {
+    std::vector<std::string> files;
+    env_->GetChildren(path, &files);
+    for (const auto& fname : files) {
+      uint64_t number = 0;
+      FileType type;
+      if (!ParseFileName(fname, &number, &type)) {
+        continue;
+      }
+      const std::string normalized_fpath = NormalizePath(path + fname);
+      largest_file_number = std::max(largest_file_number, number);
+      if (type == kTableFile && number >= next_file_number &&
+          files_to_delete.find(normalized_fpath) == files_to_delete.end()) {
+        files_to_delete.insert(normalized_fpath);
+      }
+    }
+  }
+  if (largest_file_number > next_file_number) {
+    versions_->next_file_number_.store(largest_file_number + 1);
+  }
+  mutex_.Unlock();
+  Status s;
+  for (const auto& fname : files_to_delete) {
+    s = env_->DeleteFile(fname);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  mutex_.Lock();
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

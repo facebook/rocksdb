@@ -48,7 +48,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class FileChecksumFuncCrc32c;
+class FileChecksumGenCrc32c;
+class FileChecksumGenCrc32cFactory;
 
 const std::string LDBCommand::ARG_ENV_URI = "env_uri";
 const std::string LDBCommand::ARG_DB = "db";
@@ -294,8 +295,6 @@ void LDBCommand::Run() {
     }
     options_.env = env;
   }
-
-  options_.file_system.reset(new LegacyFileSystemWrapper(options_.env));
 
   if (db_ == nullptr && !NoDBOpen()) {
     OpenDB();
@@ -1170,7 +1169,7 @@ void GetLiveFilesChecksumInfoFromVersionSet(Options options,
                       /*block_cache_tracer=*/nullptr);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
-                                  options.file_system.get());
+                                  immutable_db_options.fs.get());
   if (s.ok()) {
     std::vector<ColumnFamilyDescriptor> cf_list;
     for (const auto& name : cf_name_list) {
@@ -1913,8 +1912,6 @@ void ReduceDBLevelsCommand::DoCommand() {
   Status st;
   Options opt = PrepareOptionsForOpenDB();
   int old_level_num = -1;
-  opt.file_system.reset(new LegacyFileSystemWrapper(opt.env));
-  ;
   st = GetOldNumOfLevels(opt, &old_level_num);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());

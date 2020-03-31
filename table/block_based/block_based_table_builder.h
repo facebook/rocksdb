@@ -68,6 +68,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Return non-ok iff some error has been detected.
   Status status() const override;
 
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override;
+
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
   // REQUIRES: Finish(), Abandon() have not been called
@@ -93,7 +96,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   TableProperties GetTableProperties() const override;
 
   // Get file checksum
-  const std::string& GetFileChecksum() const override { return file_checksum_; }
+  std::string GetFileChecksum() const override;
 
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
@@ -143,9 +146,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
-
-  // Store file checksum. If checksum is disabled, its value is "0".
-  std::string file_checksum_ = kUnknownFileChecksum;
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,

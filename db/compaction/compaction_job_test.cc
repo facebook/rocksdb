@@ -281,7 +281,7 @@ class CompactionJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;

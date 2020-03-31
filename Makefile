@@ -8,6 +8,7 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
+PYTHON?=$(shell which python)
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
@@ -513,6 +514,7 @@ TESTS = \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
+	random_access_file_reader_test \
 	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
@@ -947,9 +949,9 @@ check: all
 	fi
 	rm -rf $(TMPD)
 ifneq ($(PLATFORM), OS_AIX)
-	python tools/check_all_python.py
+	$(PYTHON) tools/check_all_python.py
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
-	python tools/ldb_test.py
+	$(PYTHON) tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
@@ -960,7 +962,7 @@ check_some: $(SUBSET)
 
 .PHONY: ldb_tests
 ldb_tests: ldb
-	python tools/ldb_test.py
+	$(PYTHON) tools/ldb_test.py
 
 crash_test: whitebox_crash_test blackbox_crash_test
 
@@ -969,31 +971,31 @@ crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_cra
 crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
-	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
+	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
+	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test_with_atomic_flush: db_stress
-	python -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
+	$(PYTHON) -u tools/db_crashtest.py --cf_consistency blackbox $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test_with_txn: db_stress
-	python -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
+	$(PYTHON) -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
 endif
 
 whitebox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
+	$(PYTHON) -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
-	python -u tools/db_crashtest.py whitebox  --random_kill_odd \
+	$(PYTHON) -u tools/db_crashtest.py whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 whitebox_crash_test_with_atomic_flush: db_stress
-	python -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
+	$(PYTHON) -u tools/db_crashtest.py --cf_consistency whitebox  --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 whitebox_crash_test_with_txn: db_stress
-	python -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
+	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
@@ -1503,6 +1505,9 @@ delete_scheduler_test: file/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+random_access_file_reader_test: file/random_access_file_reader_test.o $(LIBOBJECTS) $(TESTHARNESS) $(TESTUTIL)
 	$(AM_LINK)
 
 file_reader_writer_test: util/file_reader_writer_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -2089,7 +2094,7 @@ jtest_run:
 
 jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
-	python tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
+	$(PYTHON) tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;

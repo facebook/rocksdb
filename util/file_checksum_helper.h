@@ -16,24 +16,19 @@ namespace ROCKSDB_NAMESPACE {
 
 // This is the class to generate the file checksum based on Crc32. It
 // will be used as the default checksum method for SST file checksum
-class FileChecksumFuncCrc32c : public FileChecksumFunc {
+class FileChecksumGenCrc32c : public FileChecksumGenerator {
  public:
-  std::string Extend(const std::string& init_checksum, const char* data,
-                     size_t n) override {
-    assert(data != nullptr);
-    uint32_t checksum_value = StringToUint32(init_checksum);
-    return Uint32ToString(crc32c::Extend(checksum_value, data, n));
+  FileChecksumGenCrc32c(const FileChecksumGenContext& /*context*/) {
+    checksum_ = 0;
   }
 
-  std::string Value(const char* data, size_t n) override {
-    assert(data != nullptr);
-    return Uint32ToString(crc32c::Value(data, n));
+  void Update(const char* data, size_t n) override {
+    checksum_ = crc32c::Extend(checksum_, data, n);
   }
 
-  std::string ProcessChecksum(const std::string& checksum) override {
-    uint32_t checksum_value = StringToUint32(checksum);
-    return Uint32ToString(crc32c::Mask(checksum_value));
-  }
+  void Finalize() override { checksum_str_ = Uint32ToString(checksum_); }
+
+  std::string GetChecksum() const override { return checksum_str_; }
 
   const char* Name() const override { return "FileChecksumCrc32c"; }
 
@@ -84,6 +79,21 @@ class FileChecksumFuncCrc32c : public FileChecksumFunc {
     }
     return v;
   }
+
+ private:
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    return std::unique_ptr<FileChecksumGenerator>(
+        new FileChecksumGenCrc32c(context));
+  }
+
+  const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
 };
 
 // The default implementaion of FileChecksumList

@@ -106,8 +106,6 @@ class MockEnv : public EnvWrapper {
   void FakeSleepForMicroseconds(int64_t micros);
 
  private:
-  std::string NormalizePath(const std::string path);
-
   // Map from filenames to MemFile objects, representing a simple file system.
   typedef std::map<std::string, MemFile*> FileSystem;
   port::Mutex mutex_;
