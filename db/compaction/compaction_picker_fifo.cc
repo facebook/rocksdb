@@ -95,14 +95,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   for (const auto& f : inputs[0].files) {
-    assert(f);
-    assert(f->fd.table_reader);
-    assert(f->fd.table_reader->GetTableProperties());
+    uint64_t creation_time = 0;
+    if (f && f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+      creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
+    }
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with creation time %" PRIu64 " for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(),
-                     f->fd.table_reader->GetTableProperties()->creation_time);
+                     cf_name.c_str(), f->fd.GetNumber(), creation_time);
   }
 
   Compaction* c = new Compaction(
