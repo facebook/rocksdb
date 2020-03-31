@@ -371,6 +371,11 @@ Status FlushJob::WriteLevel0Table() {
       meta_.oldest_ancester_time = std::min(current_time, oldest_key_time);
       meta_.file_creation_time = current_time;
 
+      uint64_t creation_time = (cfd_->ioptions()->compaction_style ==
+                                CompactionStyle::kCompactionStyleFIFO)
+                                   ? current_time
+                                   : meta_.oldest_ancester_time;
+
       s = BuildTable(
           dbname_, db_options_.env, db_options_.fs.get(), *cfd_->ioptions(),
           mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
@@ -383,8 +388,7 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
           Env::IO_HIGH, &table_properties_, 0 /* level */,
-          meta_.oldest_ancester_time, oldest_key_time, write_hint,
-          current_time);
+          creation_time, oldest_key_time, write_hint, current_time);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,
