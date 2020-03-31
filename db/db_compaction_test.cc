@@ -5217,31 +5217,6 @@ TEST_P(DBCompactionTestWithParam,
   }
 }
 
-TEST_F(DBCompactionTest, FifoCompactionGetFileCreationTime) {
-  MockEnv mock_env(env_);
-  do {
-    Options options = CurrentOptions();
-    options.table_factory.reset(new BlockBasedTableFactory());
-    options.env = &mock_env;
-    options.ttl = static_cast<uint64_t>(24) * 3600;
-    options.compaction_style = kCompactionStyleFIFO;
-    constexpr size_t kNumFiles = 24;
-    options.max_open_files = 20;
-    constexpr size_t kNumKeysPerFile = 10;
-    DestroyAndReopen(options);
-    for (size_t i = 0; i < kNumFiles; ++i) {
-      for (size_t j = 0; j < kNumKeysPerFile; ++j) {
-        ASSERT_OK(Put(std::to_string(j), "value_" + std::to_string(i)));
-      }
-      ASSERT_OK(Flush());
-    }
-    mock_env.FakeSleepForMicroseconds(
-        static_cast<uint64_t>(1000 * 1000 * (1 + options.ttl)));
-    ASSERT_OK(Put("foo", "value"));
-    ASSERT_OK(Flush());
-  } while (ChangeOptions());
-}
-
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace ROCKSDB_NAMESPACE
 
