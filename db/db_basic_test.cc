@@ -2053,7 +2053,8 @@ class DBBasicTestWithParallelIO
     virtual const char* Name() const override { return "MyBlockCache"; }
 
     virtual Status Insert(const Slice& key, void* value, size_t charge,
-                          Deleter* deleter, Handle** handle = nullptr,
+                          void (*deleter)(const Slice& key, void* value),
+                          Handle** handle = nullptr,
                           Priority priority = Priority::LOW) override {
       num_inserts_++;
       return target_->Insert(key, value, charge, deleter, handle, priority);

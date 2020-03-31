@@ -132,13 +132,6 @@ extern std::shared_ptr<Cache> NewClockCache(
         kDefaultCacheMetadataChargePolicy);
 class Cache {
  public:
-  class Deleter {
-   public:
-    virtual ~Deleter() = default;
-
-    virtual void operator()(const Slice& key, void* value) = 0;
-  };
-
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
@@ -175,10 +168,10 @@ class Cache {
   // insert. In case of error value will be cleanup.
   //
   // When the inserted entry is no longer needed, the key and
-  // value will be passed to "deleter". It is the caller's responsibility to
-  // ensure that the deleter outlives the cache entries referring to it.
+  // value will be passed to "deleter".
   virtual Status Insert(const Slice& key, void* value, size_t charge,
-                        Deleter* deleter, Handle** handle = nullptr,
+                        void (*deleter)(const Slice& key, void* value),
+                        Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
 
   // If the cache has no mapping for "key", returns nullptr.

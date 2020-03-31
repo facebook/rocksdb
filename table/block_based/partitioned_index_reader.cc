@@ -7,8 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
-
-#include "cache/simple_deleter.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {

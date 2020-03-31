@@ -16,7 +16,6 @@
 #include <vector>
 #include "cache/clock_cache.h"
 #include "cache/lru_cache.h"
-#include "cache/simple_deleter.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -41,17 +40,21 @@ static int DecodeValue(void* v) {
 const std::string kLRU = "lru";
 const std::string kClock = "clock";
 
+void dumbDeleter(const Slice& /*key*/, void* /*value*/) {}
+
+void eraseDeleter(const Slice& /*key*/, void* value) {
+  Cache* cache = reinterpret_cast<Cache*>(value);
+  cache->Erase("foo");
+}
+
 class CacheTest : public testing::TestWithParam<std::string> {
  public:
   static CacheTest* current_;
 
-  class Deleter : public Cache::Deleter {
-   public:
-    void operator()(const Slice& key, void* v) override {
-      current_->deleted_keys_.push_back(DecodeKey(key));
-      current_->deleted_values_.push_back(DecodeValue(v));
-    }
-  };
+  static void Deleter(const Slice& key, void* v) {
+    current_->deleted_keys_.push_back(DecodeKey(key));
+    current_->deleted_values_.push_back(DecodeValue(v));
+  }
 
   static const int kCacheSize = 1000;
   static const int kNumShardBits = 4;
@@ -61,7 +64,6 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
-  Deleter deleter_;
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> cache2_;
 
@@ -115,7 +117,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   void Insert(std::shared_ptr<Cache> cache, int key, int value,
               int charge = 1) {
-    cache->Insert(EncodeKey(key), EncodeValue(value), charge, &deleter_);
+    cache->Insert(EncodeKey(key), EncodeValue(value), charge,
+                  &CacheTest::Deleter);
   }
 
   void Erase(std::shared_ptr<Cache> cache, int key) {
@@ -164,9 +167,9 @@ TEST_P(CacheTest, UsageTest) {
   for (int i = 1; i < 100; ++i) {
     std::string key(i, 'a');
     auto kv_size = key.size() + 5;
-    cache->Insert(key, reinterpret_cast<void*>(value), kv_size, nullptr);
+    cache->Insert(key, reinterpret_cast<void*>(value), kv_size, dumbDeleter);
     precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                          nullptr);
+                          dumbDeleter);
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
     ASSERT_LT(usage, precise_cache->GetUsage());
@@ -180,9 +183,10 @@ TEST_P(CacheTest, UsageTest) {
   // make sure the cache will be overloaded
   for (uint64_t i = 1; i < kCapacity; ++i) {
     auto key = ToString(i);
-    cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5, nullptr);
+    cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
+                  dumbDeleter);
     precise_cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                          nullptr);
+                          dumbDeleter);
   }
 
   // the usage should be close to the capacity
@@ -211,11 +215,11 @@ TEST_P(CacheTest, PinnedUsageTest) {
     auto kv_size = key.size() + 5;
     Cache::Handle* handle;
     Cache::Handle* handle_in_precise_cache;
-    cache->Insert(key, reinterpret_cast<void*>(value), kv_size, nullptr,
+    cache->Insert(key, reinterpret_cast<void*>(value), kv_size, dumbDeleter,
                   &handle);
     assert(handle);
-    precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size, nullptr,
-                          &handle_in_precise_cache);
+    precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
+                          dumbDeleter, &handle_in_precise_cache);
     assert(handle_in_precise_cache);
     pinned_usage += kv_size;
     ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
@@ -250,9 +254,10 @@ TEST_P(CacheTest, PinnedUsageTest) {
   // check that overloading the cache does not change the pinned usage
   for (uint64_t i = 1; i < 2 * kCapacity; ++i) {
     auto key = ToString(i);
-    cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5, nullptr);
+    cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
+                  dumbDeleter);
     precise_cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                          nullptr);
+                          dumbDeleter);
   }
   ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
   ASSERT_EQ(precise_cache_pinned_usage, precise_cache->GetPinnedUsage());
@@ -445,25 +450,15 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 TEST_P(CacheTest, EvictEmptyCache) {
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
-  ASSERT_OK(cache->Insert("foo", nullptr, 10, nullptr));
+  ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
-  class EraseDeleter : public Cache::Deleter {
-   public:
-    void operator()(const Slice& /*key*/, void* value) override {
-      Cache* const cache = static_cast<Cache*>(value);
-      cache->Erase("foo");
-    }
-  };
-
-  EraseDeleter erase_deleter;
-
   std::shared_ptr<Cache> cache = NewCache(10, 0, false);
-  ASSERT_OK(cache->Insert("foo", nullptr, 1, nullptr));
-  ASSERT_OK(cache->Insert("bar", cache.get(), 1, &erase_deleter));
+  ASSERT_OK(cache->Insert("foo", nullptr, 1, dumbDeleter));
+  ASSERT_OK(cache->Insert("bar", cache.get(), 1, eraseDeleter));
   cache->Erase("bar");
   ASSERT_EQ(nullptr, cache->Lookup("foo"));
   ASSERT_EQ(nullptr, cache->Lookup("bar"));
@@ -532,11 +527,17 @@ class Value {
   size_t v_;
 };
 
+namespace {
+void deleter(const Slice& /*key*/, void* value) {
+  delete static_cast<Value *>(value);
+}
+}  // namespace
+
 TEST_P(CacheTest, ReleaseAndErase) {
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   Cache::Handle* handle;
-  Status s =
-      cache->Insert(EncodeKey(100), EncodeValue(100), 1, &deleter_, &handle);
+  Status s = cache->Insert(EncodeKey(100), EncodeValue(100), 1,
+                           &CacheTest::Deleter, &handle);
   ASSERT_TRUE(s.ok());
   ASSERT_EQ(5U, cache->GetCapacity());
   ASSERT_EQ(1U, cache->GetUsage());
@@ -550,8 +551,8 @@ TEST_P(CacheTest, ReleaseAndErase) {
 TEST_P(CacheTest, ReleaseWithoutErase) {
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   Cache::Handle* handle;
-  Status s =
-      cache->Insert(EncodeKey(100), EncodeValue(100), 1, &deleter_, &handle);
+  Status s = cache->Insert(EncodeKey(100), EncodeValue(100), 1,
+                           &CacheTest::Deleter, &handle);
   ASSERT_TRUE(s.ok());
   ASSERT_EQ(5U, cache->GetCapacity());
   ASSERT_EQ(1U, cache->GetUsage());
@@ -573,8 +574,7 @@ TEST_P(CacheTest, SetCapacity) {
   // Insert 5 entries, but not releasing.
   for (size_t i = 0; i < 5; i++) {
     std::string key = ToString(i+1);
-    Status s = cache->Insert(key, new Value(i + 1), 1,
-                             SimpleDeleter<Value>::GetInstance(), &handles[i]);
+    Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
   ASSERT_EQ(5U, cache->GetCapacity());
@@ -589,8 +589,7 @@ TEST_P(CacheTest, SetCapacity) {
   // and usage should be 7
   for (size_t i = 5; i < 10; i++) {
     std::string key = ToString(i+1);
-    Status s = cache->Insert(key, new Value(i + 1), 1,
-                             SimpleDeleter<Value>::GetInstance(), &handles[i]);
+    Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
   ASSERT_EQ(10U, cache->GetCapacity());
@@ -618,8 +617,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   Status s;
   for (size_t i = 0; i < 10; i++) {
     std::string key = ToString(i + 1);
-    s = cache->Insert(key, new Value(i + 1), 1,
-                      SimpleDeleter<Value>::GetInstance(), &handles[i]);
+    s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
@@ -630,8 +628,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   Value* extra_value = new Value(0);
   cache->SetStrictCapacityLimit(true);
   Cache::Handle* handle;
-  s = cache->Insert(extra_key, extra_value, 1,
-                    SimpleDeleter<Value>::GetInstance(), &handle);
+  s = cache->Insert(extra_key, extra_value, 1, &deleter, &handle);
   ASSERT_TRUE(s.IsIncomplete());
   ASSERT_EQ(nullptr, handle);
   ASSERT_EQ(10, cache->GetUsage());
@@ -644,18 +641,15 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   std::shared_ptr<Cache> cache2 = NewCache(5, 0, true);
   for (size_t i = 0; i < 5; i++) {
     std::string key = ToString(i + 1);
-    s = cache2->Insert(key, new Value(i + 1), 1,
-                       SimpleDeleter<Value>::GetInstance(), &handles[i]);
+    s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
-  s = cache2->Insert(extra_key, extra_value, 1,
-                     SimpleDeleter<Value>::GetInstance(), &handle);
+  s = cache2->Insert(extra_key, extra_value, 1, &deleter, &handle);
   ASSERT_TRUE(s.IsIncomplete());
   ASSERT_EQ(nullptr, handle);
   // test insert without handle
-  s = cache2->Insert(extra_key, extra_value, 1,
-                     SimpleDeleter<Value>::GetInstance());
+  s = cache2->Insert(extra_key, extra_value, 1, &deleter);
   // AS if the key have been inserted into cache but get evicted immediately.
   ASSERT_OK(s);
   ASSERT_EQ(5, cache2->GetUsage());
@@ -677,8 +671,7 @@ TEST_P(CacheTest, OverCapacity) {
   // Insert n+1 entries, but not releasing.
   for (size_t i = 0; i < n + 1; i++) {
     std::string key = ToString(i+1);
-    Status s = cache->Insert(key, new Value(i + 1), 1,
-                             SimpleDeleter<Value>::GetInstance(), &handles[i]);
+    Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
 
