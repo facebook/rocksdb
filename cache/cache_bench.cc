@@ -15,7 +15,6 @@ int main() {
 #include <sys/types.h>
 #include <cinttypes>
 
-#include "cache/simple_deleter.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -50,6 +49,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class CacheBench;
 namespace {
+void deleter(const Slice& /*key*/, void* value) {
+    delete reinterpret_cast<char *>(value);
+}
 
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
@@ -147,8 +149,7 @@ class CacheBench {
       // Cast uint64* to be char*, data would be copied to cache
       Slice key(reinterpret_cast<char*>(&rand_key), 8);
       // do insert
-      cache_->Insert(key, new char[10], 1,
-                     SimpleDeleter<char[]>::GetInstance());
+      cache_->Insert(key, new char[10], 1, &deleter);
     }
   }
 
@@ -226,8 +227,7 @@ class CacheBench {
       int32_t prob_op = thread->rnd.Uniform(100);
       if (prob_op >= 0 && prob_op < FLAGS_insert_percent) {
         // do insert
-        cache_->Insert(key, new char[10], 1,
-                       SimpleDeleter<char[]>::GetInstance());
+        cache_->Insert(key, new char[10], 1, &deleter);
       } else if (prob_op -= FLAGS_insert_percent &&
                  prob_op < FLAGS_lookup_percent) {
         // do lookup
