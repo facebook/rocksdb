@@ -2,8 +2,8 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 set -ex
 
-ROCKSDB_VERSION="6.3.6"
-ZSTD_VERSION="1.4.3"
+ROCKSDB_VERSION="6.7.3"
+ZSTD_VERSION="1.4.4"
 
 echo "This script configures CentOS with everything needed to build and run RocksDB"
 
