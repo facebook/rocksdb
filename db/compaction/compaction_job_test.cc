@@ -314,11 +314,11 @@ class CompactionJobTest : public testing::Test {
       num_input_files += level_files.size();
     }
 
-    Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
-                          *cfd->GetLatestMutableCFOptions(),
-                          compaction_input_files, output_level, 1024 * 1024,
-                          10 * 1024 * 1024, 0, kNoCompression,
-                          cfd->ioptions()->compression_opts, 0, {}, true);
+    Compaction compaction(
+        cfd->current()->storage_info(), *cfd->ioptions(),
+        *cfd->GetLatestMutableCFOptions(), compaction_input_files, output_level,
+        1024 * 1024, 10 * 1024 * 1024, 0, kNoCompression,
+        cfd->GetLatestMutableCFOptions()->compression_opts, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());

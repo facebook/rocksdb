@@ -389,7 +389,7 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
           output_compression_, mutable_cf_options_.sample_for_compression,
-          cfd_->ioptions()->compression_opts,
+          mutable_cf_options_.compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, &io_s, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
