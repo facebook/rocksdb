@@ -16,6 +16,9 @@
 #include <wmmintrin.h>
 #endif
 #include "util/coding.h"
+#include "util/util.h"
+
+#include "util/crc32c_arm64.h"
 
 #ifdef __powerpc64__
 #include "util/crc32c_ppc.h"
@@ -395,6 +398,8 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
+// Detect if ARM64 CRC or not.
+#ifndef HAVE_ARM64_CRC
 // Detect if SS42 or not.
 #ifndef HAVE_POWER8
 
@@ -433,6 +438,7 @@ static bool isPCLMULQDQ() {
 }
 
 #endif  // HAVE_POWER8
+#endif  // HAVE_ARM64_CRC
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
@@ -462,6 +468,11 @@ static bool isAltiVec() {
 }
 #endif
 
+#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+uint32_t ExtendARMImpl(uint32_t crc, const char *buf, size_t size) {
+  return crc32c_arm64(crc, (const unsigned char *)buf, size);
+}
+#endif
 
 std::string IsFastCrc32Supported() {
   bool has_fast_crc = false;
@@ -477,6 +488,14 @@ std::string IsFastCrc32Supported() {
   has_fast_crc = false;
   arch = "PPC";
 #endif
+#elif defined(__linux__) && defined(HAVE_ARM64_CRC)
+  if (crc32c_runtime_check()) {
+    has_fast_crc = true;
+    arch = "Arm64";
+  } else {
+    has_fast_crc = false;
+    arch = "Arm64";
+  }
 #else
   has_fast_crc = isSSE42();
   arch = "x86";
@@ -704,386 +723,386 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
           do {
             // jumps here for a full block of len 128
             CRCtriplet(crc, next, -128);
-            // FALLTHRU
+	    FALLTHROUGH_INTENDED;
             case 127:
               // jumps here or below for the first block smaller
               CRCtriplet(crc, next, -127);
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 126:
               CRCtriplet(crc, next, -126); // than 128
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 125:
               CRCtriplet(crc, next, -125);
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 124:
               CRCtriplet(crc, next, -124);
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 123:
               CRCtriplet(crc, next, -123);
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 122:
               CRCtriplet(crc, next, -122);
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 121:
               CRCtriplet(crc, next, -121);
-              // FALLTHRU
+	      FALLTHROUGH_INTENDED;
             case 120:
               CRCtriplet(crc, next, -120);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 119:
               CRCtriplet(crc, next, -119);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 118:
               CRCtriplet(crc, next, -118);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 117:
               CRCtriplet(crc, next, -117);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 116:
               CRCtriplet(crc, next, -116);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 115:
               CRCtriplet(crc, next, -115);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 114:
               CRCtriplet(crc, next, -114);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 113:
               CRCtriplet(crc, next, -113);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 112:
               CRCtriplet(crc, next, -112);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 111:
               CRCtriplet(crc, next, -111);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 110:
               CRCtriplet(crc, next, -110);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 109:
               CRCtriplet(crc, next, -109);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 108:
               CRCtriplet(crc, next, -108);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 107:
               CRCtriplet(crc, next, -107);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 106:
               CRCtriplet(crc, next, -106);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 105:
               CRCtriplet(crc, next, -105);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 104:
               CRCtriplet(crc, next, -104);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 103:
               CRCtriplet(crc, next, -103);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 102:
               CRCtriplet(crc, next, -102);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 101:
               CRCtriplet(crc, next, -101);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 100:
               CRCtriplet(crc, next, -100);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 99:
               CRCtriplet(crc, next, -99);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 98:
               CRCtriplet(crc, next, -98);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 97:
               CRCtriplet(crc, next, -97);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 96:
               CRCtriplet(crc, next, -96);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 95:
               CRCtriplet(crc, next, -95);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 94:
               CRCtriplet(crc, next, -94);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 93:
               CRCtriplet(crc, next, -93);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 92:
               CRCtriplet(crc, next, -92);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 91:
               CRCtriplet(crc, next, -91);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 90:
               CRCtriplet(crc, next, -90);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 89:
               CRCtriplet(crc, next, -89);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 88:
               CRCtriplet(crc, next, -88);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 87:
               CRCtriplet(crc, next, -87);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 86:
               CRCtriplet(crc, next, -86);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 85:
               CRCtriplet(crc, next, -85);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 84:
               CRCtriplet(crc, next, -84);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 83:
               CRCtriplet(crc, next, -83);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 82:
               CRCtriplet(crc, next, -82);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 81:
               CRCtriplet(crc, next, -81);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 80:
               CRCtriplet(crc, next, -80);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 79:
               CRCtriplet(crc, next, -79);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 78:
               CRCtriplet(crc, next, -78);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 77:
               CRCtriplet(crc, next, -77);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 76:
               CRCtriplet(crc, next, -76);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 75:
               CRCtriplet(crc, next, -75);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 74:
               CRCtriplet(crc, next, -74);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 73:
               CRCtriplet(crc, next, -73);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 72:
               CRCtriplet(crc, next, -72);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 71:
               CRCtriplet(crc, next, -71);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 70:
               CRCtriplet(crc, next, -70);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 69:
               CRCtriplet(crc, next, -69);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 68:
               CRCtriplet(crc, next, -68);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 67:
               CRCtriplet(crc, next, -67);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 66:
               CRCtriplet(crc, next, -66);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 65:
               CRCtriplet(crc, next, -65);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 64:
               CRCtriplet(crc, next, -64);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 63:
               CRCtriplet(crc, next, -63);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 62:
               CRCtriplet(crc, next, -62);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 61:
               CRCtriplet(crc, next, -61);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 60:
               CRCtriplet(crc, next, -60);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 59:
               CRCtriplet(crc, next, -59);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 58:
               CRCtriplet(crc, next, -58);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 57:
               CRCtriplet(crc, next, -57);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 56:
               CRCtriplet(crc, next, -56);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 55:
               CRCtriplet(crc, next, -55);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 54:
               CRCtriplet(crc, next, -54);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 53:
               CRCtriplet(crc, next, -53);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 52:
               CRCtriplet(crc, next, -52);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 51:
               CRCtriplet(crc, next, -51);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 50:
               CRCtriplet(crc, next, -50);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 49:
               CRCtriplet(crc, next, -49);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 48:
               CRCtriplet(crc, next, -48);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 47:
               CRCtriplet(crc, next, -47);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 46:
               CRCtriplet(crc, next, -46);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 45:
               CRCtriplet(crc, next, -45);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 44:
               CRCtriplet(crc, next, -44);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 43:
               CRCtriplet(crc, next, -43);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 42:
               CRCtriplet(crc, next, -42);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 41:
               CRCtriplet(crc, next, -41);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 40:
               CRCtriplet(crc, next, -40);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 39:
               CRCtriplet(crc, next, -39);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 38:
               CRCtriplet(crc, next, -38);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 37:
               CRCtriplet(crc, next, -37);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 36:
               CRCtriplet(crc, next, -36);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 35:
               CRCtriplet(crc, next, -35);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 34:
               CRCtriplet(crc, next, -34);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 33:
               CRCtriplet(crc, next, -33);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 32:
               CRCtriplet(crc, next, -32);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 31:
               CRCtriplet(crc, next, -31);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 30:
               CRCtriplet(crc, next, -30);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 29:
               CRCtriplet(crc, next, -29);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 28:
               CRCtriplet(crc, next, -28);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 27:
               CRCtriplet(crc, next, -27);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 26:
               CRCtriplet(crc, next, -26);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 25:
               CRCtriplet(crc, next, -25);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 24:
               CRCtriplet(crc, next, -24);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 23:
               CRCtriplet(crc, next, -23);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 22:
               CRCtriplet(crc, next, -22);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 21:
               CRCtriplet(crc, next, -21);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 20:
               CRCtriplet(crc, next, -20);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 19:
               CRCtriplet(crc, next, -19);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 18:
               CRCtriplet(crc, next, -18);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 17:
               CRCtriplet(crc, next, -17);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 16:
               CRCtriplet(crc, next, -16);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 15:
               CRCtriplet(crc, next, -15);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 14:
               CRCtriplet(crc, next, -14);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 13:
               CRCtriplet(crc, next, -13);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 12:
               CRCtriplet(crc, next, -12);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 11:
               CRCtriplet(crc, next, -11);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 10:
               CRCtriplet(crc, next, -10);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 9:
               CRCtriplet(crc, next, -9);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 8:
               CRCtriplet(crc, next, -8);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 7:
               CRCtriplet(crc, next, -7);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 6:
               CRCtriplet(crc, next, -6);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 5:
               CRCtriplet(crc, next, -5);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 4:
               CRCtriplet(crc, next, -4);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 3:
               CRCtriplet(crc, next, -3);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 2:
               CRCtriplet(crc, next, -2);
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 1:
               CRCduplet(crc, next, -1); // the final triplet is actually only 2
               //{ CombineCRC(); }
@@ -1096,7 +1115,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
                 next1 = next0 + 128; // from here on all blocks are 128 long
                 next2 = next1 + 128;
               }
-              // FALLTHRU
+              FALLTHROUGH_INTENDED;
             case 0:;
           } while (n > 0);
       }
@@ -1108,85 +1127,85 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
     switch (count2) {
       case 27:
         CRCsinglet(crc0, next, -27 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 26:
         CRCsinglet(crc0, next, -26 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 25:
         CRCsinglet(crc0, next, -25 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 24:
         CRCsinglet(crc0, next, -24 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 23:
         CRCsinglet(crc0, next, -23 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 22:
         CRCsinglet(crc0, next, -22 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 21:
         CRCsinglet(crc0, next, -21 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 20:
         CRCsinglet(crc0, next, -20 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 19:
         CRCsinglet(crc0, next, -19 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 18:
         CRCsinglet(crc0, next, -18 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 17:
         CRCsinglet(crc0, next, -17 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 16:
         CRCsinglet(crc0, next, -16 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 15:
         CRCsinglet(crc0, next, -15 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 14:
         CRCsinglet(crc0, next, -14 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 13:
         CRCsinglet(crc0, next, -13 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 12:
         CRCsinglet(crc0, next, -12 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 11:
         CRCsinglet(crc0, next, -11 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 10:
         CRCsinglet(crc0, next, -10 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 9:
         CRCsinglet(crc0, next, -9 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 8:
         CRCsinglet(crc0, next, -8 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 7:
         CRCsinglet(crc0, next, -7 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 6:
         CRCsinglet(crc0, next, -6 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 5:
         CRCsinglet(crc0, next, -5 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 4:
         CRCsinglet(crc0, next, -4 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 3:
         CRCsinglet(crc0, next, -3 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 2:
         CRCsinglet(crc0, next, -2 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 1:
         CRCsinglet(crc0, next, -1 * 8);
-        // FALLTHRU
+        FALLTHROUGH_INTENDED;
       case 0:;
     }
   }
@@ -1199,7 +1218,15 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
 #endif //HAVE_SSE42 && HAVE_PCLMUL
 
 static inline Function Choose_Extend() {
-#ifndef HAVE_POWER8
+#ifdef HAVE_POWER8
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+#elif defined(__linux__) && defined(HAVE_ARM64_CRC)
+  if(crc32c_runtime_check()) {
+    return ExtendARMImpl;
+  } else {
+    return ExtendImpl<Slow_CRC32>;
+  }
+#else
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
 #if defined HAVE_SSE42  && defined HAVE_PCLMUL && !defined NO_THREEWAY_CRC32C
@@ -1215,8 +1242,6 @@ static inline Function Choose_Extend() {
   else {
     return ExtendImpl<Slow_CRC32>;
   }
-#else  //HAVE_POWER8
-  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #endif
 }
 

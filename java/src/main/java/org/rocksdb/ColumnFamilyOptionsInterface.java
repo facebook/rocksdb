@@ -5,10 +5,8 @@
 
 package org.rocksdb;
 
-public interface ColumnFamilyOptionsInterface
-    <T extends ColumnFamilyOptionsInterface>
-        extends AdvancedColumnFamilyOptionsInterface<T> {
-
+public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
+    extends AdvancedColumnFamilyOptionsInterface<T> {
   /**
    * Use this if your DB is very small (like under 1GB) and you don't want to
    * spend lots of memory for memtables.
@@ -150,6 +148,60 @@ public interface ColumnFamilyOptionsInterface
    * @return the instance of the current object.
    */
   T setMergeOperator(MergeOperator mergeOperator);
+
+  /**
+   * A single CompactionFilter instance to call into during compaction.
+   * Allows an application to modify/delete a key-value during background
+   * compaction.
+   *
+   * If the client requires a new compaction filter to be used for different
+   * compaction runs, it can specify call
+   * {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
+   * instead.
+   *
+   * The client should specify only set one of the two.
+   * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
+   * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
+   * if the client specifies both.
+   *
+   * If multithreaded compaction is being used, the supplied CompactionFilter
+   * instance may be used from different threads concurrently and so should be thread-safe.
+   *
+   * @param compactionFilter {@link AbstractCompactionFilter} instance.
+   * @return the instance of the current object.
+   */
+  T setCompactionFilter(
+          final AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter);
+
+  /**
+   * Accessor for the CompactionFilter instance in use.
+   *
+   * @return  Reference to the CompactionFilter, or null if one hasn't been set.
+   */
+  AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter();
+
+  /**
+   * This is a factory that provides {@link AbstractCompactionFilter} objects
+   * which allow an application to modify/delete a key-value during background
+   * compaction.
+   *
+   * A new filter will be created on each compaction run.  If multithreaded
+   * compaction is being used, each created CompactionFilter will only be used
+   * from a single thread and so does not need to be thread-safe.
+   *
+   * @param compactionFilterFactory {@link AbstractCompactionFilterFactory} instance.
+   * @return the instance of the current object.
+   */
+  T setCompactionFilterFactory(
+          final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
+                  compactionFilterFactory);
+
+  /**
+   * Accessor for the CompactionFilterFactory instance in use.
+   *
+   * @return  Reference to the CompactionFilterFactory, or null if one hasn't been set.
+   */
+  AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory();
 
   /**
    * This prefix-extractor uses the first n bytes of a key as its prefix.
@@ -345,6 +397,28 @@ public interface ColumnFamilyOptionsInterface
    */
   CompressionType bottommostCompressionType();
 
+  /**
+   * Set the options for compression algorithms used by
+   * {@link #bottommostCompressionType()} if it is enabled.
+   *
+   * To enable it, please see the definition of
+   * {@link CompressionOptions}.
+   *
+   * @param compressionOptions the bottom most compression options.
+   *
+   * @return the reference of the current options.
+   */
+  T setBottommostCompressionOptions(
+      final CompressionOptions compressionOptions);
+
+  /**
+   * Get the bottom most compression options.
+   *
+   * See {@link #setBottommostCompressionOptions(CompressionOptions)}.
+   *
+   * @return the bottom most compression options.
+   */
+  CompressionOptions bottommostCompressionOptions();
 
   /**
    * Set the different options for compression algorithms

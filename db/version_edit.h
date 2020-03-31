@@ -10,12 +10,12 @@
 #pragma once
 #include <algorithm>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include "rocksdb/cache.h"
 #include "db/dbformat.h"
-#include "util/arena.h"
+#include "memory/arena.h"
+#include "rocksdb/cache.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
@@ -27,7 +27,7 @@ const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
 // A copyable structure contains information needed to read data from an SST
-// file. It can contains a pointer to a table reader opened for the file, or
+// file. It can contain a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
@@ -36,18 +36,30 @@ struct FileDescriptor {
   TableReader* table_reader;
   uint64_t packed_number_and_path_id;
   uint64_t file_size;  // File size in bytes
+  SequenceNumber smallest_seqno;  // The smallest seqno in this file
+  SequenceNumber largest_seqno;   // The largest seqno in this file
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
   FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
+      : FileDescriptor(number, path_id, _file_size, kMaxSequenceNumber, 0) {}
+
+  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size,
+                 SequenceNumber _smallest_seqno, SequenceNumber _largest_seqno)
       : table_reader(nullptr),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
-        file_size(_file_size) {}
+        file_size(_file_size),
+        smallest_seqno(_smallest_seqno),
+        largest_seqno(_largest_seqno) {}
+
+  FileDescriptor(const FileDescriptor& fd) { *this = fd; }
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
     packed_number_and_path_id = fd.packed_number_and_path_id;
     file_size = fd.file_size;
+    smallest_seqno = fd.smallest_seqno;
+    largest_seqno = fd.largest_seqno;
     return *this;
   }
 
@@ -77,8 +89,6 @@ struct FileMetaData {
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
   InternalKey largest;             // Largest internal key served by table
-  SequenceNumber smallest_seqno;   // The smallest seqno in this file
-  SequenceNumber largest_seqno;    // The largest seqno in this file
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
@@ -108,9 +118,7 @@ struct FileMetaData {
                                // file.
 
   FileMetaData()
-      : smallest_seqno(kMaxSequenceNumber),
-        largest_seqno(0),
-        table_reader_handle(nullptr),
+      : table_reader_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
@@ -128,8 +136,23 @@ struct FileMetaData {
       smallest.DecodeFrom(key);
     }
     largest.DecodeFrom(key);
-    smallest_seqno = std::min(smallest_seqno, seqno);
-    largest_seqno = std::max(largest_seqno, seqno);
+    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+  }
+
+  // Unlike UpdateBoundaries, ranges do not need to be presented in any
+  // particular order.
+  void UpdateBoundariesForRange(const InternalKey& start,
+                                const InternalKey& end, SequenceNumber seqno,
+                                const InternalKeyComparator& icmp) {
+    if (smallest.size() == 0 || icmp.Compare(start, smallest) < 0) {
+      smallest = start;
+    }
+    if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
+      largest = end;
+    }
+    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
+    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
   }
 };
 
@@ -168,12 +191,21 @@ struct LevelFilesBrief {
   }
 };
 
+// The state of a DB at any given time is referred to as a Version.
+// Any modification to the Version is considered a Version Edit. A Version is
+// constructed by joining a sequence of Version Edits. Version Edits are written
+// to the MANIFEST file.
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
   ~VersionEdit() { }
 
   void Clear();
+
+  void SetDBId(const std::string& db_id) {
+    has_db_id_ = true;
+    db_id_ = db_id;
+  }
 
   void SetComparatorName(const Slice& name) {
     has_comparator_ = true;
@@ -199,6 +231,20 @@ class VersionEdit {
     has_max_column_family_ = true;
     max_column_family_ = max_column_family;
   }
+  void SetMinLogNumberToKeep(uint64_t num) {
+    has_min_log_number_to_keep_ = true;
+    min_log_number_to_keep_ = num;
+  }
+
+  bool has_db_id() { return has_db_id_; }
+
+  bool has_log_number() { return has_log_number_; }
+
+  uint64_t log_number() { return log_number_; }
+
+  bool has_next_file_number() const { return has_next_file_number_; }
+
+  uint64_t next_file_number() const { return next_file_number_; }
 
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
@@ -210,17 +256,18 @@ class VersionEdit {
                bool marked_for_compaction) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
-    f.fd = FileDescriptor(file, file_path_id, file_size);
+    f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
+                          largest_seqno);
     f.smallest = smallest;
     f.largest = largest;
-    f.smallest_seqno = smallest_seqno;
-    f.largest_seqno = largest_seqno;
+    f.fd.smallest_seqno = smallest_seqno;
+    f.fd.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
     new_files_.emplace_back(level, std::move(f));
   }
 
   void AddFile(int level, const FileMetaData& f) {
-    assert(f.smallest_seqno <= f.largest_seqno);
+    assert(f.fd.smallest_seqno <= f.fd.largest_seqno);
     new_files_.emplace_back(level, f);
   }
 
@@ -270,33 +317,47 @@ class VersionEdit {
     return new_files_;
   }
 
+  void MarkAtomicGroup(uint32_t remaining_entries) {
+    is_in_atomic_group_ = true;
+    remaining_entries_ = remaining_entries;
+  }
+
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
+  const std::string GetDbId() { return db_id_; }
+
  private:
+  friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class Version;
+  friend class AtomicGroupReadBuffer;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   int max_level_;
+  std::string db_id_;
   std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
   uint32_t max_column_family_;
+  // The most recent WAL log number that is deleted
+  uint64_t min_log_number_to_keep_;
   SequenceNumber last_sequence_;
+  bool has_db_id_;
   bool has_comparator_;
   bool has_log_number_;
   bool has_prev_log_number_;
   bool has_next_file_number_;
   bool has_last_sequence_;
   bool has_max_column_family_;
+  bool has_min_log_number_to_keep_;
 
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData>> new_files_;
 
-  // Each version edit record should have column_family_id set
+  // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
   uint32_t column_family_;
   // a version edit can be either column_family add or
@@ -305,6 +366,9 @@ class VersionEdit {
   bool is_column_family_drop_;
   bool is_column_family_add_;
   std::string column_family_name_;
+
+  bool is_in_atomic_group_;
+  uint32_t remaining_entries_;
 };
 
 }  // namespace rocksdb

@@ -7,10 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -28,6 +24,7 @@ int main() {
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
+#include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
@@ -35,11 +32,10 @@ int main() {
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/write_buffer_manager.h"
-#include "util/arena.h"
+#include "test_util/testutil.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
-#include "util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -95,17 +91,8 @@ DEFINE_int32(
     threshold_use_skiplist, 256,
     "threshold_use_skiplist parameter to pass into NewHashLinkListRepFactory");
 
-DEFINE_int64(
-    write_buffer_size, 256,
-    "write_buffer_size parameter to pass into NewHashCuckooRepFactory");
-
-DEFINE_int64(
-    average_data_size, 64,
-    "average_data_size parameter to pass into NewHashCuckooRepFactory");
-
-DEFINE_int64(
-    hash_function_count, 4,
-    "hash_function_count parameter to pass into NewHashCuckooRepFactory");
+DEFINE_int64(write_buffer_size, 256,
+             "write_buffer_size parameter to pass into WriteBufferManager");
 
 DEFINE_int32(
     num_threads, 1,
@@ -479,8 +466,8 @@ class FillBenchmark : public Benchmark {
     num_write_ops_per_thread_ = FLAGS_num_operations;
   }
 
-  void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
-                  uint64_t* bytes_read, bool write,
+  void RunThreads(std::vector<port::Thread>* /*threads*/, uint64_t* bytes_written,
+                  uint64_t* bytes_read, bool /*write*/,
                   uint64_t* read_hits) override {
     FillBenchmarkThread(table_, key_gen_, bytes_written, bytes_read, sequence_,
                         num_write_ops_per_thread_, read_hits)();
@@ -496,7 +483,7 @@ class ReadBenchmark : public Benchmark {
   }
 
   void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
-                  uint64_t* bytes_read, bool write,
+                  uint64_t* bytes_read, bool /*write*/,
                   uint64_t* read_hits) override {
     for (int i = 0; i < FLAGS_num_threads; ++i) {
       threads->emplace_back(
@@ -520,7 +507,7 @@ class SeqReadBenchmark : public Benchmark {
   }
 
   void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
-                  uint64_t* bytes_read, bool write,
+                  uint64_t* bytes_read, bool /*write*/,
                   uint64_t* read_hits) override {
     for (int i = 0; i < FLAGS_num_threads; ++i) {
       threads->emplace_back(SeqReadBenchmarkThread(
@@ -547,7 +534,7 @@ class ReadWriteBenchmark : public Benchmark {
   }
 
   void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
-                  uint64_t* bytes_read, bool write,
+                  uint64_t* bytes_read, bool /*write*/,
                   uint64_t* read_hits) override {
     std::atomic_int threads_done;
     threads_done.store(0);
@@ -605,12 +592,6 @@ int main(int argc, char** argv) {
         FLAGS_bucket_count, FLAGS_huge_page_tlb_size,
         FLAGS_bucket_entries_logging_threshold,
         FLAGS_if_log_bucket_dist_when_flash, FLAGS_threshold_use_skiplist));
-    options.prefix_extractor.reset(
-        rocksdb::NewFixedPrefixTransform(FLAGS_prefix_length));
-  } else if (FLAGS_memtablerep == "cuckoo") {
-    factory.reset(rocksdb::NewHashCuckooRepFactory(
-        FLAGS_write_buffer_size, FLAGS_average_data_size,
-        static_cast<uint32_t>(FLAGS_hash_function_count)));
     options.prefix_extractor.reset(
         rocksdb::NewFixedPrefixTransform(FLAGS_prefix_length));
 #endif  // ROCKSDB_LITE

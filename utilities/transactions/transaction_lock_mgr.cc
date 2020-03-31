@@ -5,13 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "utilities/transactions/transaction_lock_mgr.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <algorithm>
 #include <condition_variable>
@@ -23,9 +19,9 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
-#include "util/murmurhash.h"
-#include "util/sync_point.h"
+#include "util/hash.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
@@ -104,7 +100,7 @@ void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
     return;
   }
 
-  paths_buffer_[buffer_idx_] = path;
+  paths_buffer_[buffer_idx_] = std::move(path);
   buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
 }
 
@@ -183,8 +179,7 @@ TransactionLockMgr::~TransactionLockMgr() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
-  static murmur_hash hash;
-  size_t stripe = hash(key) % num_stripes_;
+  size_t stripe = static_cast<size_t>(GetSliceNPHash64(key)) % num_stripes_;
   return stripe;
 }
 
@@ -193,8 +188,7 @@ void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {
 
   if (lock_maps_.find(column_family_id) == lock_maps_.end()) {
     lock_maps_.emplace(column_family_id,
-                       std::shared_ptr<LockMap>(
-                           new LockMap(default_num_stripes_, mutex_factory_)));
+                       std::make_shared<LockMap>(default_num_stripes_, mutex_factory_));
   } else {
     // column_family already exists in lock map
     assert(false);
@@ -222,9 +216,9 @@ void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
   }
 }
 
-// Look up the LockMap shared_ptr for a given column_family_id.
+// Look up the LockMap std::shared_ptr for a given column_family_id.
 // Note:  The LockMap is only valid as long as the caller is still holding on
-//   to the returned shared_ptr.
+//   to the returned std::shared_ptr.
 std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
     uint32_t column_family_id) {
   // First check thread-local cache
@@ -312,14 +306,14 @@ Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
   int64_t timeout = txn->GetLockTimeout();
 
   return AcquireWithTimeout(txn, lock_map, stripe, column_family_id, key, env,
-                            timeout, lock_info);
+                            timeout, std::move(lock_info));
 }
 
 // Helper function for TryLock().
 Status TransactionLockMgr::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     uint32_t column_family_id, const std::string& key, Env* env,
-    int64_t timeout, const LockInfo& lock_info) {
+    int64_t timeout, LockInfo&& lock_info) {
   Status result;
   uint64_t end_time = 0;
 
@@ -343,7 +337,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
   autovector<TransactionID> wait_ids;
-  result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+  result = AcquireLocked(lock_map, stripe, key, env, std::move(lock_info),
                          &expire_time_hint, &wait_ids);
 
   if (!result.ok() && timeout != 0) {
@@ -372,7 +366,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
       if (wait_ids.size() != 0) {
         if (txn->IsDeadlockDetect()) {
           if (IncrementWaiters(txn, wait_ids, key, column_family_id,
-                               lock_info.exclusive)) {
+                               lock_info.exclusive, env)) {
             result = Status::Busy(Status::SubCode::kDeadlock);
             stripe->stripe_mutex->UnLock();
             return result;
@@ -408,7 +402,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
       }
 
       if (result.ok() || result.IsTimedOut()) {
-        result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+        result = AcquireLocked(lock_map, stripe, key, env, std::move(lock_info),
                                &expire_time_hint, &wait_ids);
       }
     } while (!result.ok() && !timed_out);
@@ -444,14 +438,14 @@ void TransactionLockMgr::DecrementWaitersImpl(
 bool TransactionLockMgr::IncrementWaiters(
     const PessimisticTransaction* txn,
     const autovector<TransactionID>& wait_ids, const std::string& key,
-    const uint32_t& cf_id, const bool& exclusive) {
+    const uint32_t& cf_id, const bool& exclusive, Env* const env) {
   auto id = txn->GetID();
-  std::vector<int> queue_parents(txn->GetDeadlockDetectDepth());
-  std::vector<TransactionID> queue_values(txn->GetDeadlockDetectDepth());
+  std::vector<int> queue_parents(static_cast<size_t>(txn->GetDeadlockDetectDepth()));
+  std::vector<TransactionID> queue_values(static_cast<size_t>(txn->GetDeadlockDetectDepth()));
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   assert(!wait_txn_map_.Contains(id));
 
-  wait_txn_map_.Insert(id, {wait_ids, cf_id, key, exclusive});
+  wait_txn_map_.Insert(id, {wait_ids, cf_id, exclusive, key});
 
   for (auto wait_id : wait_ids) {
     if (rev_wait_txn_map_.Contains(wait_id)) {
@@ -468,6 +462,7 @@ bool TransactionLockMgr::IncrementWaiters(
 
   const auto* next_ids = &wait_ids;
   int parent = -1;
+  int64_t deadlock_time = 0;
   for (int tail = 0, head = 0; head < txn->GetDeadlockDetectDepth(); head++) {
     int i = 0;
     if (next_ids) {
@@ -493,12 +488,14 @@ bool TransactionLockMgr::IncrementWaiters(
 
         auto extracted_info = wait_txn_map_.Get(queue_values[head]);
         path.push_back({queue_values[head], extracted_info.m_cf_id,
-                        extracted_info.m_waiting_key,
-                        extracted_info.m_exclusive});
+                        extracted_info.m_exclusive,
+                        extracted_info.m_waiting_key});
         head = queue_parents[head];
       }
+      env->GetCurrentTime(&deadlock_time);
       std::reverse(path.begin(), path.end());
-      dlock_buffer_.AddNewPath(DeadlockPath(path));
+      dlock_buffer_.AddNewPath(DeadlockPath(path, deadlock_time));
+      deadlock_time = 0;
       DecrementWaitersImpl(txn, wait_ids);
       return true;
     } else if (!wait_txn_map_.Contains(next)) {
@@ -511,7 +508,8 @@ bool TransactionLockMgr::IncrementWaiters(
   }
 
   // Wait cycle too big, just assume deadlock.
-  dlock_buffer_.AddNewPath(DeadlockPath(true));
+  env->GetCurrentTime(&deadlock_time);
+  dlock_buffer_.AddNewPath(DeadlockPath(deadlock_time, true));
   DecrementWaitersImpl(txn, wait_ids);
   return true;
 }
@@ -523,7 +521,7 @@ bool TransactionLockMgr::IncrementWaiters(
 Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
                                          LockMapStripe* stripe,
                                          const std::string& key, Env* env,
-                                         const LockInfo& txn_lock_info,
+                                         LockInfo&& txn_lock_info,
                                          uint64_t* expire_time,
                                          autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
@@ -575,7 +573,7 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
       result = Status::Busy(Status::SubCode::kLockLimit);
     } else {
       // acquire lock
-      stripe->keys.insert({key, txn_lock_info});
+      stripe->keys.emplace(key, std::move(txn_lock_info));
 
       // Maintain lock count if there is a limit on the number of locks
       if (max_num_locks_) {
@@ -591,6 +589,9 @@ void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
                                    const std::string& key,
                                    LockMapStripe* stripe, LockMap* lock_map,
                                    Env* env) {
+#ifdef NDEBUG
+  (void)env;
+#endif
   TransactionID txn_id = txn->GetID();
 
   auto stripe_iter = stripe->keys.find(key);

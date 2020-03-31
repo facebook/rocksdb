@@ -1,11 +1,20 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb.util;
 
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
 
+  public static boolean isAarch64() {
+    return ARCH.contains("aarch64");
+  }
+
   public static boolean isPowerPC() {
     return ARCH.contains("ppc");
+  }
+
+  public static boolean isS390x() {
+    return ARCH.contains("s390x");
   }
 
   public static boolean isWindows() {
@@ -33,6 +42,10 @@ public class Environment {
     return OS.contains("sunos");
   }
 
+  public static boolean isOpenBSD() {
+    return (OS.contains("openbsd"));
+  }
+
   public static boolean is64Bit() {
     if (ARCH.indexOf("sparcv9") >= 0) {
       return true;
@@ -51,8 +64,10 @@ public class Environment {
   public static String getJniLibraryName(final String name) {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
-      if(isPowerPC()) {
+      if (isPowerPC() || isAarch64()) {
         return String.format("%sjni-linux-%s", name, ARCH);
+      } else if (isS390x()) {
+        return String.format("%sjni-linux%s", name, ARCH);
       } else {
         return String.format("%sjni-linux%s", name, arch);
       }
@@ -67,6 +82,8 @@ public class Environment {
       return String.format("%sjni-solaris%s", name, arch);
     } else if (isWindows() && is64Bit()) {
       return String.format("%sjni-win64", name);
+    } else if (isOpenBSD()) {
+      return String.format("%sjni-openbsd%s", name, is64Bit() ? "64" : "32");
     }
 
     throw new UnsupportedOperationException(String.format("Cannot determine JNI library name for ARCH='%s' OS='%s' name='%s'", ARCH, OS, name));
@@ -77,7 +94,7 @@ public class Environment {
   }
 
   private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
-    if (isUnix() || isAix() || isSolaris() || isFreeBSD()) {
+    if (isUnix() || isAix() || isSolaris() || isFreeBSD() || isOpenBSD()) {
       return libraryFileName + ".so";
     } else if (isMac()) {
       return libraryFileName + (shared ? ".dylib" : ".jnilib");

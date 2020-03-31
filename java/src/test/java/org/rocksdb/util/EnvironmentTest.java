@@ -130,6 +130,20 @@ public class EnvironmentTest {
       isEqualTo("librocksdbjni.dll");
   }
 
+  @Test
+  public void aarch64() {
+    setEnvironmentClassFields("Linux", "aarch64");
+    assertThat(Environment.isUnix()).isTrue();
+    assertThat(Environment.isAarch64()).isTrue();
+    assertThat(Environment.is64Bit()).isTrue();
+    assertThat(Environment.getJniLibraryExtension()).isEqualTo(".so");
+    assertThat(Environment.getSharedLibraryName("rocksdb")).isEqualTo("rocksdbjni");
+    assertThat(Environment.getJniLibraryName("rocksdb")).isEqualTo("rocksdbjni-linux-aarch64");
+    assertThat(Environment.getJniLibraryFileName("rocksdb"))
+        .isEqualTo("librocksdbjni-linux-aarch64.so");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).isEqualTo("librocksdbjni.so");
+  }
+
   private void setEnvironmentClassFields(String osName,
       String osArch) {
     setEnvironmentClassField(OS_FIELD_NAME, osName);

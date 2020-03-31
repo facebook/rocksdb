@@ -1,3 +1,4 @@
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # This script enables you running RocksDB tests by running
 # All the tests concurrently and utilizing all the cores
 Param(
@@ -336,7 +337,7 @@ $InvokeTestAsync = {
 # Test limiting factor here
 [int]$count = 0
 # Overall status
-[bool]$success = $true;
+[bool]$script:success = $true;
 
 function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
 {
@@ -425,7 +426,7 @@ function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
         $log_content = @(Get-Content $log)
 
         if($completed.State -ne "Completed") {
-            $success = $false
+            $script:success = $false
             Write-Warning $message
             $log_content | Write-Warning
         } else {
@@ -449,7 +450,7 @@ function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
             }
 
             if(!$pass_found) {
-                $success = $false;
+                $script:success = $false;
                 Write-Warning $message
                 $log_content | Write-Warning
             } else {
@@ -473,7 +474,7 @@ New-TimeSpan -Start $StartDate -End $EndDate |
   }
 
 
-if(!$success) {
+if(!$script:success) {
 # This does not succeed killing off jobs quick
 # So we simply exit
 #    Remove-Job -Job $jobs -Force

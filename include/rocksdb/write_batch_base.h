@@ -20,7 +20,7 @@ struct SliceParts;
 
 // Abstract base class that defines the basic interface for a write batch.
 // See WriteBatch for a basic implementation and WrithBatchWithIndex for an
-// indexed implemenation.
+// indexed implementation.
 class WriteBatchBase {
  public:
   virtual ~WriteBatchBase() {}
@@ -69,7 +69,7 @@ class WriteBatchBase {
                               const SliceParts& key);
   virtual Status SingleDelete(const SliceParts& key);
 
-  // If the database contains mappings in the range ["begin_key", "end_key"],
+  // If the database contains mappings in the range ["begin_key", "end_key"),
   // erase them. Else do nothing.
   virtual Status DeleteRange(ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key) = 0;

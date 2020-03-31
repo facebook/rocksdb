@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # The RocksDB regression test script.
 # REQUIREMENT: must be able to run make db_bench in the current directory
 #

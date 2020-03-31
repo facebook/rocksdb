@@ -11,12 +11,12 @@ int main() {
 }
 #else
 
+#include "file/writable_file_writer.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/env.h"
-#include "util/file_reader_writer.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/gflags_compat.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::SetUsageMessage;
@@ -31,14 +31,17 @@ DEFINE_bool(enable_sync, false, "sync after each write.");
 
 namespace rocksdb {
 void RunBenchmark() {
-  std::string file_name = test::TmpDir() + "/log_write_benchmark.log";
+  std::string file_name = test::PerThreadDBPath("log_write_benchmark.log");
+  DBOptions options;
   Env* env = Env::Default();
-  EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions());
+  EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions(), options);
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
-  unique_ptr<WritableFileWriter> writer;
-  writer.reset(new WritableFileWriter(std::move(file), env_options));
+  std::unique_ptr<WritableFileWriter> writer;
+  writer.reset(new WritableFileWriter(std::move(file), file_name, env_options,
+                                      env, nullptr /* stats */,
+                                      options.listeners));
 
   std::string record;
   record.assign(FLAGS_record_size, 'X');

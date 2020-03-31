@@ -25,6 +25,11 @@ public abstract class DirectComparator extends AbstractComparator<DirectSlice> {
     return createNewDirectComparator0(nativeParameterHandles[0]);
   }
 
+  @Override
+  final ComparatorType getComparatorType() {
+    return ComparatorType.JAVA_DIRECT_COMPARATOR;
+  }
+
   private native long createNewDirectComparator0(
       final long comparatorOptionsHandle);
 }

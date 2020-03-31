@@ -17,6 +17,15 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
+   * @param verifyChecksums verification will be performed on every read
+   *     when set to true
+   * @param fillCache if true, then fill-cache behavior will be performed.
+   */
+  public ReadOptions(final boolean verifyChecksums, final boolean fillCache) {
+    super(newReadOptions(verifyChecksums, fillCache));
+  }
+
+  /**
    * Copy constructor.
    *
    * NOTE: This does a shallow copy, which means snapshot, iterate_upper_bound
@@ -26,7 +35,8 @@ public class ReadOptions extends RocksObject {
    */
   public ReadOptions(ReadOptions other) {
     super(copyReadOptions(other.nativeHandle_));
-    iterateUpperBoundSlice_ = other.iterateUpperBoundSlice_;
+    this.iterateLowerBoundSlice_ = other.iterateLowerBoundSlice_;
+    this.iterateUpperBoundSlice_ = other.iterateUpperBoundSlice_;
   }
 
   /**
@@ -181,8 +191,12 @@ public class ReadOptions extends RocksObject {
   /**
    * Returns whether managed iterators will be used.
    *
-   * @return the setting of whether managed iterators will be used, by default false
+   * @return the setting of whether managed iterators will be used,
+   *     by default false
+   *
+   * @deprecated This options is not used anymore.
    */
+  @Deprecated
   public boolean managed() {
     assert(isOwningHandle());
     return managed(nativeHandle_);
@@ -195,7 +209,10 @@ public class ReadOptions extends RocksObject {
    *
    * @param managed if true, then managed iterators will be enabled.
    * @return the reference to the current ReadOptions.
+   *
+   * @deprecated This options is not used anymore.
    */
+  @Deprecated
   public ReadOptions setManaged(final boolean managed) {
     assert(isOwningHandle());
     setManaged(nativeHandle_, managed);
@@ -236,7 +253,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return prefixSameAsStart(nativeHandle_);
   }
-
 
   /**
    * Enforce that the iterator only iterates over the same prefix as the seek.
@@ -346,6 +362,37 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
+   * A threshold for the number of keys that can be skipped before failing an
+   * iterator seek as incomplete.
+   *
+   * @return the number of keys that can be skipped
+   *     before failing an iterator seek as incomplete.
+   */
+  public long maxSkippableInternalKeys() {
+    assert(isOwningHandle());
+    return maxSkippableInternalKeys(nativeHandle_);
+  }
+
+  /**
+   * A threshold for the number of keys that can be skipped before failing an
+   * iterator seek as incomplete. The default value of 0 should be used to
+   * never fail a request as incomplete, even on skipping too many keys.
+   *
+   * Default: 0
+   *
+   * @param maxSkippableInternalKeys the number of keys that can be skipped
+   *     before failing an iterator seek as incomplete.
+   *
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setMaxSkippableInternalKeys(
+      final long maxSkippableInternalKeys) {
+    assert(isOwningHandle());
+    setMaxSkippableInternalKeys(nativeHandle_, maxSkippableInternalKeys);
+    return this;
+  }
+
+  /**
    * If true, keys deleted using the DeleteRange() API will be visible to
    * readers until they are naturally deleted during compaction. This improves
    * read performance in DBs with many range deletions.
@@ -377,14 +424,63 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * Defines the extent upto which the forward iterator can returns entries.
-   * Once the bound is reached, Valid() will be false. iterate_upper_bound
-   * is exclusive ie the bound value is not a valid entry. If
-   * iterator_extractor is not null, the Seek target and iterator_upper_bound
-   * need to have the same prefix. This is because ordering is not guaranteed
-   * outside of prefix domain. There is no lower bound on the iterator.
+   * Defines the smallest key at which the backward
+   * iterator can return an entry. Once the bound is passed,
+   * {@link RocksIterator#isValid()} will be false.
    *
-   * Default: nullptr
+   * The lower bound is inclusive i.e. the bound value is a valid
+   * entry.
+   *
+   * If prefix_extractor is not null, the Seek target and `iterate_lower_bound`
+   * need to have the same prefix. This is because ordering is not guaranteed
+   * outside of prefix domain.
+   *
+   * Default: null
+   *
+   * @param iterateLowerBound Slice representing the upper bound
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setIterateLowerBound(final Slice iterateLowerBound) {
+    assert(isOwningHandle());
+    if (iterateLowerBound != null) {
+      // Hold onto a reference so it doesn't get garbage collected out from under us.
+      iterateLowerBoundSlice_ = iterateLowerBound;
+      setIterateLowerBound(nativeHandle_, iterateLowerBoundSlice_.getNativeHandle());
+    }
+    return this;
+  }
+
+  /**
+   * Returns the smallest key at which the backward
+   * iterator can return an entry.
+   *
+   * The lower bound is inclusive i.e. the bound value is a valid entry.
+   *
+   * @return the smallest key, or null if there is no lower bound defined.
+   */
+  public Slice iterateLowerBound() {
+    assert(isOwningHandle());
+    final long lowerBoundSliceHandle = iterateLowerBound(nativeHandle_);
+    if (lowerBoundSliceHandle != 0) {
+      // Disown the new slice - it's owned by the C++ side of the JNI boundary
+      // from the perspective of this method.
+      return new Slice(lowerBoundSliceHandle, false);
+    }
+    return null;
+  }
+
+  /**
+   * Defines the extent up to which the forward iterator
+   * can returns entries. Once the bound is reached,
+   * {@link RocksIterator#isValid()} will be false.
+   *
+   * The upper bound is exclusive i.e. the bound value is not a valid entry.
+   *
+   * If iterator_extractor is not null, the Seek target and iterate_upper_bound
+   * need to have the same prefix. This is because ordering is not guaranteed
+   * outside of prefix domain.
+   *
+   * Default: null
    *
    * @param iterateUpperBound Slice representing the upper bound
    * @return the reference to the current ReadOptions.
@@ -392,7 +488,7 @@ public class ReadOptions extends RocksObject {
   public ReadOptions setIterateUpperBound(final Slice iterateUpperBound) {
     assert(isOwningHandle());
     if (iterateUpperBound != null) {
-      // Hold onto a reference so it doesn't get garbaged collected out from under us.
+      // Hold onto a reference so it doesn't get garbage collected out from under us.
       iterateUpperBoundSlice_ = iterateUpperBound;
       setIterateUpperBound(nativeHandle_, iterateUpperBoundSlice_.getNativeHandle());
     }
@@ -400,21 +496,16 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
-   * Defines the extent upto which the forward iterator can returns entries.
-   * Once the bound is reached, Valid() will be false. iterate_upper_bound
-   * is exclusive ie the bound value is not a valid entry. If
-   * iterator_extractor is not null, the Seek target and iterator_upper_bound
-   * need to have the same prefix. This is because ordering is not guaranteed
-   * outside of prefix domain. There is no lower bound on the iterator.
+   * Returns the largest key at which the forward
+   * iterator can return an entry.
    *
-   * Default: nullptr
+   * The upper bound is exclusive i.e. the bound value is not a valid entry.
    *
-   * @return Slice representing current iterate_upper_bound setting, or null if
-   *         one does not exist.
+   * @return the largest key, or null if there is no upper bound defined.
    */
   public Slice iterateUpperBound() {
     assert(isOwningHandle());
-    long upperBoundSliceHandle = iterateUpperBound(nativeHandle_);
+    final long upperBoundSliceHandle = iterateUpperBound(nativeHandle_);
     if (upperBoundSliceHandle != 0) {
       // Disown the new slice - it's owned by the C++ side of the JNI boundary
       // from the perspective of this method.
@@ -423,18 +514,71 @@ public class ReadOptions extends RocksObject {
     return null;
   }
 
+  /**
+   * A callback to determine whether relevant keys for this scan exist in a
+   * given table based on the table's properties. The callback is passed the
+   * properties of each table during iteration. If the callback returns false,
+   * the table will not be scanned. This option only affects Iterators and has
+   * no impact on point lookups.
+   *
+   * Default: null (every table will be scanned)
+   *
+   * @param tableFilter the table filter for the callback.
+   *
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setTableFilter(final AbstractTableFilter tableFilter) {
+    assert(isOwningHandle());
+    setTableFilter(nativeHandle_, tableFilter.nativeHandle_);
+    return this;
+  }
+
+  /**
+   * Needed to support differential snapshots. Has 2 effects:
+   *     1) Iterator will skip all internal keys with seqnum &lt; iter_start_seqnum
+   *     2) if this param &gt; 0 iterator will return INTERNAL keys instead of user
+   *         keys; e.g. return tombstones as well.
+   *
+   * Default: 0 (don't filter by seqnum, return user keys)
+   *
+   * @param startSeqnum the starting sequence number.
+   *
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setIterStartSeqnum(final long startSeqnum) {
+    assert(isOwningHandle());
+    setIterStartSeqnum(nativeHandle_, startSeqnum);
+    return this;
+  }
+
+  /**
+   * Returns the starting Sequence Number of any iterator.
+   * See {@link #setIterStartSeqnum(long)}.
+   *
+   * @return the starting sequence number of any iterator.
+   */
+  public long iterStartSeqnum() {
+    assert(isOwningHandle());
+    return iterStartSeqnum(nativeHandle_);
+  }
+
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
   //
-  // Hold a reference to any iterate upper bound that was set on this object
-  // until we're destroyed or it's overwritten.  That way the caller can freely
-  // leave scope without us losing the Java Slice object, which during close()
-  // would also reap its associated rocksdb::Slice native object since it's
-  // possibly (likely) to be an owning handle.
-  protected Slice iterateUpperBoundSlice_;
+  // Hold a reference to any iterate lower or upper bound that was set on this
+  // object until we're destroyed or it's overwritten. That way the caller can
+  // freely leave scope without us losing the Java Slice object, which during
+  // close() would also reap its associated rocksdb::Slice native object since
+  // it's possibly (likely) to be an owning handle.
+  private Slice iterateLowerBoundSlice_;
+  private Slice iterateUpperBoundSlice_;
 
   private native static long newReadOptions();
+  private native static long newReadOptions(final boolean verifyChecksums,
+    final boolean fillCache);
   private native static long copyReadOptions(long handle);
+  @Override protected final native void disposeInternal(final long handle);
+
   private native boolean verifyChecksums(long handle);
   private native void setVerifyChecksums(long handle, boolean verifyChecksums);
   private native boolean fillCache(long handle);
@@ -459,13 +603,20 @@ public class ReadOptions extends RocksObject {
   private native long readaheadSize(final long handle);
   private native void setReadaheadSize(final long handle,
       final long readaheadSize);
+  private native long maxSkippableInternalKeys(final long handle);
+  private native void setMaxSkippableInternalKeys(final long handle,
+      final long maxSkippableInternalKeys);
   private native boolean ignoreRangeDeletions(final long handle);
   private native void setIgnoreRangeDeletions(final long handle,
       final boolean ignoreRangeDeletions);
   private native void setIterateUpperBound(final long handle,
       final long upperBoundSliceHandle);
   private native long iterateUpperBound(final long handle);
-
-  @Override protected final native void disposeInternal(final long handle);
-
+  private native void setIterateLowerBound(final long handle,
+      final long lowerBoundSliceHandle);
+  private native long iterateLowerBound(final long handle);
+  private native void setTableFilter(final long handle,
+      final long tableFilterHandle);
+  private native void setIterStartSeqnum(final long handle, final long seqNum);
+  private native long iterStartSeqnum(final long handle);
 }

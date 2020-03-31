@@ -7,8 +7,6 @@ category: blog
 
 RocksDB supports both optimistic and pessimistic concurrency controls. The pessimistic transactions make use of locks to provide isolation between the transactions. The default write policy in pessimistic transactions is _WriteCommitted_, which means that the data is written to the DB, i.e., the memtable, only after the transaction is committed. This policy simplified the implementation but came with some limitations in throughput, transaction size, and variety in supported isolation levels. In the below, we explain these in detail and present the other write policies, _WritePrepared_ and _WriteUnprepared_. We then dive into the design of _WritePrepared_ transactions.
 
-> _WritePrepared_ are to be announced as production-ready soon.
-
 ### WriteCommitted, Pros and Cons
 
 With _WriteCommitted_ write policy, the data is written to the memtable only after the transaction commits. This greatly simplifies the read path as any data that is read by other transactions can be assumed to be committed. This write policy, however, implies that the writes are buffered in memory in the meanwhile. This makes memory a bottleneck for large transactions. The delay of the commit phase in 2PC (two-phase commit) also becomes noticeable since most of the work, i.e., writing to memtable, is done at the commit phase. When the commit of multiple transactions are done in a serial fashion, such as in 2PC implementation of MySQL, the lengthy commit latency becomes a major contributor to lower throughput. Moreover this write policy cannot provide weaker isolation levels, such as READ UNCOMMITTED, that could potentially provide higher throughput for some applications.
@@ -28,10 +26,16 @@ With _WritePrepared_, a transaction still buffers the writes in a write batch ob
 
 The _CommitCache_ is a lock-free data structure that caches the recent commit entries. Looking up the entries in the cache must be enough for almost all th transactions that commit in a timely manner. When evicting the older entries from the cache, it still maintains some other data structures to cover the corner cases for transactions that takes abnormally too long to finish. We will cover them in the design details below.
 
-### Preliminary Results
-The full experimental results are to be reported soon. Here we present the improvement in tps observed in some preliminary experiments with MyRocks:
-* sysbench update-noindex: 25%
-* sysbench read-write: 7.6%
-* linkbench: 3.7%
+### Benchmark Results
+Here we presents the improvements observed in MyRocks with sysbench and linkbench:
+* benchmark...........tps.........p95 latency....cpu/query
+* insert...................68%
+* update-noindex...30%......38%
+* update-index.......61%.......28%
+* read-write............6%........3.5%
+* read-only...........-1.2%.....-1.8%
+* linkbench.............1.9%......+overall........0.6%
+
+Here are also the detailed results for [In-Memory Sysbench](https://gist.github.com/maysamyabandeh/bdb868091b2929a6d938615fdcf58424) and [SSD Sysbench](https://gist.github.com/maysamyabandeh/ff94f378ab48925025c34c47eff99306) curtesy of [@mdcallag](https://github.com/mdcallag).
 
 Learn more [here](https://github.com/facebook/rocksdb/wiki/WritePrepared-Transactions).

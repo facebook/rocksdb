@@ -12,18 +12,18 @@
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "test_util/testharness.h"
+#include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
-#include "util/testharness.h"
-#include "util/random.h"
 
 using namespace rocksdb;
 
 namespace rocksdb {
 
 // Path to the database on file system
-const std::string kDbName = test::TmpDir() + "/stringappend_test";
+const std::string kDbName = test::PerThreadDBPath("stringappend_test");
 
 namespace {
 // OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator

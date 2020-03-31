@@ -7,7 +7,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #if !defined(ROCKSDB_LITE)
-#include "util/sync_point.h"
+#include "test_util/sync_point.h"
 #endif
 #include <iostream>
 #include <string>
@@ -40,7 +40,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
       continue;
     }
     auto filePath = dbname_ + "/" + *it;
-    unique_ptr<SequentialFile> seqFile;
+    std::unique_ptr<SequentialFile> seqFile;
     auto envOptions = EnvOptions(CurrentOptions());
     status = defaultEnv->NewSequentialFile(filePath, &seqFile, envOptions);
     ASSERT_OK(status);
@@ -81,6 +81,34 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   } else {
     ASSERT_GE(hits, 4);
   }
+}
+
+TEST_F(DBEncryptionTest, ReadEmptyFile) {
+  auto defaultEnv = Env::Default();
+
+  // create empty file for reading it back in later
+  auto envOptions = EnvOptions(CurrentOptions());
+  auto filePath = dbname_ + "/empty.empty";
+
+  Status status;
+  {
+    std::unique_ptr<WritableFile> writableFile;
+    status = defaultEnv->NewWritableFile(filePath, &writableFile, envOptions);
+    ASSERT_OK(status);
+  }
+
+  std::unique_ptr<SequentialFile> seqFile;
+  status = defaultEnv->NewSequentialFile(filePath, &seqFile, envOptions);
+  ASSERT_OK(status);
+
+  std::string scratch;
+  Slice data;
+  // reading back 16 bytes from the empty file shouldn't trigger an assertion.
+  // it should just work and return an empty string
+  status = seqFile->Read(16, &data, (char*)scratch.data());
+  ASSERT_OK(status);
+
+  ASSERT_TRUE(data.empty());
 }
 
 #endif // ROCKSDB_LITE

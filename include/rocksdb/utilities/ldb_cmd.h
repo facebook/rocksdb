@@ -31,6 +31,7 @@ class LDBCommand {
   // Command-line arguments
   static const std::string ARG_DB;
   static const std::string ARG_PATH;
+  static const std::string ARG_SECONDARY_PATH;
   static const std::string ARG_HEX;
   static const std::string ARG_KEY_HEX;
   static const std::string ARG_VALUE_HEX;
@@ -96,6 +97,12 @@ class LDBCommand {
     ldb_options_ = ldb_options;
   }
 
+  const std::map<std::string, std::string>& TEST_GetOptionMap() {
+    return option_map_;
+  }
+
+  const std::vector<std::string>& TEST_GetFlags() { return flags_; }
+
   virtual bool NoDBOpen() { return false; }
 
   virtual ~LDBCommand() { CloseDB(); }
@@ -122,6 +129,10 @@ class LDBCommand {
  protected:
   LDBCommandExecuteResult exec_state_;
   std::string db_path_;
+  // If empty, open DB as primary. If non-empty, open the DB as secondary
+  // with this secondary path. When running against a database opened by
+  // another process, ldb wll leave the source directory completely intact.
+  std::string secondary_path_;
   std::string column_family_name_;
   DB* db_;
   DBWithTTL* db_ttl_;
@@ -210,6 +221,15 @@ class LDBCommand {
   bool ParseStringOption(const std::map<std::string, std::string>& options,
                          const std::string& option, std::string* value);
 
+  /**
+   * Returns the value of the specified option as a boolean.
+   * default_val is used if the option is not found in options.
+   * Throws an exception if the value of the option is not
+   * "true" or "false" (case insensitive).
+   */
+  bool ParseBooleanOption(const std::map<std::string, std::string>& options,
+                          const std::string& option, bool default_val);
+
   Options options_;
   std::vector<ColumnFamilyDescriptor> column_families_;
   LDBOptions ldb_options_;
@@ -230,15 +250,6 @@ class LDBCommand {
                   const std::vector<std::string>& flags);
 
   /**
-   * Returns the value of the specified option as a boolean.
-   * default_val is used if the option is not found in options.
-   * Throws an exception if the value of the option is not
-   * "true" or "false" (case insensitive).
-   */
-  bool ParseBooleanOption(const std::map<std::string, std::string>& options,
-                          const std::string& option, bool default_val);
-
-  /**
    * Converts val to a boolean.
    * val must be either true or false (case insensitive).
    * Otherwise an exception is thrown.
@@ -250,7 +261,8 @@ class LDBCommandRunner {
  public:
   static void PrintHelp(const LDBOptions& ldb_options, const char* exec_name);
 
-  static void RunCommand(
+  // Returns the status code to return. 0 is no error.
+  static int RunCommand(
       int argc, char** argv, Options options, const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families);
 };

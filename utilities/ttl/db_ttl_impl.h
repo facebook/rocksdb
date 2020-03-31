@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -9,13 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/compaction_filter.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/utility_db.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "db/db_impl.h"
+#include "rocksdb/utilities/utility_db.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -33,6 +34,8 @@ class DBWithTTLImpl : public DBWithTTL {
   explicit DBWithTTLImpl(DB* db);
 
   virtual ~DBWithTTLImpl();
+
+  virtual Status Close() override;
 
   Status CreateColumnFamilyWithTtl(const ColumnFamilyOptions& options,
                                    const std::string& column_family_name,
@@ -98,6 +101,10 @@ class DBWithTTLImpl : public DBWithTTL {
   void SetTtl(int32_t ttl) override { SetTtl(DefaultColumnFamily(), ttl); }
 
   void SetTtl(ColumnFamilyHandle *h, int32_t ttl) override;
+
+ private:
+  // remember whether the Close completes or not
+  bool closed_;
 };
 
 class TtlIterator : public Iterator {

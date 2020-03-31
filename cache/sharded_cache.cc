@@ -7,10 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "cache/sharded_cache.h"
 
 #include <string>
@@ -20,8 +16,10 @@
 namespace rocksdb {
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
-                           bool strict_capacity_limit)
-    : num_shard_bits_(num_shard_bits),
+                           bool strict_capacity_limit,
+                           std::shared_ptr<MemoryAllocator> allocator)
+    : Cache(std::move(allocator)),
+      num_shard_bits_(num_shard_bits),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       last_id_(1) {}
@@ -142,6 +140,9 @@ std::string ShardedCache::GetPrintableOptions() const {
              strict_capacity_limit_);
     ret.append(buffer);
   }
+  snprintf(buffer, kBufferSize, "    memory_allocator : %s\n",
+           memory_allocator() ? memory_allocator()->Name() : "None");
+  ret.append(buffer);
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
 }

@@ -14,8 +14,8 @@
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 #ifndef ROCKSDB_LITE
 
@@ -139,12 +139,12 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   Options options;
   options.create_if_missing = true;
   options.write_buffer_size = 4096;
-  options.max_write_buffer_number = 3;
+  options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
-  options.level0_stop_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 2;
   options.target_file_size_base = 2048;
-  options.max_bytes_for_level_base = 10240;
+  options.max_bytes_for_level_base = 40960;
   options.max_bytes_for_level_multiplier = 4;
   options.hard_pending_compaction_bytes_limit = 16 * 1024;
   options.num_levels = 8;
@@ -230,7 +230,7 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
 
   // Create one table per CF, then verify it was created with the column family
   // name property.
-  for (int cf = 0; cf < 2; ++cf) {
+  for (uint32_t cf = 0; cf < 2; ++cf) {
     Put(cf, "key", "val");
     Flush(cf);
 
@@ -252,13 +252,14 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
 }
 
 TEST_F(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
-  const int kNumKeys = 1000;
-  const int kWindowSize = 100;
-  const int kNumDelsTrigger = 90;
+  int kNumKeys = 1000;
+  int kWindowSize = 100;
+  int kNumDelsTrigger = 90;
+  std::shared_ptr<TablePropertiesCollectorFactory> compact_on_del =
+    NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
 
   Options opts = CurrentOptions();
-  opts.table_properties_collector_factories.emplace_back(
-      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  opts.table_properties_collector_factories.emplace_back(compact_on_del);
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -280,6 +281,48 @@ TEST_F(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GT(NumTableFilesAtLevel(1), 0);
+
+  // Change the window size and deletion trigger and ensure new values take
+  // effect
+  kWindowSize = 50;
+  kNumDelsTrigger = 40;
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  for (int i = 0; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(1), 0);
+
+  // Change the window size to disable delete triggered compaction
+  kWindowSize = 0;
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetWindowSize(kWindowSize);
+  static_cast<CompactOnDeletionCollectorFactory*>
+    (compact_on_del.get())->SetDeletionTrigger(kNumDelsTrigger);
+  for (int i = 0; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
 }
 
 }  // namespace rocksdb

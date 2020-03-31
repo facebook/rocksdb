@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 #include "db/compacted_db_impl.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
 #include "table/get_context.h"
 
@@ -25,32 +25,22 @@ CompactedDBImpl::~CompactedDBImpl() {
 }
 
 size_t CompactedDBImpl::FindFile(const Slice& key) {
-  size_t left = 0;
   size_t right = files_.num_files - 1;
-  while (left < right) {
-    size_t mid = (left + right) >> 1;
-    const FdWithKeyRange& f = files_.files[mid];
-    if (user_comparator_->Compare(ExtractUserKey(f.largest_key), key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
+  auto cmp = [&](const FdWithKeyRange& f, const Slice& k) -> bool {
+    return user_comparator_->Compare(ExtractUserKey(f.largest_key), k) < 0;
+  };
+  return static_cast<size_t>(std::lower_bound(files_.files,
+                            files_.files + right, key, cmp) - files_.files);
 }
 
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value) {
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, key, value, nullptr, nullptr,
-                         nullptr, nullptr);
+                         true, nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
-  files_.files[FindFile(key)].fd.table_reader->Get(
-      options, lkey.internal_key(), &get_context);
+  files_.files[FindFile(key)].fd.table_reader->Get(options, lkey.internal_key(),
+                                                   &get_context, nullptr);
   if (get_context.State() == GetContext::kFound) {
     return Status::OK();
   }
@@ -80,9 +70,9 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
       std::string& value = (*values)[idx];
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, keys[idx], &pinnable_val,
-                             nullptr, nullptr, nullptr, nullptr);
+                             nullptr, nullptr, true, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
-      r->Get(options, lkey.internal_key(), &get_context);
+      r->Get(options, lkey.internal_key(), &get_context, nullptr);
       value.assign(pinnable_val.data(), pinnable_val.size());
       if (get_context.State() == GetContext::kFound) {
         statuses[idx] = Status::OK();
@@ -157,6 +147,7 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
+    db->StartTimedTasks();
     ROCKS_LOG_INFO(db->immutable_db_options_.info_log,
                    "Opened the db as fully compacted mode");
     LogFlush(db->immutable_db_options_.info_log);

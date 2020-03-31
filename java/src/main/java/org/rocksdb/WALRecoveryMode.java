@@ -65,7 +65,7 @@ public enum WALRecoveryMode {
    *
    * @param byteIdentifier of WALRecoveryMode.
    *
-   * @return CompressionType instance.
+   * @return WALRecoveryMode instance.
    *
    * @throws IllegalArgumentException If WALRecoveryMode cannot be found for the
    *   provided byteIdentifier

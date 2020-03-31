@@ -5,15 +5,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "table/cuckoo_table_factory.h"
-#include "table/cuckoo_table_reader.h"
+#include "table/cuckoo/cuckoo_table_factory.h"
+#include "table/cuckoo/cuckoo_table_reader.h"
 #include "table/meta_blocks.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -25,13 +25,13 @@ class CuckooTableDBTest : public testing::Test {
 
  public:
   CuckooTableDBTest() : env_(Env::Default()) {
-    dbname_ = test::TmpDir() + "/cuckoo_table_db_test";
+    dbname_ = test::PerThreadDBPath("cuckoo_table_db_test");
     EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
 
-  ~CuckooTableDBTest() {
+  ~CuckooTableDBTest() override {
     delete db_;
     EXPECT_OK(DestroyDB(dbname_, Options()));
   }
@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
   return 0;
 }

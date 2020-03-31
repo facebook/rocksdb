@@ -36,7 +36,7 @@ class RocksLuaCustomLibrary {
   // and pushed on the top of the lua_State.  This custom setup function
   // allows developers to put additional table or constant values inside
   // the same table / namespace.
-  virtual void CustomSetup(lua_State* L) const {}
+  virtual void CustomSetup(lua_State* /*L*/) const {}
 };
 }  // namespace lua
 }  // namespace rocksdb

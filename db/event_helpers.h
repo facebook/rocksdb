@@ -10,9 +10,9 @@
 
 #include "db/column_family.h"
 #include "db/version_edit.h"
+#include "logging/event_logger.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
-#include "util/event_logger.h"
 
 namespace rocksdb {
 
@@ -28,7 +28,7 @@ class EventHelpers {
   static void NotifyOnBackgroundError(
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       BackgroundErrorReason reason, Status* bg_error,
-      InstrumentedMutex* db_mutex);
+      InstrumentedMutex* db_mutex, bool* auto_recovery);
   static void LogAndNotifyTableFileCreationFinished(
       EventLogger* event_logger,
       const std::vector<std::shared_ptr<EventListener>>& listeners,
@@ -41,6 +41,9 @@ class EventHelpers {
       uint64_t file_number, const std::string& file_path,
       const Status& status, const std::string& db_name,
       const std::vector<std::shared_ptr<EventListener>>& listeners);
+  static void NotifyOnErrorRecoveryCompleted(
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      Status bg_error, InstrumentedMutex* db_mutex);
 
  private:
   static void LogAndNotifyTableFileCreation(

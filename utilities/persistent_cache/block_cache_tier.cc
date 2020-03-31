@@ -10,10 +10,10 @@
 #include <utility>
 #include <vector>
 
+#include "logging/logging.h"
 #include "port/port.h"
-#include "util/logging.h"
+#include "test_util/sync_point.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
 namespace rocksdb {
@@ -163,7 +163,7 @@ PersistentCache::StatsType BlockCacheTier::Stats() {
       stats_.read_hit_latency_.Average());
   Add(&stats, "persistentcache.blockcachetier.read_miss_latency",
       stats_.read_miss_latency_.Average());
-  Add(&stats, "persistenetcache.blockcachetier.write_latency",
+  Add(&stats, "persistentcache.blockcachetier.write_latency",
       stats_.write_latency_.Average());
 
   auto out = PersistentCacheTier::Stats();
@@ -263,7 +263,7 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
   return Status::OK();
 }
 
-Status BlockCacheTier::Lookup(const Slice& key, unique_ptr<char[]>* val,
+Status BlockCacheTier::Lookup(const Slice& key, std::unique_ptr<char[]>* val,
                               size_t* size) {
   StopWatchNano timer(opt_.env, /*auto_start=*/ true);
 
@@ -287,7 +287,7 @@ Status BlockCacheTier::Lookup(const Slice& key, unique_ptr<char[]>* val,
 
   assert(file->refs_);
 
-  unique_ptr<char[]> scratch(new char[lba.size_]);
+  std::unique_ptr<char[]> scratch(new char[lba.size_]);
   Slice blk_key;
   Slice blk_val;
 
@@ -369,7 +369,7 @@ bool BlockCacheTier::Reserve(const size_t size) {
 
   const double retain_fac = (100 - kEvictPct) / static_cast<double>(100);
   while (size + size_ > opt_.cache_size * retain_fac) {
-    unique_ptr<BlockCacheFile> f(metadata_.Evict());
+    std::unique_ptr<BlockCacheFile> f(metadata_.Evict());
     if (!f) {
       // nothing is evictable
       return false;

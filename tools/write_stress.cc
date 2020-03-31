@@ -56,23 +56,19 @@ int main() {
 }
 #else
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif // __STDC_FORMAT_MACROS
-
-#include <inttypes.h>
 #include <atomic>
+#include <cinttypes>
 #include <random>
 #include <set>
 #include <string>
 #include <thread>
 
+#include "file/filename.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "util/filename.h"
 #include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;

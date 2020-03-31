@@ -19,6 +19,18 @@ public class EnvOptionsTest {
   public static final Random rand = PlatformRandomHelper.getPlatformSpecificRandomFactory();
 
   @Test
+  public void dbOptionsConstructor() {
+    final long compactionReadaheadSize = 4 * 1024 * 1024;
+    try (final DBOptions dbOptions = new DBOptions()
+        .setCompactionReadaheadSize(compactionReadaheadSize)) {
+      try (final EnvOptions envOptions = new EnvOptions(dbOptions)) {
+        assertThat(envOptions.compactionReadaheadSize())
+            .isEqualTo(compactionReadaheadSize);
+      }
+    }
+  }
+
+  @Test
   public void useMmapReads() {
     try (final EnvOptions envOptions = new EnvOptions()) {
       final boolean boolValue = rand.nextBoolean();

@@ -1,9 +1,12 @@
 // Copyright (c) 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -27,6 +30,7 @@ enum class TableFileCreationReason {
   kFlush,
   kCompaction,
   kRecovery,
+  kMisc,
 };
 
 struct TableFileCreationBriefInfo {
@@ -55,8 +59,8 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   Status status;
 };
 
-enum class CompactionReason {
-  kUnknown,
+enum class CompactionReason : int {
+  kUnknown = 0,
   // [Level] number of L0 files > level0_file_num_compaction_trigger
   kLevelL0FilesNum,
   // [Level] total size of level > MaxBytesForLevel()
@@ -80,10 +84,21 @@ enum class CompactionReason {
   // [Level] Automatic compaction within bottommost level to cleanup duplicate
   // versions of same user key, usually due to a released snapshot.
   kBottommostFiles,
+  // Compaction based on TTL
+  kTtl,
+  // According to the comments in flush_job.cc, RocksDB treats flush as
+  // a level 0 compaction in internal stats.
+  kFlush,
+  // Compaction caused by external sst file ingestion
+  kExternalSstIngestion,
+  // Compaction due to SST file being too old
+  kPeriodicCompaction,
+  // total number of compaction reasons, new reasons must be added above this.
+  kNumOfReasons,
 };
 
 enum class FlushReason : int {
-  kUnknown = 0x00,
+  kOthers = 0x00,
   kGetLiveFiles = 0x01,
   kShutDown = 0x02,
   kExternalFileIngestion = 0x03,
@@ -91,7 +106,10 @@ enum class FlushReason : int {
   kWriteBufferManager = 0x05,
   kWriteBufferFull = 0x06,
   kTest = 0x07,
-  kSuperVersionChange = 0x08,
+  kDeleteFiles = 0x08,
+  kAutoCompaction = 0x09,
+  kManualFlush = 0x0a,
+  kErrorRecovery = 0xb,
 };
 
 enum class BackgroundErrorReason {
@@ -130,7 +148,24 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
+struct FileOperationInfo {
+  using TimePoint = std::chrono::time_point<std::chrono::system_clock,
+                                            std::chrono::nanoseconds>;
+
+  const std::string& path;
+  uint64_t offset;
+  size_t length;
+  const TimePoint& start_timestamp;
+  const TimePoint& finish_timestamp;
+  Status status;
+  FileOperationInfo(const std::string& _path, const TimePoint& start,
+                    const TimePoint& finish)
+      : path(_path), start_timestamp(start), finish_timestamp(finish) {}
+};
+
 struct FlushJobInfo {
+  // the id of the column family
+  uint32_t cf_id;
   // the name of the column family
   std::string cf_name;
   // the path to the newly created file
@@ -161,9 +196,11 @@ struct FlushJobInfo {
 
 struct CompactionJobInfo {
   CompactionJobInfo() = default;
-  explicit CompactionJobInfo(const CompactionJobStats& _stats) :
-      stats(_stats) {}
+  explicit CompactionJobInfo(const CompactionJobStats& _stats)
+      : stats(_stats) {}
 
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
   // the name of the column family where the compaction happened.
   std::string cf_name;
   // the status indicating whether the compaction was successful or not.
@@ -211,7 +248,6 @@ struct MemTableInfo {
   uint64_t num_entries;
   // Total number of deletes in memtable
   uint64_t num_deletes;
-
 };
 
 struct ExternalFileIngestionInfo {
@@ -227,36 +263,12 @@ struct ExternalFileIngestionInfo {
   TableProperties table_properties;
 };
 
-// A call-back function to RocksDB which will be called when the compaction
-// iterator is compacting values. It is meant to be returned from
-// EventListner::GetCompactionEventListner() at the beginning of compaction
-// job.
-class CompactionEventListener {
- public:
-  enum CompactionListenerValueType {
-    kValue,
-    kMergeOperand,
-    kDelete,
-    kSingleDelete,
-    kRangeDelete,
-    kBlobIndex,
-    kInvalid,
-  };
-
-  virtual void OnCompaction(int level, const Slice& key,
-                            CompactionListenerValueType value_type,
-                            const Slice& existing_value,
-                            const SequenceNumber& sn, bool is_new) = 0;
-
-  virtual ~CompactionEventListener() = default;
-};
-
-// EventListener class contains a set of call-back functions that will
+// EventListener class contains a set of callback functions that will
 // be called when specific RocksDB event happens such as flush.  It can
 // be used as a building block for developing custom features such as
 // stats-collector or external compaction algorithm.
 //
-// Note that call-back functions should not run for an extended period of
+// Note that callback functions should not run for an extended period of
 // time before the function returns, otherwise RocksDB may be blocked.
 // For example, it is not suggested to do DB::CompactFiles() (as it may
 // run for a long while) or issue many of DB::Put() (as Put may be blocked
@@ -272,17 +284,10 @@ class CompactionEventListener {
 // [Locking] All EventListener callbacks are designed to be called without
 // the current thread holding any DB mutex. This is to prevent potential
 // deadlock and performance issue when using EventListener callback
-// in a complex way. However, all EventListener call-back functions
-// should not run for an extended period of time before the function
-// returns, otherwise RocksDB may be blocked. For example, it is not
-// suggested to do DB::CompactFiles() (as it may run for a long while)
-// or issue many of DB::Put() (as Put may be blocked in certain cases)
-// in the same thread in the EventListener callback. However, doing
-// DB::CompactFiles() and DB::Put() in a thread other than the
-// EventListener callback thread is considered safe.
+// in a complex way.
 class EventListener {
  public:
-  // A call-back function to RocksDB which will be called whenever a
+  // A callback function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is
   // no-op.
   //
@@ -292,7 +297,7 @@ class EventListener {
   virtual void OnFlushCompleted(DB* /*db*/,
                                 const FlushJobInfo& /*flush_job_info*/) {}
 
-  // A call-back function to RocksDB which will be called before a
+  // A callback function to RocksDB which will be called before a
   // RocksDB starts to flush memtables.  The default implementation is
   // no-op.
   //
@@ -302,9 +307,9 @@ class EventListener {
   virtual void OnFlushBegin(DB* /*db*/,
                             const FlushJobInfo& /*flush_job_info*/) {}
 
-  // A call-back function for RocksDB which will be called whenever
+  // A callback function for RocksDB which will be called whenever
   // a SST file is deleted.  Different from OnCompactionCompleted and
-  // OnFlushCompleted, this call-back is designed for external logging
+  // OnFlushCompleted, this callback is designed for external logging
   // service and thus only provide string parameters instead
   // of a pointer to DB.  Applications that build logic basic based
   // on file creations and deletions is suggested to implement
@@ -315,7 +320,16 @@ class EventListener {
   // returned value.
   virtual void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
 
-  // A call-back function for RocksDB which will be called whenever
+  // A callback function to RocksDB which will be called before a
+  // RocksDB starts to compact.  The default implementation is
+  // no-op.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
   // is a no-op.
   //
@@ -331,9 +345,9 @@ class EventListener {
   virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& /*ci*/) {}
 
-  // A call-back function for RocksDB which will be called whenever
+  // A callback function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and
-  // OnFlushCompleted, this call-back is designed for external logging
+  // OnFlushCompleted, this callback is designed for external logging
   // service and thus only provide string parameters instead
   // of a pointer to DB.  Applications that build logic basic based
   // on file creations and deletions is suggested to implement
@@ -348,7 +362,7 @@ class EventListener {
   // returned value.
   virtual void OnTableFileCreated(const TableFileCreationInfo& /*info*/) {}
 
-  // A call-back function for RocksDB which will be called before
+  // A callback function for RocksDB which will be called before
   // a SST file is being created. It will follow by OnTableFileCreated after
   // the creation finishes.
   //
@@ -358,7 +372,7 @@ class EventListener {
   virtual void OnTableFileCreationStarted(
       const TableFileCreationBriefInfo& /*info*/) {}
 
-  // A call-back function for RocksDB which will be called before
+  // A callback function for RocksDB which will be called before
   // a memtable is made immutable.
   //
   // Note that the this function must be implemented in a way such that
@@ -368,10 +382,9 @@ class EventListener {
   // Note that if applications would like to use the passed reference
   // outside this function call, they should make copies from these
   // returned value.
-  virtual void OnMemTableSealed(
-    const MemTableInfo& /*info*/) {}
+  virtual void OnMemTableSealed(const MemTableInfo& /*info*/) {}
 
-  // A call-back function for RocksDB which will be called before
+  // A callback function for RocksDB which will be called before
   // a column family handle is deleted.
   //
   // Note that the this function must be implemented in a way such that
@@ -382,7 +395,7 @@ class EventListener {
   virtual void OnColumnFamilyHandleDeletionStarted(
       ColumnFamilyHandle* /*handle*/) {}
 
-  // A call-back function for RocksDB which will be called after an external
+  // A callback function for RocksDB which will be called after an external
   // file is ingested using IngestExternalFile.
   //
   // Note that the this function will run on the same thread as
@@ -391,7 +404,7 @@ class EventListener {
   virtual void OnExternalFileIngested(
       DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) {}
 
-  // A call-back function for RocksDB which will be called before setting the
+  // A callback function for RocksDB which will be called before setting the
   // background error status to a non-OK value. The new background error status
   // is provided in `bg_error` and can be modified by the callback. E.g., a
   // callback can suppress errors by resetting it to Status::OK(), thus
@@ -405,7 +418,7 @@ class EventListener {
   virtual void OnBackgroundError(BackgroundErrorReason /* reason */,
                                  Status* /* bg_error */) {}
 
-  // A call-back function for RocksDB which will be called whenever a change
+  // A callback function for RocksDB which will be called whenever a change
   // of superversion triggers a change of the stall conditions.
   //
   // Note that the this function must be implemented in a way such that
@@ -413,19 +426,39 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
-  // Factory method to return CompactionEventListener. If multiple listeners
-  // provides CompactionEventListner, only the first one will be used.
-  virtual CompactionEventListener* GetCompactionEventListener() {
-    return nullptr;
-  }
+  // A callback function for RocksDB which will be called whenever a file read
+  // operation finishes.
+  virtual void OnFileReadFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file write
+  // operation finishes.
+  virtual void OnFileWriteFinish(const FileOperationInfo& /* info */) {}
+
+  // If true, the OnFileReadFinish and OnFileWriteFinish will be called. If
+  // false, then they won't be called.
+  virtual bool ShouldBeNotifiedOnFileIO() { return false; }
+
+  // A callback function for RocksDB which will be called just before
+  // starting the automatic recovery process for recoverable background
+  // errors, such as NoSpace(). The callback can suppress the automatic
+  // recovery by setting *auto_recovery to false. The database will then
+  // have to be transitioned out of read-only mode by calling DB::Resume()
+  virtual void OnErrorRecoveryBegin(BackgroundErrorReason /* reason */,
+                                    Status /* bg_error */,
+                                    bool* /* auto_recovery */) {}
+
+  // A callback function for RocksDB which will be called once the database
+  // is recovered from read-only mode after an error. When this is called, it
+  // means normal writes to the database can be issued and the user can
+  // initiate any further recovery actions needed
+  virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
 
   virtual ~EventListener() {}
 };
 
 #else
 
-class EventListener {
-};
+class EventListener {};
 
 #endif  // ROCKSDB_LITE
 

@@ -19,6 +19,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
@@ -34,6 +35,8 @@ class PessimisticTransactionDB : public TransactionDB {
                                     const TransactionDBOptions& txn_db_options);
 
   virtual ~PessimisticTransactionDB();
+
+  virtual const Snapshot* GetSnapshot() override { return db_->GetSnapshot(); }
 
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,
@@ -65,6 +68,26 @@ class PessimisticTransactionDB : public TransactionDB {
 
   using TransactionDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  inline Status WriteWithConcurrencyControl(const WriteOptions& opts,
+                                            WriteBatch* updates) {
+    // Need to lock all keys in this batch to prevent write conflicts with
+    // concurrent transactions.
+    Transaction* txn = BeginInternalTransaction(opts);
+    txn->DisableIndexing();
+
+    auto txn_impl =
+        static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+
+    // Since commitBatch sorts the keys before locking, concurrent Write()
+    // operations will not cause a deadlock.
+    // In order to avoid a deadlock with a concurrent Transaction, Transactions
+    // should use a lock timeout.
+    Status s = txn_impl->CommitBatch(updates);
+
+    delete txn;
+
+    return s;
+  }
 
   using StackableDB::CreateColumnFamily;
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
@@ -118,7 +141,7 @@ class PessimisticTransactionDB : public TransactionDB {
   // an odd performance drop we observed when the added std::atomic member to
   // the base class even when the subclass do not read it in the fast path.
   virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
-  virtual void UpdateCFComparatorMap(const ColumnFamilyHandle*) {}
+  virtual void UpdateCFComparatorMap(ColumnFamilyHandle*) {}
 
  protected:
   DBImpl* db_impl_;
@@ -134,11 +157,15 @@ class PessimisticTransactionDB : public TransactionDB {
  private:
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
+  friend class WriteUnpreparedTxn;
   friend class TransactionTest_DoubleEmptyWrite_Test;
+  friend class TransactionTest_DuplicateKeys_Test;
   friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
-  friend class TransactionTest_TwoPhaseLongPrepareTest_Test;
+  friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
   friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
+  friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
+  friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
   TransactionLockMgr lock_mgr_;
 
   // Must be held when adding/dropping column families.
@@ -185,6 +212,7 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   virtual Status Write(const WriteOptions& opts,
                        const TransactionDBWriteOptimizations& optimizations,
                        WriteBatch* updates) override;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
 
 }  //  namespace rocksdb

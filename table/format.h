@@ -8,17 +8,23 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <string>
 #include <stdint.h>
+#include <string>
+#include "file/file_prefetch_buffer.h"
+#include "file/random_access_file_reader.h"
+
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
+#include "memory/memory_allocator.h"
 #include "options/cf_options.h"
+#include "port/malloc.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
-#include "util/file_reader_writer.h"
+#include "util/crc32c.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -47,19 +53,16 @@ class BlockHandle {
 
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
+  Status DecodeSizeFrom(uint64_t offset, Slice* input);
 
   // Return a string that contains the copy of handle.
   std::string ToString(bool hex = true) const;
 
   // if the block handle's offset and size are both "0", we will view it
   // as a null block handle that points to no where.
-  bool IsNull() const {
-    return offset_ == 0 && size_ == 0;
-  }
+  bool IsNull() const { return offset_ == 0 && size_ == 0; }
 
-  static const BlockHandle& NullBlockHandle() {
-    return kNullBlockHandle;
-  }
+  static const BlockHandle& NullBlockHandle() { return kNullBlockHandle; }
 
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
@@ -71,8 +74,40 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
+// Value in block-based table file index.
+//
+// The index entry for block n is: y -> h, [x],
+// where: y is some key between the last key of block n (inclusive) and the
+// first key of block n+1 (exclusive); h is BlockHandle pointing to block n;
+// x, if present, is the first key of block n (unshortened).
+// This struct represents the "h, [x]" part.
+struct IndexValue {
+  BlockHandle handle;
+  // Empty means unknown.
+  Slice first_internal_key;
+
+  IndexValue() = default;
+  IndexValue(BlockHandle _handle, Slice _first_internal_key)
+      : handle(_handle), first_internal_key(_first_internal_key) {}
+
+  // have_first_key indicates whether the `first_internal_key` is used.
+  // If previous_handle is not null, delta encoding is used;
+  // in this case, the two handles must point to consecutive blocks:
+  // handle.offset() ==
+  //     previous_handle->offset() + previous_handle->size() + kBlockTrailerSize
+  void EncodeTo(std::string* dst, bool have_first_key,
+                const BlockHandle* previous_handle) const;
+  Status DecodeFrom(Slice* input, bool have_first_key,
+                    const BlockHandle* previous_handle);
+
+  std::string ToString(bool hex, bool have_first_key) const;
+};
+
 inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
                                             uint32_t version) {
+#ifdef NDEBUG
+  (void)compression_type;
+#endif
   // snappy is not versioned
   assert(compression_type != kSnappyCompression &&
          compression_type != kXpressCompression &&
@@ -84,7 +119,7 @@ inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
-  return version <= 2;
+  return version <= 4;
 }
 
 // Footer encapsulates the fixed information stored at the tail
@@ -181,32 +216,82 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
 
+inline CompressionType get_block_compression_type(const char* block_data,
+                                                  size_t block_size) {
+  return static_cast<CompressionType>(block_data[block_size]);
+}
+
+// Represents the contents of a block read from an SST file. Depending on how
+// it's created, it may or may not own the actual block bytes. As an example,
+// BlockContents objects representing data read from mmapped files only point
+// into the mmapped region.
 struct BlockContents {
-  Slice data;           // Actual contents of data
-  bool cachable;        // True iff data can be cached
-  CompressionType compression_type;
-  std::unique_ptr<char[]> allocation;
+  Slice data;  // Actual contents of data
+  CacheAllocationPtr allocation;
 
-  BlockContents() : cachable(false), compression_type(kNoCompression) {}
+#ifndef NDEBUG
+  // Whether the block is a raw block, which contains compression type
+  // byte. It is only used for assertion.
+  bool is_raw_block = false;
+#endif  // NDEBUG
 
-  BlockContents(const Slice& _data, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data), cachable(_cachable), compression_type(_compression_type) {}
+  BlockContents() {}
 
-  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
-                CompressionType _compression_type)
-      : data(_data.get(), _size),
-        cachable(_cachable),
-        compression_type(_compression_type),
-        allocation(std::move(_data)) {}
+  // Does not take ownership of the underlying data bytes.
+  BlockContents(const Slice& _data) : data(_data) {}
 
-  BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT { *this = std::move(other); }
+  // Takes ownership of the underlying data bytes.
+  BlockContents(CacheAllocationPtr&& _data, size_t _size)
+      : data(_data.get(), _size), allocation(std::move(_data)) {}
+
+  // Takes ownership of the underlying data bytes.
+  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size)
+      : data(_data.get(), _size) {
+    allocation.reset(_data.release());
+  }
+
+  // Returns whether the object has ownership of the underlying data bytes.
+  bool own_bytes() const { return allocation.get() != nullptr; }
+
+  // It's the caller's responsibility to make sure that this is
+  // for raw block contents, which contains the compression
+  // byte in the end.
+  CompressionType get_compression_type() const {
+    assert(is_raw_block);
+    return get_block_compression_type(data.data(), data.size());
+  }
+
+  // The additional memory space taken by the block data.
+  size_t usable_size() const {
+    if (allocation.get() != nullptr) {
+      auto allocator = allocation.get_deleter().allocator;
+      if (allocator) {
+        return allocator->UsableSize(allocation.get(), data.size());
+      }
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      return malloc_usable_size(allocation.get());
+#else
+      return data.size();
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    } else {
+      return 0;  // no extra memory is occupied by the data
+    }
+  }
+
+  size_t ApproximateMemoryUsage() const {
+    return usable_size() + sizeof(*this);
+  }
+
+  BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT {
+    *this = std::move(other);
+  }
 
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
-    cachable = other.cachable;
-    compression_type = other.compression_type;
     allocation = std::move(other.allocation);
+#ifndef NDEBUG
+    is_raw_block = other.is_raw_block;
+#endif  // NDEBUG
     return *this;
   }
 };
@@ -227,19 +312,20 @@ extern Status ReadBlockContents(
 // free this buffer.
 // For description of compress_format_version and possible values, see
 // util/compression.h
-extern Status UncompressBlockContents(const char* data, size_t n,
+extern Status UncompressBlockContents(const UncompressionInfo& info,
+                                      const char* data, size_t n,
                                       BlockContents* contents,
                                       uint32_t compress_format_version,
-                                      const Slice& compression_dict,
-                                      const ImmutableCFOptions &ioptions);
+                                      const ImmutableCFOptions& ioptions,
+                                      MemoryAllocator* allocator = nullptr);
 
 // This is an extension to UncompressBlockContents that accepts
 // a specific compression type. This is used by un-wrapped blocks
 // with no compression header.
 extern Status UncompressBlockContentsForCompressionType(
-    const char* data, size_t n, BlockContents* contents,
-    uint32_t compress_format_version, const Slice& compression_dict,
-    CompressionType compression_type, const ImmutableCFOptions &ioptions);
+    const UncompressionInfo& info, const char* data, size_t n,
+    BlockContents* contents, uint32_t compress_format_version,
+    const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
 
 // Implementation details follow.  Clients should ignore,
 
@@ -247,9 +333,7 @@ extern Status UncompressBlockContentsForCompressionType(
 // BlockHandle. Currently we use zeros for null and use negation-of-zeros for
 // uninitialized.
 inline BlockHandle::BlockHandle()
-    : BlockHandle(~static_cast<uint64_t>(0),
-                  ~static_cast<uint64_t>(0)) {
-}
+    : BlockHandle(~static_cast<uint64_t>(0), ~static_cast<uint64_t>(0)) {}
 
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}

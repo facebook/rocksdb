@@ -4,8 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#include <string>
+
 #include <map>
+#include <string>
 
 namespace rocksdb {
 
@@ -33,7 +34,7 @@ class WalFilter {
   virtual ~WalFilter() {}
 
   // Provide ColumnFamily->LogNumber map to filter
-  // so that filter can determine whether a log number applies to a given 
+  // so that filter can determine whether a log number applies to a given
   // column family (i.e. that log hasn't been flushed to SST already for the
   // column family).
   // We also pass in name->id map as only name is known during
@@ -82,8 +83,8 @@ class WalFilter {
     return LogRecord(batch, new_batch, batch_changed);
   }
 
-  // Please see the comments for LogRecord above. This function is for 
-  // compatibility only and contains a subset of parameters. 
+  // Please see the comments for LogRecord above. This function is for
+  // compatibility only and contains a subset of parameters.
   // New code should use the function above.
   virtual WalProcessingOption LogRecord(const WriteBatch& /*batch*/,
                                         WriteBatch* /*new_batch*/,

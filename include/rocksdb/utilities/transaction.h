@@ -52,6 +52,10 @@ class TransactionNotifier {
 //  -Support for using Transactions with DBWithTTL
 class Transaction {
  public:
+  // No copying allowed
+  Transaction(const Transaction&) = delete;
+  void operator=(const Transaction&) = delete;
+
   virtual ~Transaction() {}
 
   // If a transaction has a snapshot set, the transaction will ensure that
@@ -118,7 +122,7 @@ class Transaction {
   // longer be valid and should be discarded after a call to ClearSnapshot().
   virtual void ClearSnapshot() = 0;
 
-  // Prepare the current transation for 2PC
+  // Prepare the current transaction for 2PC
   virtual Status Prepare() = 0;
 
   // Write all batched keys to the db atomically.
@@ -131,7 +135,7 @@ class Transaction {
   // Status::Busy() may be returned if the transaction could not guarantee
   // that there are no write conflicts.  Status::TryAgain() may be returned
   // if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain).
+  //  (See max_write_buffer_size_to_maintain).
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
@@ -152,6 +156,12 @@ class Transaction {
   // If there is no previous call to SetSavePoint(), returns Status::NotFound()
   virtual Status RollbackToSavePoint() = 0;
 
+  // Pop the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Otherwise returns Status::OK().
+  virtual Status PopSavePoint() = 0;
+
   // This function is similar to DB::Get() except it will also read pending
   // changes in this transaction.  Currently, this function will return
   // Status::MergeInProgress if the most recent write to the queried key in
@@ -169,8 +179,8 @@ class Transaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
 
-  // An overload of the the above method that receives a PinnableSlice
-  // For backward compatiblity a default implementation is provided
+  // An overload of the above method that receives a PinnableSlice
+  // For backward compatibility a default implementation is provided
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* pinnable_val) {
@@ -199,11 +209,26 @@ class Transaction {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
+  // Batched version of MultiGet - see DBImpl::MultiGet(). Sub-classes are
+  // expected to override this with an implementation that calls
+  // DBImpl::MultiGet()
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        const bool /*sorted_input*/ = false) {
+    for (size_t i = 0; i < num_keys; ++i) {
+      statuses[i] = Get(options, column_family, keys[i], &values[i]);
+    }
+  }
+
   // Read this key and ensure that this transaction will only
   // be able to be committed if this key is not written outside this
   // transaction after it has first been read (or after the snapshot if a
-  // snapshot is set in this transaction).  The transaction behavior is the
-  // same regardless of whether the key exists or not.
+  // snapshot is set in this transaction and do_validate is true). If
+  // do_validate is false, ReadOptions::snapshot is expected to be nullptr so
+  // that GetForUpdate returns the latest committed value. The transaction
+  // behavior is the same regardless of whether the key exists or not.
   //
   // Note: Currently, this function will return Status::MergeInProgress
   // if the most recent write to the queried key in this batch is a Merge.
@@ -222,32 +247,37 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // Status::MergeInProgress() if merge operations cannot be resolved.
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
-                              bool exclusive = true) = 0;
+                              bool exclusive = true,
+                              const bool do_validate = true) = 0;
 
-  // An overload of the the above method that receives a PinnableSlice
-  // For backward compatiblity a default implementation is provided
+  // An overload of the above method that receives a PinnableSlice
+  // For backward compatibility a default implementation is provided
   virtual Status GetForUpdate(const ReadOptions& options,
-                              ColumnFamilyHandle* /*column_family*/,
+                              ColumnFamilyHandle* column_family,
                               const Slice& key, PinnableSlice* pinnable_val,
-                              bool /*exclusive*/ = true) {
+                              bool exclusive = true,
+                              const bool do_validate = true) {
     if (pinnable_val == nullptr) {
       std::string* null_str = nullptr;
-      return GetForUpdate(options, key, null_str);
+      return GetForUpdate(options, column_family, key, null_str, exclusive,
+                          do_validate);
     } else {
-      auto s = GetForUpdate(options, key, pinnable_val->GetSelf());
+      auto s = GetForUpdate(options, column_family, key,
+                            pinnable_val->GetSelf(), exclusive, do_validate);
       pinnable_val->PinSelf();
       return s;
     }
   }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                              std::string* value, bool exclusive = true) = 0;
+                              std::string* value, bool exclusive = true,
+                              const bool do_validate = true) = 0;
 
   virtual std::vector<Status> MultiGetForUpdate(
       const ReadOptions& options,
@@ -280,6 +310,11 @@ class Transaction {
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
+  // assume_tracked=true expects the key be already tracked. More
+  // specifically, it means the the key was previous tracked in the same
+  // savepoint, with the same exclusive flag, and at a lower sequence number.
+  // If valid then it skips ValidateSnapshot.  Returns error otherwise.
+  //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
   //
@@ -289,31 +324,36 @@ class Transaction {
   // Status::Busy() if there is a write conflict,
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
-  //  (See max_write_buffer_number_to_maintain)
+  //  (See max_write_buffer_size_to_maintain)
   // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) = 0;
+                     const Slice& value, const bool assume_tracked = false) = 0;
   virtual Status Put(const Slice& key, const Slice& value) = 0;
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-                     const SliceParts& value) = 0;
+                     const SliceParts& value,
+                     const bool assume_tracked = false) = 0;
   virtual Status Put(const SliceParts& key, const SliceParts& value) = 0;
 
   virtual Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) = 0;
+                       const Slice& value,
+                       const bool assume_tracked = false) = 0;
   virtual Status Merge(const Slice& key, const Slice& value) = 0;
 
-  virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const Slice& key) = 0;
+  virtual Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                        const bool assume_tracked = false) = 0;
   virtual Status Delete(const Slice& key) = 0;
   virtual Status Delete(ColumnFamilyHandle* column_family,
-                        const SliceParts& key) = 0;
+                        const SliceParts& key,
+                        const bool assume_tracked = false) = 0;
   virtual Status Delete(const SliceParts& key) = 0;
 
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const Slice& key) = 0;
+                              const Slice& key,
+                              const bool assume_tracked = false) = 0;
   virtual Status SingleDelete(const Slice& key) = 0;
   virtual Status SingleDelete(ColumnFamilyHandle* column_family,
-                              const SliceParts& key) = 0;
+                              const SliceParts& key,
+                              const bool assume_tracked = false) = 0;
   virtual Status SingleDelete(const SliceParts& key) = 0;
 
   // PutUntracked() will write a Put to the batch of operations to be committed
@@ -368,7 +408,7 @@ class Transaction {
   virtual void EnableIndexing() = 0;
 
   // Returns the number of distinct Keys being tracked by this transaction.
-  // If this transaction was created by a TransactinDB, this is the number of
+  // If this transaction was created by a TransactionDB, this is the number of
   // keys that are currently locked by this transaction.
   // If this transaction was created by an OptimisticTransactionDB, this is the
   // number of keys that need to be checked for conflicts at commit time.
@@ -486,11 +526,13 @@ class Transaction {
     id_ = id;
   }
 
+  virtual uint64_t GetLastLogNumber() const { return log_number_; }
+
  private:
   friend class PessimisticTransactionDB;
-  // No copying allowed
-  Transaction(const Transaction&);
-  void operator=(const Transaction&);
+  friend class WriteUnpreparedTxnDB;
+  friend class TransactionTest_TwoPhaseLogRollingTest_Test;
+  friend class TransactionTest_TwoPhaseLogRollingTest2_Test;
 };
 
 }  // namespace rocksdb

@@ -4,10 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/table_properties.h"
+
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "table/block.h"
+#include "table/block_based/block.h"
 #include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
 #include "util/string_util.h"
@@ -78,6 +79,11 @@ std::string TableProperties::ToString(
   AppendProperty(result, "# data blocks", num_data_blocks, prop_delim,
                  kv_delim);
   AppendProperty(result, "# entries", num_entries, prop_delim, kv_delim);
+  AppendProperty(result, "# deletions", num_deletions, prop_delim, kv_delim);
+  AppendProperty(result, "# merge operands", num_merge_operands, prop_delim,
+                 kv_delim);
+  AppendProperty(result, "# range deletions", num_range_deletions, prop_delim,
+                 kv_delim);
 
   AppendProperty(result, "raw key size", raw_key_size, prop_delim, kv_delim);
   AppendProperty(result, "raw average key size",
@@ -90,7 +96,13 @@ std::string TableProperties::ToString(
                  prop_delim, kv_delim);
 
   AppendProperty(result, "data block size", data_size, prop_delim, kv_delim);
-  AppendProperty(result, "index block size", index_size, prop_delim, kv_delim);
+  char index_block_size_str[80];
+  snprintf(index_block_size_str, sizeof(index_block_size_str),
+           "index block size (user-key? %d, delta-value? %d)",
+           static_cast<int>(index_key_is_user_key),
+           static_cast<int>(index_value_is_delta_encoded));
+  AppendProperty(result, index_block_size_str, index_size, prop_delim,
+                 kv_delim);
   if (index_partitions != 0) {
     AppendProperty(result, "# index partitions", index_partitions, prop_delim,
                    kv_delim);
@@ -106,6 +118,11 @@ std::string TableProperties::ToString(
       result, "filter policy name",
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
       prop_delim, kv_delim);
+
+  AppendProperty(result, "prefix extractor name",
+                 prefix_extractor_name.empty() ? std::string("N/A")
+                                               : prefix_extractor_name,
+                 prop_delim, kv_delim);
 
   AppendProperty(result, "column family ID",
                  column_family_id == rocksdb::TablePropertiesCollectorFactory::
@@ -137,10 +154,18 @@ std::string TableProperties::ToString(
       compression_name.empty() ? std::string("N/A") : compression_name,
       prop_delim, kv_delim);
 
+  AppendProperty(
+      result, "SST file compression options",
+      compression_options.empty() ? std::string("N/A") : compression_options,
+      prop_delim, kv_delim);
+
   AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
 
   AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
+
+  AppendProperty(result, "file creation time", file_creation_time, prop_delim,
+                 kv_delim);
 
   return result;
 }
@@ -150,11 +175,16 @@ void TableProperties::Add(const TableProperties& tp) {
   index_size += tp.index_size;
   index_partitions += tp.index_partitions;
   top_level_index_size += tp.top_level_index_size;
+  index_key_is_user_key += tp.index_key_is_user_key;
+  index_value_is_delta_encoded += tp.index_value_is_delta_encoded;
   filter_size += tp.filter_size;
   raw_key_size += tp.raw_key_size;
   raw_value_size += tp.raw_value_size;
   num_data_blocks += tp.num_data_blocks;
   num_entries += tp.num_entries;
+  num_deletions += tp.num_deletions;
+  num_merge_operands += tp.num_merge_operands;
+  num_range_deletions += tp.num_range_deletions;
 }
 
 const std::string TablePropertiesNames::kDataSize  =
@@ -165,6 +195,10 @@ const std::string TablePropertiesNames::kIndexPartitions =
     "rocksdb.index.partitions";
 const std::string TablePropertiesNames::kTopLevelIndexSize =
     "rocksdb.top-level.index.size";
+const std::string TablePropertiesNames::kIndexKeyIsUserKey =
+    "rocksdb.index.key.is.user.key";
+const std::string TablePropertiesNames::kIndexValueIsDeltaEncoded =
+    "rocksdb.index.value.is.delta.encoded";
 const std::string TablePropertiesNames::kFilterSize =
     "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize =
@@ -175,6 +209,11 @@ const std::string TablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
 const std::string TablePropertiesNames::kNumEntries =
     "rocksdb.num.entries";
+const std::string TablePropertiesNames::kDeletedKeys = "rocksdb.deleted.keys";
+const std::string TablePropertiesNames::kMergeOperands =
+    "rocksdb.merge.operands";
+const std::string TablePropertiesNames::kNumRangeDeletions =
+    "rocksdb.num.range-deletions";
 const std::string TablePropertiesNames::kFilterPolicy =
     "rocksdb.filter.policy";
 const std::string TablePropertiesNames::kFormatVersion =
@@ -193,9 +232,13 @@ const std::string TablePropertiesNames::kPrefixExtractorName =
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
+const std::string TablePropertiesNames::kCompressionOptions =
+    "rocksdb.compression_options";
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
+const std::string TablePropertiesNames::kFileCreationTime =
+    "rocksdb.file.creation.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

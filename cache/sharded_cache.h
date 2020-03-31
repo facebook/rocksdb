@@ -40,6 +40,13 @@ class CacheShard {
                                       bool thread_safe) = 0;
   virtual void EraseUnRefEntries() = 0;
   virtual std::string GetPrintableOptions() const { return ""; }
+  void set_metadata_charge_policy(
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    metadata_charge_policy_ = metadata_charge_policy;
+  }
+
+ protected:
+  CacheMetadataChargePolicy metadata_charge_policy_ = kDontChargeCacheMetadata;
 };
 
 // Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
@@ -47,13 +54,15 @@ class CacheShard {
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
  public:
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit);
+  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+               std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
   virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;
   virtual const CacheShard* GetShard(int shard) const = 0;
   virtual void* Value(Handle* handle) override = 0;
-  virtual size_t GetCharge(Handle* handle) const = 0;
+  virtual size_t GetCharge(Handle* handle) const override = 0;
+
   virtual uint32_t GetHash(Handle* handle) const = 0;
   virtual void DisownData() override = 0;
 
@@ -82,7 +91,7 @@ class ShardedCache : public Cache {
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {
-    return Hash(s.data(), s.size(), 0);
+    return static_cast<uint32_t>(GetSliceNPHash64(s));
   }
 
   uint32_t Shard(uint32_t hash) {

@@ -1,4 +1,5 @@
 #!/bin/sh
+# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 #
 # Set environment variables so that we can compile rocksdb using
 # fbcode settings.  It uses the latest g++ and clang compilers and also
@@ -43,11 +44,15 @@ if test -z $PIC_BUILD; then
   LZ4_INCLUDE=" -I $LZ4_BASE/include/"
   LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
-
-  ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
-  CFLAGS+=" -DZSTD"
 fi
+
+ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
+if test -z $PIC_BUILD; then
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
+else
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
+fi
+CFLAGS+=" -DZSTD -DZSTD_STATIC_LINKING_ONLY"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
@@ -81,9 +86,10 @@ else
 fi
 CFLAGS+=" -DTBB"
 
-# use Intel SSE support for checksum calculations
-export USE_SSE=1
-export PORTABLE=1
+test "$USE_SSE" || USE_SSE=1
+export USE_SSE
+test "$PORTABLE" || PORTABLE=1
+export PORTABLE
 
 BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
@@ -153,5 +159,7 @@ if test -z $PIC_BUILD; then
 else
   LUA_LIB=" $LUA_PATH/lib/liblua_pic.a"
 fi
+
+USE_FOLLY_DISTRIBUTED_MUTEX=1
 
 export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB

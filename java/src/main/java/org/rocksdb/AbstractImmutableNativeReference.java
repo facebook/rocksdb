@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@link AbstractNativeReference} which have an immutable reference to the
  * underlying native C++ object
  */
+//@ThreadSafe
 public abstract class AbstractImmutableNativeReference
     extends AbstractNativeReference {
 
@@ -19,7 +20,7 @@ public abstract class AbstractImmutableNativeReference
    * A flag indicating whether the current {@code AbstractNativeReference} is
    * responsible to free the underlying C++ object
    */
-  private final AtomicBoolean owningHandle_;
+  protected final AtomicBoolean owningHandle_;
 
   protected AbstractImmutableNativeReference(final boolean owningHandle) {
     this.owningHandle_ = new AtomicBoolean(owningHandle);

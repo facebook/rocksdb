@@ -493,7 +493,7 @@ public class DbBenchmark {
       options.setCreateIfMissing(false);
     }
     if (useMemenv_) {
-      options.setEnv(new RocksMemEnv());
+      options.setEnv(new RocksMemEnv(Env.getDefault()));
     }
     switch (memtable_) {
       case "skip_list":
@@ -646,8 +646,8 @@ public class DbBenchmark {
               currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
           break;
         case "fillbatch":
-          tasks.add(new WriteRandomTask(
-              currentTaskId++, randSeed_, num_ / 1000, num_, writeOpt, 1000));
+          tasks.add(
+              new WriteSequentialTask(currentTaskId++, randSeed_, num_, num_, writeOpt, 1000));
           break;
         case "fillrandom":
           tasks.add(new WriteRandomTask(
@@ -901,27 +901,23 @@ public class DbBenchmark {
   }
 
   private enum Flag {
-    benchmarks(
-        Arrays.asList(
-            "fillseq",
-            "readrandom",
-            "fillrandom"),
-        "Comma-separated list of operations to run in the specified order\n" +
-        "\tActual benchmarks:\n" +
-        "\t\tfillseq          -- write N values in sequential key order in async mode.\n" +
-        "\t\tfillrandom       -- write N values in random key order in async mode.\n" +
-        "\t\tfillbatch        -- write N/1000 batch where each batch has 1000 values\n" +
-        "\t\t                   in random key order in sync mode.\n" +
-        "\t\tfillsync         -- write N/100 values in random key order in sync mode.\n" +
-        "\t\tfill100K         -- write N/1000 100K values in random order in async mode.\n" +
-        "\t\treadseq          -- read N times sequentially.\n" +
-        "\t\treadrandom       -- read N times in random order.\n" +
-        "\t\treadhot          -- read N times in random order from 1% section of DB.\n" +
-        "\t\treadwhilewriting -- measure the read performance of multiple readers\n" +
-        "\t\t                   with a bg single writer.  The write rate of the bg\n" +
-        "\t\t                   is capped by --writes_per_second.\n" +
-        "\tMeta Operations:\n" +
-        "\t\tdelete            -- delete DB") {
+    benchmarks(Arrays.asList("fillseq", "readrandom", "fillrandom"),
+        "Comma-separated list of operations to run in the specified order\n"
+            + "\tActual benchmarks:\n"
+            + "\t\tfillseq          -- write N values in sequential key order in async mode.\n"
+            + "\t\tfillrandom       -- write N values in random key order in async mode.\n"
+            + "\t\tfillbatch        -- write N/1000 batch where each batch has 1000 values\n"
+            + "\t\t                   in sequential key order in sync mode.\n"
+            + "\t\tfillsync         -- write N/100 values in random key order in sync mode.\n"
+            + "\t\tfill100K         -- write N/1000 100K values in random order in async mode.\n"
+            + "\t\treadseq          -- read N times sequentially.\n"
+            + "\t\treadrandom       -- read N times in random order.\n"
+            + "\t\treadhot          -- read N times in random order from 1% section of DB.\n"
+            + "\t\treadwhilewriting -- measure the read performance of multiple readers\n"
+            + "\t\t                   with a bg single writer.  The write rate of the bg\n"
+            + "\t\t                   is capped by --writes_per_second.\n"
+            + "\tMeta Operations:\n"
+            + "\t\tdelete            -- delete DB") {
       @Override public Object parseValue(String value) {
         return new ArrayList<String>(Arrays.asList(value.split(",")));
       }

@@ -12,6 +12,7 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 6. LogDevice -- a distributed data store for logs [2]
 
 [1] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+
 [2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
 ## LinkedIn
@@ -26,7 +27,7 @@ Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasu
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
 
 ## CockroachDB
-CockroachDB is an open-source geo-replicated transactional database (still in development). They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
+CockroachDB is an open-source geo-replicated transactional database. They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
 
 ## DNANexus
 DNANexus is using RocksDB to speed up processing of genomics data.
@@ -48,6 +49,10 @@ Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santande
 
 ## Airbnb
 Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
+
+## Alluxio
+[Alluxio](https://www.alluxio.io) uses RocksDB to serve and scale file system metadata to beyond 1 Billion files. The detailed design and implementation is described in this engineering blog:
+https://www.alluxio.io/blog/scalable-metadata-service-in-alluxio-storing-billions-of-files/
 
 ## Pinterest
 Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
@@ -88,3 +93,12 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 
 ## ProfaneDB
 [ProfaneDB](https://profanedb.gitlab.io/) is a database for Protocol Buffers, and uses RocksDB for storage. It is accessible via gRPC, and the schema is defined using directly `.proto` files.
+
+## IOTA Foundation
+ [IOTA Foundation](https://www.iota.org/) is using RocksDB in the [IOTA Reference Implementation (IRI)](https://github.com/iotaledger/iri) to store the local state of the Tangle. The Tangle is the first open-source distributed ledger powering the future of the Internet of Things.
+ 
+## Avrio Project
+ [Avrio Project](http://avrio-project.github.io/avrio.network/) is using RocksDB in [Avrio ](https://github.com/avrio-project/avrio) to store blocks, account balances and data and other blockchain-releated data. Avrio is a multiblockchain decentralized cryptocurrency empowering monetary transactions.
+ 
+## Crux
+[Crux](https://github.com/juxt/crux) is a document database that uses RocksDB for local [EAV](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model) index storage to enable point-in-time bitemporal Datalog queries. The "unbundled" architecture uses Kafka to provide horizontal scalability.

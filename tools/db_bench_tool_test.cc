@@ -10,9 +10,9 @@
 #include "rocksdb/db_bench_tool.h"
 #include "options/options_parser.h"
 #include "rocksdb/utilities/options_util.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 #ifdef GFLAGS
 #include "util/gflags_compat.h"
@@ -26,7 +26,7 @@ static const size_t kArgBufferSize = 100000;
 class DBBenchTest : public testing::Test {
  public:
   DBBenchTest() : rnd_(0xFB) {
-    test_path_ = test::TmpDir() + "/db_bench_test";
+    test_path_ = test::PerThreadDBPath("db_bench_test");
     Env::Default()->CreateDir(test_path_);
     db_path_ = test_path_ + "/db";
     wal_path_ = test_path_ + "/wal";
@@ -245,9 +245,11 @@ const std::string options_file_content = R"OPTIONS_FILE(
   expanded_compaction_factor=25
   soft_rate_limit=0.000000
   max_write_buffer_number_to_maintain=0
+  max_write_buffer_size_to_maintain=0
   verify_checksums_in_compaction=true
   merge_operator=nullptr
   memtable_prefix_bloom_bits=0
+  memtable_whole_key_filtering=true
   paranoid_file_checks=false
   inplace_update_num_locks=10000
   optimize_filters_for_hits=false
@@ -279,7 +281,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
 
 TEST_F(DBBenchTest, OptionsFileFromFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_flash";
-  unique_ptr<WritableFile> writable;
+  std::unique_ptr<WritableFile> writable;
   ASSERT_OK(Env::Default()->NewWritableFile(kOptionsFileName, &writable,
                                             EnvOptions()));
   ASSERT_OK(writable->Append(options_file_content));

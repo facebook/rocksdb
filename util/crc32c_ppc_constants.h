@@ -1,12 +1,12 @@
+//  Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 //  Copyright (C) 2015, 2017 International Business Machines Corp.
 //  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
-#ifndef CRC32C_PPC_CONST_H
-#define CRC32C_PPC_CONST_H
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#pragma once
+
 #define CRC 0x1edc6f41
 #define REFLECT
 #define CRC_XOR
@@ -897,6 +897,4 @@ static const unsigned int crc_table[] = {
         .octa 0x000000000000000000000000dea713f1 /* x^64 div p(x)` */
         /* 33 bit reflected Barrett constant n */
         .octa 0x00000000000000000000000105ec76f1
-#endif
-
 #endif

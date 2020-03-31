@@ -3,9 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -14,9 +11,9 @@ int main() {
 }
 #else
 
-#include <inttypes.h>
-#include <sys/types.h>
 #include <stdio.h>
+#include <sys/types.h>
+#include <cinttypes>
 
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -52,7 +49,7 @@ namespace rocksdb {
 
 class CacheBench;
 namespace {
-void deleter(const Slice& key, void* value) {
+void deleter(const Slice& /*key*/, void* value) {
     delete reinterpret_cast<char *>(value);
 }
 

@@ -12,8 +12,7 @@
 // specific port_<platform>.h file.  Use this file as a reference for
 // how to port this package to a new platform.
 
-#ifndef STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_
-#define STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_
+#pragma once
 
 namespace rocksdb {
 namespace port {
@@ -100,5 +99,3 @@ extern bool Snappy_Uncompress(const char* input_data, size_t input_length,
 
 }  // namespace port
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_

@@ -11,9 +11,8 @@ package org.rocksdb;
  * Taken from include/rocksdb/advanced_options.h
  * and MutableCFOptions in util/cf_options.h
  */
-public interface AdvancedMutableColumnFamilyOptionsInterface
-    <T extends AdvancedMutableColumnFamilyOptionsInterface> {
-
+public interface AdvancedMutableColumnFamilyOptionsInterface<
+    T extends AdvancedMutableColumnFamilyOptionsInterface<T>> {
   /**
    * The maximum number of write buffers that are built up in memory.
    * The default is 2, so that when 1 write buffer is being flushed to
@@ -434,4 +433,32 @@ public interface AdvancedMutableColumnFamilyOptionsInterface
    * @return true if reporting is enabled
    */
   boolean reportBgIoStats();
+
+  /**
+   * Non-bottom-level files older than TTL will go through the compaction
+   * process. This needs {@link MutableDBOptionsInterface#maxOpenFiles()} to be
+   * set to -1.
+   *
+   * Enabled only for level compaction for now.
+   *
+   * Default: 0 (disabled)
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param ttl the time-to-live.
+   *
+   * @return the reference to the current options.
+   */
+  T setTtl(final long ttl);
+
+  /**
+   * Get the TTL for Non-bottom-level files that will go through the compaction
+   * process.
+   *
+   * See {@link #setTtl(long)}.
+   *
+   * @return the time-to-live.
+   */
+  long ttl();
 }

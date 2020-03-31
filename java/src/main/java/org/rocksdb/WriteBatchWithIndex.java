@@ -61,7 +61,20 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
     super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
-        fallbackIndexComparator instanceof DirectComparator, reservedBytes, overwriteKey));
+        fallbackIndexComparator.getComparatorType().getValue(), reservedBytes,
+        overwriteKey));
+  }
+
+  /**
+   * <p>Private WriteBatchWithIndex constructor which is used to construct
+   * WriteBatchWithIndex instances from C++ side. As the reference to this
+   * object is also managed from C++ side the handle will be disowned.</p>
+   *
+   * @param nativeHandle address of native instance.
+   */
+  WriteBatchWithIndex(final long nativeHandle) {
+    super(nativeHandle);
+    disOwnNativeHandle();
   }
 
   /**
@@ -101,6 +114,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
    * as a delta and baseIterator as a base
    *
+   * Updating write batch with the current key of the iterator is not safe.
+   * We strongly recommand users not to do it. It will invalidate the current
+   * key() and value() of the iterator. This invalidation happens even before
+   * the write batch update finishes. The state may recover after Next() is
+   * called.
+   *
    * @param columnFamilyHandle The column family to iterate over
    * @param baseIterator The base iterator,
    *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
@@ -110,12 +129,10 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   public RocksIterator newIteratorWithBase(
       final ColumnFamilyHandle columnFamilyHandle,
       final RocksIterator baseIterator) {
-    RocksIterator iterator = new RocksIterator(
-        baseIterator.parent_,
-        iteratorWithBase(nativeHandle_,
-                columnFamilyHandle.nativeHandle_,
-                baseIterator.nativeHandle_));
-    //when the iterator is deleted it will also delete the baseIterator
+    RocksIterator iterator = new RocksIterator(baseIterator.parent_,
+        iteratorWithBase(
+            nativeHandle_, columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
+    // when the iterator is deleted it will also delete the baseIterator
     baseIterator.disOwnNativeHandle();
     return iterator;
   }
@@ -132,8 +149,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * point-in-timefrom baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(),
-        baseIterator);
+    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
   }
 
   /**
@@ -244,10 +260,14 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void merge(final long handle, final byte[] key,
       final int keyLen, final byte[] value, final int valueLen,
       final long cfHandle);
-  @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen);
-  @Override final native void remove(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle);
+  @Override final native void delete(final long handle, final byte[] key,
+      final int keyLen) throws RocksDBException;
+  @Override final native void delete(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
+  @Override final native void singleDelete(final long handle, final byte[] key,
+      final int keyLen) throws RocksDBException;
+  @Override final native void singleDelete(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle) throws RocksDBException;
   @Override
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen);
@@ -255,20 +275,25 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
       final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle, final byte[] blob,
-      final int blobLen);
+      final int blobLen) throws RocksDBException;
   @Override final native void clear0(final long handle);
   @Override final native void setSavePoint0(final long handle);
   @Override final native void rollbackToSavePoint0(final long handle);
+  @Override final native void popSavePoint(final long handle) throws RocksDBException;
+  @Override final native void setMaxBytes(final long nativeHandle,
+      final long maxBytes);
+  @Override final native WriteBatch getWriteBatch(final long handle);
 
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);
   private native static long newWriteBatchWithIndex(
-      final long fallbackIndexComparatorHandle, final boolean isDirect, final int reservedBytes,
+      final long fallbackIndexComparatorHandle,
+      final byte comparatorType, final int reservedBytes,
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(final long handle,
-      final long baseIteratorHandle, final long cfHandle);
+  private native long iteratorWithBase(
+      final long handle, final long baseIteratorHandle, final long cfHandle);
   private native byte[] getFromBatch(final long handle, final long optHandle,
       final byte[] key, final int keyLen);
   private native byte[] getFromBatch(final long handle, final long optHandle,

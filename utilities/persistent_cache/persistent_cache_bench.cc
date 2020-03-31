@@ -23,7 +23,7 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "table/block_builder.h"
+#include "table/block_based/block_builder.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -251,7 +251,7 @@ class CacheTierBenchmark {
 
   // create data for a key by filling with a certain pattern
   std::unique_ptr<char[]> NewBlock(const uint64_t val) {
-    unique_ptr<char[]> data(new char[FLAGS_iosize]);
+    std::unique_ptr<char[]> data(new char[FLAGS_iosize]);
     memset(data.get(), val % 255, FLAGS_iosize);
     return data;
   }

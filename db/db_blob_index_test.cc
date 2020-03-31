@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/column_family.h"
 #include "db/db_iter.h"
 #include "db/db_test_util.h"
@@ -63,9 +64,11 @@ class DBBlobIndexTest : public DBTestBase {
     ReadOptions read_options;
     read_options.snapshot = snapshot;
     PinnableSlice value;
-    auto s = dbfull()->GetImpl(read_options, cfh(), key, &value,
-                               nullptr /*value_found*/, nullptr /*callback*/,
-                               is_blob_index);
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = cfh();
+    get_impl_options.value = &value;
+    get_impl_options.is_blob_index = is_blob_index;
+    auto s = dbfull()->GetImpl(read_options, key, get_impl_options);
     if (s.IsNotFound()) {
       return "NOT_FOUND";
     }

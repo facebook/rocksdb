@@ -9,7 +9,7 @@
 #include <string>
 
 #include "include/rocksdb/comparator.h"
-#include "util/arena.h"
+#include "memory/arena.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

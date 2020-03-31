@@ -6,11 +6,11 @@
 #include "table/mock_table.h"
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/table_properties.h"
 #include "table/get_context.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace mock {
@@ -26,14 +26,17 @@ stl_wrappers::KVMap MakeMockFile(
   return stl_wrappers::KVMap(l, stl_wrappers::LessOfComparator(&icmp_));
 }
 
-InternalIterator* MockTableReader::NewIterator(const ReadOptions&,
-                                               Arena* /*arena*/,
-                                               bool /*skip_filters*/) {
+InternalIterator* MockTableReader::NewIterator(
+    const ReadOptions&, const SliceTransform* /* prefix_extractor */,
+    Arena* /*arena*/, bool /*skip_filters*/, TableReaderCaller /*caller*/,
+    size_t /*compaction_readahead_size*/) {
   return new MockTableIterator(table_);
 }
 
 Status MockTableReader::Get(const ReadOptions&, const Slice& key,
-                            GetContext* get_context, bool /*skip_filters*/) {
+                            GetContext* get_context,
+                            const SliceTransform* /*prefix_extractor*/,
+                            bool /*skip_filters*/) {
   std::unique_ptr<MockTableIterator> iter(new MockTableIterator(table_));
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;
@@ -41,7 +44,8 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
       return Status::Corruption(Slice());
     }
 
-    if (!get_context->SaveValue(parsed_key, iter->value())) {
+    bool dont_care __attribute__((__unused__));
+    if (!get_context->SaveValue(parsed_key, iter->value(), &dont_care)) {
       break;
     }
   }
@@ -57,8 +61,8 @@ MockTableFactory::MockTableFactory() : next_id_(1) {}
 
 Status MockTableFactory::NewTableReader(
     const TableReaderOptions& /*table_reader_options*/,
-    unique_ptr<RandomAccessFileReader>&& file, uint64_t /*file_size*/,
-    unique_ptr<TableReader>* table_reader,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /*file_size*/,
+    std::unique_ptr<TableReader>* table_reader,
     bool /*prefetch_index_and_filter_in_cache*/) const {
   uint32_t id = GetIDFromFile(file.get());
 
@@ -90,7 +94,7 @@ Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
     return s;
   }
 
-  WritableFileWriter file_writer(std::move(file), EnvOptions());
+  WritableFileWriter file_writer(std::move(file), fname, EnvOptions());
 
   uint32_t id = GetAndWriteNextID(&file_writer);
   file_system_.files.insert({id, std::move(file_contents)});

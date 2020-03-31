@@ -11,14 +11,14 @@
 #include <utility>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/write_callback.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
-#include "port/port.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 using std::string;
 
@@ -29,7 +29,7 @@ class WriteCallbackTest : public testing::Test {
   string dbname;
 
   WriteCallbackTest() {
-    dbname = test::TmpDir() + "/write_callback_testdb";
+    dbname = test::PerThreadDBPath("write_callback_testdb");
   }
 };
 
@@ -124,6 +124,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
       {false, false, true, false, true},
   };
 
+  for (auto& unordered_write : {true, false}) {
   for (auto& seq_per_batch : {true, false}) {
   for (auto& two_queues : {true, false}) {
     for (auto& allow_parallel : {true, false}) {
@@ -133,15 +134,22 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
             for (auto& write_group : write_scenarios) {
               Options options;
               options.create_if_missing = true;
+              options.unordered_write = unordered_write;
               options.allow_concurrent_memtable_write = allow_parallel;
               options.enable_pipelined_write = enable_pipelined_write;
               options.two_write_queues = two_queues;
+              // Skip unsupported combinations
               if (options.enable_pipelined_write && seq_per_batch) {
-                // This combination is not supported
                 continue;
               }
               if (options.enable_pipelined_write && options.two_write_queues) {
-                // This combination is not supported
+                continue;
+              }
+              if (options.unordered_write &&
+                  !options.allow_concurrent_memtable_write) {
+                continue;
+              }
+              if (options.unordered_write && options.enable_pipelined_write) {
                 continue;
               }
 
@@ -157,8 +165,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               column_families.push_back(
                   ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
               std::vector<ColumnFamilyHandle*> handles;
-              auto open_s = DBImpl::Open(db_options, dbname, column_families,
-                                         &handles, &db, seq_per_batch);
+              auto open_s =
+                  DBImpl::Open(db_options, dbname, column_families, &handles,
+                               &db, seq_per_batch, true /* batch_per_txn */);
               ASSERT_OK(open_s);
               assert(handles.size() == 1);
               delete handles[0];
@@ -294,7 +303,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                    public:
                     PublishSeqCallback(DBImpl* db_impl_in)
                         : db_impl_(db_impl_in) {}
-                    virtual Status Callback(SequenceNumber last_seq) {
+                    Status Callback(SequenceNumber last_seq, bool /*not used*/,
+                                    uint64_t, size_t /*index*/,
+                                    size_t /*total*/) override {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();
                     }
@@ -356,8 +367,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
         }
       }
     }
-}
-}
+  }
+  }
+  }
 }
 
 TEST_F(WriteCallbackTest, WriteCallBackTest) {
@@ -431,7 +443,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr,
           "SKIPPED as WriteWithCallback is not supported in ROCKSDB_LITE\n");
   return 0;

@@ -16,21 +16,20 @@
 // non-const method, all threads accessing the same Iterator must use
 // external synchronization.
 
-#ifndef INCLUDE_ROCKSDB_CLEANABLE_H_
-#define INCLUDE_ROCKSDB_CLEANABLE_H_
+#pragma once
 
 namespace rocksdb {
 
 class Cleanable {
  public:
   Cleanable();
-  ~Cleanable();
-
   // No copy constructor and copy assignment allowed.
   Cleanable(Cleanable&) = delete;
   Cleanable& operator=(Cleanable&) = delete;
 
-  // Move consturctor and move assignment is allowed.
+  ~Cleanable();
+
+  // Move constructor and move assignment is allowed.
   Cleanable(Cleanable&&);
   Cleanable& operator=(Cleanable&&);
 
@@ -78,5 +77,3 @@ class Cleanable {
 };
 
 }  // namespace rocksdb
-
-#endif  // INCLUDE_ROCKSDB_CLEANABLE_H_

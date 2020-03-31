@@ -34,14 +34,17 @@ namespace rocksdb {
 
 class WritePreparedTxnDB;
 
-// This impl could write to DB also uncomitted data and then later tell apart
-// committed data from uncomitted data. Uncommitted data could be after the
+// This impl could write to DB also uncommitted data and then later tell apart
+// committed data from uncommitted data. Uncommitted data could be after the
 // Prepare phase in 2PC (WritePreparedTxn) or before that
 // (WriteUnpreparedTxnImpl).
 class WritePreparedTxn : public PessimisticTransaction {
  public:
   WritePreparedTxn(WritePreparedTxnDB* db, const WriteOptions& write_options,
                    const TransactionOptions& txn_options);
+  // No copying allowed
+  WritePreparedTxn(const WritePreparedTxn&) = delete;
+  void operator=(const WritePreparedTxn&) = delete;
 
   virtual ~WritePreparedTxn() {}
 
@@ -53,15 +56,27 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
-  // To make WAL commit markers visible, the snapshot will be based on the last
-  // seq in the WAL that is also published, LastPublishedSequence, as opposed to
-  // the last seq in the memtable.
+  using Transaction::MultiGet;
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, Status* statuses,
+                        bool sorted_input = false) override;
+
+  // Note: The behavior is undefined in presence of interleaved writes to the
+  // same transaction.
+  // To make WAL commit markers visible, the snapshot will be
+  // based on the last seq in the WAL that is also published,
+  // LastPublishedSequence, as opposed to the last seq in the memtable.
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;
   virtual Iterator* GetIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
 
+  virtual void SetSnapshot() override;
+
  protected:
+  void Initialize(const TransactionOptions& txn_options) override;
   // Override the protected SetId to make it visible to the friend class
   // WritePreparedTxnDB
   inline void SetId(uint64_t id) override { Transaction::SetId(id); }
@@ -69,6 +84,8 @@ class WritePreparedTxn : public PessimisticTransaction {
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTxnDB;
+  friend class WriteUnpreparedTxnDB;
+  friend class WriteUnpreparedTxn;
 
   Status PrepareInternal() override;
 
@@ -91,10 +108,6 @@ class WritePreparedTxn : public PessimisticTransaction {
                                   SequenceNumber* tracked_at_seq) override;
 
   virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
-
-  // No copying allowed
-  WritePreparedTxn(const WritePreparedTxn&);
-  void operator=(const WritePreparedTxn&);
 
   WritePreparedTxnDB* wpt_db_;
   // Number of sub-batches in prepare

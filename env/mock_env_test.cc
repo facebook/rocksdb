@@ -1,6 +1,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include "env/mock_env.h"
 
@@ -8,7 +10,7 @@
 #include <string>
 
 #include "rocksdb/env.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -20,16 +22,14 @@ class MockEnvTest : public testing::Test {
   MockEnvTest()
       : env_(new MockEnv(Env::Default())) {
   }
-  ~MockEnvTest() {
-    delete env_;
-  }
+  ~MockEnvTest() override { delete env_; }
 };
 
 TEST_F(MockEnvTest, Corrupt) {
   const std::string kGood = "this is a good string, synced to disk";
   const std::string kCorrupted = "this part may be corrupted";
   const std::string kFileName = "/dir/f";
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env_->NewWritableFile(kFileName, &writable_file, soptions_));
   ASSERT_OK(writable_file->Append(kGood));
   ASSERT_TRUE(writable_file->GetFileSize() == kGood.size());
@@ -37,7 +37,7 @@ TEST_F(MockEnvTest, Corrupt) {
   std::string scratch;
   scratch.resize(kGood.size() + kCorrupted.size() + 16);
   Slice result;
-  unique_ptr<RandomAccessFile> rand_file;
+  std::unique_ptr<RandomAccessFile> rand_file;
   ASSERT_OK(env_->NewRandomAccessFile(kFileName, &rand_file, soptions_));
   ASSERT_OK(rand_file->Read(0, kGood.size(), &result, &(scratch[0])));
   ASSERT_EQ(result.compare(kGood), 0);

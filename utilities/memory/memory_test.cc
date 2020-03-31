@@ -5,21 +5,21 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/stackable_db.h"
-#include "table/block_based_table_factory.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
 class MemoryTest : public testing::Test {
  public:
-  MemoryTest() : kDbDir(test::TmpDir() + "/memory_test"), rnd_(301) {
+  MemoryTest() : kDbDir(test::PerThreadDBPath("memory_test")), rnd_(301) {
     assert(Env::Default()->CreateDirIfMissing(kDbDir).ok());
   }
 
@@ -57,6 +57,8 @@ class MemoryTest : public testing::Test {
     cache_set->clear();
 
     for (auto* db : dbs) {
+      assert(db);
+
       // Cache from DBImpl
       StackableDB* sdb = dynamic_cast<StackableDB*>(db);
       DBImpl* db_impl = dynamic_cast<DBImpl*>(sdb ? sdb->GetBaseDB() : db);
@@ -269,7 +271,7 @@ int main(int argc, char** argv) {
 #else
 #include <cstdio>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Skipped in RocksDBLite as utilities are not supported.\n");
   return 0;
 }

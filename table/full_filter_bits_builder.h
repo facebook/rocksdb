@@ -20,8 +20,11 @@ class Slice;
 
 class FullFilterBitsBuilder : public FilterBitsBuilder {
  public:
-  explicit FullFilterBitsBuilder(const size_t bits_per_key,
-                                 const size_t num_probes);
+  explicit FullFilterBitsBuilder(const int bits_per_key, const int num_probes);
+
+  // No Copy allowed
+  FullFilterBitsBuilder(const FullFilterBitsBuilder&) = delete;
+  void operator=(const FullFilterBitsBuilder&) = delete;
 
   ~FullFilterBitsBuilder();
 
@@ -51,8 +54,9 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
                           uint32_t* num_lines);
 
  private:
-  size_t bits_per_key_;
-  size_t num_probes_;
+  friend class FullFilterBlockTest_DuplicateEntries_Test;
+  int bits_per_key_;
+  int num_probes_;
   std::vector<uint32_t> hash_entries_;
 
   // Get totalbits that optimized for cpu cache line
@@ -64,10 +68,6 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
 
   // Assuming single threaded access to this function.
   void AddHash(uint32_t h, char* data, uint32_t num_lines, uint32_t total_bits);
-
-  // No Copy allowed
-  FullFilterBitsBuilder(const FullFilterBitsBuilder&);
-  void operator=(const FullFilterBitsBuilder&);
 };
 
 }  // namespace rocksdb

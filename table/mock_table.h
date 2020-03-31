@@ -12,16 +12,16 @@
 #include <string>
 #include <utility>
 
-#include "util/kv_map.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
+#include "util/kv_map.h"
 #include "util/mutexlock.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 namespace mock {
@@ -39,15 +39,26 @@ class MockTableReader : public TableReader {
   explicit MockTableReader(const stl_wrappers::KVMap& table) : table_(table) {}
 
   InternalIterator* NewIterator(const ReadOptions&,
-                                Arena* arena,
-                                bool skip_filters = false) override;
+                                const SliceTransform* prefix_extractor,
+                                Arena* arena, bool skip_filters,
+                                TableReaderCaller caller,
+                                size_t compaction_readahead_size = 0) override;
 
-  Status Get(const ReadOptions&, const Slice& key, GetContext* get_context,
+  Status Get(const ReadOptions& readOptions, const Slice& key,
+             GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& /*key*/) override { return 0; }
+  uint64_t ApproximateOffsetOf(const Slice& /*key*/,
+                               TableReaderCaller /*caller*/) override {
+    return 0;
+  }
 
-  virtual size_t ApproximateMemoryUsage() const override { return 0; }
+  uint64_t ApproximateSize(const Slice& /*start*/, const Slice& /*end*/,
+                           TableReaderCaller /*caller*/) override {
+    return 0;
+  }
+
+  size_t ApproximateMemoryUsage() const override { return 0; }
 
   void SetupForCompaction() override {}
 
@@ -154,8 +165,8 @@ class MockTableFactory : public TableFactory {
   const char* Name() const override { return "MockTable"; }
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
-      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,

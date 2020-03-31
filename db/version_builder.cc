@@ -9,13 +9,9 @@
 
 #include "db/version_builder.h"
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <map>
 #include <set>
@@ -31,15 +27,16 @@
 #include "db/version_set.h"
 #include "port/port.h"
 #include "table/table_reader.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->largest_seqno != b->largest_seqno) {
-    return a->largest_seqno > b->largest_seqno;
+  if (a->fd.largest_seqno != b->fd.largest_seqno) {
+    return a->fd.largest_seqno > b->fd.largest_seqno;
   }
-  if (a->smallest_seqno != b->smallest_seqno) {
-    return a->smallest_seqno > b->smallest_seqno;
+  if (a->fd.smallest_seqno != b->fd.smallest_seqno) {
+    return a->fd.smallest_seqno > b->fd.smallest_seqno;
   }
   // Break ties by file number
   return a->fd.GetNumber() > b->fd.GetNumber();
@@ -142,12 +139,12 @@ class VersionBuilder::Rep {
     }
   }
 
-  void CheckConsistency(VersionStorageInfo* vstorage) {
+  Status CheckConsistency(VersionStorageInfo* vstorage) {
 #ifdef NDEBUG
     if (!vstorage->force_consistency_checks()) {
       // Dont run consistency checks in release mode except if
       // explicitly asked to
-      return;
+      return Status::OK();
     }
 #endif
     // make sure the files are sorted correctly
@@ -156,34 +153,53 @@ class VersionBuilder::Rep {
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
+#ifndef NDEBUG
+        auto pair = std::make_pair(&f1, &f2);
+        TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency", &pair);
+#endif
         if (level == 0) {
           if (!level_zero_cmp_(f1, f2)) {
             fprintf(stderr, "L0 files are not sorted properly");
-            abort();
+            return Status::Corruption("L0 files are not sorted properly");
           }
 
-          if (f2->smallest_seqno == f2->largest_seqno) {
+          if (f2->fd.smallest_seqno == f2->fd.largest_seqno) {
             // This is an external file that we ingested
-            SequenceNumber external_file_seqno = f2->smallest_seqno;
-            if (!(external_file_seqno < f1->largest_seqno ||
+            SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
+            if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
-              fprintf(stderr, "L0 file with seqno %" PRIu64 " %" PRIu64
-                              " vs. file with global_seqno %" PRIu64 "\n",
-                      f1->smallest_seqno, f1->largest_seqno,
+              fprintf(stderr,
+                      "L0 file with seqno %" PRIu64 " %" PRIu64
+                      " vs. file with global_seqno %" PRIu64 "\n",
+                      f1->fd.smallest_seqno, f1->fd.largest_seqno,
                       external_file_seqno);
-              abort();
+              return Status::Corruption(
+                  "L0 file with seqno " +
+                  NumberToString(f1->fd.smallest_seqno) + " " +
+                  NumberToString(f1->fd.largest_seqno) +
+                  " vs. file with global_seqno" +
+                  NumberToString(external_file_seqno) + " with fileNumber " +
+                  NumberToString(f1->fd.GetNumber()));
             }
-          } else if (f1->smallest_seqno <= f2->smallest_seqno) {
-            fprintf(stderr, "L0 files seqno %" PRIu64 " %" PRIu64
-                            " vs. %" PRIu64 " %" PRIu64 "\n",
-                    f1->smallest_seqno, f1->largest_seqno, f2->smallest_seqno,
-                    f2->largest_seqno);
-            abort();
+          } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
+            fprintf(stderr,
+                    "L0 files seqno %" PRIu64 " %" PRIu64 " vs. %" PRIu64
+                    " %" PRIu64 "\n",
+                    f1->fd.smallest_seqno, f1->fd.largest_seqno,
+                    f2->fd.smallest_seqno, f2->fd.largest_seqno);
+            return Status::Corruption(
+                "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
+                " " + NumberToString(f1->fd.largest_seqno) + " " +
+                NumberToString(f1->fd.GetNumber()) + " vs. " +
+                NumberToString(f2->fd.smallest_seqno) + " " +
+                NumberToString(f2->fd.largest_seqno) + " " +
+                NumberToString(f2->fd.GetNumber()));
           }
         } else {
           if (!level_nonzero_cmp_(f1, f2)) {
             fprintf(stderr, "L%d files are not sorted properly", level);
-            abort();
+            return Status::Corruption("L" + NumberToString(level) +
+                                      " files are not sorted properly");
           }
 
           // Make sure there is no overlap in levels > 0
@@ -192,20 +208,24 @@ class VersionBuilder::Rep {
             fprintf(stderr, "L%d have overlapping ranges %s vs. %s\n", level,
                     (f1->largest).DebugString(true).c_str(),
                     (f2->smallest).DebugString(true).c_str());
-            abort();
+            return Status::Corruption(
+                "L" + NumberToString(level) + " have overlapping ranges " +
+                (f1->largest).DebugString(true) + " vs. " +
+                (f2->smallest).DebugString(true));
           }
         }
       }
     }
+    return Status::OK();
   }
 
-  void CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
-                                  int level) {
+  Status CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
+                                    int level) {
 #ifdef NDEBUG
     if (!base_vstorage_->force_consistency_checks()) {
       // Dont run consistency checks in release mode except if
       // explicitly asked to
-      return;
+      return Status::OK();
     }
 #endif
     // a file to be deleted better exist in the previous version
@@ -243,8 +263,9 @@ class VersionBuilder::Rep {
     }
     if (!found) {
       fprintf(stderr, "not found %" PRIu64 "\n", number);
-      abort();
+      return Status::Corruption("not found " + NumberToString(number));
     }
+    return Status::OK();
   }
 
   bool CheckConsistencyForNumLevels() {
@@ -261,8 +282,11 @@ class VersionBuilder::Rep {
   }
 
   // Apply all of the edits in *edit to the current state.
-  void Apply(VersionEdit* edit) {
-    CheckConsistency(base_vstorage_);
+  Status Apply(VersionEdit* edit) {
+    Status s = CheckConsistency(base_vstorage_);
+    if (!s.ok()) {
+      return s;
+    }
 
     // Delete files
     const VersionEdit::DeletedFileSet& del = edit->GetDeletedFiles();
@@ -310,20 +334,26 @@ class VersionBuilder::Rep {
         }
       }
     }
+    return s;
   }
 
   // Save the current state in *v.
-  void SaveTo(VersionStorageInfo* vstorage) {
-    CheckConsistency(base_vstorage_);
-    CheckConsistency(vstorage);
+  Status SaveTo(VersionStorageInfo* vstorage) {
+    Status s = CheckConsistency(base_vstorage_);
+    if (!s.ok()) {
+      return s;
+    }
+
+    s = CheckConsistency(vstorage);
+    if (!s.ok()) {
+      return s;
+    }
 
     for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
       const auto& base_files = base_vstorage_->LevelFiles(level);
-      auto base_iter = base_files.begin();
-      auto base_end = base_files.end();
       const auto& unordered_added_files = levels_[level].added_files;
       vstorage->Reserve(level,
                         base_files.size() + unordered_added_files.size());
@@ -337,51 +367,93 @@ class VersionBuilder::Rep {
       std::sort(added_files.begin(), added_files.end(), cmp);
 
 #ifndef NDEBUG
-      FileMetaData* prev_file = nullptr;
-#endif
-
+      FileMetaData* prev_added_file = nullptr;
       for (const auto& added : added_files) {
-#ifndef NDEBUG
-        if (level > 0 && prev_file != nullptr) {
+        if (level > 0 && prev_added_file != nullptr) {
           assert(base_vstorage_->InternalComparator()->Compare(
-                     prev_file->smallest, added->smallest) <= 0);
+                     prev_added_file->smallest, added->smallest) <= 0);
         }
-        prev_file = added;
+        prev_added_file = added;
+      }
 #endif
 
-        // Add all smaller files listed in base_
-        for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
-             base_iter != bpos; ++base_iter) {
-          MaybeAddFile(vstorage, level, *base_iter);
+      auto base_iter = base_files.begin();
+      auto base_end = base_files.end();
+      auto added_iter = added_files.begin();
+      auto added_end = added_files.end();
+      while (added_iter != added_end || base_iter != base_end) {
+        if (base_iter == base_end ||
+                (added_iter != added_end && cmp(*added_iter, *base_iter))) {
+          MaybeAddFile(vstorage, level, *added_iter++);
+        } else {
+          MaybeAddFile(vstorage, level, *base_iter++);
         }
-
-        MaybeAddFile(vstorage, level, added);
-      }
-
-      // Add remaining base files
-      for (; base_iter != base_end; ++base_iter) {
-        MaybeAddFile(vstorage, level, *base_iter);
       }
     }
 
-    CheckConsistency(vstorage);
+    s = CheckConsistency(vstorage);
+    return s;
   }
 
-  void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
-                         bool prefetch_index_and_filter_in_cache) {
+  Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                           bool prefetch_index_and_filter_in_cache,
+                           bool is_initial_load,
+                           const SliceTransform* prefix_extractor) {
     assert(table_cache_ != nullptr);
+
+    size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
+    bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
+    size_t max_load = port::kMaxSizet;
+
+    if (!always_load) {
+      // If it is initial loading and not set to always laoding all the
+      // files, we only load up to kInitialLoadLimit files, to limit the
+      // time reopening the DB.
+      const size_t kInitialLoadLimit = 16;
+      size_t load_limit;
+      // If the table cache is not 1/4 full, we pin the table handle to
+      // file metadata to avoid the cache read costs when reading the file.
+      // The downside of pinning those files is that LRU won't be followed
+      // for those files. This doesn't matter much because if number of files
+      // of the DB excceeds table cache capacity, eventually no table reader
+      // will be pinned and LRU will be followed.
+      if (is_initial_load) {
+        load_limit = std::min(kInitialLoadLimit, table_cache_capacity / 4);
+      } else {
+        load_limit = table_cache_capacity / 4;
+      }
+
+      size_t table_cache_usage = table_cache_->get_cache()->GetUsage();
+      if (table_cache_usage >= load_limit) {
+        // TODO (yanqin) find a suitable status code.
+        return Status::OK();
+      } else {
+        max_load = load_limit - table_cache_usage;
+      }
+    }
+
     // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
+    std::vector<Status> statuses;
     for (int level = 0; level < num_levels_; level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
-        assert(!file_meta->table_reader_handle);
-        files_meta.emplace_back(file_meta, level);
+        // If the file has been opened before, just skip it.
+        if (!file_meta->table_reader_handle) {
+          files_meta.emplace_back(file_meta, level);
+          statuses.emplace_back(Status::OK());
+        }
+        if (files_meta.size() >= max_load) {
+          break;
+        }
+      }
+      if (files_meta.size() >= max_load) {
+        break;
       }
     }
 
     std::atomic<size_t> next_file_meta_idx(0);
-    std::function<void()> load_handlers_func = [&]() {
+    std::function<void()> load_handlers_func([&]() {
       while (true) {
         size_t file_idx = next_file_meta_idx.fetch_add(1);
         if (file_idx >= files_meta.size()) {
@@ -390,37 +462,39 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
-        table_cache_->FindTable(env_options_,
-                                *(base_vstorage_->InternalComparator()),
-                                file_meta->fd, &file_meta->table_reader_handle,
-                                false /*no_io */, true /* record_read_stats */,
-                                internal_stats->GetFileReadHist(level), false,
-                                level, prefetch_index_and_filter_in_cache);
+        statuses[file_idx] = table_cache_->FindTable(
+            env_options_, *(base_vstorage_->InternalComparator()),
+            file_meta->fd, &file_meta->table_reader_handle, prefix_extractor,
+            false /*no_io */, true /* record_read_stats */,
+            internal_stats->GetFileReadHist(level), false, level,
+            prefetch_index_and_filter_in_cache);
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
               file_meta->table_reader_handle);
         }
       }
-    };
+    });
 
-    if (max_threads <= 1) {
-      load_handlers_func();
-    } else {
-      std::vector<port::Thread> threads;
-      for (int i = 0; i < max_threads; i++) {
-        threads.emplace_back(load_handlers_func);
-      }
-
-      for (auto& t : threads) {
-        t.join();
+    std::vector<port::Thread> threads;
+    for (int i = 1; i < max_threads; i++) {
+      threads.emplace_back(load_handlers_func);
+    }
+    load_handlers_func();
+    for (auto& t : threads) {
+      t.join();
+    }
+    for (const auto& s : statuses) {
+      if (!s.ok()) {
+        return s;
       }
     }
+    return Status::OK();
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
-      // f is to-be-delected table file
+      // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
       vstorage->AddFile(level, f, info_log_);
@@ -436,30 +510,32 @@ VersionBuilder::VersionBuilder(const EnvOptions& env_options,
 
 VersionBuilder::~VersionBuilder() { delete rep_; }
 
-void VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
-  rep_->CheckConsistency(vstorage);
+Status VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
+  return rep_->CheckConsistency(vstorage);
 }
 
-void VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
-                                                uint64_t number, int level) {
-  rep_->CheckConsistencyForDeletes(edit, number, level);
+Status VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
+                                                  uint64_t number, int level) {
+  return rep_->CheckConsistencyForDeletes(edit, number, level);
 }
 
 bool VersionBuilder::CheckConsistencyForNumLevels() {
   return rep_->CheckConsistencyForNumLevels();
 }
 
-void VersionBuilder::Apply(VersionEdit* edit) { rep_->Apply(edit); }
+Status VersionBuilder::Apply(VersionEdit* edit) { return rep_->Apply(edit); }
 
-void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
-  rep_->SaveTo(vstorage);
+Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
+  return rep_->SaveTo(vstorage);
 }
 
-void VersionBuilder::LoadTableHandlers(
+Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
-    bool prefetch_index_and_filter_in_cache) {
-  rep_->LoadTableHandlers(internal_stats, max_threads,
-                          prefetch_index_and_filter_in_cache);
+    bool prefetch_index_and_filter_in_cache, bool is_initial_load,
+    const SliceTransform* prefix_extractor) {
+  return rep_->LoadTableHandlers(internal_stats, max_threads,
+                                 prefetch_index_and_filter_in_cache,
+                                 is_initial_load, prefix_extractor);
 }
 
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,

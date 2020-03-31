@@ -13,16 +13,16 @@
 #include "rocksdb/write_buffer_manager.h"
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
 #include "db/wal_manager.h"
 #include "env/mock_env.h"
+#include "file/writable_file_writer.h"
 #include "table/mock_table.h"
-#include "util/file_reader_writer.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -32,7 +32,7 @@ class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
       : env_(new MockEnv(Env::Default())),
-        dbname_(test::TmpDir() + "/wal_manager_test"),
+        dbname_(test::PerThreadDBPath("wal_manager_test")),
         db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
@@ -50,7 +50,8 @@ class WalManagerTest : public testing::Test {
 
     versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                    table_cache_.get(), &write_buffer_manager_,
-                                   &write_controller_));
+                                   &write_controller_,
+                                   /*block_cache_tracer=*/nullptr));
 
     wal_manager_.reset(new WalManager(db_options_, env_options_));
   }
@@ -76,10 +77,10 @@ class WalManagerTest : public testing::Test {
   void RollTheLog(bool /*archived*/) {
     current_log_number_++;
     std::string fname = ArchivedLogFileName(dbname_, current_log_number_);
-    unique_ptr<WritableFile> file;
+    std::unique_ptr<WritableFile> file;
     ASSERT_OK(env_->NewWritableFile(fname, &file, env_options_));
-    unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(file), fname, env_options_));
     current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
   }
 
@@ -94,7 +95,7 @@ class WalManagerTest : public testing::Test {
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
       const SequenceNumber seq) {
-    unique_ptr<TransactionLogIterator> iter;
+    std::unique_ptr<TransactionLogIterator> iter;
     Status status = wal_manager_->GetUpdatesSince(
         seq, &iter, TransactionLogIterator::ReadOptions(), versions_.get());
     EXPECT_OK(status);
@@ -118,7 +119,7 @@ class WalManagerTest : public testing::Test {
 TEST_F(WalManagerTest, ReadFirstRecordCache) {
   Init();
   std::string path = dbname_ + "/000001.log";
-  unique_ptr<WritableFile> file;
+  std::unique_ptr<WritableFile> file;
   ASSERT_OK(env_->NewWritableFile(path, &file, EnvOptions()));
 
   SequenceNumber s;
@@ -129,8 +130,8 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
       wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, 1 /* number */, &s));
   ASSERT_EQ(s, 0U);
 
-  unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), EnvOptions()));
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(file), path, EnvOptions()));
   log::Writer writer(std::move(file_writer), 1,
                      db_options_.recycle_log_file_num > 0);
   WriteBatch batch;
@@ -293,6 +294,29 @@ TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
   ASSERT_TRUE(!iter->Valid());
 }
 
+TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
+  Init();
+  CreateArchiveLogs(2, 100);
+  auto iter = OpenTransactionLogIter(0);
+  CreateArchiveLogs(1, 100);
+  int i = 0;
+  for (; iter->Valid(); iter->Next()) {
+    i++;
+  }
+  ASSERT_EQ(i, 200);
+  // A new log file was added after the iterator was created.
+  // TryAgain indicates a new iterator is needed to fetch the new data
+  ASSERT_TRUE(iter->status().IsTryAgain());
+
+  iter = OpenTransactionLogIter(0);
+  i = 0;
+  for (; iter->Valid(); iter->Next()) {
+    i++;
+  }
+  ASSERT_EQ(i, 300);
+  ASSERT_TRUE(iter->status().ok());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -303,7 +327,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as WalManager is not supported in ROCKSDB_LITE\n");
   return 0;
 }

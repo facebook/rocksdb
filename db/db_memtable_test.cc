@@ -8,6 +8,7 @@
 
 #include "db/db_test_util.h"
 #include "db/memtable.h"
+#include "db/range_del_aggregator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
@@ -24,13 +25,13 @@ class MockMemTableRep : public MemTableRep {
   explicit MockMemTableRep(Allocator* allocator, MemTableRep* rep)
       : MemTableRep(allocator), rep_(rep), num_insert_with_hint_(0) {}
 
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
+  KeyHandle Allocate(const size_t len, char** buf) override {
     return rep_->Allocate(len, buf);
   }
 
-  virtual void Insert(KeyHandle handle) override { rep_->Insert(handle); }
+  void Insert(KeyHandle handle) override { rep_->Insert(handle); }
 
-  virtual void InsertWithHint(KeyHandle handle, void** hint) override {
+  void InsertWithHint(KeyHandle handle, void** hint) override {
     num_insert_with_hint_++;
     EXPECT_NE(nullptr, hint);
     last_hint_in_ = *hint;
@@ -38,21 +39,18 @@ class MockMemTableRep : public MemTableRep {
     last_hint_out_ = *hint;
   }
 
-  virtual bool Contains(const char* key) const override {
-    return rep_->Contains(key);
-  }
+  bool Contains(const char* key) const override { return rep_->Contains(key); }
 
-  virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg,
-                                         const char* entry)) override {
+  void Get(const LookupKey& k, void* callback_args,
+           bool (*callback_func)(void* arg, const char* entry)) override {
     rep_->Get(k, callback_args, callback_func);
   }
 
-  virtual size_t ApproximateMemoryUsage() override {
+  size_t ApproximateMemoryUsage() override {
     return rep_->ApproximateMemoryUsage();
   }
 
-  virtual Iterator* GetIterator(Arena* arena) override {
+  Iterator* GetIterator(Arena* arena) override {
     return rep_->GetIterator(arena);
   }
 
@@ -69,10 +67,10 @@ class MockMemTableRep : public MemTableRep {
 
 class MockMemTableRepFactory : public MemTableRepFactory {
  public:
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                         Allocator* allocator,
-                                         const SliceTransform* transform,
-                                         Logger* logger) override {
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* logger) override {
     SkipListFactory factory;
     MemTableRep* skiplist_rep =
         factory.CreateMemTableRep(cmp, allocator, transform, logger);
@@ -80,16 +78,16 @@ class MockMemTableRepFactory : public MemTableRepFactory {
     return mock_rep_;
   }
 
-  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                         Allocator* allocator,
-                                         const SliceTransform* transform,
-                                         Logger* logger,
-                                         uint32_t column_family_id) override {
+  MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
+                                 Allocator* allocator,
+                                 const SliceTransform* transform,
+                                 Logger* logger,
+                                 uint32_t column_family_id) override {
     last_column_family_id_ = column_family_id;
     return CreateMemTableRep(cmp, allocator, transform, logger);
   }
 
-  virtual const char* Name() const override { return "MockMemTableRepFactory"; }
+  const char* Name() const override { return "MockMemTableRepFactory"; }
 
   MockMemTableRep* rep() { return mock_rep_; }
 
@@ -105,9 +103,9 @@ class MockMemTableRepFactory : public MemTableRepFactory {
 
 class TestPrefixExtractor : public SliceTransform {
  public:
-  virtual const char* Name() const override { return "TestPrefixExtractor"; }
+  const char* Name() const override { return "TestPrefixExtractor"; }
 
-  virtual Slice Transform(const Slice& key) const override {
+  Slice Transform(const Slice& key) const override {
     const char* p = separator(key);
     if (p == nullptr) {
       return Slice();
@@ -115,11 +113,11 @@ class TestPrefixExtractor : public SliceTransform {
     return Slice(key.data(), p - key.data() + 1);
   }
 
-  virtual bool InDomain(const Slice& key) const override {
+  bool InDomain(const Slice& key) const override {
     return separator(key) != nullptr;
   }
 
-  virtual bool InRange(const Slice& /*key*/) const override { return false; }
+  bool InRange(const Slice& /*key*/) const override { return false; }
 
  private:
   const char* separator(const Slice& key) const {
@@ -135,7 +133,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   MergeContext merge_context;
   Options options;
   InternalKeyComparator ikey_cmp(options.comparator);
-  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
+  ReadRangeDelAggregator range_del_agg(&ikey_cmp,
+                                       kMaxSequenceNumber /* upper_bound */);
 
   // Create a MemTable
   InternalKeyComparator cmp(BytewiseComparator());
@@ -205,6 +204,76 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   delete mem;
 }
 
+// A simple test to verify that the concurrent merge writes is functional
+TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
+  int num_ops = 1000;
+  std::string value;
+  Status s;
+  MergeContext merge_context;
+  Options options;
+  // A merge operator that is not sensitive to concurrent writes since in this
+  // test we don't order the writes.
+  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+
+  // Create a MemTable
+  InternalKeyComparator cmp(BytewiseComparator());
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  options.allow_concurrent_memtable_write = true;
+  ImmutableCFOptions ioptions(options);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber, 0 /* column_family_id */);
+
+  // Put 0 as the base
+  PutFixed64(&value, static_cast<uint64_t>(0));
+  bool res = mem->Add(0, kTypeValue, "key", value);
+  ASSERT_TRUE(res);
+  value.clear();
+
+  // Write Merge concurrently
+  rocksdb::port::Thread write_thread1([&]() {
+  MemTablePostProcessInfo post_process_info1;
+    std::string v1;
+    for (int seq = 1; seq < num_ops / 2; seq++) {
+      PutFixed64(&v1, seq);
+      bool res1 =
+          mem->Add(seq, kTypeMerge, "key", v1, true, &post_process_info1);
+      ASSERT_TRUE(res1);
+      v1.clear();
+    }
+  });
+  rocksdb::port::Thread write_thread2([&]() {
+  MemTablePostProcessInfo post_process_info2;
+    std::string v2;
+    for (int seq = num_ops / 2; seq < num_ops; seq++) {
+      PutFixed64(&v2, seq);
+      bool res2 =
+          mem->Add(seq, kTypeMerge, "key", v2, true, &post_process_info2);
+      ASSERT_TRUE(res2);
+      v2.clear();
+    }
+  });
+  write_thread1.join();
+  write_thread2.join();
+
+  Status status;
+  ReadOptions roptions;
+  SequenceNumber max_covering_tombstone_seq = 0;
+  LookupKey lkey("key", kMaxSequenceNumber);
+  res = mem->Get(lkey, &value, &status, &merge_context,
+                 &max_covering_tombstone_seq, roptions);
+  ASSERT_TRUE(res);
+  uint64_t ivalue = DecodeFixed64(Slice(value).data());
+  uint64_t sum = 0;
+  for (int seq = 0; seq < num_ops; seq++) {
+    sum += seq;
+  }
+  ASSERT_EQ(ivalue, sum);
+
+  delete mem;
+}
+
 TEST_F(DBMemTableTest, InsertWithHint) {
   Options options;
   options.allow_concurrent_memtable_write = false;
@@ -253,7 +322,7 @@ TEST_F(DBMemTableTest, ColumnFamilyId) {
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  for (int cf = 0; cf < 2; ++cf) {
+  for (uint32_t cf = 0; cf < 2; ++cf) {
     ASSERT_OK(Put(cf, "key", "val"));
     ASSERT_OK(Flush(cf));
     ASSERT_EQ(

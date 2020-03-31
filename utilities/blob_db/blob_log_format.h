@@ -10,7 +10,9 @@
 #ifndef ROCKSDB_LITE
 
 #include <limits>
+#include <memory>
 #include <utility>
+
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -106,8 +108,8 @@ struct BlobLogRecord {
   uint32_t blob_crc = 0;
   Slice key;
   Slice value;
-  std::string key_buf;
-  std::string value_buf;
+  std::unique_ptr<char[]> key_buf;
+  std::unique_ptr<char[]> value_buf;
 
   uint64_t record_size() const { return kHeaderSize + key_size + value_size; }
 

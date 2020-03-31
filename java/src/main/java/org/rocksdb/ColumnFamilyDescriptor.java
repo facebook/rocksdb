@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
+
 /**
  * <p>Describes a column family with a
  * name and respective Options.</p>
@@ -32,7 +34,7 @@ public class ColumnFamilyDescriptor {
    * @since 3.10.0
    */
   public ColumnFamilyDescriptor(final byte[] columnFamilyName,
-      final ColumnFamilyOptions columnFamilyOptions) {
+                                final ColumnFamilyOptions columnFamilyOptions) {
     columnFamilyName_ = columnFamilyName;
     columnFamilyOptions_ = columnFamilyOptions;
   }
@@ -43,8 +45,21 @@ public class ColumnFamilyDescriptor {
    * @return column family name.
    * @since 3.10.0
    */
-  public byte[] columnFamilyName() {
+  public byte[] getName() {
     return columnFamilyName_;
+  }
+
+  /**
+   * Retrieve name of column family.
+   *
+   * @return column family name.
+   * @since 3.10.0
+   *
+   * @deprecated Use {@link #getName()} instead.
+   */
+  @Deprecated
+  public byte[] columnFamilyName() {
+    return getName();
   }
 
   /**
@@ -52,8 +67,41 @@ public class ColumnFamilyDescriptor {
    *
    * @return Options instance assigned to this instance.
    */
-  public ColumnFamilyOptions columnFamilyOptions() {
+  public ColumnFamilyOptions getOptions() {
     return columnFamilyOptions_;
+  }
+
+  /**
+   * Retrieve assigned options instance.
+   *
+   * @return Options instance assigned to this instance.
+   *
+   * @deprecated Use {@link #getOptions()} instead.
+   */
+  @Deprecated
+  public ColumnFamilyOptions columnFamilyOptions() {
+    return getOptions();
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+
+    final ColumnFamilyDescriptor that = (ColumnFamilyDescriptor) o;
+    return Arrays.equals(columnFamilyName_, that.columnFamilyName_)
+            && columnFamilyOptions_.nativeHandle_ == that.columnFamilyOptions_.nativeHandle_;
+  }
+
+  @Override
+  public int hashCode() {
+    int result = (int) (columnFamilyOptions_.nativeHandle_ ^ (columnFamilyOptions_.nativeHandle_ >>> 32));
+    result = 31 * result + Arrays.hashCode(columnFamilyName_);
+    return result;
   }
 
   private final byte[] columnFamilyName_;

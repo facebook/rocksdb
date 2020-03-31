@@ -21,6 +21,10 @@ class SnapshotList;
 class SnapshotImpl : public Snapshot {
  public:
   SequenceNumber number_;  // const after creation
+  // It indicates the smallest uncommitted data at the time the snapshot was
+  // taken. This is currently used by WritePrepared transactions to limit the
+  // scope of queries to IsInSnpashot.
+  SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
@@ -52,12 +56,15 @@ class SnapshotList {
     count_ = 0;
   }
 
+  // No copy-construct.
+  SnapshotList(const SnapshotList&) = delete;
+
   bool empty() const { return list_.next_ == &list_; }
   SnapshotImpl* oldest() const { assert(!empty()); return list_.next_; }
   SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
 
-  const SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq,
-                          uint64_t unix_time, bool is_write_conflict_boundary) {
+  SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq, uint64_t unix_time,
+                    bool is_write_conflict_boundary) {
     s->number_ = seq;
     s->unix_time_ = unix_time;
     s->is_write_conflict_boundary_ = is_write_conflict_boundary;
@@ -79,25 +86,38 @@ class SnapshotList {
   }
 
   // retrieve all snapshot numbers up until max_seq. They are sorted in
-  // ascending order.
+  // ascending order (with no duplicates).
   std::vector<SequenceNumber> GetAll(
       SequenceNumber* oldest_write_conflict_snapshot = nullptr,
       const SequenceNumber& max_seq = kMaxSequenceNumber) const {
     std::vector<SequenceNumber> ret;
+    GetAll(&ret, oldest_write_conflict_snapshot, max_seq);
+    return ret;
+  }
+
+  void GetAll(std::vector<SequenceNumber>* snap_vector,
+              SequenceNumber* oldest_write_conflict_snapshot = nullptr,
+              const SequenceNumber& max_seq = kMaxSequenceNumber) const {
+    std::vector<SequenceNumber>& ret = *snap_vector;
+    // So far we have no use case that would pass a non-empty vector
+    assert(ret.size() == 0);
 
     if (oldest_write_conflict_snapshot != nullptr) {
       *oldest_write_conflict_snapshot = kMaxSequenceNumber;
     }
 
     if (empty()) {
-      return ret;
+      return;
     }
     const SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
       if (s->next_->number_ > max_seq) {
         break;
       }
-      ret.push_back(s->next_->number_);
+      // Avoid duplicates
+      if (ret.empty() || ret.back() != s->next_->number_) {
+        ret.push_back(s->next_->number_);
+      }
 
       if (oldest_write_conflict_snapshot != nullptr &&
           *oldest_write_conflict_snapshot == kMaxSequenceNumber &&
@@ -109,7 +129,7 @@ class SnapshotList {
 
       s = s->next_;
     }
-    return ret;
+    return;
   }
 
   // get the sequence number of the most recent snapshot

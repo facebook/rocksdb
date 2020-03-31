@@ -10,9 +10,16 @@ import org.junit.internal.TextListener;
 import org.junit.runner.Description;
 import org.junit.runner.JUnitCore;
 import org.junit.runner.Result;
+import org.junit.runner.notification.Failure;
+import org.rocksdb.RocksDB;
 
+import java.io.PrintStream;
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.rocksdb.test.RocksJunitRunner.RocksJunitListener.Status.*;
 
 /**
  * Custom Junit Runner to print also Test classes
@@ -26,20 +33,117 @@ public class RocksJunitRunner {
    */
   static class RocksJunitListener extends TextListener {
 
+    private final static NumberFormat secsFormat =
+        new DecimalFormat("###,###.###");
+
+    private final PrintStream writer;
+
+    private String currentClassName = null;
+    private String currentMethodName = null;
+    private Status currentStatus = null;
+    private long currentTestsStartTime;
+    private int currentTestsCount = 0;
+    private int currentTestsIgnoredCount = 0;
+    private int currentTestsFailureCount = 0;
+    private int currentTestsErrorCount = 0;
+
+    enum Status {
+      IGNORED,
+      FAILURE,
+      ERROR,
+      OK
+    }
+
     /**
      * RocksJunitListener constructor
      *
      * @param system JUnitSystem
      */
     public RocksJunitListener(final JUnitSystem system) {
-      super(system);
+      this(system.out());
+    }
+
+    public RocksJunitListener(final PrintStream writer) {
+      super(writer);
+      this.writer = writer;
+    }
+
+    @Override
+    public void testRunStarted(final Description description) {
+      writer.format("Starting RocksJava Tests...%n");
+
     }
 
     @Override
     public void testStarted(final Description description) {
-       System.out.format("Run: %s testing now -> %s \n",
-           description.getClassName(),
-           description.getMethodName());
+      if(currentClassName == null
+          || !currentClassName.equals(description.getClassName())) {
+        if(currentClassName !=  null) {
+          printTestsSummary();
+        } else {
+          currentTestsStartTime = System.currentTimeMillis();
+        }
+        writer.format("%nRunning: %s%n", description.getClassName());
+        currentClassName = description.getClassName();
+      }
+      currentMethodName = description.getMethodName();
+      currentStatus = OK;
+      currentTestsCount++;
+    }
+
+    private void printTestsSummary() {
+      // print summary of last test set
+      writer.format("Tests run: %d, Failures: %d, Errors: %d, Ignored: %d, Time elapsed: %s sec%n",
+          currentTestsCount,
+          currentTestsFailureCount,
+          currentTestsErrorCount,
+          currentTestsIgnoredCount,
+          formatSecs(System.currentTimeMillis() - currentTestsStartTime));
+
+      // reset counters
+      currentTestsCount = 0;
+      currentTestsFailureCount = 0;
+      currentTestsErrorCount = 0;
+      currentTestsIgnoredCount = 0;
+      currentTestsStartTime = System.currentTimeMillis();
+    }
+
+    private static String formatSecs(final double milliseconds) {
+      final double seconds = milliseconds / 1000;
+      return secsFormat.format(seconds);
+    }
+
+    @Override
+    public void testFailure(final Failure failure) {
+      if (failure.getException() != null
+          && failure.getException() instanceof AssertionError) {
+        currentStatus = FAILURE;
+        currentTestsFailureCount++;
+      } else {
+        currentStatus = ERROR;
+        currentTestsErrorCount++;
+      }
+    }
+
+    @Override
+    public void testIgnored(final Description description) {
+      currentStatus = IGNORED;
+      currentTestsIgnoredCount++;
+    }
+
+    @Override
+    public void testFinished(final Description description) {
+      if(currentStatus == OK) {
+        writer.format("\t%s OK%n",currentMethodName);
+      } else {
+        writer.format("  [%s] %s%n", currentStatus.name(), currentMethodName);
+      }
+    }
+
+    @Override
+    public void testRunFinished(final Result result) {
+      printTestsSummary();
+      super.testRunFinished(result);
     }
   }
 

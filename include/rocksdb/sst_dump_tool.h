@@ -5,11 +5,13 @@
 #ifndef ROCKSDB_LITE
 #pragma once
 
+#include "rocksdb/options.h"
+
 namespace rocksdb {
 
 class SSTDumpTool {
  public:
-  int Run(int argc, char** argv);
+  int Run(int argc, char** argv, Options options = Options());
 };
 
 }  // namespace rocksdb

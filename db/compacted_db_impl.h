@@ -5,15 +5,19 @@
 
 #pragma once
 #ifndef ROCKSDB_LITE
-#include "db/db_impl.h"
-#include <vector>
 #include <string>
+#include <vector>
+#include "db/db_impl/db_impl.h"
 
 namespace rocksdb {
 
 class CompactedDBImpl : public DBImpl {
  public:
   CompactedDBImpl(const DBOptions& options, const std::string& dbname);
+  // No copying allowed
+  CompactedDBImpl(const CompactedDBImpl&) = delete;
+  void operator=(const CompactedDBImpl&) = delete;
+
   virtual ~CompactedDBImpl();
 
   static Status Open(const Options& options, const std::string& dbname,
@@ -67,10 +71,11 @@ class CompactedDBImpl : public DBImpl {
   virtual Status EnableFileDeletions(bool /*force*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
-  virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* /*manifest_file_size*/,
-                              bool /*flush_memtable*/ = true) override {
-    return Status::NotSupported("Not supported in compacted db mode.");
+  virtual Status GetLiveFiles(std::vector<std::string>& ret,
+                              uint64_t* manifest_file_size,
+                              bool /*flush_memtable*/) override {
+    return DBImpl::GetLiveFiles(ret, manifest_file_size,
+                                false /* flush_memtable */);
   }
   using DBImpl::Flush;
   virtual Status Flush(const FlushOptions& /*options*/,
@@ -84,6 +89,15 @@ class CompactedDBImpl : public DBImpl {
       const IngestExternalFileOptions& /*ingestion_options*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& /*options*/,
+      const std::string& /*column_family_name*/,
+      const ImportColumnFamilyOptions& /*import_options*/,
+      const ExportImportFilesMetaData& /*metadata*/,
+      ColumnFamilyHandle** /*handle*/) override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
 
  private:
   friend class DB;
@@ -94,10 +108,6 @@ class CompactedDBImpl : public DBImpl {
   Version* version_;
   const Comparator* user_comparator_;
   LevelFilesBrief files_;
-
-  // No copying allowed
-  CompactedDBImpl(const CompactedDBImpl&);
-  void operator=(const CompactedDBImpl&);
 };
 }
 #endif  // ROCKSDB_LITE

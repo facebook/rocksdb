@@ -4,16 +4,16 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <iostream>
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
-#include "db/db_impl.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
-#include "utilities/merge_operators.h"
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 #include "utilities/cassandra/merge_operator.h"
 #include "utilities/cassandra/test_utils.h"
+#include "utilities/merge_operators.h"
 
 using namespace rocksdb;
 
@@ -21,7 +21,7 @@ namespace rocksdb {
 namespace cassandra {
 
 // Path to the database on file system
-const std::string kDbName = test::TmpDir() + "/cassandra_functional_test";
+const std::string kDbName = test::PerThreadDBPath("cassandra_functional_test");
 
 class CassandraStore {
  public:
@@ -99,15 +99,13 @@ public:
      : purge_ttl_on_expiration_(purge_ttl_on_expiration),
        gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
 
- virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+ std::unique_ptr<CompactionFilter> CreateCompactionFilter(
      const CompactionFilter::Context& /*context*/) override {
-   return unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
+   return std::unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
        purge_ttl_on_expiration_, gc_grace_period_in_seconds_));
-  }
+ }
 
-  virtual const char* Name() const override {
-    return "TestCompactionFilterFactory";
-  }
+ const char* Name() const override { return "TestCompactionFilterFactory"; }
 
 private:
   bool purge_ttl_on_expiration_;

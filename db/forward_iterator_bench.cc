@@ -3,10 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #if !defined(GFLAGS) || defined(ROCKSDB_LITE)
 #include <cstdio>
 int main() {
@@ -34,8 +30,8 @@ int main() { return 0; }
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "test_util/testharness.h"
 #include "util/gflags_compat.h"
-#include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
 
@@ -323,7 +319,7 @@ int main(int argc, char** argv) {
 
   std::mt19937 rng{std::random_device()()};
   rocksdb::Status status;
-  std::string path = rocksdb::test::TmpDir() + "/forward_iterator_test";
+  std::string path = rocksdb::test::PerThreadDBPath("forward_iterator_test");
   fprintf(stderr, "db path is %s\n", path.c_str());
   rocksdb::Options options;
   options.create_if_missing = true;

@@ -6,8 +6,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_COMPARATOR_H_
-#define STORAGE_ROCKSDB_INCLUDE_COMPARATOR_H_
+#pragma once
 
 #include <string>
 
@@ -21,8 +20,22 @@ class Slice;
 // from multiple threads.
 class Comparator {
  public:
+  Comparator() : timestamp_size_(0) {}
+
+  Comparator(size_t ts_sz) : timestamp_size_(ts_sz) {}
+
+  Comparator(const Comparator& orig) : timestamp_size_(orig.timestamp_size_) {}
+
+  Comparator& operator=(const Comparator& rhs) {
+    if (this != &rhs) {
+      timestamp_size_ = rhs.timestamp_size_;
+    }
+    return *this;
+  }
+
   virtual ~Comparator() {}
 
+  static const char* Type() { return "Comparator"; }
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
@@ -56,9 +69,8 @@ class Comparator {
   // If *start < limit, changes *start to a short string in [start,limit).
   // Simple comparator implementations may return with *start unchanged,
   // i.e., an implementation of this method that does nothing is correct.
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const = 0;
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const = 0;
 
   // Changes *key to a short string >= *key.
   // Simple comparator implementations may return with *key unchanged,
@@ -68,6 +80,32 @@ class Comparator {
   // if it is a wrapped comparator, may return the root one.
   // return itself it is not wrapped.
   virtual const Comparator* GetRootComparator() const { return this; }
+
+  // given two keys, determine if t is the successor of s
+  virtual bool IsSameLengthImmediateSuccessor(const Slice& /*s*/,
+                                              const Slice& /*t*/) const {
+    return false;
+  }
+
+  // return true if two keys with different byte sequences can be regarded
+  // as equal by this comparator.
+  // The major use case is to determine if DataBlockHashIndex is compatible
+  // with the customized comparator.
+  virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
+
+  inline size_t timestamp_size() const { return timestamp_size_; }
+
+  virtual int CompareWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return Compare(a, b);
+  }
+
+  virtual int CompareTimestamp(const Slice& /*ts1*/,
+                               const Slice& /*ts2*/) const {
+    return 0;
+  }
+
+ private:
+  size_t timestamp_size_;
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise
@@ -80,5 +118,3 @@ extern const Comparator* BytewiseComparator();
 extern const Comparator* ReverseBytewiseComparator();
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_COMPARATOR_H_

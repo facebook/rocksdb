@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 // Copyright (c) 2015, Red Hat, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
@@ -19,8 +20,8 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <iostream>
 #include <algorithm>
+#include <iostream>
 #include <vector>
 #include "rocksdb/env.h"
 
@@ -31,37 +32,32 @@ class RandomAccessFileMirror;
 class WritableFileMirror;
 
 class EnvMirror : public EnvWrapper {
-  Env* a_, *b_;
+  Env *a_, *b_;
   bool free_a_, free_b_;
 
  public:
-  EnvMirror(Env* a, Env* b, bool free_a=false, bool free_b=false)
-    : EnvWrapper(a),
-      a_(a),
-      b_(b),
-      free_a_(free_a),
-      free_b_(free_b) {}
+  EnvMirror(Env* a, Env* b, bool free_a = false, bool free_b = false)
+      : EnvWrapper(a), a_(a), b_(b), free_a_(free_a), free_b_(free_b) {}
   ~EnvMirror() {
-    if (free_a_)
-      delete a_;
-    if (free_b_)
-      delete b_;
+    if (free_a_) delete a_;
+    if (free_b_) delete b_;
   }
 
-  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+  Status NewSequentialFile(const std::string& f,
+                           std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override;
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
+                             std::unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override;
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+  Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override;
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
-                           unique_ptr<WritableFile>* r,
+                           std::unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override;
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
-    unique_ptr<Directory> br;
+                              std::unique_ptr<Directory>* result) override {
+    std::unique_ptr<Directory> br;
     Status as = a_->NewDirectory(name, result);
     Status bs = b_->NewDirectory(name, &br);
     assert(as == bs);
@@ -156,12 +152,12 @@ class EnvMirror : public EnvWrapper {
 
   class FileLockMirror : public FileLock {
    public:
-    FileLock* a_, *b_;
+    FileLock *a_, *b_;
     FileLockMirror(FileLock* a, FileLock* b) : a_(a), b_(b) {}
   };
 
   Status LockFile(const std::string& f, FileLock** l) override {
-    FileLock* al, *bl;
+    FileLock *al, *bl;
     Status as = a_->LockFile(f, &al);
     Status bs = b_->LockFile(f, &bl);
     assert(as == bs);

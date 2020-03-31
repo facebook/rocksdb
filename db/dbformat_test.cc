@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
-#include "util/logging.h"
-#include "util/testharness.h"
+#include "logging/logging.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -190,6 +190,13 @@ TEST_F(FormatTest, UpdateInternalKey) {
   ASSERT_EQ(user_key, decoded.user_key.ToString());
   ASSERT_EQ(new_seq, decoded.sequence);
   ASSERT_EQ(new_val_type, decoded.type);
+}
+
+TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
+  RangeTombstone t("a", "b", 2);
+  InternalKey k("b", 3, kTypeValue);
+  const InternalKeyComparator cmp(BytewiseComparator());
+  ASSERT_LT(cmp.Compare(t.SerializeEndKey(), k), 0);
 }
 
 }  // namespace rocksdb

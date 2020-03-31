@@ -3,11 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "file/filename.h"
+#include "logging/logging.h"
 #include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/cache.h"
@@ -21,17 +23,15 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/block_based_table_factory.h"
-#include "table/plain_table_factory.h"
-#include "util/filename.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/plain/plain_table_factory.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/hash.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 #ifndef ROCKSDB_LITE
@@ -46,22 +46,20 @@ class EventListenerTest : public DBTestBase {
 };
 
 struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
-  virtual rocksdb::Status AddUserKey(const rocksdb::Slice& /*key*/,
-                                     const rocksdb::Slice& /*value*/,
-                                     rocksdb::EntryType /*type*/,
-                                     rocksdb::SequenceNumber /*seq*/,
-                                     uint64_t /*file_size*/) override {
+  rocksdb::Status AddUserKey(const rocksdb::Slice& /*key*/,
+                             const rocksdb::Slice& /*value*/,
+                             rocksdb::EntryType /*type*/,
+                             rocksdb::SequenceNumber /*seq*/,
+                             uint64_t /*file_size*/) override {
     return Status::OK();
   }
-  virtual rocksdb::Status Finish(
+  rocksdb::Status Finish(
       rocksdb::UserCollectedProperties* properties) override {
     properties->insert({"0", "1"});
     return Status::OK();
   }
 
-  virtual const char* Name() const override {
-    return "TestTablePropertiesCollector";
-  }
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
 
   rocksdb::UserCollectedProperties GetReadableProperties() const override {
     rocksdb::UserCollectedProperties ret;
@@ -72,7 +70,7 @@ struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
 
 class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context /*context*/) override {
     return new TestPropertiesCollector;
   }
@@ -260,7 +258,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
 
-  // make sure call-back functions are called in the right order
+  // make sure callback functions are called in the right order
   for (size_t i = 0; i < cf_names.size(); ++i) {
     ASSERT_EQ(listener->flushed_dbs_[i], db_);
     ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
@@ -296,7 +294,7 @@ TEST_F(EventListenerTest, MultiCF) {
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
 
-  // make sure call-back functions are called in the right order
+  // make sure callback functions are called in the right order
   for (size_t i = 0; i < cf_names.size(); i++) {
     ASSERT_EQ(listener->flushed_dbs_[i], db_);
     ASSERT_EQ(listener->flushed_column_family_names_[i], cf_names[i]);
@@ -417,7 +415,9 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   for (int i = 0; static_cast<int>(cf_meta.file_count) < kSlowdownTrigger * 10;
        ++i) {
     Put(1, ToString(i), std::string(10000, 'x'), WriteOptions());
-    db_->Flush(FlushOptions(), handles_[1]);
+    FlushOptions fo;
+    fo.allow_write_stall = true;
+    db_->Flush(fo, handles_[1]);
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
@@ -492,7 +492,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
 
   Put("key", "value");
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_GT(listener->compaction_reasons_.size(), 0);
   for (auto compaction_reason : listener->compaction_reasons_) {
@@ -601,7 +601,7 @@ class TableFileCreationListener : public EventListener {
 
     Status NewWritableFile(const std::string& fname,
                            std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options) {
+                           const EnvOptions& options) override {
       if (fname.size() > 4 && fname.substr(fname.size() - 4) == ".sst") {
         if (!status_.ok()) {
           return status_;
@@ -880,10 +880,75 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   ASSERT_EQ(1, listener->counter());
 
   // trigger flush so compaction is triggered again; this time it succeeds
+  // The previous failed compaction may get retried automatically, so we may
+  // be left with 0 or 1 files in level 1, depending on when the retry gets
+  // scheduled
   ASSERT_OK(Put("key0", "val"));
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_LE(1, NumTableFilesAtLevel(0));
+}
+
+class TestFileOperationListener : public EventListener {
+ public:
+  TestFileOperationListener() {
+    file_reads_.store(0);
+    file_reads_success_.store(0);
+    file_writes_.store(0);
+    file_writes_success_.store(0);
+  }
+
+  void OnFileReadFinish(const FileOperationInfo& info) override {
+    ++file_reads_;
+    if (info.status.ok()) {
+      ++file_reads_success_;
+    }
+    ReportDuration(info);
+  }
+
+  void OnFileWriteFinish(const FileOperationInfo& info) override {
+    ++file_writes_;
+    if (info.status.ok()) {
+      ++file_writes_success_;
+    }
+    ReportDuration(info);
+  }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+  std::atomic<size_t> file_reads_;
+  std::atomic<size_t> file_reads_success_;
+  std::atomic<size_t> file_writes_;
+  std::atomic<size_t> file_writes_success_;
+
+ private:
+  void ReportDuration(const FileOperationInfo& info) const {
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        info.finish_timestamp - info.start_timestamp);
+    ASSERT_GT(duration.count(), 0);
+  }
+};
+
+TEST_F(EventListenerTest, OnFileOperationTest) {
+  Options options;
+  options.env = CurrentOptions().env;
+  options.create_if_missing = true;
+
+  TestFileOperationListener* listener = new TestFileOperationListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "aaa"));
+  dbfull()->Flush(FlushOptions());
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_GE(listener->file_writes_.load(),
+            listener->file_writes_success_.load());
+  ASSERT_GT(listener->file_writes_.load(), 0);
+  Close();
+
+  Reopen(options);
+  ASSERT_GE(listener->file_reads_.load(), listener->file_reads_success_.load());
+  ASSERT_GT(listener->file_reads_.load(), 0);
 }
 
 }  // namespace rocksdb

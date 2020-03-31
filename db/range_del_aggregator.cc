@@ -1,161 +1,309 @@
-//  Copyright (c) 2016-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2018-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/range_del_aggregator.h"
 
-#include <algorithm>
+#include "db/compaction/compaction_iteration_stats.h"
+#include "db/dbformat.h"
+#include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
+#include "db/range_tombstone_fragmenter.h"
+#include "db/version_edit.h"
+#include "include/rocksdb/comparator.h"
+#include "include/rocksdb/types.h"
+#include "table/internal_iterator.h"
+#include "table/scoped_arena_iterator.h"
+#include "table/table_builder.h"
+#include "util/heap.h"
+#include "util/kv_map.h"
+#include "util/vector_iterator.h"
 
 namespace rocksdb {
 
-RangeDelAggregator::RangeDelAggregator(
-    const InternalKeyComparator& icmp,
-    const std::vector<SequenceNumber>& snapshots,
-    bool collapse_deletions /* = true */)
-    : upper_bound_(kMaxSequenceNumber),
+TruncatedRangeDelIterator::TruncatedRangeDelIterator(
+    std::unique_ptr<FragmentedRangeTombstoneIterator> iter,
+    const InternalKeyComparator* icmp, const InternalKey* smallest,
+    const InternalKey* largest)
+    : iter_(std::move(iter)),
       icmp_(icmp),
-      collapse_deletions_(collapse_deletions) {
-  InitRep(snapshots);
-}
-
-RangeDelAggregator::RangeDelAggregator(const InternalKeyComparator& icmp,
-                                       SequenceNumber snapshot,
-                                       bool collapse_deletions /* = false */)
-    : upper_bound_(snapshot),
-      icmp_(icmp),
-      collapse_deletions_(collapse_deletions) {}
-
-void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
-  assert(rep_ == nullptr);
-  rep_.reset(new Rep());
-  for (auto snapshot : snapshots) {
-    rep_->stripe_map_.emplace(
-        snapshot,
-        PositionalTombstoneMap(TombstoneMap(
-            stl_wrappers::LessOfComparator(icmp_.user_comparator()))));
+      smallest_ikey_(smallest),
+      largest_ikey_(largest) {
+  if (smallest != nullptr) {
+    pinned_bounds_.emplace_back();
+    auto& parsed_smallest = pinned_bounds_.back();
+    if (!ParseInternalKey(smallest->Encode(), &parsed_smallest)) {
+      assert(false);
+    }
+    smallest_ = &parsed_smallest;
   }
-  // Data newer than any snapshot falls in this catch-all stripe
-  rep_->stripe_map_.emplace(
-      kMaxSequenceNumber,
-      PositionalTombstoneMap(TombstoneMap(
-          stl_wrappers::LessOfComparator(icmp_.user_comparator()))));
-  rep_->pinned_iters_mgr_.StartPinning();
-}
-
-bool RangeDelAggregator::ShouldDeleteImpl(
-    const Slice& internal_key, RangeDelAggregator::RangePositioningMode mode) {
-  assert(rep_ != nullptr);
-  ParsedInternalKey parsed;
-  if (!ParseInternalKey(internal_key, &parsed)) {
-    assert(false);
+  if (largest != nullptr) {
+    pinned_bounds_.emplace_back();
+    auto& parsed_largest = pinned_bounds_.back();
+    if (!ParseInternalKey(largest->Encode(), &parsed_largest)) {
+      assert(false);
+    }
+    if (parsed_largest.type == kTypeRangeDeletion &&
+        parsed_largest.sequence == kMaxSequenceNumber) {
+      // The file boundary has been artificially extended by a range tombstone.
+      // We do not need to adjust largest to properly truncate range
+      // tombstones that extend past the boundary.
+    } else if (parsed_largest.sequence == 0) {
+      // The largest key in the sstable has a sequence number of 0. Since we
+      // guarantee that no internal keys with the same user key and sequence
+      // number can exist in a DB, we know that the largest key in this sstable
+      // cannot exist as the smallest key in the next sstable. This further
+      // implies that no range tombstone in this sstable covers largest;
+      // otherwise, the file boundary would have been artificially extended.
+      //
+      // Therefore, we will never truncate a range tombstone at largest, so we
+      // can leave it unchanged.
+    } else {
+      // The same user key may straddle two sstable boundaries. To ensure that
+      // the truncated end key can cover the largest key in this sstable, reduce
+      // its sequence number by 1.
+      parsed_largest.sequence -= 1;
+    }
+    largest_ = &parsed_largest;
   }
-  return ShouldDelete(parsed, mode);
 }
 
-bool RangeDelAggregator::ShouldDeleteImpl(
-    const ParsedInternalKey& parsed,
-    RangeDelAggregator::RangePositioningMode mode) {
-  assert(IsValueType(parsed.type));
-  assert(rep_ != nullptr);
-  auto& positional_tombstone_map = GetPositionalTombstoneMap(parsed.sequence);
-  const auto& tombstone_map = positional_tombstone_map.raw_map;
-  if (tombstone_map.empty()) {
+bool TruncatedRangeDelIterator::Valid() const {
+  return iter_->Valid() &&
+         (smallest_ == nullptr ||
+          icmp_->Compare(*smallest_, iter_->parsed_end_key()) < 0) &&
+         (largest_ == nullptr ||
+          icmp_->Compare(iter_->parsed_start_key(), *largest_) < 0);
+}
+
+void TruncatedRangeDelIterator::Next() { iter_->TopNext(); }
+
+void TruncatedRangeDelIterator::Prev() { iter_->TopPrev(); }
+
+void TruncatedRangeDelIterator::InternalNext() { iter_->Next(); }
+
+// NOTE: target is a user key
+void TruncatedRangeDelIterator::Seek(const Slice& target) {
+  if (largest_ != nullptr &&
+      icmp_->Compare(*largest_, ParsedInternalKey(target, kMaxSequenceNumber,
+                                                  kTypeRangeDeletion)) <= 0) {
+    iter_->Invalidate();
+    return;
+  }
+  if (smallest_ != nullptr &&
+      icmp_->user_comparator()->Compare(target, smallest_->user_key) < 0) {
+    iter_->Seek(smallest_->user_key);
+    return;
+  }
+  iter_->Seek(target);
+}
+
+// NOTE: target is a user key
+void TruncatedRangeDelIterator::SeekForPrev(const Slice& target) {
+  if (smallest_ != nullptr &&
+      icmp_->Compare(ParsedInternalKey(target, 0, kTypeRangeDeletion),
+                     *smallest_) < 0) {
+    iter_->Invalidate();
+    return;
+  }
+  if (largest_ != nullptr &&
+      icmp_->user_comparator()->Compare(largest_->user_key, target) < 0) {
+    iter_->SeekForPrev(largest_->user_key);
+    return;
+  }
+  iter_->SeekForPrev(target);
+}
+
+void TruncatedRangeDelIterator::SeekToFirst() {
+  if (smallest_ != nullptr) {
+    iter_->Seek(smallest_->user_key);
+    return;
+  }
+  iter_->SeekToTopFirst();
+}
+
+void TruncatedRangeDelIterator::SeekToLast() {
+  if (largest_ != nullptr) {
+    iter_->SeekForPrev(largest_->user_key);
+    return;
+  }
+  iter_->SeekToTopLast();
+}
+
+std::map<SequenceNumber, std::unique_ptr<TruncatedRangeDelIterator>>
+TruncatedRangeDelIterator::SplitBySnapshot(
+    const std::vector<SequenceNumber>& snapshots) {
+  using FragmentedIterPair =
+      std::pair<const SequenceNumber,
+                std::unique_ptr<FragmentedRangeTombstoneIterator>>;
+
+  auto split_untruncated_iters = iter_->SplitBySnapshot(snapshots);
+  std::map<SequenceNumber, std::unique_ptr<TruncatedRangeDelIterator>>
+      split_truncated_iters;
+  std::for_each(
+      split_untruncated_iters.begin(), split_untruncated_iters.end(),
+      [&](FragmentedIterPair& iter_pair) {
+        std::unique_ptr<TruncatedRangeDelIterator> truncated_iter(
+            new TruncatedRangeDelIterator(std::move(iter_pair.second), icmp_,
+                                          smallest_ikey_, largest_ikey_));
+        split_truncated_iters.emplace(iter_pair.first,
+                                      std::move(truncated_iter));
+      });
+  return split_truncated_iters;
+}
+
+ForwardRangeDelIterator::ForwardRangeDelIterator(
+    const InternalKeyComparator* icmp)
+    : icmp_(icmp),
+      unused_idx_(0),
+      active_seqnums_(SeqMaxComparator()),
+      active_iters_(EndKeyMinComparator(icmp)),
+      inactive_iters_(StartKeyMinComparator(icmp)) {}
+
+bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  // Move active iterators that end before parsed.
+  while (!active_iters_.empty() &&
+         icmp_->Compare((*active_iters_.top())->end_key(), parsed) <= 0) {
+    TruncatedRangeDelIterator* iter = PopActiveIter();
+    do {
+      iter->Next();
+    } while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  // Move inactive iterators that start before parsed.
+  while (!inactive_iters_.empty() &&
+         icmp_->Compare(inactive_iters_.top()->start_key(), parsed) <= 0) {
+    TruncatedRangeDelIterator* iter = PopInactiveIter();
+    while (iter->Valid() && icmp_->Compare(iter->end_key(), parsed) <= 0) {
+      iter->Next();
+    }
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  return active_seqnums_.empty()
+             ? false
+             : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+void ForwardRangeDelIterator::Invalidate() {
+  unused_idx_ = 0;
+  active_iters_.clear();
+  active_seqnums_.clear();
+  inactive_iters_.clear();
+}
+
+ReverseRangeDelIterator::ReverseRangeDelIterator(
+    const InternalKeyComparator* icmp)
+    : icmp_(icmp),
+      unused_idx_(0),
+      active_seqnums_(SeqMaxComparator()),
+      active_iters_(StartKeyMaxComparator(icmp)),
+      inactive_iters_(EndKeyMaxComparator(icmp)) {}
+
+bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  // Move active iterators that start after parsed.
+  while (!active_iters_.empty() &&
+         icmp_->Compare(parsed, (*active_iters_.top())->start_key()) < 0) {
+    TruncatedRangeDelIterator* iter = PopActiveIter();
+    do {
+      iter->Prev();
+    } while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0);
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  // Move inactive iterators that end after parsed.
+  while (!inactive_iters_.empty() &&
+         icmp_->Compare(parsed, inactive_iters_.top()->end_key()) < 0) {
+    TruncatedRangeDelIterator* iter = PopInactiveIter();
+    while (iter->Valid() && icmp_->Compare(parsed, iter->start_key()) < 0) {
+      iter->Prev();
+    }
+    PushIter(iter, parsed);
+    assert(active_iters_.size() == active_seqnums_.size());
+  }
+
+  return active_seqnums_.empty()
+             ? false
+             : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+void ReverseRangeDelIterator::Invalidate() {
+  unused_idx_ = 0;
+  active_iters_.clear();
+  active_seqnums_.clear();
+  inactive_iters_.clear();
+}
+
+bool RangeDelAggregator::StripeRep::ShouldDelete(
+    const ParsedInternalKey& parsed, RangeDelPositioningMode mode) {
+  if (!InStripe(parsed.sequence) || IsEmpty()) {
     return false;
-  }
-  auto& tombstone_map_iter = positional_tombstone_map.iter;
-  if (tombstone_map_iter == tombstone_map.end() &&
-      (mode == kForwardTraversal || mode == kBackwardTraversal)) {
-    // invalid (e.g., if AddTombstones() changed the deletions), so need to
-    // reseek
-    mode = kBinarySearch;
   }
   switch (mode) {
-    case kFullScan:
-      assert(!collapse_deletions_);
-      // The maintained state (PositionalTombstoneMap::iter) isn't useful when
-      // we linear scan from the beginning each time, but we maintain it anyways
-      // for consistency.
-      tombstone_map_iter = tombstone_map.begin();
-      while (tombstone_map_iter != tombstone_map.end()) {
-        const auto& tombstone = tombstone_map_iter->second;
-        if (icmp_.user_comparator()->Compare(parsed.user_key,
-                                             tombstone.start_key_) < 0) {
-          break;
-        }
-        if (parsed.sequence < tombstone.seq_ &&
-            icmp_.user_comparator()->Compare(parsed.user_key,
-                                             tombstone.end_key_) < 0) {
-          return true;
-        }
-        ++tombstone_map_iter;
+    case RangeDelPositioningMode::kForwardTraversal:
+      InvalidateReverseIter();
+
+      // Pick up previously unseen iterators.
+      for (auto it = std::next(iters_.begin(), forward_iter_.UnusedIdx());
+           it != iters_.end(); ++it, forward_iter_.IncUnusedIdx()) {
+        auto& iter = *it;
+        forward_iter_.AddNewIter(iter.get(), parsed);
       }
+
+      return forward_iter_.ShouldDelete(parsed);
+    case RangeDelPositioningMode::kBackwardTraversal:
+      InvalidateForwardIter();
+
+      // Pick up previously unseen iterators.
+      for (auto it = std::next(iters_.begin(), reverse_iter_.UnusedIdx());
+           it != iters_.end(); ++it, reverse_iter_.IncUnusedIdx()) {
+        auto& iter = *it;
+        reverse_iter_.AddNewIter(iter.get(), parsed);
+      }
+
+      return reverse_iter_.ShouldDelete(parsed);
+    default:
+      assert(false);
       return false;
-    case kForwardTraversal:
-      assert(collapse_deletions_ && tombstone_map_iter != tombstone_map.end());
-      if (tombstone_map_iter == tombstone_map.begin() &&
-          icmp_.user_comparator()->Compare(parsed.user_key,
-                                           tombstone_map_iter->first) < 0) {
-        // before start of deletion intervals
-        return false;
-      }
-      while (std::next(tombstone_map_iter) != tombstone_map.end() &&
-             icmp_.user_comparator()->Compare(
-                 std::next(tombstone_map_iter)->first, parsed.user_key) <= 0) {
-        ++tombstone_map_iter;
-      }
-      break;
-    case kBackwardTraversal:
-      assert(collapse_deletions_ && tombstone_map_iter != tombstone_map.end());
-      while (tombstone_map_iter != tombstone_map.begin() &&
-             icmp_.user_comparator()->Compare(parsed.user_key,
-                                              tombstone_map_iter->first) < 0) {
-        --tombstone_map_iter;
-      }
-      if (tombstone_map_iter == tombstone_map.begin() &&
-          icmp_.user_comparator()->Compare(parsed.user_key,
-                                           tombstone_map_iter->first) < 0) {
-        // before start of deletion intervals
-        return false;
-      }
-      break;
-    case kBinarySearch:
-      assert(collapse_deletions_);
-      tombstone_map_iter =
-          tombstone_map.upper_bound(parsed.user_key);
-      if (tombstone_map_iter == tombstone_map.begin()) {
-        // before start of deletion intervals
-        return false;
-      }
-      --tombstone_map_iter;
-      break;
   }
-  assert(mode != kFullScan);
-  assert(tombstone_map_iter != tombstone_map.end() &&
-         icmp_.user_comparator()->Compare(tombstone_map_iter->first,
-                                          parsed.user_key) <= 0);
-  assert(std::next(tombstone_map_iter) == tombstone_map.end() ||
-         icmp_.user_comparator()->Compare(
-             parsed.user_key, std::next(tombstone_map_iter)->first) < 0);
-  return parsed.sequence < tombstone_map_iter->second.seq_;
 }
 
-bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
-                                           const Slice& end) {
-  // so far only implemented for non-collapsed mode since file ingestion (only
-  //  client) doesn't use collapsing
-  assert(!collapse_deletions_);
-  if (rep_ == nullptr) {
-    return false;
-  }
-  for (const auto& seqnum_and_tombstone_map : rep_->stripe_map_) {
-    for (const auto& start_key_and_tombstone :
-         seqnum_and_tombstone_map.second.raw_map) {
-      const auto& tombstone = start_key_and_tombstone.second;
-      if (icmp_.user_comparator()->Compare(start, tombstone.end_key_) < 0 &&
-          icmp_.user_comparator()->Compare(tombstone.start_key_, end) <= 0 &&
-          icmp_.user_comparator()->Compare(tombstone.start_key_,
-                                           tombstone.end_key_) < 0) {
+bool RangeDelAggregator::StripeRep::IsRangeOverlapped(const Slice& start,
+                                                      const Slice& end) {
+  Invalidate();
+
+  // Set the internal start/end keys so that:
+  // - if start_ikey has the same user key and sequence number as the
+  // current end key, start_ikey will be considered greater; and
+  // - if end_ikey has the same user key and sequence number as the current
+  // start key, end_ikey will be considered greater.
+  ParsedInternalKey start_ikey(start, kMaxSequenceNumber,
+                               static_cast<ValueType>(0));
+  ParsedInternalKey end_ikey(end, 0, static_cast<ValueType>(0));
+  for (auto& iter : iters_) {
+    bool checked_candidate_tombstones = false;
+    for (iter->SeekForPrev(start);
+         iter->Valid() && icmp_->Compare(iter->start_key(), end_ikey) <= 0;
+         iter->Next()) {
+      checked_candidate_tombstones = true;
+      if (icmp_->Compare(start_ikey, iter->end_key()) < 0 &&
+          icmp_->Compare(iter->start_key(), end_ikey) <= 0) {
+        return true;
+      }
+    }
+
+    if (!checked_candidate_tombstones) {
+      // Do an additional check for when the end of the range is the begin
+      // key of a tombstone, which we missed earlier since SeekForPrev'ing
+      // to the start was invalid.
+      iter->SeekForPrev(end);
+      if (iter->Valid() && icmp_->Compare(start_ikey, iter->end_key()) < 0 &&
+          icmp_->Compare(iter->start_key(), end_ikey) <= 0) {
         return true;
       }
     }
@@ -163,377 +311,174 @@ bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
   return false;
 }
 
-bool RangeDelAggregator::ShouldAddTombstones(
-    bool bottommost_level /* = false */) {
-  // TODO(andrewkr): can we just open a file and throw it away if it ends up
-  // empty after AddToBuilder()? This function doesn't take into subcompaction
-  // boundaries so isn't completely accurate.
-  if (rep_ == nullptr) {
+void ReadRangeDelAggregator::AddTombstones(
+    std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+    const InternalKey* smallest, const InternalKey* largest) {
+  if (input_iter == nullptr || input_iter->empty()) {
+    return;
+  }
+  rep_.AddTombstones(
+      std::unique_ptr<TruncatedRangeDelIterator>(new TruncatedRangeDelIterator(
+          std::move(input_iter), icmp_, smallest, largest)));
+}
+
+bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
+                                              RangeDelPositioningMode mode) {
+  return rep_.ShouldDelete(parsed, mode);
+}
+
+bool ReadRangeDelAggregator::IsRangeOverlapped(const Slice& start,
+                                               const Slice& end) {
+  InvalidateRangeDelMapPositions();
+  return rep_.IsRangeOverlapped(start, end);
+}
+
+void CompactionRangeDelAggregator::AddTombstones(
+    std::unique_ptr<FragmentedRangeTombstoneIterator> input_iter,
+    const InternalKey* smallest, const InternalKey* largest) {
+  if (input_iter == nullptr || input_iter->empty()) {
+    return;
+  }
+  assert(input_iter->lower_bound() == 0);
+  assert(input_iter->upper_bound() == kMaxSequenceNumber);
+  parent_iters_.emplace_back(new TruncatedRangeDelIterator(
+      std::move(input_iter), icmp_, smallest, largest));
+
+  auto split_iters = parent_iters_.back()->SplitBySnapshot(*snapshots_);
+  for (auto& split_iter : split_iters) {
+    auto it = reps_.find(split_iter.first);
+    if (it == reps_.end()) {
+      bool inserted;
+      SequenceNumber upper_bound = split_iter.second->upper_bound();
+      SequenceNumber lower_bound = split_iter.second->lower_bound();
+      std::tie(it, inserted) = reps_.emplace(
+          split_iter.first, StripeRep(icmp_, upper_bound, lower_bound));
+      assert(inserted);
+    }
+    assert(it != reps_.end());
+    it->second.AddTombstones(std::move(split_iter.second));
+  }
+}
+
+bool CompactionRangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
+                                                RangeDelPositioningMode mode) {
+  auto it = reps_.lower_bound(parsed.sequence);
+  if (it == reps_.end()) {
     return false;
   }
-  auto stripe_map_iter = rep_->stripe_map_.begin();
-  assert(stripe_map_iter != rep_->stripe_map_.end());
-  if (bottommost_level) {
-    // For the bottommost level, keys covered by tombstones in the first
-    // (oldest) stripe have been compacted away, so the tombstones are obsolete.
-    ++stripe_map_iter;
+  return it->second.ShouldDelete(parsed, mode);
+}
+
+namespace {
+
+class TruncatedRangeDelMergingIter : public InternalIterator {
+ public:
+  TruncatedRangeDelMergingIter(
+      const InternalKeyComparator* icmp, const Slice* lower_bound,
+      const Slice* upper_bound, bool upper_bound_inclusive,
+      const std::vector<std::unique_ptr<TruncatedRangeDelIterator>>& children)
+      : icmp_(icmp),
+        lower_bound_(lower_bound),
+        upper_bound_(upper_bound),
+        upper_bound_inclusive_(upper_bound_inclusive),
+        heap_(StartKeyMinComparator(icmp)) {
+    for (auto& child : children) {
+      if (child != nullptr) {
+        assert(child->lower_bound() == 0);
+        assert(child->upper_bound() == kMaxSequenceNumber);
+        children_.push_back(child.get());
+      }
+    }
   }
-  while (stripe_map_iter != rep_->stripe_map_.end()) {
-    if (!stripe_map_iter->second.raw_map.empty()) {
+
+  bool Valid() const override {
+    return !heap_.empty() && BeforeEndKey(heap_.top());
+  }
+  Status status() const override { return Status::OK(); }
+
+  void SeekToFirst() override {
+    heap_.clear();
+    for (auto& child : children_) {
+      if (lower_bound_ != nullptr) {
+        child->Seek(*lower_bound_);
+      } else {
+        child->SeekToFirst();
+      }
+      if (child->Valid()) {
+        heap_.push(child);
+      }
+    }
+  }
+
+  void Next() override {
+    auto* top = heap_.top();
+    top->InternalNext();
+    if (top->Valid()) {
+      heap_.replace_top(top);
+    } else {
+      heap_.pop();
+    }
+  }
+
+  Slice key() const override {
+    auto* top = heap_.top();
+    cur_start_key_.Set(top->start_key().user_key, top->seq(),
+                       kTypeRangeDeletion);
+    return cur_start_key_.Encode();
+  }
+
+  Slice value() const override {
+    auto* top = heap_.top();
+    assert(top->end_key().sequence == kMaxSequenceNumber);
+    return top->end_key().user_key;
+  }
+
+  // Unused InternalIterator methods
+  void Prev() override { assert(false); }
+  void Seek(const Slice& /* target */) override { assert(false); }
+  void SeekForPrev(const Slice& /* target */) override { assert(false); }
+  void SeekToLast() override { assert(false); }
+
+ private:
+  bool BeforeEndKey(const TruncatedRangeDelIterator* iter) const {
+    if (upper_bound_ == nullptr) {
       return true;
     }
-    ++stripe_map_iter;
-  }
-  return false;
-}
-
-Status RangeDelAggregator::AddTombstones(
-    std::unique_ptr<InternalIterator> input) {
-  if (input == nullptr) {
-    return Status::OK();
-  }
-  input->SeekToFirst();
-  bool first_iter = true;
-  while (input->Valid()) {
-    if (first_iter) {
-      if (rep_ == nullptr) {
-        InitRep({upper_bound_});
-      } else {
-        InvalidateTombstoneMapPositions();
-      }
-      first_iter = false;
-    }
-    ParsedInternalKey parsed_key;
-    if (!ParseInternalKey(input->key(), &parsed_key)) {
-      return Status::Corruption("Unable to parse range tombstone InternalKey");
-    }
-    RangeTombstone tombstone(parsed_key, input->value());
-    AddTombstone(std::move(tombstone));
-    input->Next();
-  }
-  if (!first_iter) {
-    rep_->pinned_iters_mgr_.PinIterator(input.release(), false /* arena */);
-  }
-  return Status::OK();
-}
-
-void RangeDelAggregator::InvalidateTombstoneMapPositions() {
-  if (rep_ == nullptr) {
-    return;
-  }
-  for (auto stripe_map_iter = rep_->stripe_map_.begin();
-       stripe_map_iter != rep_->stripe_map_.end(); ++stripe_map_iter) {
-    stripe_map_iter->second.iter = stripe_map_iter->second.raw_map.end();
-  }
-}
-
-Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
-  auto& positional_tombstone_map = GetPositionalTombstoneMap(tombstone.seq_);
-  auto& tombstone_map = positional_tombstone_map.raw_map;
-  if (collapse_deletions_) {
-    // In collapsed mode, we only fill the seq_ field in the TombstoneMap's
-    // values. The end_key is unneeded because we assume the tombstone extends
-    // until the next tombstone starts. For gaps between real tombstones and
-    // for the last real tombstone, we denote end keys by inserting fake
-    // tombstones with sequence number zero.
-    std::vector<RangeTombstone> new_range_dels{
-        tombstone, RangeTombstone(tombstone.end_key_, Slice(), 0)};
-    auto new_range_dels_iter = new_range_dels.begin();
-    // Position at the first overlapping existing tombstone; if none exists,
-    // insert until we find an existing one overlapping a new point
-    const Slice* tombstone_map_begin = nullptr;
-    if (!tombstone_map.empty()) {
-      tombstone_map_begin = &tombstone_map.begin()->first;
-    }
-    auto last_range_dels_iter = new_range_dels_iter;
-    while (new_range_dels_iter != new_range_dels.end() &&
-           (tombstone_map_begin == nullptr ||
-            icmp_.user_comparator()->Compare(new_range_dels_iter->start_key_,
-                                             *tombstone_map_begin) < 0)) {
-      tombstone_map.emplace(
-          new_range_dels_iter->start_key_,
-          RangeTombstone(Slice(), Slice(), new_range_dels_iter->seq_));
-      last_range_dels_iter = new_range_dels_iter;
-      ++new_range_dels_iter;
-    }
-    if (new_range_dels_iter == new_range_dels.end()) {
-      return Status::OK();
-    }
-    // above loop advances one too far
-    new_range_dels_iter = last_range_dels_iter;
-    auto tombstone_map_iter =
-        tombstone_map.upper_bound(new_range_dels_iter->start_key_);
-    // if nothing overlapped we would've already inserted all the new points
-    // and returned early
-    assert(tombstone_map_iter != tombstone_map.begin());
-    tombstone_map_iter--;
-
-    // untermed_seq is non-kMaxSequenceNumber when we covered an existing point
-    // but haven't seen its corresponding endpoint. It's used for (1) deciding
-    // whether to forcibly insert the new interval's endpoint; and (2) possibly
-    // raising the seqnum for the to-be-inserted element (we insert the max
-    // seqnum between the next new interval and the unterminated interval).
-    SequenceNumber untermed_seq = kMaxSequenceNumber;
-    while (tombstone_map_iter != tombstone_map.end() &&
-           new_range_dels_iter != new_range_dels.end()) {
-      const Slice *tombstone_map_iter_end = nullptr,
-                  *new_range_dels_iter_end = nullptr;
-      if (tombstone_map_iter != tombstone_map.end()) {
-        auto next_tombstone_map_iter = std::next(tombstone_map_iter);
-        if (next_tombstone_map_iter != tombstone_map.end()) {
-          tombstone_map_iter_end = &next_tombstone_map_iter->first;
-        }
-      }
-      if (new_range_dels_iter != new_range_dels.end()) {
-        auto next_new_range_dels_iter = std::next(new_range_dels_iter);
-        if (next_new_range_dels_iter != new_range_dels.end()) {
-          new_range_dels_iter_end = &next_new_range_dels_iter->start_key_;
-        }
-      }
-
-      // our positions in existing/new tombstone collections should always
-      // overlap. The non-overlapping cases are handled above and below this
-      // loop.
-      assert(new_range_dels_iter_end == nullptr ||
-             icmp_.user_comparator()->Compare(tombstone_map_iter->first,
-                                              *new_range_dels_iter_end) < 0);
-      assert(tombstone_map_iter_end == nullptr ||
-             icmp_.user_comparator()->Compare(new_range_dels_iter->start_key_,
-                                              *tombstone_map_iter_end) < 0);
-
-      int new_to_old_start_cmp = icmp_.user_comparator()->Compare(
-          new_range_dels_iter->start_key_, tombstone_map_iter->first);
-      // nullptr end means extends infinitely rightwards, set new_to_old_end_cmp
-      // accordingly so we can use common code paths later.
-      int new_to_old_end_cmp;
-      if (new_range_dels_iter_end == nullptr &&
-          tombstone_map_iter_end == nullptr) {
-        new_to_old_end_cmp = 0;
-      } else if (new_range_dels_iter_end == nullptr) {
-        new_to_old_end_cmp = 1;
-      } else if (tombstone_map_iter_end == nullptr) {
-        new_to_old_end_cmp = -1;
-      } else {
-        new_to_old_end_cmp = icmp_.user_comparator()->Compare(
-            *new_range_dels_iter_end, *tombstone_map_iter_end);
-      }
-
-      if (new_to_old_start_cmp < 0) {
-        // the existing one's left endpoint comes after, so raise/delete it if
-        // it's covered.
-        if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
-          untermed_seq = tombstone_map_iter->second.seq_;
-          if (tombstone_map_iter != tombstone_map.begin() &&
-              std::prev(tombstone_map_iter)->second.seq_ ==
-                  new_range_dels_iter->seq_) {
-            tombstone_map_iter = tombstone_map.erase(tombstone_map_iter);
-            --tombstone_map_iter;
-          } else {
-            tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
-          }
-        }
-      } else if (new_to_old_start_cmp > 0) {
-        if (untermed_seq != kMaxSequenceNumber ||
-            tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
-          auto seq = tombstone_map_iter->second.seq_;
-          // need to adjust this element if not intended to span beyond the new
-          // element (i.e., was_tombstone_map_iter_raised == true), or if it
-          // can be raised
-          tombstone_map_iter = tombstone_map.emplace(
-              new_range_dels_iter->start_key_,
-              RangeTombstone(
-                  Slice(), Slice(),
-                  std::max(
-                      untermed_seq == kMaxSequenceNumber ? 0 : untermed_seq,
-                      new_range_dels_iter->seq_)));
-          untermed_seq = seq;
-        }
-      } else {
-        // their left endpoints coincide, so raise the existing one if needed
-        if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
-          untermed_seq = tombstone_map_iter->second.seq_;
-          tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
-        }
-      }
-
-      // advance whichever one ends earlier, or both if their right endpoints
-      // coincide
-      if (new_to_old_end_cmp < 0) {
-        ++new_range_dels_iter;
-      } else if (new_to_old_end_cmp > 0) {
-        ++tombstone_map_iter;
-        untermed_seq = kMaxSequenceNumber;
-      } else {
-        ++new_range_dels_iter;
-        ++tombstone_map_iter;
-        untermed_seq = kMaxSequenceNumber;
-      }
-    }
-    while (new_range_dels_iter != new_range_dels.end()) {
-      tombstone_map.emplace(
-          new_range_dels_iter->start_key_,
-          RangeTombstone(Slice(), Slice(), new_range_dels_iter->seq_));
-      ++new_range_dels_iter;
-    }
-  } else {
-    auto start_key = tombstone.start_key_;
-    tombstone_map.emplace(start_key, std::move(tombstone));
-  }
-  return Status::OK();
-}
-
-RangeDelAggregator::PositionalTombstoneMap&
-RangeDelAggregator::GetPositionalTombstoneMap(SequenceNumber seq) {
-  assert(rep_ != nullptr);
-  // The stripe includes seqnum for the snapshot above and excludes seqnum for
-  // the snapshot below.
-  StripeMap::iterator iter;
-  if (seq > 0) {
-    // upper_bound() checks strict inequality so need to subtract one
-    iter = rep_->stripe_map_.upper_bound(seq - 1);
-  } else {
-    iter = rep_->stripe_map_.begin();
-  }
-  // catch-all stripe justifies this assertion in either of above cases
-  assert(iter != rep_->stripe_map_.end());
-  return iter->second;
-}
-
-// TODO(andrewkr): We should implement an iterator over range tombstones in our
-// map. It'd enable compaction to open tables on-demand, i.e., only once range
-// tombstones are known to be available, without the code duplication we have
-// in ShouldAddTombstones(). It'll also allow us to move the table-modifying
-// code into more coherent places: CompactionJob and BuildTable().
-void RangeDelAggregator::AddToBuilder(
-    TableBuilder* builder, const Slice* lower_bound, const Slice* upper_bound,
-    FileMetaData* meta,
-    CompactionIterationStats* range_del_out_stats /* = nullptr */,
-    bool bottommost_level /* = false */) {
-  if (rep_ == nullptr) {
-    return;
-  }
-  auto stripe_map_iter = rep_->stripe_map_.begin();
-  assert(stripe_map_iter != rep_->stripe_map_.end());
-  if (bottommost_level) {
-    // TODO(andrewkr): these are counted for each compaction output file, so
-    // lots of double-counting.
-    if (!stripe_map_iter->second.raw_map.empty()) {
-      range_del_out_stats->num_range_del_drop_obsolete +=
-          static_cast<int64_t>(stripe_map_iter->second.raw_map.size()) -
-          (collapse_deletions_ ? 1 : 0);
-      range_del_out_stats->num_record_drop_obsolete +=
-          static_cast<int64_t>(stripe_map_iter->second.raw_map.size()) -
-          (collapse_deletions_ ? 1 : 0);
-    }
-    // For the bottommost level, keys covered by tombstones in the first
-    // (oldest) stripe have been compacted away, so the tombstones are obsolete.
-    ++stripe_map_iter;
+    int cmp = icmp_->user_comparator()->Compare(iter->start_key().user_key,
+                                                *upper_bound_);
+    return upper_bound_inclusive_ ? cmp <= 0 : cmp < 0;
   }
 
-  // Note the order in which tombstones are stored is insignificant since we
-  // insert them into a std::map on the read path.
-  while (stripe_map_iter != rep_->stripe_map_.end()) {
-    bool first_added = false;
-    for (auto tombstone_map_iter = stripe_map_iter->second.raw_map.begin();
-         tombstone_map_iter != stripe_map_iter->second.raw_map.end();
-         ++tombstone_map_iter) {
-      RangeTombstone tombstone;
-      if (collapse_deletions_) {
-        auto next_tombstone_map_iter = std::next(tombstone_map_iter);
-        if (next_tombstone_map_iter == stripe_map_iter->second.raw_map.end() ||
-            tombstone_map_iter->second.seq_ == 0) {
-          // it's a sentinel tombstone
-          continue;
-        }
-        tombstone.start_key_ = tombstone_map_iter->first;
-        tombstone.end_key_ = next_tombstone_map_iter->first;
-        tombstone.seq_ = tombstone_map_iter->second.seq_;
-      } else {
-        tombstone = tombstone_map_iter->second;
-      }
-      if (upper_bound != nullptr &&
-          icmp_.user_comparator()->Compare(*upper_bound,
-                                           tombstone.start_key_) <= 0) {
-        // Tombstones starting at upper_bound or later only need to be included
-        // in the next table. Break because subsequent tombstones will start
-        // even later.
-        break;
-      }
-      if (lower_bound != nullptr &&
-          icmp_.user_comparator()->Compare(tombstone.end_key_,
-                                           *lower_bound) <= 0) {
-        // Tombstones ending before or at lower_bound only need to be included
-        // in the prev table. Continue because subsequent tombstones may still
-        // overlap [lower_bound, upper_bound).
-        continue;
-      }
+  const InternalKeyComparator* icmp_;
+  const Slice* lower_bound_;
+  const Slice* upper_bound_;
+  bool upper_bound_inclusive_;
+  BinaryHeap<TruncatedRangeDelIterator*, StartKeyMinComparator> heap_;
+  std::vector<TruncatedRangeDelIterator*> children_;
 
-      auto ikey_and_end_key = tombstone.Serialize();
-      builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-      if (!first_added) {
-        first_added = true;
-        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);
-        if (lower_bound != nullptr &&
-            icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
-                                             *lower_bound) <= 0) {
-          // Pretend the smallest key has the same user key as lower_bound
-          // (the max key in the previous table or subcompaction) in order for
-          // files to appear key-space partitioned.
-          //
-          // Choose lowest seqnum so this file's smallest internal key comes
-          // after the previous file's/subcompaction's largest. The fake seqnum
-          // is OK because the read path's file-picking code only considers user
-          // key.
-          smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
-        }
-        if (meta->smallest.size() == 0 ||
-            icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
-          meta->smallest = std::move(smallest_candidate);
-        }
-      }
-      InternalKey largest_candidate = tombstone.SerializeEndKey();
-      if (upper_bound != nullptr &&
-          icmp_.user_comparator()->Compare(*upper_bound,
-                                           largest_candidate.user_key()) <= 0) {
-        // Pretend the largest key has the same user key as upper_bound (the
-        // min key in the following table or subcompaction) in order for files
-        // to appear key-space partitioned.
-        //
-        // Choose highest seqnum so this file's largest internal key comes
-        // before the next file's/subcompaction's smallest. The fake seqnum is
-        // OK because the read path's file-picking code only considers the user
-        // key portion.
-        //
-        // Note Seek() also creates InternalKey with (user_key,
-        // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
-        // kTypeRangeDeletion (0xF), so the range tombstone comes before the
-        // Seek() key in InternalKey's ordering. So Seek() will look in the
-        // next file for the user key.
-        largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
-                                        kTypeRangeDeletion);
-      }
-      if (meta->largest.size() == 0 ||
-          icmp_.Compare(meta->largest, largest_candidate) < 0) {
-        meta->largest = std::move(largest_candidate);
-      }
-      meta->smallest_seqno = std::min(meta->smallest_seqno, tombstone.seq_);
-      meta->largest_seqno = std::max(meta->largest_seqno, tombstone.seq_);
-    }
-    ++stripe_map_iter;
-  }
-}
+  mutable InternalKey cur_start_key_;
+};
 
-bool RangeDelAggregator::IsEmpty() {
-  if (rep_ == nullptr) {
-    return true;
-  }
-  for (auto stripe_map_iter = rep_->stripe_map_.begin();
-       stripe_map_iter != rep_->stripe_map_.end(); ++stripe_map_iter) {
-    if (!stripe_map_iter->second.raw_map.empty()) {
-      return false;
-    }
-  }
-  return true;
+}  // namespace
+
+std::unique_ptr<FragmentedRangeTombstoneIterator>
+CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,
+                                          const Slice* upper_bound,
+                                          bool upper_bound_inclusive) {
+  InvalidateRangeDelMapPositions();
+  std::unique_ptr<TruncatedRangeDelMergingIter> merging_iter(
+      new TruncatedRangeDelMergingIter(icmp_, lower_bound, upper_bound,
+                                       upper_bound_inclusive, parent_iters_));
+
+  auto fragmented_tombstone_list =
+      std::make_shared<FragmentedRangeTombstoneList>(
+          std::move(merging_iter), *icmp_, true /* for_compaction */,
+          *snapshots_);
+
+  return std::unique_ptr<FragmentedRangeTombstoneIterator>(
+      new FragmentedRangeTombstoneIterator(
+          fragmented_tombstone_list, *icmp_,
+          kMaxSequenceNumber /* upper_bound */));
 }
 
 }  // namespace rocksdb

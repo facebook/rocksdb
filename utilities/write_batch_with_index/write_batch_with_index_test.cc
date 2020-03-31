@@ -9,14 +9,14 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <memory>
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include <map>
+#include <memory>
 #include "db/column_family.h"
 #include "port/stack_trace.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -45,8 +45,8 @@ struct Entry {
 
 struct TestHandler : public WriteBatch::Handler {
   std::map<uint32_t, std::vector<Entry>> seen;
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+  Status PutCF(uint32_t column_family_id, const Slice& key,
+               const Slice& value) override {
     Entry e;
     e.key = key.ToString();
     e.value = value.ToString();
@@ -54,8 +54,8 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
-  virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+  Status MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) override {
     Entry e;
     e.key = key.ToString();
     e.value = value.ToString();
@@ -63,8 +63,8 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
-  virtual void LogData(const Slice& /*blob*/) {}
-  virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+  void LogData(const Slice& /*blob*/) override {}
+  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     Entry e;
     e.key = key.ToString();
     e.value = "";
@@ -506,22 +506,24 @@ typedef std::map<std::string, std::string> KVMap;
 class KVIter : public Iterator {
  public:
   explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  virtual bool Valid() const { return iter_ != map_->end(); }
-  virtual void SeekToFirst() { iter_ = map_->begin(); }
-  virtual void SeekToLast() {
+  bool Valid() const override { return iter_ != map_->end(); }
+  void SeekToFirst() override { iter_ = map_->begin(); }
+  void SeekToLast() override {
     if (map_->empty()) {
       iter_ = map_->end();
     } else {
       iter_ = map_->find(map_->rbegin()->first);
     }
   }
-  virtual void Seek(const Slice& k) { iter_ = map_->lower_bound(k.ToString()); }
-  virtual void SeekForPrev(const Slice& k) {
+  void Seek(const Slice& k) override {
+    iter_ = map_->lower_bound(k.ToString());
+  }
+  void SeekForPrev(const Slice& k) override {
     iter_ = map_->upper_bound(k.ToString());
     Prev();
   }
-  virtual void Next() { ++iter_; }
-  virtual void Prev() {
+  void Next() override { ++iter_; }
+  void Prev() override {
     if (iter_ == map_->begin()) {
       iter_ = map_->end();
       return;
@@ -529,9 +531,9 @@ class KVIter : public Iterator {
     --iter_;
   }
 
-  virtual Slice key() const { return iter_->first; }
-  virtual Slice value() const { return iter_->second; }
-  virtual Status status() const { return Status::OK(); }
+  Slice key() const override { return iter_->first; }
+  Slice value() const override { return iter_->second; }
+  Status status() const override { return Status::OK(); }
 
  private:
   const KVMap* const map_;
@@ -621,7 +623,7 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
     for (int i = 0; i < 128; i++) {
       // Random walk and make sure iter and result_iter returns the
       // same key and value
-      int type = rnd.Uniform(5);
+      int type = rnd.Uniform(6);
       ASSERT_OK(iter->status());
       switch (type) {
         case 0:
@@ -642,7 +644,15 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
           result_iter->Seek(key);
           break;
         }
-        case 3:
+        case 3: {
+          // SeekForPrev to random key
+          auto key_idx = rnd.Uniform(static_cast<int>(source_strings.size()));
+          auto key = source_strings[key_idx];
+          iter->SeekForPrev(key);
+          result_iter->SeekForPrev(key);
+          break;
+        }
+        case 4:
           // Next
           if (is_valid) {
             iter->Next();
@@ -652,7 +662,7 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
           }
           break;
         default:
-          assert(type == 4);
+          assert(type == 5);
           // Prev
           if (is_valid) {
             iter->Prev();
@@ -972,7 +982,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
   options.create_if_missing = true;
 
-  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
 
   DestroyDB(dbname, options);
   Status s = DB::Open(options, dbname, &db);
@@ -1020,7 +1030,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge2) {
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
   options.create_if_missing = true;
 
-  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
 
   DestroyDB(dbname, options);
   Status s = DB::Open(options, dbname, &db);
@@ -1078,7 +1088,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
   DB* db;
   Options options;
   options.create_if_missing = true;
-  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
 
   DestroyDB(dbname, options);
   Status s = DB::Open(options, dbname, &db);
@@ -1129,7 +1139,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
   Options options;
 
   options.create_if_missing = true;
-  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
 
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
 
@@ -1255,7 +1265,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
   Options options;
 
   options.create_if_missing = true;
-  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
 
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
 
@@ -1293,6 +1303,37 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
 
   s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge3) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath("write_batch_with_index_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+  FlushOptions flush_options;
+  std::string value;
+
+  WriteBatchWithIndex batch;
+
+  ASSERT_OK(db->Put(write_options, "A", "1"));
+  ASSERT_OK(db->Flush(flush_options, db->DefaultColumnFamily()));
+  ASSERT_OK(batch.Merge("A", "2"));
+
+  ASSERT_OK(batch.GetFromBatchAndDB(db, read_options, "A", &value));
+  ASSERT_EQ(value, "1,2");
 
   delete db;
   DestroyDB(dbname, options);

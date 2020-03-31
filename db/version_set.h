@@ -29,8 +29,8 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction.h"
-#include "db/compaction_picker.h"
+#include "db/compaction/compaction.h"
+#include "db/compaction/compaction_picker.h"
 #include "db/dbformat.h"
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
@@ -44,6 +44,9 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "table/get_context.h"
+#include "table/multiget_context.h"
+#include "trace_replay/block_cache_tracer.h"
 
 namespace rocksdb {
 
@@ -52,7 +55,6 @@ class Writer;
 }
 
 class Compaction;
-class InternalIterator;
 class LogBuffer;
 class LookupKey;
 class MemTable;
@@ -61,8 +63,15 @@ class VersionSet;
 class WriteBufferManager;
 class MergeContext;
 class ColumnFamilySet;
-class TableCache;
 class MergeIteratorBuilder;
+
+// VersionEdit is always supposed to be valid and it is used to point at
+// entries in Manifest. Ideally it should not be used as a container to
+// carry around few of its fields as function params because it can cause
+// readers to think it's a valid entry from Manifest. To avoid that confusion
+// introducing VersionEditParams to simply carry around multiple VersionEdit
+// params. It need not point to a valid record in Manifest.
+using VersionEditParams = VersionEdit;
 
 // Return the smallest index i such that file_level.files[i]->largest >= key.
 // Return file_level.num_files if there is no such file.
@@ -90,6 +99,9 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
                                       const std::vector<FileMetaData*>& files,
                                       Arena* arena);
 
+// Information of the storage associated with each Version, including number of
+// levels of LSM tree, files information at each level, files marked for
+// compaction, etc.
 class VersionStorageInfo {
  public:
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
@@ -97,6 +109,9 @@ class VersionStorageInfo {
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
                      bool _force_consistency_checks);
+  // No copying allowed
+  VersionStorageInfo(const VersionStorageInfo&) = delete;
+  void operator=(const VersionStorageInfo&) = delete;
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -115,7 +130,7 @@ class VersionStorageInfo {
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
-  // Decrease the current stat form a to-be-delected file-meta
+  // Decrease the current stat from a to-be-deleted file-meta
   void RemoveCurrentStats(FileMetaData* file_meta);
 
   void ComputeCompensatedSizes();
@@ -134,6 +149,17 @@ class VersionStorageInfo {
   // This computes files_marked_for_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
+
+  // This computes ttl_expired_files_ and is called by
+  // ComputeCompactionScore()
+  void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
+                              const uint64_t ttl);
+
+  // This computes files_marked_for_periodic_compaction_ and is called by
+  // ComputeCompactionScore()
+  void ComputeFilesMarkedForPeriodicCompaction(
+      const ImmutableCFOptions& ioptions,
+      const uint64_t periodic_compaction_seconds);
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
@@ -184,9 +210,11 @@ class VersionStorageInfo {
       std::vector<FileMetaData*>* inputs,
       int hint_index = -1,        // index of overlap file
       int* file_index = nullptr,  // return index of overlap file
-      bool expand_range = true)   // if set, returns files which overlap the
-      const;                      // range and overlap each other. If false,
+      bool expand_range = true,   // if set, returns files which overlap the
+                                  // range and overlap each other. If false,
                                   // then just files intersecting the range
+      InternalKey** next_smallest = nullptr)  // if non-null, returns the
+      const;  // smallest key of next file not included
   void GetCleanInputsWithinInterval(
       int level, const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,               // nullptr means after all keys
@@ -196,32 +224,15 @@ class VersionStorageInfo {
       const;
 
   void GetOverlappingInputsRangeBinarySearch(
-      int level,           // level > 0
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
+      int level,                 // level > 0
+      const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
       int hint_index,                // index of overlap file
       int* file_index,               // return index of overlap file
-      bool within_interval = false)  // if set, force the inputs within interval
-      const;
-
-  void ExtendFileRangeOverlappingInterval(
-      int level,
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
-      unsigned int index,  // start extending from this index
-      int* startIndex,     // return the startIndex of input range
-      int* endIndex)       // return the endIndex of input range
-      const;
-
-  void ExtendFileRangeWithinInterval(
-      int level,
-      const Slice& begin,  // nullptr means before all keys
-      const Slice& end,    // nullptr means after all keys
-      unsigned int index,  // start extending from this index
-      int* startIndex,     // return the startIndex of input range
-      int* endIndex)       // return the endIndex of input range
-      const;
+      bool within_interval = false,  // if set, force the inputs within interval
+      InternalKey** next_smallest = nullptr)  // if non-null, returns the
+      const;  // smallest key of next file not included
 
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
@@ -288,6 +299,21 @@ class VersionStorageInfo {
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
+    assert(finalized_);
+    return expired_ttl_files_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>&
+  FilesMarkedForPeriodicCompaction() const {
+    assert(finalized_);
+    return files_marked_for_periodic_compaction_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
   BottommostFilesMarkedForCompaction() const {
     assert(finalized_);
@@ -295,6 +321,7 @@ class VersionStorageInfo {
   }
 
   int base_level() const { return base_level_; }
+  double level_multiplier() const { return level_multiplier_; }
 
   // REQUIRES: lock is held
   // Set the index that is used to offset into files_by_compaction_pri_ to find
@@ -387,15 +414,19 @@ class VersionStorageInfo {
 
   bool force_consistency_checks() const { return force_consistency_checks_; }
 
+  SequenceNumber bottommost_files_mark_threshold() const {
+    return bottommost_files_mark_threshold_;
+  }
+
   // Returns whether any key in [`smallest_key`, `largest_key`] could appear in
   // an older L0 file than `last_l0_idx` or in a greater level than `last_level`
   //
   // @param last_level Level after which we check for overlap
   // @param last_l0_idx If `last_level == 0`, index of L0 file after which we
   //    check for overlap; otherwise, must be -1
-  bool RangeMightExistAfterSortedRun(const Slice& smallest_key,
-                                     const Slice& largest_key, int last_level,
-                                     int last_l0_idx);
+  bool RangeMightExistAfterSortedRun(const Slice& smallest_user_key,
+                                     const Slice& largest_user_key,
+                                     int last_level, int last_l0_idx);
 
  private:
   const InternalKeyComparator* internal_comparator_;
@@ -421,6 +452,8 @@ class VersionStorageInfo {
   // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
 
+  double level_multiplier_;
+
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file
   // size. The file with the largest size is at the front.
@@ -445,6 +478,11 @@ class VersionStorageInfo {
   // currently being compacted. It is protected by DB mutex. It is calculated in
   // ComputeCompactionScore()
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
+
+  autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
+
+  autovector<std::pair<int, FileMetaData*>>
+      files_marked_for_periodic_compaction_;
 
   // These files are considered bottommost because none of their keys can exist
   // at lower levels. They are not necessarily all in the same level. The marked
@@ -491,7 +529,7 @@ class VersionStorageInfo {
   uint64_t accumulated_num_deletions_;
   // current number of non_deletion entries
   uint64_t current_num_non_deletions_;
-  // current number of delection entries
+  // current number of deletion entries
   uint64_t current_num_deletions_;
   // current number of file samples
   uint64_t current_num_samples_;
@@ -507,11 +545,11 @@ class VersionStorageInfo {
 
   friend class Version;
   friend class VersionSet;
-  // No copying allowed
-  VersionStorageInfo(const VersionStorageInfo&) = delete;
-  void operator=(const VersionStorageInfo&) = delete;
 };
 
+using MultiGetRange = MultiGetContext::Range;
+// A column family's version consists of the SST files owned by the column
+// family at a certain point in time.
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
@@ -525,27 +563,41 @@ class Version {
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
-  // Lookup the value for key.  If found, store it in *val and
-  // return OK.  Else return a non-OK status.
-  // Uses *operands to store merge_operator operations to apply later.
+  Status OverlapWithLevelIterator(const ReadOptions&, const EnvOptions&,
+                                  const Slice& smallest_user_key,
+                                  const Slice& largest_user_key,
+                                  int level, bool* overlap);
+
+  // Lookup the value for key or get all merge operands for key.
+  // If do_merge = true (default) then lookup value for key.
+  // Behavior if do_merge = true:
+  //    If found, store it in *value and
+  //    return OK.  Else return a non-OK status.
+  //    Uses *operands to store merge_operator operations to apply later.
   //
-  // If the ReadOptions.read_tier is set to do a read-only fetch, then
-  // *value_found will be set to false if it cannot be determined whether
-  // this value exists without doing IO.
+  //    If the ReadOptions.read_tier is set to do a read-only fetch, then
+  //    *value_found will be set to false if it cannot be determined whether
+  //    this value exists without doing IO.
   //
-  // If the key is Deleted, *status will be set to NotFound and
+  //    If the key is Deleted, *status will be set to NotFound and
   //                        *key_exists will be set to true.
-  // If no key was found, *status will be set to NotFound and
+  //    If no key was found, *status will be set to NotFound and
   //                      *key_exists will be set to false.
-  // If seq is non-null, *seq will be set to the sequence number found
-  // for the key if a key was found.
-  //
+  //    If seq is non-null, *seq will be set to the sequence number found
+  //    for the key if a key was found.
+  // Behavior if do_merge = false
+  //    If the key has any merge operands then store them in
+  //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
-           RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
-           bool* key_exists = nullptr, SequenceNumber* seq = nullptr,
-           ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+           SequenceNumber* max_covering_tombstone_seq,
+           bool* value_found = nullptr, bool* key_exists = nullptr,
+           SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
+           bool* is_blob = nullptr, bool do_merge = true);
+
+  void MultiGet(const ReadOptions&, MultiGetRange* range,
+                ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
@@ -565,13 +617,13 @@ class Version {
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
 
-  // Returns the version nuber of this version
+  // Returns the version number of this version
   uint64_t GetVersionNumber() const { return version_number_; }
 
   // REQUIRES: lock is held
   // On success, "tp" will contains the table properties of the file
   // specified in "file_meta".  If the file name of "file_meta" is
-  // known ahread, passing it by a non-null "fname" can save a
+  // known ahead, passing it by a non-null "fname" can save a
   // file-name conversion.
   Status GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                             const FileMetaData* file_meta,
@@ -580,14 +632,19 @@ class Version {
   // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
-  // tables' propertis, represented as shared_ptr.
+  // tables' properties, represented as std::shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
   Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
+  // Print summary of range delete tombstones in SST files into out_str,
+  // with maximum max_entries_to_print entries printed out.
+  Status TablesRangeTombstoneSummary(int max_entries_to_print,
+                                     std::string* out_str);
+
   // REQUIRES: lock is held
-  // On success, "tp" will contains the aggregated table property amoug
+  // On success, "tp" will contains the aggregated table property among
   // the table properties of all sst files in this version.
   Status GetAggregatedTableProperties(
       std::shared_ptr<const TableProperties>* tp, int level = -1);
@@ -613,8 +670,13 @@ class Version {
 
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
+  uint64_t GetSstFilesSize();
+
+  const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
+
  private:
   Env* env_;
+  friend class ReactiveVersionSet;
   friend class VersionSet;
 
   const InternalKeyComparator* internal_comparator() const {
@@ -635,7 +697,7 @@ class Version {
   bool IsFilterSkipped(int level, bool is_file_last_in_level = false);
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
-  // fields of file_mata from its associated TableProperties.
+  // fields of file_meta from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.
   bool MaybeInitializeFileMetaData(FileMetaData* file_meta);
 
@@ -660,28 +722,86 @@ class Version {
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
   const EnvOptions env_options_;
+  const MutableCFOptions mutable_cf_options_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const EnvOptions& env_opt,
-          uint64_t version_number = 0);
+          MutableCFOptions mutable_cf_options, uint64_t version_number = 0);
 
   ~Version();
 
   // No copying allowed
-  Version(const Version&);
-  void operator=(const Version&);
+  Version(const Version&) = delete;
+  void operator=(const Version&) = delete;
 };
 
+struct ObsoleteFileInfo {
+  FileMetaData* metadata;
+  std::string   path;
+
+  ObsoleteFileInfo() noexcept : metadata(nullptr) {}
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
+      : metadata(f), path(file_path) {}
+
+  ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
+  ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
+
+  ObsoleteFileInfo(ObsoleteFileInfo&& rhs) noexcept :
+    ObsoleteFileInfo() {
+      *this = std::move(rhs);
+  }
+
+  ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
+    path = std::move(rhs.path);
+    metadata = rhs.metadata;
+    rhs.metadata = nullptr;
+
+    return *this;
+  }
+
+  void DeleteMetadata() {
+    delete metadata;
+    metadata = nullptr;
+  }
+};
+
+class BaseReferencedVersionBuilder;
+
+class AtomicGroupReadBuffer {
+ public:
+  Status AddEdit(VersionEdit* edit);
+  void Clear();
+  bool IsFull() const;
+  bool IsEmpty() const;
+
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_edits_in_atomic_group_;
+  }
+  std::vector<VersionEdit>& replay_buffer() { return replay_buffer_; }
+
+ private:
+  uint64_t read_edits_in_atomic_group_ = 0;
+  std::vector<VersionEdit> replay_buffer_;
+};
+
+// VersionSet is the collection of versions of all the column families of the
+// database. Each database owns one VersionSet. A VersionSet has access to all
+// column families via ColumnFamilySet, i.e. set of the column families.
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
-             WriteController* write_controller);
-  ~VersionSet();
+             WriteController* write_controller,
+             BlockCacheTracer* const block_cache_tracer);
+  // No copying allowed
+  VersionSet(const VersionSet&) = delete;
+  void operator=(const VersionSet&) = delete;
+
+  virtual ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
@@ -695,9 +815,15 @@ class VersionSet {
       InstrumentedMutex* mu, Directory* db_directory = nullptr,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
+    autovector<ColumnFamilyData*> cfds;
+    cfds.emplace_back(column_family_data);
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
+    mutable_cf_options_list.emplace_back(&mutable_cf_options);
+    autovector<autovector<VersionEdit*>> edit_lists;
     autovector<VersionEdit*> edit_list;
-    edit_list.push_back(edit);
-    return LogAndApply(column_family_data, mutable_cf_options, edit_list, mu,
+    edit_list.emplace_back(edit);
+    edit_lists.emplace_back(edit_list);
+    return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
                        db_directory, new_descriptor_log, column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
@@ -707,13 +833,37 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       Directory* db_directory = nullptr, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr);
+      const ColumnFamilyOptions* column_family_options = nullptr) {
+    autovector<ColumnFamilyData*> cfds;
+    cfds.emplace_back(column_family_data);
+    autovector<const MutableCFOptions*> mutable_cf_options_list;
+    mutable_cf_options_list.emplace_back(&mutable_cf_options);
+    autovector<autovector<VersionEdit*>> edit_lists;
+    edit_lists.emplace_back(edit_list);
+    return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
+                       db_directory, new_descriptor_log, column_family_options);
+  }
+
+  // The across-multi-cf batch version. If edit_lists contain more than
+  // 1 version edits, caller must ensure that no edit in the []list is column
+  // family manipulation.
+  virtual Status LogAndApply(
+      const autovector<ColumnFamilyData*>& cfds,
+      const autovector<const MutableCFOptions*>& mutable_cf_options_list,
+      const autovector<autovector<VersionEdit*>>& edit_lists,
+      InstrumentedMutex* mu, Directory* db_directory = nullptr,
+      bool new_descriptor_log = false,
+      const ColumnFamilyOptions* new_cf_options = nullptr);
+
+  static Status GetCurrentManifestPath(const std::string& dbname, Env* env,
+                                       std::string* manifest_filename,
+                                       uint64_t* manifest_file_number);
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
   // are not opened
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false);
+                 bool read_only = false, std::string* db_id = nullptr);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.
@@ -752,8 +902,17 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
+  uint64_t min_log_number_to_keep_2pc() const {
+    return min_log_number_to_keep_2pc_.load();
+  }
+
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
+
+  // Fetch And Add n new file number
+  uint64_t FetchAddFileNumber(uint64_t n) {
+    return next_file_number_.fetch_add(n);
+  }
 
   // Return the last sequence number.
   uint64_t LastSequence() const {
@@ -773,7 +932,7 @@ class VersionSet {
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
-    // Last visible seqeunce must always be less than last written seq
+    // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
@@ -799,15 +958,31 @@ class VersionSet {
   // REQUIRED: this is only called during single-threaded recovery or repair.
   void MarkFileNumberUsed(uint64_t number);
 
+  // Mark the specified log number as deleted
+  // REQUIRED: this is only called during single-threaded recovery or repair, or
+  // from ::LogAndApply where the global mutex is held.
+  void MarkMinLogNumberToKeep2PC(uint64_t number);
+
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   uint64_t prev_log_number() const { return prev_log_number_; }
 
-  // Returns the minimum log number such that all
-  // log numbers less than or equal to it can be deleted
-  uint64_t MinLogNumber() const {
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file.
+  // In non-2PC mode, all the log numbers smaller than this number can be safely
+  // deleted.
+  uint64_t MinLogNumberWithUnflushedData() const {
+    return PreComputeMinLogNumberWithUnflushedData(nullptr);
+  }
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file, except data from `cfd_to_skip`.
+  uint64_t PreComputeMinLogNumberWithUnflushedData(
+      const ColumnFamilyData* cfd_to_skip) const {
     uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
+      if (cfd == cfd_to_skip) {
+        continue;
+      }
       // It's safe to ignore dropped column families here:
       // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
       if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
@@ -827,10 +1002,12 @@ class VersionSet {
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
   // Return the approximate size of data to be scanned for range [start, end)
-  // in levels [start_level, end_level). If end_level == 0 it will search
+  // in levels [start_level, end_level). If end_level == -1 it will search
   // through all non-empty levels
-  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
-                           int start_level = 0, int end_level = -1);
+  uint64_t ApproximateSize(const SizeApproximationOptions& options, Version* v,
+                           const Slice& start, const Slice& end,
+                           int start_level, int end_level,
+                           TableReaderCaller caller);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
@@ -847,7 +1024,7 @@ class VersionSet {
   // This function doesn't support leveldb SST filenames
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
-  void GetObsoleteFiles(std::vector<FileMetaData*>* files,
+  void GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
@@ -858,15 +1035,18 @@ class VersionSet {
         new_options.writable_file_max_buffer_size;
   }
 
+  const ImmutableDBOptions* db_options() const { return db_options_; }
+
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
 
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
- private:
+ protected:
   struct ManifestWriter;
 
   friend class Version;
   friend class DBImpl;
+  friend class DBImplReadOnly;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
@@ -875,27 +1055,57 @@ class VersionSet {
     }
   };
 
-  // ApproximateSize helper
-  uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
-                                 const Slice& start, const Slice& end);
+  // Returns approximated offset of a key in a file for a given version.
+  uint64_t ApproximateOffsetOf(Version* v, const FdWithKeyRange& f,
+                               const Slice& key, TableReaderCaller caller);
 
+  // Returns approximated data size between start and end keys in a file
+  // for a given version.
   uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
-                           const Slice& key);
+                           const Slice& start, const Slice& end,
+                           TableReaderCaller caller);
 
   // Save current contents to *log
-  Status WriteSnapshot(log::Writer* log);
+  Status WriteCurrentStateToManifest(log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
+  Status ReadAndRecover(
+      log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
+      const std::unordered_map<std::string, ColumnFamilyOptions>&
+          name_to_options,
+      std::unordered_map<int, std::string>& column_families_not_found,
+      std::unordered_map<
+          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
+      VersionEditParams* version_edit, std::string* db_id = nullptr);
+
+  // REQUIRES db mutex
+  Status ApplyOneVersionEditToBuilder(
+      VersionEdit& edit,
+      const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_opts,
+      std::unordered_map<int, std::string>& column_families_not_found,
+      std::unordered_map<
+          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
+      VersionEditParams* version_edit);
+
+  Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
+                                    const VersionEdit& from_edit,
+                                    VersionEditParams* version_edit_params);
+
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
   Env* const env_;
   const std::string dbname_;
+  std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
+  // Any log number equal or lower than this should be ignored during recovery,
+  // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
+  // number is ignored.
+  std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
@@ -911,13 +1121,13 @@ class VersionSet {
   // The last allocated sequence that is also published to the readers. This is
   // applicable only when last_seq_same_as_publish_seq_ is not set. Otherwise
   // last_sequence_ also indicates the last published seq.
-  // We have last_sequence <= last_published_seqeunce_ <=
+  // We have last_sequence <= last_published_sequence_ <=
   // last_allocated_sequence_
   std::atomic<uint64_t> last_published_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
-  unique_ptr<log::Writer> descriptor_log_;
+  std::unique_ptr<log::Writer> descriptor_log_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
@@ -928,19 +1138,93 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
-  std::vector<FileMetaData*> obsolete_files_;
+  std::vector<ObsoleteFileInfo> obsolete_files_;
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
 
-  // No copying allowed
-  VersionSet(const VersionSet&);
-  void operator=(const VersionSet&);
+  BlockCacheTracer* const block_cache_tracer_;
+
+ private:
+  // REQUIRES db mutex at beginning. may release and re-acquire db mutex
+  Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
+                               InstrumentedMutex* mu, Directory* db_directory,
+                               bool new_descriptor_log,
+                               const ColumnFamilyOptions* new_cf_options);
 
   void LogAndApplyCFHelper(VersionEdit* edit);
-  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b, Version* v,
-                         VersionEdit* edit, InstrumentedMutex* mu);
+  Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
+                           VersionEdit* edit, InstrumentedMutex* mu);
+};
+
+// ReactiveVersionSet represents a collection of versions of the column
+// families of the database. Users of ReactiveVersionSet, e.g. DBImplSecondary,
+// need to replay the MANIFEST (description log in older terms) in order to
+// reconstruct and install versions.
+class ReactiveVersionSet : public VersionSet {
+ public:
+  ReactiveVersionSet(const std::string& dbname,
+                     const ImmutableDBOptions* _db_options,
+                     const EnvOptions& _env_options, Cache* table_cache,
+                     WriteBufferManager* write_buffer_manager,
+                     WriteController* write_controller);
+
+  ~ReactiveVersionSet() override;
+
+  Status ReadAndApply(
+      InstrumentedMutex* mu,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+      std::unordered_set<ColumnFamilyData*>* cfds_changed);
+
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                 std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+                 std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
+                 std::unique_ptr<Status>* manifest_reader_status);
+
+  uint64_t TEST_read_edits_in_atomic_group() const {
+    return read_buffer_.TEST_read_edits_in_atomic_group();
+  }
+  std::vector<VersionEdit>& replay_buffer() {
+    return read_buffer_.replay_buffer();
+  }
+
+ protected:
+  using VersionSet::ApplyOneVersionEditToBuilder;
+
+  // REQUIRES db mutex
+  Status ApplyOneVersionEditToBuilder(
+      VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
+      VersionEdit* version_edit);
+
+  Status MaybeSwitchManifest(
+      log::Reader::Reporter* reporter,
+      std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
+
+ private:
+  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
+      active_version_builders_;
+  AtomicGroupReadBuffer read_buffer_;
+  // Number of version edits to skip by ReadAndApply at the beginning of a new
+  // MANIFEST created by primary.
+  int number_of_edits_to_skip_;
+
+  using VersionSet::LogAndApply;
+  using VersionSet::Recover;
+
+  Status LogAndApply(
+      const autovector<ColumnFamilyData*>& /*cfds*/,
+      const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
+      const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
+      InstrumentedMutex* /*mu*/, Directory* /*db_directory*/,
+      bool /*new_descriptor_log*/,
+      const ColumnFamilyOptions* /*new_cf_option*/) override {
+    return Status::NotSupported("not supported in reactive mode");
+  }
+
+  // No copy allowed
+  ReactiveVersionSet(const ReactiveVersionSet&);
+  ReactiveVersionSet& operator=(const ReactiveVersionSet&);
 };
 
 }  // namespace rocksdb

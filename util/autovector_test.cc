@@ -9,10 +9,10 @@
 #include <utility>
 
 #include "rocksdb/env.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/autovector.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 using std::cout;
 using std::endl;
@@ -27,6 +27,9 @@ template <class T>
 void AssertAutoVectorOnlyInStack(autovector<T, kSize>* vec, bool result) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ(vec->only_in_stack(), result);
+#else
+  (void) vec;
+  (void) result;
 #endif  // !ROCKSDB_LITE
 }
 }  // namespace

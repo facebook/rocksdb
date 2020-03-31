@@ -27,10 +27,10 @@
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
+#include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "util/arena.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
@@ -44,10 +44,10 @@ class BlockCacheTier : public PersistentCacheTier {
  public:
   explicit BlockCacheTier(const PersistentCacheConfig& opt)
       : opt_(opt),
-        insert_ops_(opt_.max_write_pipeline_backlog_size),
+        insert_ops_(static_cast<size_t>(opt_.max_write_pipeline_backlog_size)),
         buffer_allocator_(opt.write_buffer_size, opt.write_buffer_count()),
-        writer_(this, opt_.writer_qdepth, opt_.writer_dispatch_size) {
-    Info(opt_.log, "Initializing allocator. size=%d B count=%d",
+        writer_(this, opt_.writer_qdepth, static_cast<size_t>(opt_.writer_dispatch_size)) {
+    Info(opt_.log, "Initializing allocator. size=%d B count=%" ROCKSDB_PRIszt,
          opt_.write_buffer_size, opt_.write_buffer_count());
   }
 
@@ -92,7 +92,7 @@ class BlockCacheTier : public PersistentCacheTier {
     ~InsertOp() {}
 
     InsertOp() = delete;
-    InsertOp(InsertOp&& rhs) = default;
+    InsertOp(InsertOp&& /*rhs*/) = default;
     InsertOp& operator=(InsertOp&& rhs) = default;
 
     // used for estimating size by bounded queue
@@ -100,7 +100,7 @@ class BlockCacheTier : public PersistentCacheTier {
 
     std::string key_;
     std::string data_;
-    const bool signal_ = false;  // signal to request processing thread to exit
+    bool signal_ = false;  // signal to request processing thread to exit
   };
 
   // entry point for insert thread

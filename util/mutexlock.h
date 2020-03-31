@@ -31,13 +31,14 @@ class MutexLock {
   explicit MutexLock(port::Mutex *mu) : mu_(mu) {
     this->mu_->Lock();
   }
+  // No copying allowed
+  MutexLock(const MutexLock &) = delete;
+  void operator=(const MutexLock &) = delete;
+
   ~MutexLock() { this->mu_->Unlock(); }
 
  private:
   port::Mutex *const mu_;
-  // No copying allowed
-  MutexLock(const MutexLock&);
-  void operator=(const MutexLock&);
 };
 
 //
@@ -50,13 +51,14 @@ class ReadLock {
   explicit ReadLock(port::RWMutex *mu) : mu_(mu) {
     this->mu_->ReadLock();
   }
+  // No copying allowed
+  ReadLock(const ReadLock &) = delete;
+  void operator=(const ReadLock &) = delete;
+
   ~ReadLock() { this->mu_->ReadUnlock(); }
 
  private:
   port::RWMutex *const mu_;
-  // No copying allowed
-  ReadLock(const ReadLock&);
-  void operator=(const ReadLock&);
 };
 
 //
@@ -65,13 +67,14 @@ class ReadLock {
 class ReadUnlock {
  public:
   explicit ReadUnlock(port::RWMutex *mu) : mu_(mu) { mu->AssertHeld(); }
+  // No copying allowed
+  ReadUnlock(const ReadUnlock &) = delete;
+  ReadUnlock &operator=(const ReadUnlock &) = delete;
+
   ~ReadUnlock() { mu_->ReadUnlock(); }
 
  private:
   port::RWMutex *const mu_;
-  // No copying allowed
-  ReadUnlock(const ReadUnlock &) = delete;
-  ReadUnlock &operator=(const ReadUnlock &) = delete;
 };
 
 //
@@ -84,13 +87,14 @@ class WriteLock {
   explicit WriteLock(port::RWMutex *mu) : mu_(mu) {
     this->mu_->WriteLock();
   }
+  // No copying allowed
+  WriteLock(const WriteLock &) = delete;
+  void operator=(const WriteLock &) = delete;
+
   ~WriteLock() { this->mu_->WriteUnlock(); }
 
  private:
   port::RWMutex *const mu_;
-  // No copying allowed
-  WriteLock(const WriteLock&);
-  void operator=(const WriteLock&);
 };
 
 //

@@ -20,8 +20,6 @@ namespace rocksdb {
 
 class WritableFileWriter;
 
-using std::unique_ptr;
-
 namespace log {
 
 /**
@@ -49,7 +47,7 @@ namespace log {
  * |CRC (4B) | Size (2B) | Type (1B) | Payload   |
  * +---------+-----------+-----------+--- ... ---+
  *
- * CRC = 32bit hash computed over the payload using CRC
+ * CRC = 32bit hash computed over the record type and payload using CRC
  * Size = Length of the payload data
  * Type = Type of record
  *        (kZeroType, kFullType, kFirstType, kLastType, kMiddleType )
@@ -72,8 +70,13 @@ class Writer {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
-  explicit Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
-                  bool recycle_log_files, bool manual_flush = false);
+  explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
+                  uint64_t log_number, bool recycle_log_files,
+                  bool manual_flush = false);
+  // No copying allowed
+  Writer(const Writer&) = delete;
+  void operator=(const Writer&) = delete;
+
   ~Writer();
 
   Status AddRecord(const Slice& slice);
@@ -85,8 +88,12 @@ class Writer {
 
   Status WriteBuffer();
 
+  Status Close();
+
+  bool TEST_BufferIsEmpty();
+
  private:
-  unique_ptr<WritableFileWriter> dest_;
+  std::unique_ptr<WritableFileWriter> dest_;
   size_t block_offset_;       // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
@@ -101,10 +108,6 @@ class Writer {
   // If true, it does not flush after each write. Instead it relies on the upper
   // layer to manually does the flush by calling ::WriteBuffer()
   bool manual_flush_;
-
-  // No copying allowed
-  Writer(const Writer&);
-  void operator=(const Writer&);
 };
 
 }  // namespace log

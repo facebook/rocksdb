@@ -12,8 +12,7 @@
 // define InDomain and InRange to determine which slices are in either
 // of these sets respectively.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_
-#define STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_
+#pragma once
 
 #include <string>
 
@@ -22,14 +21,14 @@ namespace rocksdb {
 class Slice;
 
 /*
- * A SliceTranform is a generic pluggable way of transforming one string
+ * A SliceTransform is a generic pluggable way of transforming one string
  * to another. Its primary use-case is in configuring rocksdb
  * to store prefix blooms by setting prefix_extractor in
  * ColumnFamilyOptions.
  */
 class SliceTransform {
  public:
-  virtual ~SliceTransform() {};
+  virtual ~SliceTransform(){};
 
   // Return the name of this transformation.
   virtual const char* Name() const = 0;
@@ -60,6 +59,11 @@ class SliceTransform {
   // This is currently not used and remains here for backward compatibility.
   virtual bool InRange(const Slice& /*dst*/) const { return false; }
 
+  // Some SliceTransform will have a full length which can be used to
+  // determine if two keys are consecuitive. Can be disabled by always
+  // returning 0
+  virtual bool FullLengthEnabled(size_t* /*len*/) const { return false; }
+
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.
   //
   // This function is not used by RocksDB, but for users. If users pass
@@ -72,7 +76,7 @@ class SliceTransform {
   // by setting ReadOptions.total_order_seek = true.
   //
   // Here is an example: Suppose we implement a slice transform that returns
-  // the first part of the string after spliting it using delimiter ",":
+  // the first part of the string after splitting it using delimiter ",":
   // 1. SameResultWhenAppended("abc,") should return true. If applying prefix
   //    bloom filter using it, all slices matching "abc:.*" will be extracted
   //    to "abc,", so any SST file or memtable containing any of those key
@@ -94,6 +98,4 @@ extern const SliceTransform* NewCappedPrefixTransform(size_t cap_len);
 
 extern const SliceTransform* NewNoopTransform();
 
-}
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_
+}  // namespace rocksdb

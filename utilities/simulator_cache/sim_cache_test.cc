@@ -77,8 +77,12 @@ TEST_F(SimCacheTest, SimCache) {
   auto table_options = GetTableOptions();
   auto options = GetOptions(table_options);
   InitTable(options);
-  std::shared_ptr<SimCache> simCache =
-      NewSimCache(NewLRUCache(0, 0, false), 20000, 0);
+  LRUCacheOptions co;
+  co.capacity = 0;
+  co.num_shard_bits = 0;
+  co.strict_capacity_limit = false;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<SimCache> simCache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = simCache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
@@ -142,8 +146,10 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   auto table_options = GetTableOptions();
   auto options = GetOptions(table_options);
   options.disable_auto_compactions = true;
-  std::shared_ptr<SimCache> sim_cache =
-      NewSimCache(NewLRUCache(1024 * 1024), 20000, 0);
+  LRUCacheOptions co;
+  co.capacity = 1024 * 1024;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  std::shared_ptr<SimCache> sim_cache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = sim_cache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
@@ -154,7 +160,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
     Flush();
   }
 
-  std::string log_file = test::TmpDir(env_) + "/cache_log.txt";
+  std::string log_file = test::PerThreadDBPath(env_, "cache_log.txt");
   ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_));
   for (int i = 0; i < num_block_entries; i++) {
     ASSERT_EQ(Get(Key(i)), "val");

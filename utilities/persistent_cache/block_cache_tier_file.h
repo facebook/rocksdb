@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "file/random_access_file_reader.h"
+
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 
@@ -21,7 +23,6 @@
 
 #include "port/port.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 
 // The io code path of persistent cache uses pipelined architecture
@@ -149,7 +150,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
  public:
   explicit RandomAccessCacheFile(Env* const env, const std::string& dir,
                                  const uint32_t cache_id,
-                                 const shared_ptr<Logger>& log)
+                                 const std::shared_ptr<Logger>& log)
       : BlockCacheFile(env, dir, cache_id), log_(log) {}
 
   virtual ~RandomAccessCacheFile() {}
@@ -265,11 +266,11 @@ class ThreadedWriter : public Writer {
     IO& operator=(const IO&) = default;
     size_t Size() const { return sizeof(IO); }
 
-    WritableFile* file_ = nullptr;           // File to write to
-    CacheWriteBuffer* const buf_ = nullptr;  // buffer to write
-    uint64_t file_off_ = 0;                  // file offset
-    bool signal_ = false;                    // signal to exit thread loop
-    std::function<void()> callback_;         // Callback on completion
+    WritableFile* file_ = nullptr;     // File to write to
+    CacheWriteBuffer* buf_ = nullptr;  // buffer to write
+    uint64_t file_off_ = 0;            // file offset
+    bool signal_ = false;              // signal to exit thread loop
+    std::function<void()> callback_;   // Callback on completion
   };
 
   explicit ThreadedWriter(PersistentCacheTier* const cache, const size_t qdepth,

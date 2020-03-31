@@ -1,3 +1,4 @@
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 /**
  * A TEST MergeOperator for rocksdb that implements string append.
  * It is built using the MergeOperator interface rather than the simpler

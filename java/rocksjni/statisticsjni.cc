@@ -10,25 +10,23 @@
 
 namespace rocksdb {
 
-  StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats)
-      : StatisticsImpl(stats, false), m_ignore_histograms() {
+StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats)
+    : StatisticsImpl(stats), m_ignore_histograms() {}
+
+StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats,
+                             const std::set<uint32_t> ignore_histograms)
+    : StatisticsImpl(stats), m_ignore_histograms(ignore_histograms) {}
+
+bool StatisticsJni::HistEnabledForType(uint32_t type) const {
+  if (type >= HISTOGRAM_ENUM_MAX) {
+    return false;
   }
 
-  StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats,
-      const std::set<uint32_t> ignore_histograms) : StatisticsImpl(stats, false),
-      m_ignore_histograms(ignore_histograms) {
+  if (m_ignore_histograms.count(type) > 0) {
+    return false;
   }
 
-  bool StatisticsJni::HistEnabledForType(uint32_t type) const {
-    if (type >= HISTOGRAM_ENUM_MAX) {
-      return false;
-    }
-    
-    if (m_ignore_histograms.count(type) > 0) {
-        return false;
-    }
-
-    return true;
-  }
+  return true;
+}
 // @lint-ignore TXT4 T25377293 Grandfathered in
 };

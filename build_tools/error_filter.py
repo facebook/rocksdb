@@ -64,8 +64,12 @@ class MatchErrorParser(ErrorParserBase):
 
 class CompilerErrorParser(MatchErrorParser):
     def __init__(self):
-        # format: '<filename>:<line #>:<column #>: error: <error msg>'
-        super(CompilerErrorParser, self).__init__(r'\S+:\d+:\d+: error:')
+        # format (compile error):
+        #   '<filename>:<line #>:<column #>: error: <error msg>'
+        # format (link error):
+        #   '<filename>:<line #>: error: <error msg>'
+        # The below regex catches both
+        super(CompilerErrorParser, self).__init__(r'\S+:\d+: error:')
 
 
 class ScanBuildErrorParser(MatchErrorParser):
@@ -128,11 +132,14 @@ _TEST_NAME_TO_PARSERS = {
     'lite': [CompilerErrorParser],
     'lite_test': [CompilerErrorParser, GTestErrorParser],
     'stress_crash': [CompilerErrorParser, DbCrashErrorParser],
+    'stress_crash_with_atomic_flush': [CompilerErrorParser, DbCrashErrorParser],
     'write_stress': [CompilerErrorParser, WriteStressErrorParser],
     'asan': [CompilerErrorParser, GTestErrorParser, AsanErrorParser],
     'asan_crash': [CompilerErrorParser, AsanErrorParser, DbCrashErrorParser],
+    'asan_crash_with_atomic_flush': [CompilerErrorParser, AsanErrorParser, DbCrashErrorParser],
     'ubsan': [CompilerErrorParser, GTestErrorParser, UbsanErrorParser],
     'ubsan_crash': [CompilerErrorParser, UbsanErrorParser, DbCrashErrorParser],
+    'ubsan_crash_with_atomic_flush': [CompilerErrorParser, UbsanErrorParser, DbCrashErrorParser],
     'valgrind': [CompilerErrorParser, GTestErrorParser, ValgrindErrorParser],
     'tsan': [CompilerErrorParser, GTestErrorParser, TsanErrorParser],
     'format_compatible': [CompilerErrorParser, CompatErrorParser],

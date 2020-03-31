@@ -10,15 +10,15 @@
 #include "db/log_writer.h"
 
 #include <stdint.h>
+#include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace log {
 
-Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
+Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
                bool recycle_log_files, bool manual_flush)
     : dest_(std::move(dest)),
       block_offset_(0),
@@ -31,9 +31,22 @@ Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
   }
 }
 
-Writer::~Writer() { WriteBuffer(); }
+Writer::~Writer() {
+  if (dest_) {
+    WriteBuffer();
+  }
+}
 
 Status Writer::WriteBuffer() { return dest_->Flush(); }
+
+Status Writer::Close() {
+  Status s;
+  if (dest_) {
+    s = dest_->Close();
+    dest_.reset();
+  }
+  return s;
+}
 
 Status Writer::AddRecord(const Slice& slice) {
   const char* ptr = slice.data();
@@ -57,8 +70,11 @@ Status Writer::AddRecord(const Slice& slice) {
         // Fill the trailer (literal below relies on kHeaderSize and
         // kRecyclableHeaderSize being <= 11)
         assert(header_size <= 11);
-        dest_->Append(
-            Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", leftover));
+        s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+                                static_cast<size_t>(leftover)));
+        if (!s.ok()) {
+          break;
+        }
       }
       block_offset_ = 0;
     }
@@ -86,8 +102,17 @@ Status Writer::AddRecord(const Slice& slice) {
     left -= fragment_length;
     begin = false;
   } while (s.ok() && left > 0);
+
+  if (s.ok()) {
+    if (!manual_flush_) {
+      s = dest_->Flush();
+    }
+  }
+
   return s;
 }
+
+bool Writer::TEST_BufferIsEmpty() { return dest_->TEST_BufferIsEmpty(); }
 
 Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   assert(n <= 0xffff);  // Must fit in two bytes
@@ -128,11 +153,6 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   Status s = dest_->Append(Slice(buf, header_size));
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, n));
-    if (s.ok()) {
-      if (!manual_flush_) {
-        s = dest_->Flush();
-      }
-    }
   }
   block_offset_ += header_size + n;
   return s;

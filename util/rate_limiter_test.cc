@@ -7,21 +7,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "util/rate_limiter.h"
 
-#include <inttypes.h>
 #include <chrono>
+#include <cinttypes>
 #include <limits>
 
 #include "db/db_test_util.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
-#include "util/sync_point.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 
@@ -199,7 +195,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   // computes the next refill time (ensuring refill time in the future allows
   // the next request to drain the rate limiter).
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "GenericRateLimiter::Refill", [&](void* arg) {
+      "GenericRateLimiter::Refill", [&](void* /*arg*/) {
         special_env.SleepForMicroseconds(static_cast<int>(
             std::chrono::microseconds(kTimePerRefill).count()));
       });

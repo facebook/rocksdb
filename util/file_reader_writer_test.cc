@@ -3,12 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "util/file_reader_writer.h"
 #include <algorithm>
 #include <vector>
+#include "file/random_access_file_reader.h"
+#include "file/readahead_raf.h"
+#include "file/sequence_file_reader.h"
+#include "file/writable_file_writer.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/random.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -20,13 +23,13 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public WritableFile {
    public:
     explicit FakeWF() : size_(0), last_synced_(0) {}
-    ~FakeWF() {}
+    ~FakeWF() override {}
 
     Status Append(const Slice& data) override {
       size_ += data.size();
       return Status::OK();
     }
-    virtual Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
+    Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
     Status Close() override {
       EXPECT_GE(size_, last_synced_ + kMb);
       EXPECT_LT(size_, last_synced_ + 2 * kMb);
@@ -71,9 +74,9 @@ TEST_F(WritableFileWriterTest, RangeSync) {
 
   EnvOptions env_options;
   env_options.bytes_per_sync = kMb;
-  unique_ptr<FakeWF> wf(new FakeWF);
-  unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), env_options));
+  std::unique_ptr<FakeWF> wf(new FakeWF);
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
   Random r(301);
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
@@ -97,7 +100,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
         : file_data_(_file_data),
           use_direct_io_(_use_direct_io),
           no_flush_(_no_flush) {}
-    ~FakeWF() {}
+    ~FakeWF() override {}
 
     Status Append(const Slice& data) override {
       file_data_->append(data.data(), data.size());
@@ -113,7 +116,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
       return Status::OK();
     }
 
-    virtual Status Truncate(uint64_t size) override {
+    Status Truncate(uint64_t size) override {
       file_data_->resize(size);
       return Status::OK();
     }
@@ -147,15 +150,15 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     env_options.writable_file_max_buffer_size =
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
-    unique_ptr<FakeWF> wf(new FakeWF(&actual,
+    std::unique_ptr<FakeWF> wf(new FakeWF(&actual,
 #ifndef ROCKSDB_LITE
-                                     attempt % 2 == 1,
+                                          attempt % 2 == 1,
 #else
-                                     false,
+                                          false,
 #endif
-                                     no_flush));
-    unique_ptr<WritableFileWriter> writer(
-        new WritableFileWriter(std::move(wf), env_options));
+                                          no_flush));
+    std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+        std::move(wf), "" /* don't care */, env_options));
 
     std::string target;
     for (int i = 0; i < 20; i++) {
@@ -183,7 +186,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
    public:
     explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
 
-    virtual bool use_direct_io() const override { return use_direct_io_; }
+    bool use_direct_io() const override { return use_direct_io_; }
     Status Append(const Slice& /*data*/) override {
       if (io_error_) {
         return Status::IOError("Fake IO error");
@@ -206,10 +209,10 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     bool use_direct_io_;
     bool io_error_;
   };
-  unique_ptr<FakeWF> wf(new FakeWF());
+  std::unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
-  unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), EnvOptions()));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));
 
@@ -226,7 +229,7 @@ class ReadaheadRandomAccessFileTest
   static std::vector<size_t> GetReadaheadSizeList() {
     return {1lu << 12, 1lu << 16};
   }
-  virtual void SetUp() override {
+  void SetUp() override {
     readahead_size_ = GetParam();
     scratch_.reset(new char[2 * readahead_size_]);
     ResetSourceStr();
@@ -238,8 +241,9 @@ class ReadaheadRandomAccessFileTest
     return std::string(result.data(), result.size());
   }
   void ResetSourceStr(const std::string& str = "") {
-    auto write_holder = std::unique_ptr<WritableFileWriter>(
-        test::GetWritableFileWriter(new test::StringSink(&control_contents_)));
+    auto write_holder =
+        std::unique_ptr<WritableFileWriter>(test::GetWritableFileWriter(
+            new test::StringSink(&control_contents_), "" /* don't care */));
     write_holder->Append(Slice(str));
     write_holder->Flush();
     auto read_holder = std::unique_ptr<RandomAccessFile>(
@@ -274,7 +278,7 @@ TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenLessThanReadaheadSizeTest) {
 }
 
 TEST_P(ReadaheadRandomAccessFileTest,
-       SourceStrLenCanBeGreaterThanReadaheadSizeTest) {
+       SourceStrLenGreaterThanReadaheadSizeTest) {
   Random rng(42);
   for (int k = 0; k < 100; ++k) {
     size_t strLen = k * GetReadaheadSize() +
@@ -285,13 +289,13 @@ TEST_P(ReadaheadRandomAccessFileTest,
     for (int test = 1; test <= 100; ++test) {
       size_t offset = rng.Uniform(static_cast<int>(strLen));
       size_t n = rng.Uniform(static_cast<int>(GetReadaheadSize()));
-      ASSERT_EQ(str.substr(offset, std::min(n, str.size() - offset)),
+      ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)),
                 Read(offset, n));
     }
   }
 }
 
-TEST_P(ReadaheadRandomAccessFileTest, NExceedReadaheadTest) {
+TEST_P(ReadaheadRandomAccessFileTest, ReadExceedsReadaheadSizeTest) {
   Random rng(7);
   size_t strLen = 4 * GetReadaheadSize() +
                   rng.Uniform(static_cast<int>(GetReadaheadSize()));
@@ -302,7 +306,7 @@ TEST_P(ReadaheadRandomAccessFileTest, NExceedReadaheadTest) {
     size_t offset = rng.Uniform(static_cast<int>(strLen));
     size_t n =
         GetReadaheadSize() + rng.Uniform(static_cast<int>(GetReadaheadSize()));
-    ASSERT_EQ(str.substr(offset, std::min(n, str.size() - offset)),
+    ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)),
               Read(offset, n));
   }
 }
@@ -314,13 +318,118 @@ INSTANTIATE_TEST_CASE_P(
     SourceStrLenLessThanReadaheadSizeTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    SourceStrLenCanBeGreaterThanReadaheadSizeTest,
-    ReadaheadRandomAccessFileTest,
+    SourceStrLenGreaterThanReadaheadSizeTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    NExceedReadaheadTest, ReadaheadRandomAccessFileTest,
+    ReadExceedsReadaheadSizeTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 
+class ReadaheadSequentialFileTest : public testing::Test,
+                                    public testing::WithParamInterface<size_t> {
+ public:
+  static std::vector<size_t> GetReadaheadSizeList() {
+    return {1lu << 8, 1lu << 12, 1lu << 16, 1lu << 18};
+  }
+  void SetUp() override {
+    readahead_size_ = GetParam();
+    scratch_.reset(new char[2 * readahead_size_]);
+    ResetSourceStr();
+  }
+  ReadaheadSequentialFileTest() {}
+  std::string Read(size_t n) {
+    Slice result;
+    test_read_holder_->Read(n, &result, scratch_.get());
+    return std::string(result.data(), result.size());
+  }
+  void Skip(size_t n) { test_read_holder_->Skip(n); }
+  void ResetSourceStr(const std::string& str = "") {
+    auto read_holder =
+        std::unique_ptr<SequentialFile>(new test::SeqStringSource(str));
+    test_read_holder_.reset(new SequentialFileReader(std::move(read_holder),
+                                                     "test", readahead_size_));
+  }
+  size_t GetReadaheadSize() const { return readahead_size_; }
+
+ private:
+  size_t readahead_size_;
+  std::unique_ptr<SequentialFileReader> test_read_holder_;
+  std::unique_ptr<char[]> scratch_;
+};
+
+TEST_P(ReadaheadSequentialFileTest, EmptySourceStrTest) {
+  ASSERT_EQ("", Read(0));
+  ASSERT_EQ("", Read(1));
+  ASSERT_EQ("", Read(13));
+}
+
+TEST_P(ReadaheadSequentialFileTest, SourceStrLenLessThanReadaheadSizeTest) {
+  std::string str = "abcdefghijklmnopqrs";
+  ResetSourceStr(str);
+  ASSERT_EQ(str.substr(0, 3), Read(3));
+  ASSERT_EQ(str.substr(3, 1), Read(1));
+  ASSERT_EQ(str.substr(4), Read(str.size()));
+  ASSERT_EQ("", Read(100));
+}
+
+TEST_P(ReadaheadSequentialFileTest, SourceStrLenGreaterThanReadaheadSizeTest) {
+  Random rng(42);
+  for (int s = 0; s < 1; ++s) {
+    for (int k = 0; k < 100; ++k) {
+      size_t strLen = k * GetReadaheadSize() +
+                      rng.Uniform(static_cast<int>(GetReadaheadSize()));
+      std::string str =
+          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      ResetSourceStr(str);
+      size_t offset = 0;
+      for (int test = 1; test <= 100; ++test) {
+        size_t n = rng.Uniform(static_cast<int>(GetReadaheadSize()));
+        if (s && test % 2) {
+          Skip(n);
+        } else {
+          ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)), Read(n));
+        }
+        offset = std::min(offset + n, strLen);
+      }
+    }
+  }
+}
+
+TEST_P(ReadaheadSequentialFileTest, ReadExceedsReadaheadSizeTest) {
+  Random rng(42);
+  for (int s = 0; s < 1; ++s) {
+    for (int k = 0; k < 100; ++k) {
+      size_t strLen = k * GetReadaheadSize() +
+                      rng.Uniform(static_cast<int>(GetReadaheadSize()));
+      std::string str =
+          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      ResetSourceStr(str);
+      size_t offset = 0;
+      for (int test = 1; test <= 100; ++test) {
+        size_t n = GetReadaheadSize() +
+                   rng.Uniform(static_cast<int>(GetReadaheadSize()));
+        if (s && test % 2) {
+          Skip(n);
+        } else {
+          ASSERT_EQ(str.substr(offset, std::min(n, strLen - offset)), Read(n));
+        }
+        offset = std::min(offset + n, strLen);
+      }
+    }
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    EmptySourceStrTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+INSTANTIATE_TEST_CASE_P(
+    SourceStrLenLessThanReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+INSTANTIATE_TEST_CASE_P(
+    SourceStrLenGreaterThanReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+INSTANTIATE_TEST_CASE_P(
+    ReadExceedsReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

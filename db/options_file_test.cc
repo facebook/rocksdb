@@ -6,16 +6,16 @@
 #ifndef ROCKSDB_LITE
 #include <string>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 class OptionsFileTest : public testing::Test {
  public:
-  OptionsFileTest() : dbname_(test::TmpDir() + "/options_file_test") {}
+  OptionsFileTest() : dbname_(test::PerThreadDBPath("options_file_test")) {}
 
   std::string dbname_;
 };
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
 
 #include <cstdio>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   printf("Skipped as Options file is not supported in RocksDBLite.\n");
   return 0;
 }

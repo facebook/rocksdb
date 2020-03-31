@@ -10,15 +10,15 @@
 #include <memory>
 #include <string>
 #include "db/dbformat.h"
+#include "file/writable_file_writer.h"
 #include "options/cf_options.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
-class SstFileReader {
+class SstFileDumper {
  public:
-  explicit SstFileReader(const std::string& file_name, bool verify_checksum,
-                         bool output_hex);
+  explicit SstFileDumper(const Options& options, const std::string& file_name,
+                         bool verify_checksum, bool output_hex);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
@@ -46,7 +46,8 @@ class SstFileReader {
                              RandomAccessFileReader* file, uint64_t file_size);
 
   uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
-                                        size_t block_size);
+                                        size_t block_size,
+                                        uint64_t* num_data_blocks);
 
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();
@@ -57,7 +58,7 @@ class SstFileReader {
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
-                        unique_ptr<TableReader>* table_reader);
+                        std::unique_ptr<TableReader>* table_reader);
 
   std::string file_name_;
   uint64_t read_num_;
@@ -70,12 +71,13 @@ class SstFileReader {
   Options options_;
 
   Status init_result_;
-  unique_ptr<TableReader> table_reader_;
-  unique_ptr<RandomAccessFileReader> file_;
+  std::unique_ptr<TableReader> table_reader_;
+  std::unique_ptr<RandomAccessFileReader> file_;
 
   const ImmutableCFOptions ioptions_;
+  const MutableCFOptions moptions_;
   InternalKeyComparator internal_comparator_;
-  unique_ptr<TableProperties> table_properties_;
+  std::unique_ptr<TableProperties> table_properties_;
 };
 
 }  // namespace rocksdb

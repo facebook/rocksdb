@@ -7,21 +7,35 @@
 #pragma once
 
 #include <string>
+#include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
+#include "table/format.h"
 
 namespace rocksdb {
 
 class PinnedIteratorsManager;
 
-class InternalIterator : public Cleanable {
+struct IterateResult {
+  Slice key;
+  bool may_be_out_of_upper_bound;
+};
+
+template <class TValue>
+class InternalIteratorBase : public Cleanable {
  public:
-  InternalIterator() {}
-  virtual ~InternalIterator() {}
+  InternalIteratorBase() {}
+
+  // No copying allowed
+  InternalIteratorBase(const InternalIteratorBase&) = delete;
+  InternalIteratorBase& operator=(const InternalIteratorBase&) = delete;
+
+  virtual ~InternalIteratorBase() {}
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
+  // Always returns false if !status().ok().
   virtual bool Valid() const = 0;
 
   // Position at the first key in the source.  The iterator is Valid()
@@ -35,6 +49,9 @@ class InternalIterator : public Cleanable {
   // Position at the first key in the source that at or past target
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
+  // All Seek*() methods clear any error status() that the iterator had prior to
+  // the call; after the seek, status() indicates only the error (if any) that
+  // happened during the seek, not any past errors.
   virtual void Seek(const Slice& target) = 0;
 
   // Position at the first key in the source that at or before target
@@ -47,6 +64,24 @@ class InternalIterator : public Cleanable {
   // REQUIRES: Valid()
   virtual void Next() = 0;
 
+  // Moves to the next entry in the source, and return result. Iterator
+  // implementation should override this method to help methods inline better,
+  // or when MayBeOutOfUpperBound() is non-trivial.
+  // REQUIRES: Valid()
+  virtual bool NextAndGetResult(IterateResult* result) {
+    Next();
+    bool is_valid = Valid();
+    if (is_valid) {
+      result->key = key();
+      // Default may_be_out_of_upper_bound to true to avoid unnecessary virtual
+      // call. If an implementation has non-trivial MayBeOutOfUpperBound(),
+      // it should also override NextAndGetResult().
+      result->may_be_out_of_upper_bound = true;
+      assert(MayBeOutOfUpperBound());
+    }
+    return is_valid;
+  }
+
   // Moves to the previous entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the first entry in source.
   // REQUIRES: Valid()
@@ -58,20 +93,34 @@ class InternalIterator : public Cleanable {
   // REQUIRES: Valid()
   virtual Slice key() const = 0;
 
+  // Return user key for the current entry.
+  // REQUIRES: Valid()
+  virtual Slice user_key() const { return ExtractUserKey(key()); }
+
   // Return the value for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of
   // the iterator.
-  // REQUIRES: !AtEnd() && !AtStart()
-  virtual Slice value() const = 0;
+  // REQUIRES: Valid()
+  virtual TValue value() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // True if the iterator is invalidated because it is out of the iterator
-  // upper bound
+  // True if the iterator is invalidated because it reached a key that is above
+  // the iterator upper bound. Used by LevelIterator to decide whether it should
+  // stop or move on to the next file.
+  // Important: if iterator reached the end of the file without encountering any
+  // keys above the upper bound, IsOutOfBound() must return false.
   virtual bool IsOutOfBound() { return false; }
+
+  // Keys return from this iterator can be smaller than iterate_lower_bound.
+  virtual bool MayBeOutOfLowerBound() { return true; }
+
+  // Keys return from this iterator can be larger or equal to
+  // iterate_upper_bound.
+  virtual bool MayBeOutOfUpperBound() { return true; }
 
   // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
   // communicate with PinnedIteratorsManager so default implementation is no-op
@@ -111,16 +160,23 @@ class InternalIterator : public Cleanable {
     }
   }
 
- private:
-  // No copying allowed
-  InternalIterator(const InternalIterator&) = delete;
-  InternalIterator& operator=(const InternalIterator&) = delete;
+  bool is_mutable_;
 };
 
+using InternalIterator = InternalIteratorBase<Slice>;
+
 // Return an empty iterator (yields nothing).
-extern InternalIterator* NewEmptyInternalIterator();
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
-extern InternalIterator* NewErrorInternalIterator(const Status& status);
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
+    const Status& status);
+
+// Return an empty iterator with the specified status, allocated arena.
+template <class TValue = Slice>
+extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
+    const Status& status, Arena* arena);
 
 }  // namespace rocksdb

@@ -12,9 +12,9 @@
 #include "db/write_thread.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/sync_point.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -50,6 +50,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   std::atomic<int> leader_count{0};
   std::vector<port::Thread> threads;
   mock_env->SetFilesystemActive(false);
+
   // Wait until all threads linked to write threads, to make sure
   // all threads join the same batch group.
   SyncPoint::GetInstance()->SetCallBack(
@@ -68,7 +69,19 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads.push_back(port::Thread(
         [&](int index) {
           // All threads should fail.
-          ASSERT_FALSE(Put("key" + ToString(index), "value").ok());
+          auto res = Put("key" + ToString(index), "value");
+          if (options.manual_wal_flush) {
+            ASSERT_TRUE(res.ok());
+            // we should see fs error when we do the flush
+
+            // TSAN reports a false alarm for lock-order-inversion but Open and
+            // FlushWAL are not run concurrently. Disabling this until TSAN is
+            // fixed.
+            // res = dbfull()->FlushWAL(false);
+            // ASSERT_FALSE(res.ok());
+          } else {
+            ASSERT_FALSE(res.ok());
+          }
         },
         i));
   }
@@ -78,6 +91,98 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   ASSERT_EQ(1, leader_count);
   // Close before mock_env destruct.
   Close();
+}
+
+TEST_P(DBWriteTest, ManualWalFlushInEffect) {
+  Options options = GetOptions();
+  Reopen(options);
+  // try the 1st WAL created during open
+  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+  // try the 2nd wal created during SwitchWAL
+  dbfull()->TEST_SwitchWAL();
+  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+}
+
+TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetOptions();
+  options.env = mock_env.get();
+  Reopen(options);
+  for (int i = 0; i < 2; i++) {
+    // Forcibly fail WAL write for the first Put only. Subsequent Puts should
+    // fail due to read-only mode
+    mock_env->SetFilesystemActive(i != 0);
+    auto res = Put("key" + ToString(i), "value");
+    // TSAN reports a false alarm for lock-order-inversion but Open and
+    // FlushWAL are not run concurrently. Disabling this until TSAN is
+    // fixed.
+    /*
+    if (options.manual_wal_flush && i == 0) {
+      // even with manual_wal_flush the 2nd Put should return error because of
+      // the read-only mode
+      ASSERT_TRUE(res.ok());
+      // we should see fs error when we do the flush
+      res = dbfull()->FlushWAL(false);
+    }
+    */
+    if (!options.manual_wal_flush) {
+      ASSERT_FALSE(res.ok());
+    }
+  }
+  // Close before mock_env destruct.
+  Close();
+}
+
+TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
+  Random rnd(301);
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options = GetOptions();
+  options.env = mock_env.get();
+  options.writable_file_max_buffer_size = 4 * 1024 * 1024;
+  options.write_buffer_size = 3 * 512 * 1024;
+  options.wal_bytes_per_sync = 256 * 1024;
+  options.manual_wal_flush = true;
+  Reopen(options);
+  mock_env->SetFilesystemActive(false, Status::IOError("Not active"));
+  Status s;
+  for (int i = 0; i < 4 * 512; ++i) {
+    s = Put(Key(i), RandomString(&rnd, 1024));
+    if (!s.ok()) {
+      break;
+    }
+  }
+  ASSERT_EQ(s.severity(), Status::Severity::kFatalError);
+
+  mock_env->SetFilesystemActive(true);
+  // Close before mock_env destruct.
+  Close();
+}
+
+// Test that db->LockWAL() flushes the WAL after locking.
+TEST_P(DBWriteTest, LockWalInEffect) {
+  Options options = GetOptions();
+  Reopen(options);
+  // try the 1st WAL created during open
+  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_OK(dbfull()->UnlockWAL());
+  // try the 2nd wal created during SwitchWAL
+  dbfull()->TEST_SwitchWAL();
+  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
+  ASSERT_OK(dbfull()->LockWAL());
+  ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
+  ASSERT_OK(dbfull()->UnlockWAL());
 }
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,

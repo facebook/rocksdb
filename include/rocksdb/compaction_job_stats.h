@@ -18,6 +18,9 @@ struct CompactionJobStats {
   // the elapsed time of this compaction in microseconds.
   uint64_t elapsed_micros;
 
+  // the elapsed CPU time of this compaction in microseconds.
+  uint64_t cpu_micros;
+
   // the number of compaction input records.
   uint64_t num_input_records;
   // the number of compaction input files.
@@ -72,7 +75,7 @@ struct CompactionJobStats {
   // Time spent on file fsync.
   uint64_t file_fsync_nanos;
 
-  // Time spent on preparing file write (falocate, etc)
+  // Time spent on preparing file write (fallocate, etc)
   uint64_t file_prepare_write_nanos;
 
   // 0-terminated strings storing the first 8 bytes of the smallest and

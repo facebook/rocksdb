@@ -82,7 +82,7 @@ Status BlobLogFooter::DecodeFrom(Slice src) {
   uint32_t src_crc = 0;
   src_crc = crc32c::Value(src.data(), BlobLogFooter::kSize - sizeof(uint32_t));
   src_crc = crc32c::Mask(src_crc);
-  uint32_t magic_number;
+  uint32_t magic_number = 0;
   if (!GetFixed32(&src, &magic_number) || !GetFixed64(&src, &blob_count) ||
       !GetFixed64(&src, &expiration_range.first) ||
       !GetFixed64(&src, &expiration_range.second) || !GetFixed32(&src, &crc)) {

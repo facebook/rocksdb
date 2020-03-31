@@ -8,17 +8,16 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <memory>
-#include <vector>
 
 #include "db/column_family.h"
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "memory/arena.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
-#include "util/arena.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
@@ -43,7 +42,7 @@ class BaseDeltaIterator : public Iterator {
         delta_iterator_(delta_iterator),
         comparator_(comparator) {}
 
-  virtual ~BaseDeltaIterator() {}
+  ~BaseDeltaIterator() override {}
 
   bool Valid() const override {
     return current_at_base_ ? BaseValid() : DeltaValid();
@@ -80,6 +79,7 @@ class BaseDeltaIterator : public Iterator {
   void Next() override {
     if (!Valid()) {
       status_ = Status::NotSupported("Next() on invalid iterator");
+      return;
     }
 
     if (!forward_) {
@@ -115,6 +115,7 @@ class BaseDeltaIterator : public Iterator {
   void Prev() override {
     if (!Valid()) {
       status_ = Status::NotSupported("Prev() on invalid iterator");
+      return;
     }
 
     if (forward_) {
@@ -171,6 +172,21 @@ class BaseDeltaIterator : public Iterator {
  private:
   void AssertInvariants() {
 #ifndef NDEBUG
+    bool not_ok = false;
+    if (!base_iterator_->status().ok()) {
+      assert(!base_iterator_->Valid());
+      not_ok = true;
+    }
+    if (!delta_iterator_->status().ok()) {
+      assert(!delta_iterator_->Valid());
+      not_ok = true;
+    }
+    if (not_ok) {
+      assert(!Valid());
+      assert(!status().ok());
+      return;
+    }
+
     if (!Valid()) {
       return;
     }
@@ -239,13 +255,25 @@ class BaseDeltaIterator : public Iterator {
   void UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
+    status_ = Status::OK();
     while (true) {
       WriteEntry delta_entry;
       if (DeltaValid()) {
+        assert(delta_iterator_->status().ok());
         delta_entry = delta_iterator_->Entry();
+      } else if (!delta_iterator_->status().ok()) {
+        // Expose the error status and stop.
+        current_at_base_ = false;
+        return;
       }
       equal_keys_ = false;
       if (!BaseValid()) {
+        if (!base_iterator_->status().ok()) {
+          // Expose the error status and stop.
+          current_at_base_ = true;
+          return;
+        }
+
         // Base has finished.
         if (!DeltaValid()) {
           // Finished
@@ -312,9 +340,9 @@ class WBWIIteratorImpl : public WBWIIterator {
         skip_list_iter_(skip_list),
         write_batch_(write_batch) {}
 
-  virtual ~WBWIIteratorImpl() {}
+  ~WBWIIteratorImpl() override {}
 
-  virtual bool Valid() const override {
+  bool Valid() const override {
     if (!skip_list_iter_.Valid()) {
       return false;
     }
@@ -323,15 +351,17 @@ class WBWIIteratorImpl : public WBWIIterator {
             iter_entry->column_family == column_family_id_);
   }
 
-  virtual void SeekToFirst() override {
-    WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
-                                      column_family_id_, 0, 0);
+  void SeekToFirst() override {
+    WriteBatchIndexEntry search_entry(
+        nullptr /* search_key */, column_family_id_,
+        true /* is_forward_direction */, true /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
   }
 
-  virtual void SeekToLast() override {
-    WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
-                                      column_family_id_ + 1, 0, 0);
+  void SeekToLast() override {
+    WriteBatchIndexEntry search_entry(
+        nullptr /* search_key */, column_family_id_ + 1,
+        true /* is_forward_direction */, true /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
     if (!skip_list_iter_.Valid()) {
       skip_list_iter_.SeekToLast();
@@ -340,21 +370,25 @@ class WBWIIteratorImpl : public WBWIIterator {
     }
   }
 
-  virtual void Seek(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_);
+  void Seek(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      true /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
     skip_list_iter_.Seek(&search_entry);
   }
 
-  virtual void SeekForPrev(const Slice& key) override {
-    WriteBatchIndexEntry search_entry(&key, column_family_id_);
+  void SeekForPrev(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      false /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
     skip_list_iter_.SeekForPrev(&search_entry);
   }
 
-  virtual void Next() override { skip_list_iter_.Next(); }
+  void Next() override { skip_list_iter_.Next(); }
 
-  virtual void Prev() override { skip_list_iter_.Prev(); }
+  void Prev() override { skip_list_iter_.Prev(); }
 
-  virtual WriteEntry Entry() const override {
+  WriteEntry Entry() const override {
     WriteEntry ret;
     Slice blob, xid;
     const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
@@ -370,7 +404,7 @@ class WBWIIteratorImpl : public WBWIIterator {
     return ret;
   }
 
-  virtual Status status() const override {
+  Status status() const override {
     // this is in-memory data structure, so the only way status can be non-ok is
     // through memory corruption
     return Status::OK();
@@ -393,14 +427,21 @@ struct WriteBatchWithIndex::Rep {
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
         overwrite_key(_overwrite_key),
-        last_entry_offset(0) {}
+        last_entry_offset(0),
+        last_sub_batch_offset(0),
+        sub_batch_cnt(1) {}
   ReadableWriteBatch write_batch;
   WriteBatchEntryComparator comparator;
   Arena arena;
   WriteBatchEntrySkipList skip_list;
   bool overwrite_key;
   size_t last_entry_offset;
-  std::vector<size_t> obsolete_offsets;
+  // The starting offset of the last sub-batch. A sub-batch starts right before
+  // inserting a key that is a duplicate of a key in the last sub-batch. Zero,
+  // the default, means that no duplicate key is detected so far.
+  size_t last_sub_batch_offset;
+  // Total number of sub-batches in the write batch. Default is 1.
+  size_t sub_batch_cnt;
 
   // Remember current offset of internal write batch, which is used as
   // the starting offset of the next record.
@@ -452,7 +493,10 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   }
   WriteBatchIndexEntry* non_const_entry =
       const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-  obsolete_offsets.push_back(non_const_entry->offset);
+  if (LIKELY(last_sub_batch_offset <= non_const_entry->offset)) {
+    last_sub_batch_offset = last_entry_offset;
+    sub_batch_cnt++;
+  }
   non_const_entry->offset = last_entry_offset;
   return true;
 }
@@ -504,6 +548,8 @@ void WriteBatchWithIndex::Rep::ClearIndex() {
   new (&arena) Arena();
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
   last_entry_offset = 0;
+  last_sub_batch_offset = 0;
+  sub_batch_cnt = 1;
 }
 
 Status WriteBatchWithIndex::Rep::ReBuildIndex() {
@@ -522,7 +568,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
   input.remove_prefix(offset);
 
   // Loop through all entries in Rep and add each one to the index
-  int found = 0;
+  uint32_t found = 0;
   while (s.ok() && !input.empty()) {
     Slice key, value, blob, xid;
     uint32_t column_family_id = 0;  // default
@@ -554,6 +600,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeLogData:
       case kTypeBeginPrepareXID:
       case kTypeBeginPersistedPrepareXID:
+      case kTypeBeginUnprepareXID:
       case kTypeEndPrepareXID:
       case kTypeCommitXID:
       case kTypeRollbackXID:
@@ -580,11 +627,14 @@ WriteBatchWithIndex::WriteBatchWithIndex(
 
 WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
+WriteBatchWithIndex::WriteBatchWithIndex(WriteBatchWithIndex&&) = default;
+
+WriteBatchWithIndex& WriteBatchWithIndex::operator=(WriteBatchWithIndex&&) =
+    default;
+
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
-bool WriteBatchWithIndex::HasDuplicateKeys() {
-  return rep->obsolete_offsets.size() > 0;
-}
+size_t WriteBatchWithIndex::SubBatchCnt() { return rep->sub_batch_cnt; }
 
 WBWIIterator* WriteBatchWithIndex::NewIterator() {
   return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch);
@@ -841,9 +891,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (!callback) {
     s = db->Get(read_options, column_family, key, pinnable_val);
   } else {
+    DBImpl::GetImplOptions get_impl_options;
+    get_impl_options.column_family = column_family;
+    get_impl_options.value = pinnable_val;
+    get_impl_options.callback = callback;
     s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-            ->GetImpl(read_options, column_family, key, pinnable_val, nullptr,
-                      callback);
+            ->GetImpl(read_options, key, get_impl_options);
   }
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
@@ -864,9 +917,12 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
       }
 
       if (merge_operator) {
-        s = MergeHelper::TimedFullMerge(
-            merge_operator, key, merge_data, merge_context.GetOperands(),
-            pinnable_val->GetSelf(), logger, statistics, env);
+        std::string merge_result;
+        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
+                                        merge_context.GetOperands(),
+                                        &merge_result, logger, statistics, env);
+        pinnable_val->Reset();
+        *pinnable_val->GetSelf() = std::move(merge_result);
         pinnable_val->PinSelf();
       } else {
         s = Status::InvalidArgument("Options::merge_operator must be set");
@@ -877,14 +933,117 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   return s;
 }
 
+void WriteBatchWithIndex::MultiGetFromBatchAndDB(
+    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const size_t num_keys, const Slice* keys, PinnableSlice* values,
+    Status* statuses, bool sorted_input) {
+  MultiGetFromBatchAndDB(db, read_options, column_family, num_keys, keys,
+                         values, statuses, sorted_input, nullptr);
+}
+
+void WriteBatchWithIndex::MultiGetFromBatchAndDB(
+    DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+    const size_t num_keys, const Slice* keys, PinnableSlice* values,
+    Status* statuses, bool sorted_input, ReadCallback* callback) {
+  const ImmutableDBOptions& immuable_db_options =
+      static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+          ->immutable_db_options();
+
+  autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
+  // To hold merges from the write batch
+  autovector<std::pair<WriteBatchWithIndexInternal::Result, MergeContext>,
+             MultiGetContext::MAX_BATCH_SIZE>
+      merges;
+  // Since the lifetime of the WriteBatch is the same as that of the transaction
+  // we cannot pin it as otherwise the returned value will not be available
+  // after the transaction finishes.
+  for (size_t i = 0; i < num_keys; ++i) {
+    MergeContext merge_context;
+    PinnableSlice* pinnable_val = &values[i];
+    std::string& batch_value = *pinnable_val->GetSelf();
+    Status* s = &statuses[i];
+    WriteBatchWithIndexInternal::Result result =
+        WriteBatchWithIndexInternal::GetFromBatch(
+            immuable_db_options, this, column_family, keys[i], &merge_context,
+            &rep->comparator, &batch_value, rep->overwrite_key, s);
+
+    if (result == WriteBatchWithIndexInternal::Result::kFound) {
+      pinnable_val->PinSelf();
+      continue;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kDeleted) {
+      *s = Status::NotFound();
+      continue;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kError) {
+      continue;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
+        rep->overwrite_key == true) {
+      // Since we've overwritten keys, we do not know what other operations are
+      // in this batch for this key, so we cannot do a Merge to compute the
+      // result.  Instead, we will simply return MergeInProgress.
+      *s = Status::MergeInProgress();
+      continue;
+    }
+
+    assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
+           result == WriteBatchWithIndexInternal::Result::kNotFound);
+    key_context.emplace_back(keys[i], &values[i], &statuses[i]);
+    merges.emplace_back(result, std::move(merge_context));
+  }
+
+  // Did not find key in batch OR could not resolve Merges.  Try DB.
+  static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+      ->MultiGetImpl(read_options, column_family, key_context, sorted_input,
+                     callback);
+
+  ColumnFamilyHandleImpl* cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  const MergeOperator* merge_operator = cfh->cfd()->ioptions()->merge_operator;
+  for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
+    KeyContext& key = *iter;
+    if (key.s->ok() || key.s->IsNotFound()) {  // DB Get Succeeded
+      size_t index = iter - key_context.begin();
+      std::pair<WriteBatchWithIndexInternal::Result, MergeContext>&
+          merge_result = merges[index];
+      if (merge_result.first ==
+          WriteBatchWithIndexInternal::Result::kMergeInProgress) {
+        // Merge result from DB with merges in Batch
+        Statistics* statistics = immuable_db_options.statistics.get();
+        Env* env = immuable_db_options.env;
+        Logger* logger = immuable_db_options.info_log.get();
+
+        Slice* merge_data;
+        if (key.s->ok()) {
+          merge_data = iter->value;
+        } else {  // Key not present in db (s.IsNotFound())
+          merge_data = nullptr;
+        }
+
+        if (merge_operator) {
+          *key.s = MergeHelper::TimedFullMerge(
+              merge_operator, *key.key, merge_data,
+              merge_result.second.GetOperands(), key.value->GetSelf(), logger,
+              statistics, env);
+          key.value->PinSelf();
+        } else {
+          *key.s =
+              Status::InvalidArgument("Options::merge_operator must be set");
+        }
+      }
+    }
+  }
+}
+
 void WriteBatchWithIndex::SetSavePoint() { rep->write_batch.SetSavePoint(); }
 
 Status WriteBatchWithIndex::RollbackToSavePoint() {
   Status s = rep->write_batch.RollbackToSavePoint();
 
   if (s.ok()) {
-    // obsolete_offsets will be rebuilt by ReBuildIndex
-    rep->obsolete_offsets.clear();
+    rep->sub_batch_cnt = 1;
+    rep->last_sub_batch_offset = 0;
     s = rep->ReBuildIndex();
   }
 
@@ -897,6 +1056,10 @@ Status WriteBatchWithIndex::PopSavePoint() {
 
 void WriteBatchWithIndex::SetMaxBytes(size_t max_bytes) {
   rep->write_batch.SetMaxBytes(max_bytes);
+}
+
+size_t WriteBatchWithIndex::GetDataSize() const {
+  return rep->write_batch.GetDataSize();
 }
 
 }  // namespace rocksdb

@@ -184,8 +184,9 @@ pthread_key_t thread_local_key = pthread_key_t (-1);
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
   // We decided to punt on PROCESS_EXIT
   if (DLL_THREAD_DETACH == reason) {
-    if (thread_local_key != pthread_key_t(-1) && thread_local_inclass_routine != nullptr) {
-      void* tls = pthread_getspecific(thread_local_key);
+    if (thread_local_key != pthread_key_t(-1) &&
+        thread_local_inclass_routine != nullptr) {
+      void* tls = TlsGetValue(thread_local_key);
       if (tls != nullptr) {
         thread_local_inclass_routine(tls);
       }
@@ -203,7 +204,7 @@ extern "C" {
 // The linker must not discard thread_callback_on_exit.  (We force a reference
 // to this variable with a linker /include:symbol pragma to ensure that.) If
 // this variable is discarded, the OnThreadExit function will never be called.
-#ifdef _WIN64
+#ifndef _X86_
 
 // .CRT section is merged with .rdata on x64 so it must be constant data.
 #pragma const_seg(".CRT$XLB")
@@ -218,7 +219,7 @@ const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit =
 #pragma comment(linker, "/include:_tls_used")
 #pragma comment(linker, "/include:p_thread_callback_on_exit")
 
-#else  // _WIN64
+#else  // _X86_
 
 #pragma data_seg(".CRT$XLB")
 PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
@@ -228,7 +229,7 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 #pragma comment(linker, "/INCLUDE:__tls_used")
 #pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
 
-#endif  // _WIN64
+#endif  // _X86_
 
 #else
 // https://github.com/couchbase/gperftools/blob/master/src/windows/port.cc

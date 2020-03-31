@@ -1,6 +1,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 #include <memory>
 #include <string>
@@ -9,8 +11,7 @@
 
 #include "env/mock_env.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/object_registry.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -21,8 +22,8 @@ class NormalizingEnvWrapper : public EnvWrapper {
   explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
 
   // Removes . and .. from directory listing
-  virtual Status GetChildren(const std::string& dir,
-                             std::vector<std::string>* result) override {
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* result) override {
     Status status = EnvWrapper::GetChildren(dir, result);
     if (status.ok()) {
       result->erase(std::remove_if(result->begin(), result->end(),
@@ -35,7 +36,7 @@ class NormalizingEnvWrapper : public EnvWrapper {
   }
 
   // Removes . and .. from directory listing
-  virtual Status GetChildrenFileAttributes(
+  Status GetChildrenFileAttributes(
       const std::string& dir, std::vector<FileAttributes>* result) override {
     Status status = EnvWrapper::GetChildrenFileAttributes(dir, result);
     if (status.ok()) {
@@ -57,14 +58,12 @@ class EnvBasicTestWithParam : public testing::Test,
   std::string test_dir_;
 
   EnvBasicTestWithParam() : env_(GetParam()) {
-    test_dir_ = test::TmpDir(env_) + "/env_basic_test";
+    test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
-  void SetUp() {
-    env_->CreateDirIfMissing(test_dir_);
-  }
+  void SetUp() override { env_->CreateDirIfMissing(test_dir_); }
 
-  void TearDown() {
+  void TearDown() override {
     std::vector<std::string> files;
     env_->GetChildren(test_dir_, &files);
     for (const auto& file : files) {
@@ -104,13 +103,12 @@ namespace {
 // ValuesIn() will skip running tests when given an empty collection.
 std::vector<Env*> GetCustomEnvs() {
   static Env* custom_env;
-  static std::unique_ptr<Env> custom_env_guard;
   static bool init = false;
   if (!init) {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      custom_env = NewCustomObject<Env>(uri, &custom_env_guard);
+      Env::LoadEnv(uri, &custom_env);
     }
   }
 
@@ -133,7 +131,7 @@ INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
 
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
 
   // Check that the directory is empty.
@@ -186,8 +184,8 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(0U, file_size);
 
   // Check that opening non-existent file fails.
-  unique_ptr<SequentialFile> seq_file;
-  unique_ptr<RandomAccessFile> rand_file;
+  std::unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<RandomAccessFile> rand_file;
   ASSERT_TRUE(!env_->NewSequentialFile(test_dir_ + "/non_existent", &seq_file,
                                        soptions_)
                    .ok());
@@ -208,9 +206,9 @@ TEST_P(EnvBasicTestWithParam, Basics) {
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {
-  unique_ptr<WritableFile> writable_file;
-  unique_ptr<SequentialFile> seq_file;
-  unique_ptr<RandomAccessFile> rand_file;
+  std::unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<RandomAccessFile> rand_file;
   Slice result;
   char scratch[100];
 
@@ -247,7 +245,7 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
 }
 
 TEST_P(EnvBasicTestWithParam, Misc) {
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/b", &writable_file, soptions_));
 
   // These are no-ops, but we test they return success.
@@ -266,14 +264,14 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     write_data.append(1, static_cast<char>(i));
   }
 
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("foo"));
   ASSERT_OK(writable_file->Append(write_data));
   ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
-  unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<SequentialFile> seq_file;
   Slice result;
   ASSERT_OK(env_->NewSequentialFile(test_dir_ + "/f", &seq_file, soptions_));
   ASSERT_OK(seq_file->Read(3, &result, scratch));  // Read "foo".
@@ -340,7 +338,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
 
   // if dir is a file, returns IOError
   ASSERT_OK(env_->CreateDir(test_dir_));
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(
       env_->NewWritableFile(test_dir_ + "/file", &writable_file, soptions_));
   ASSERT_OK(writable_file->Close());

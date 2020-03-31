@@ -14,7 +14,7 @@ int main(int argc, char** argv) {
 }
 #else
 #include <stdio.h>
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "Not supported in lite mode.\n");
   return 1;
 }

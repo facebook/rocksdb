@@ -18,9 +18,18 @@ public class CompactionOptionsFIFOTest {
   @Test
   public void maxTableFilesSize() {
     final long size = 500 * 1024 * 1026;
-    try(final CompactionOptionsFIFO opt = new CompactionOptionsFIFO()) {
+    try (final CompactionOptionsFIFO opt = new CompactionOptionsFIFO()) {
       opt.setMaxTableFilesSize(size);
       assertThat(opt.maxTableFilesSize()).isEqualTo(size);
+    }
+  }
+
+  @Test
+  public void allowCompaction() {
+    final boolean allowCompaction = true;
+    try (final CompactionOptionsFIFO opt = new CompactionOptionsFIFO()) {
+      opt.setAllowCompaction(allowCompaction);
+      assertThat(opt.allowCompaction()).isEqualTo(allowCompaction);
     }
   }
 }

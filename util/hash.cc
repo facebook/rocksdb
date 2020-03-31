@@ -10,6 +10,7 @@
 #include <string.h>
 #include "util/coding.h"
 #include "util/hash.h"
+#include "util/util.h"
 
 namespace rocksdb {
 
@@ -40,10 +41,10 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
     // are unsigned we first cast the char to int8_t.
     case 3:
       h += static_cast<uint32_t>(static_cast<int8_t>(data[2])) << 16;
-    // fall through
+      FALLTHROUGH_INTENDED;
     case 2:
       h += static_cast<uint32_t>(static_cast<int8_t>(data[1])) << 8;
-    // fall through
+      FALLTHROUGH_INTENDED;
     case 1:
       h += static_cast<uint32_t>(static_cast<int8_t>(data[0]));
       h *= m;

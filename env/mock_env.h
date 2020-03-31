@@ -28,28 +28,28 @@ class MockEnv : public EnvWrapper {
 
   // Partial implementation of the Env interface.
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result,
+                                   std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& soptions) override;
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result,
+                                     std::unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& soptions) override;
 
   virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
+                                 std::unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) override;
 
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
-                                   unique_ptr<WritableFile>* result,
+                                   std::unique_ptr<WritableFile>* result,
                                    const EnvOptions& options) override;
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
+                                 std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& env_options) override;
 
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override;
+                              std::unique_ptr<Directory>* result) override;
 
   virtual Status FileExists(const std::string& fname) override;
 
@@ -59,6 +59,8 @@ class MockEnv : public EnvWrapper {
   void DeleteFileInternal(const std::string& fname);
 
   virtual Status DeleteFile(const std::string& fname) override;
+
+  virtual Status Truncate(const std::string& fname, size_t size) override;
 
   virtual Status CreateDir(const std::string& dirname) override;
 
@@ -79,7 +81,7 @@ class MockEnv : public EnvWrapper {
                           const std::string& target) override;
 
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override;
+                           std::shared_ptr<Logger>* result) override;
 
   virtual Status LockFile(const std::string& fname, FileLock** flock) override;
 
@@ -91,9 +93,6 @@ class MockEnv : public EnvWrapper {
   virtual Status GetCurrentTime(int64_t* unix_time) override;
   virtual uint64_t NowMicros() override;
   virtual uint64_t NowNanos() override;
-
-  // Non-virtual functions, specific to MockEnv
-  Status Truncate(const std::string& fname, size_t size);
 
   Status CorruptBuffer(const std::string& fname);
 

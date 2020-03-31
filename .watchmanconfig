@@ -1,0 +1,6 @@
+{
+  "content_hash_warming": true,
+  "content_hash_max_items": 333333,
+  "hint_num_files_per_dir": 8,
+  "fsevents_latency": 0.05
+}

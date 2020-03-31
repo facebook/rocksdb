@@ -38,7 +38,11 @@ class PessimisticTransactionDB;
 class PessimisticTransaction : public TransactionBaseImpl {
  public:
   PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
-                         const TransactionOptions& txn_options);
+                         const TransactionOptions& txn_options,
+                         const bool init = true);
+  // No copying allowed
+  PessimisticTransaction(const PessimisticTransaction&) = delete;
+  void operator=(const PessimisticTransaction&) = delete;
 
   virtual ~PessimisticTransaction();
 
@@ -130,13 +134,13 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual Status RollbackInternal() = 0;
 
-  void Initialize(const TransactionOptions& txn_options);
+  virtual void Initialize(const TransactionOptions& txn_options);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool read_only, bool exclusive,
-                 bool skip_validate = false) override;
+                 bool read_only, bool exclusive, const bool do_validate = true,
+                 const bool assume_tracked = false) override;
 
   void Clear() override;
 
@@ -183,22 +187,24 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
 
+  // Refer to TransactionOptions::skip_concurrency_control
+  bool skip_concurrency_control_;
+
   virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
                                   const Slice& key,
                                   SequenceNumber* tracked_at_seq);
 
   void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
                           const Slice& key) override;
-
-  // No copying allowed
-  PessimisticTransaction(const PessimisticTransaction&);
-  void operator=(const PessimisticTransaction&);
 };
 
 class WriteCommittedTxn : public PessimisticTransaction {
  public:
   WriteCommittedTxn(TransactionDB* db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
+  // No copying allowed
+  WriteCommittedTxn(const WriteCommittedTxn&) = delete;
+  void operator=(const WriteCommittedTxn&) = delete;
 
   virtual ~WriteCommittedTxn() {}
 
@@ -212,10 +218,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status CommitInternal() override;
 
   Status RollbackInternal() override;
-
-  // No copying allowed
-  WriteCommittedTxn(const WriteCommittedTxn&);
-  void operator=(const WriteCommittedTxn&);
 };
 
 }  // namespace rocksdb

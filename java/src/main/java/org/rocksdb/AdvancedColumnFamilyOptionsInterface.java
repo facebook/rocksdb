@@ -13,9 +13,8 @@ import java.util.List;
  *
  * Taken from include/rocksdb/advanced_options.h
  */
-public interface AdvancedColumnFamilyOptionsInterface
-    <T extends AdvancedColumnFamilyOptionsInterface> {
-
+public interface AdvancedColumnFamilyOptionsInterface<
+    T extends AdvancedColumnFamilyOptionsInterface<T>> {
   /**
    * The minimum number of write buffers that will be merged together
    * before writing to storage.  If set to 1, then
@@ -441,7 +440,7 @@ public interface AdvancedColumnFamilyOptionsInterface
   boolean optimizeFiltersForHits();
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM everytime the LSM
+   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
    * change (Flush, Compaction, AddFile). These checks are disabled in release
    * mode, use this option to enable them in release mode as well.
    *
@@ -455,7 +454,7 @@ public interface AdvancedColumnFamilyOptionsInterface
       boolean forceConsistencyChecks);
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM everytime the LSM
+   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
    * change (Flush, Compaction, AddFile). These checks are disabled in release
    * mode.
    *

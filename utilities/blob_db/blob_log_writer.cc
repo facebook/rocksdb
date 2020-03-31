@@ -9,17 +9,17 @@
 #include <cstdint>
 #include <string>
 
+#include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 #include "utilities/blob_db/blob_log_format.h"
 
 namespace rocksdb {
 namespace blob_db {
 
-Writer::Writer(unique_ptr<WritableFileWriter>&& dest, Env* env,
+Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
                Statistics* statistics, uint64_t log_number, uint64_t bpsync,
                bool use_fs, uint64_t boffset)
     : dest_(std::move(dest)),

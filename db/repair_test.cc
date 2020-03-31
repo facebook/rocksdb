@@ -9,12 +9,12 @@
 #include <string>
 #include <vector>
 
-#include "db/db_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "file/file_util.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
-#include "util/file_util.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -74,7 +74,7 @@ TEST_F(RepairTest, CorruptManifest) {
 
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
-  CreateFile(env_, manifest_path, "blah");
+  CreateFile(env_, manifest_path, "blah", false /* use_fsync */);
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
@@ -153,7 +153,7 @@ TEST_F(RepairTest, CorruptSst) {
   Flush();
   auto sst_path = GetFirstSstPath();
   ASSERT_FALSE(sst_path.empty());
-  CreateFile(env_, sst_path, "blah");
+  CreateFile(env_, sst_path, "blah", false /* use_fsync */);
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
@@ -313,6 +313,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
     ASSERT_EQ(comparator_name,
               fname_and_props.second->comparator_name);
   }
+  Close();
 
   // Also check comparator when it's provided via "unknown" CF options
   ASSERT_OK(RepairDB(dbname_, opts, {{"default", opts}},
@@ -356,7 +357,7 @@ int main(int argc, char** argv) {
 #else
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as RepairDB is not supported in ROCKSDB_LITE\n");
   return 0;
 }

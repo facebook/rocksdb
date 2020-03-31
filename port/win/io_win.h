@@ -27,7 +27,9 @@ std::string GetWindowsErrSz(DWORD err);
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return ((err == ERROR_HANDLE_DISK_FULL) || (err == ERROR_DISK_FULL))
              ? Status::NoSpace(context, GetWindowsErrSz(err))
-             : Status::IOError(context, GetWindowsErrSz(err));
+             : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
+                   ? Status::PathNotFound(context, GetWindowsErrSz(err))
+                   : Status::IOError(context, GetWindowsErrSz(err));
 }
 
 inline Status IOErrorFromLastWindowsError(const std::string& context) {
@@ -37,25 +39,18 @@ inline Status IOErrorFromLastWindowsError(const std::string& context) {
 inline Status IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
              ? Status::NoSpace(context, strerror(err_number))
-             : Status::IOError(context, strerror(err_number));
+             : (err_number == ENOENT)
+                   ? Status::PathNotFound(context, strerror(err_number))
+                   : Status::IOError(context, strerror(err_number));
 }
 
-// Note the below two do not set errno because they are used only here in this
-// file
-// on a Windows handle and, therefore, not necessary. Translating GetLastError()
-// to errno
-// is a sad business
-inline int fsync(HANDLE hFile) {
-  if (!FlushFileBuffers(hFile)) {
-    return -1;
-  }
+class WinFileData;
 
-  return 0;
-}
+Status pwrite(const WinFileData* file_data, const Slice& data,
+  uint64_t offset, size_t& bytes_written);
 
-SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes, uint64_t offset);
-
-SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset);
+Status pread(const WinFileData* file_data, char* src, size_t num_bytes,
+  uint64_t offset, size_t& bytes_read);
 
 Status fallocate(const std::string& filename, HANDLE hFile, uint64_t to_size);
 
@@ -67,7 +62,7 @@ class WinFileData {
  protected:
   const std::string filename_;
   HANDLE hFile_;
-  // If ture,  the I/O issued would be direct I/O which the buffer
+  // If true, the I/O issued would be direct I/O which the buffer
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
   const bool use_direct_io_;
@@ -104,8 +99,8 @@ class WinFileData {
 class WinSequentialFile : protected WinFileData, public SequentialFile {
 
   // Override for behavior change when creating a custom env
-  virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
-    uint64_t offset) const;
+  virtual Status PositionedReadInternal(char* src, size_t numBytes,
+    uint64_t offset, size_t& bytes_read) const;
 
 public:
   WinSequentialFile(const std::string& fname, HANDLE f,
@@ -240,8 +235,8 @@ class WinRandomAccessImpl {
   size_t       alignment_;
 
   // Override for behavior change when creating a custom env
-  virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
-                                         uint64_t offset) const;
+  virtual Status PositionedReadInternal(char* src, size_t numBytes,
+                                        uint64_t offset, size_t& bytes_read) const;
 
   WinRandomAccessImpl(WinFileData* file_base, size_t alignment,
                       const EnvOptions& options);
@@ -420,11 +415,30 @@ class WinRandomRWFile : private WinFileData,
   virtual Status Close() override;
 };
 
-class WinDirectory : public Directory {
- public:
-  WinDirectory() {}
+class WinMemoryMappedBuffer : public MemoryMappedFileBuffer {
+private:
+  HANDLE  file_handle_;
+  HANDLE  map_handle_;
+public:
+  WinMemoryMappedBuffer(HANDLE file_handle, HANDLE map_handle, void* base, size_t size) :
+    MemoryMappedFileBuffer(base, size),
+    file_handle_(file_handle),
+    map_handle_(map_handle) {}
+  ~WinMemoryMappedBuffer() override;
+};
 
+class WinDirectory : public Directory {
+  HANDLE handle_;
+ public:
+  explicit WinDirectory(HANDLE h) noexcept : handle_(h) {
+    assert(handle_ != INVALID_HANDLE_VALUE);
+  }
+  ~WinDirectory() {
+    ::CloseHandle(handle_);
+  }
   virtual Status Fsync() override;
+
+  size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
 class WinFileLock : public FileLock {

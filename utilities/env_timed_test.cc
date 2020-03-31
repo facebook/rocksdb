@@ -7,7 +7,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/perf_context.h"
-#include "util/testharness.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 
@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
 #else  // ROCKSDB_LITE
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int /*argc*/, char** /*argv*/) {
   fprintf(stderr, "SKIPPED as TimedEnv is not supported in ROCKSDB_LITE\n");
   return 0;
 }
