@@ -73,7 +73,7 @@ class TableCache {
       const SliceTransform* prefix_extractor, TableReader** table_reader_ptr,
       HistogramImpl* file_read_hist, TableReaderCaller caller, Arena* arena,
       bool skip_filters, int level, const InternalKey* smallest_compaction_key,
-      const InternalKey* largest_compaction_key);
+      const InternalKey* largest_compaction_key, bool allow_unprepared_value);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until

@@ -2252,7 +2252,8 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     ASSERT_EQ(4u, props->num_data_blocks);
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(
         ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
-        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized,
+        /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
 
     // Shouldn't have read data blocks before iterator is seeked.
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
@@ -2269,6 +2270,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     EXPECT_EQ(keys[2], iter->key().ToString());
     EXPECT_EQ(use_first_key ? 0 : 1,
               stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v2", iter->value().ToString());
     EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
@@ -2279,6 +2281,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     EXPECT_EQ(keys[4], iter->key().ToString());
     EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v4", iter->value().ToString());
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
 
@@ -2294,6 +2297,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ(keys[5], iter->key().ToString());
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v5", iter->value().ToString());
     EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
@@ -2311,6 +2315,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ(keys[7], iter->key().ToString());
     EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v7", iter->value().ToString());
     EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
 
@@ -2332,6 +2337,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     EXPECT_EQ(keys[3], iter->key().ToString());
     EXPECT_EQ(use_first_key ? 1 : 2,
               stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v3", iter->value().ToString());
     EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
     EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
@@ -2351,6 +2357,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
               stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
     // All blocks are in cache now, there'll be no more misses ever.
     EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v1", iter->value().ToString());
 
     // Next into the next block again.
@@ -2378,6 +2385,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     EXPECT_EQ(keys[4], iter->key().ToString());
     EXPECT_EQ(use_first_key ? 3 : 6,
               stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v4", iter->value().ToString());
     EXPECT_EQ(use_first_key ? 3 : 6,
               stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
@@ -2387,6 +2395,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     EXPECT_EQ(keys[7], iter->key().ToString());
     EXPECT_EQ(use_first_key ? 4 : 7,
               stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    ASSERT_TRUE(iter->PrepareValue());
     EXPECT_EQ("v7", iter->value().ToString());
     EXPECT_EQ(use_first_key ? 4 : 7,
               stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
@@ -2427,7 +2436,8 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
   ASSERT_EQ(1u, props->num_data_blocks);
   std::unique_ptr<InternalIterator> iter(reader->NewIterator(
       ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized,
+      /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
 
   iter->Seek(InternalKey("a", 0, kTypeValue).Encode().ToString());
   ASSERT_TRUE(iter->Valid());
@@ -2437,6 +2447,7 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
   // Key should have been served from index, without reading data blocks.
   EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
+  ASSERT_TRUE(iter->PrepareValue());
   EXPECT_EQ("x", iter->value().ToString());
   EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
   EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));

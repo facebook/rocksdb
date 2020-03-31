@@ -861,7 +861,8 @@ class LevelIterator final : public InternalIterator {
                 HistogramImpl* file_read_hist, TableReaderCaller caller,
                 bool skip_filters, int level, RangeDelAggregator* range_del_agg,
                 const std::vector<AtomicCompactionUnitBoundary>*
-                    compaction_boundaries = nullptr)
+                    compaction_boundaries = nullptr,
+                bool allow_unprepared_value = false)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -873,6 +874,7 @@ class LevelIterator final : public InternalIterator {
         should_sample_(should_sample),
         caller_(caller),
         skip_filters_(skip_filters),
+        allow_unprepared_value_(allow_unprepared_value),
         file_index_(flevel_->num_files),
         level_(level),
         range_del_agg_(range_del_agg),
@@ -905,6 +907,10 @@ class LevelIterator final : public InternalIterator {
 
   Status status() const override {
     return file_iter_.iter() ? file_iter_.status() : Status::OK();
+  }
+
+  bool PrepareValue() override {
+    return file_iter_.PrepareValue();
   }
 
   inline bool MayBeOutOfLowerBound() override {
@@ -979,7 +985,7 @@ class LevelIterator final : public InternalIterator {
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_, smallest_compaction_key,
-        largest_compaction_key);
+        largest_compaction_key, allow_unprepared_value_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1012,6 +1018,7 @@ class LevelIterator final : public InternalIterator {
   bool should_sample_;
   TableReaderCaller caller_;
   bool skip_filters_;
+  bool allow_unprepared_value_;
   bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
   int level_;
@@ -1117,6 +1124,7 @@ bool LevelIterator::NextAndGetResult(IterateResult* result) {
   if (is_valid) {
     result->key = key();
     result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    result->value_prepared = !allow_unprepared_value_;
   }
   return is_valid;
 }
@@ -1533,12 +1541,13 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 void Version::AddIterators(const ReadOptions& read_options,
                            const FileOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder,
-                           RangeDelAggregator* range_del_agg) {
+                           RangeDelAggregator* range_del_agg,
+                           bool allow_unprepared_value) {
   assert(storage_info_.finalized_);
 
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
     AddIteratorsForLevel(read_options, soptions, merge_iter_builder, level,
-                         range_del_agg);
+                         range_del_agg, allow_unprepared_value);
   }
 }
 
@@ -1546,7 +1555,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const FileOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
                                    int level,
-                                   RangeDelAggregator* range_del_agg) {
+                                   RangeDelAggregator* range_del_agg,
+                                   bool allow_unprepared_value) {
   assert(storage_info_.finalized_);
   if (level >= storage_info_.num_non_empty_levels()) {
     // This is an empty level
@@ -1571,7 +1581,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           TableReaderCaller::kUserIterator, arena,
           /*skip_filters=*/false, /*level=*/0,
           /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr));
+          /*largest_compaction_key=*/nullptr,
+          allow_unprepared_value));
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
@@ -1593,7 +1604,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        range_del_agg, /*largest_compaction_key=*/nullptr));
+        range_del_agg, /*largest_compaction_key=*/nullptr,
+        allow_unprepared_value));
   }
 }
 
@@ -1629,7 +1641,8 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
           TableReaderCaller::kUserIterator, &arena,
           /*skip_filters=*/false, /*level=*/0,
           /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr));
+          /*largest_compaction_key=*/nullptr,
+          /*allow_unprepared_value=*/false));
       status = OverlapWithIterator(
           ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
       if (!status.ok() || *overlap) {
@@ -5572,7 +5585,8 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*arena=*/nullptr,
               /*skip_filters=*/false, /*level=*/static_cast<int>(which),
               /*smallest_compaction_key=*/nullptr,
-              /*largest_compaction_key=*/nullptr);
+              /*largest_compaction_key=*/nullptr,
+              /*allow_unprepared_value=*/false);
         }
       } else {
         // Create concatenating iterator for the files from this level

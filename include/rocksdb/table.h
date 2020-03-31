@@ -113,11 +113,6 @@ struct BlockBasedTableOptions {
     //    e.g. when prefix changes.
     // Makes the index significantly bigger (2x or more), especially when keys
     // are long.
-    //
-    // IO errors are not handled correctly in this mode right now: if an error
-    // happens when lazily reading a block in value(), value() returns empty
-    // slice, and you need to call Valid()/status() afterwards.
-    // TODO(kolmike): Fix it.
     kBinarySearchWithFirstKey = 0x03,
   };
 

@@ -267,6 +267,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       } else {
         assert(!skipping_saved_key ||
                CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
+        if (!iter_.PrepareValue()) {
+          assert(!iter_.status().ok());
+          valid_ = false;
+          return false;
+        }
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -452,6 +457,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 // Scan from the newer entries to older entries.
 // PRE: iter_.key() points to the first merge type entry
 //      saved_key_ stores the user key
+//      iter_.PrepareValue() has been called
 // POST: saved_value_ has the merged value for the user key
 //       iter_ points to the next entry (or invalid)
 bool DBIter::MergeValuesNewToOld() {
@@ -481,14 +487,21 @@ bool DBIter::MergeValuesNewToOld() {
     if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // hit the next user key, stop right here
       break;
-    } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
+    }
+    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
                range_del_agg_.ShouldDelete(
                    ikey, RangeDelPositioningMode::kForwardTraversal)) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_.Next();
       break;
-    } else if (kTypeValue == ikey.type) {
+    }
+    if (!iter_.PrepareValue()) {
+      valid_ = false;
+      return false;
+    }
+
+    if (kTypeValue == ikey.type) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
@@ -760,6 +773,11 @@ bool DBIter::FindValueForCurrentKey() {
       return FindValueForCurrentKeyUsingSeek();
     }
 
+    if (!iter_.PrepareValue()) {
+      valid_ = false;
+      return false;
+    }
+
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
@@ -937,6 +955,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return false;
   }
+  if (!iter_.PrepareValue()) {
+    valid_ = false;
+    return false;
+  }
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
@@ -968,12 +990,17 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
-
     if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
         range_del_agg_.ShouldDelete(
             ikey, RangeDelPositioningMode::kForwardTraversal)) {
       break;
-    } else if (ikey.type == kTypeValue) {
+    }
+    if (!iter_.PrepareValue()) {
+      valid_ = false;
+      return false;
+    }
+
+    if (ikey.type == kTypeValue) {
       const Slice val = iter_.value();
       Status s = MergeHelper::TimedFullMerge(
           merge_operator_, saved_key_.GetUserKey(), &val,

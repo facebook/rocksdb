@@ -573,11 +573,13 @@ class Version {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   void AddIterators(const ReadOptions&, const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
-                    RangeDelAggregator* range_del_agg);
+                    RangeDelAggregator* range_del_agg,
+                    bool allow_unprepared_value);
 
   void AddIteratorsForLevel(const ReadOptions&, const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
-                            int level, RangeDelAggregator* range_del_agg);
+                            int level, RangeDelAggregator* range_del_agg,
+                            bool allow_unprepared_value);
 
   Status OverlapWithLevelIterator(const ReadOptions&, const FileOptions&,
                                   const Slice& smallest_user_key,

@@ -186,11 +186,11 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
       ReadOptions(), moptions_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    if (!iter->status().ok()) {
-      fputs(iter->status().ToString().c_str(), stderr);
-      exit(1);
-    }
     table_builder->Add(iter->key(), iter->value());
+  }
+  if (!iter->status().ok()) {
+    fputs(iter->status().ToString().c_str(), stderr);
+    exit(1);
   }
   Status s = table_builder->Finish();
   if (!s.ok()) {
