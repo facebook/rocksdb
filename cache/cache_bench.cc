@@ -19,7 +19,9 @@ int main() {
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "util/coding.h"
 #include "util/gflags_compat.h"
+#include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 
@@ -27,21 +29,29 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 static const uint32_t KB = 1024;
 
-DEFINE_int32(threads, 16, "Number of concurrent threads to run.");
-DEFINE_int64(cache_size, 8 * KB * KB,
-             "Number of bytes to use as a cache of uncompressed data.");
-DEFINE_int32(num_shard_bits, 4, "shard_bits.");
+DEFINE_uint32(threads, 16, "Number of concurrent threads to run.");
+DEFINE_uint64(cache_size, 1 * KB * KB * KB,
+              "Number of bytes to use as a cache of uncompressed data.");
+DEFINE_uint32(num_shard_bits, 6, "shard_bits.");
 
-DEFINE_int64(max_key, 1 * KB * KB * KB, "Max number of key to place in cache");
-DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
+DEFINE_double(resident_ratio, 0.25,
+              "Ratio of keys fitting in cache to keyspace.");
+DEFINE_uint64(ops_per_thread, 0,
+              "Number of operations per thread. (Default: 5 * keyspace size)");
+DEFINE_uint32(value_bytes, 8 * KB, "Size of each value added.");
 
-DEFINE_bool(populate_cache, false, "Populate cache before operations");
-DEFINE_int32(insert_percent, 40,
-             "Ratio of insert to total workload (expressed as a percentage)");
-DEFINE_int32(lookup_percent, 50,
-             "Ratio of lookup to total workload (expressed as a percentage)");
-DEFINE_int32(erase_percent, 10,
-             "Ratio of erase to total workload (expressed as a percentage)");
+DEFINE_uint32(skew, 5, "Degree of skew in key selection");
+DEFINE_bool(populate_cache, true, "Populate cache before operations");
+
+DEFINE_uint32(lookup_insert_percent, 87,
+              "Ratio of lookup (+ insert on not found) to total workload "
+              "(expressed as a percentage)");
+DEFINE_uint32(insert_percent, 2,
+              "Ratio of insert to total workload (expressed as a percentage)");
+DEFINE_uint32(lookup_percent, 10,
+              "Ratio of lookup to total workload (expressed as a percentage)");
+DEFINE_uint32(erase_percent, 1,
+              "Ratio of erase to total workload (expressed as a percentage)");
 
 DEFINE_bool(use_clock_cache, false, "");
 
@@ -49,10 +59,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class CacheBench;
 namespace {
-void deleter(const Slice& /*key*/, void* value) {
-    delete reinterpret_cast<char *>(value);
-}
-
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
@@ -118,12 +124,47 @@ class SharedState {
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
   uint32_t tid;
-  Random rnd;
+  Random64 rnd;
   SharedState* shared;
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rnd(1000 + index), shared(_shared) {}
 };
+
+struct KeyGen {
+  char key_data[27];
+
+  Slice GetRand(Random64& rnd, uint64_t max_key) {
+    uint64_t raw = rnd.Next();
+    // Skew according to setting
+    for (uint32_t i = 0; i < FLAGS_skew; ++i) {
+      raw = std::min(raw, rnd.Next());
+    }
+    uint64_t key = fastrange64(raw, max_key);
+    // Variable size and alignment
+    size_t off = key % 8;
+    key_data[0] = char{42};
+    EncodeFixed64(key_data + 1, key);
+    key_data[9] = char{11};
+    EncodeFixed64(key_data + 10, key);
+    key_data[18] = char{4};
+    EncodeFixed64(key_data + 19, key);
+    return Slice(&key_data[off], sizeof(key_data) - off);
+  }
+};
+
+char* createValue(Random64& rnd) {
+  char* rv = new char[FLAGS_value_bytes];
+  // And fill with some filler data
+  for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
+    EncodeFixed64(rv + i, rnd.Next());
+  }
+  return rv;
+}
+
+void deleter(const Slice& /*key*/, void* value) {
+  delete[] reinterpret_cast<char*>(value);
+}
 }  // namespace
 
 class CacheBench {
@@ -138,18 +179,21 @@ class CacheBench {
     } else {
       cache_ = NewLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits);
     }
+    max_key_ = static_cast<uint64_t>(FLAGS_cache_size / FLAGS_resident_ratio /
+                                     FLAGS_value_bytes);
+    if (FLAGS_ops_per_thread == 0) {
+      FLAGS_ops_per_thread = 5 * max_key_;
+    }
   }
 
   ~CacheBench() {}
 
   void PopulateCache() {
-    Random rnd(1);
-    for (int64_t i = 0; i < FLAGS_cache_size; i++) {
-      uint64_t rand_key = rnd.Next() % FLAGS_max_key;
-      // Cast uint64* to be char*, data would be copied to cache
-      Slice key(reinterpret_cast<char*>(&rand_key), 8);
-      // do insert
-      cache_->Insert(key, new char[10], 1, &deleter);
+    Random64 rnd(1);
+    KeyGen keygen;
+    for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
+      cache_->Insert(keygen.GetRand(rnd, max_key_), createValue(rnd),
+                     FLAGS_value_bytes, &deleter);
     }
   }
 
@@ -158,10 +202,10 @@ class CacheBench {
 
     PrintEnv();
     SharedState shared(this);
-    std::vector<ThreadState*> threads(num_threads_);
+    std::vector<std::unique_ptr<ThreadState> > threads(num_threads_);
     for (uint32_t i = 0; i < num_threads_; i++) {
-      threads[i] = new ThreadState(i, &shared);
-      env->StartThread(ThreadBody, threads[i]);
+      threads[i].reset(new ThreadState(i, &shared));
+      env->StartThread(ThreadBody, threads[i].get());
     }
     {
       MutexLock l(shared.GetMutex());
@@ -193,6 +237,7 @@ class CacheBench {
  private:
   std::shared_ptr<Cache> cache_;
   uint32_t num_threads_;
+  uint64_t max_key_;
 
   static void ThreadBody(void* v) {
     ThreadState* thread = reinterpret_cast<ThreadState*>(v);
@@ -220,40 +265,76 @@ class CacheBench {
   }
 
   void OperateCache(ThreadState* thread) {
+    uint64_t result = 0;  // To use looked-up values
+    Cache::Handle* handle = nullptr;
+    KeyGen gen;
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      uint64_t rand_key = thread->rnd.Next() % FLAGS_max_key;
-      // Cast uint64* to be char*, data would be copied to cache
-      Slice key(reinterpret_cast<char*>(&rand_key), 8);
-      int32_t prob_op = thread->rnd.Uniform(100);
-      if (prob_op >= 0 && prob_op < FLAGS_insert_percent) {
-        // do insert
-        cache_->Insert(key, new char[10], 1, &deleter);
-      } else if (prob_op -= FLAGS_insert_percent &&
-                 prob_op < FLAGS_lookup_percent) {
-        // do lookup
-        auto handle = cache_->Lookup(key);
+      Slice key = gen.GetRand(thread->rnd, max_key_);
+      uint32_t prob_op = static_cast<uint32_t>(thread->rnd.Uniform(100U));
+      if (prob_op >= 0 && prob_op < FLAGS_lookup_insert_percent) {
         if (handle) {
           cache_->Release(handle);
+          handle = nullptr;
         }
-      } else if (prob_op -= FLAGS_lookup_percent &&
+        // do lookup
+        handle = cache_->Lookup(key);
+        if (handle) {
+          // do something with the data
+          result += NPHash64(reinterpret_cast<char*>(cache_->Value(handle)),
+                             FLAGS_value_bytes);
+        } else {
+          // do insert
+          cache_->Insert(key, createValue(thread->rnd), FLAGS_value_bytes,
+                         &deleter, &handle);
+        }
+      } else if (prob_op -= FLAGS_lookup_insert_percent,
+                 prob_op < FLAGS_insert_percent) {
+        if (handle) {
+          cache_->Release(handle);
+          handle = nullptr;
+        }
+        // do insert
+        cache_->Insert(key, createValue(thread->rnd), FLAGS_value_bytes,
+                       &deleter, &handle);
+      } else if (prob_op -= FLAGS_insert_percent,
+                 prob_op < FLAGS_lookup_percent) {
+        if (handle) {
+          cache_->Release(handle);
+          handle = nullptr;
+        }
+        // do lookup
+        handle = cache_->Lookup(key);
+        if (handle) {
+          // do something with the data
+          result += NPHash64(reinterpret_cast<char*>(cache_->Value(handle)),
+                             FLAGS_value_bytes);
+        }
+      } else if (prob_op -= FLAGS_lookup_percent,
                  prob_op < FLAGS_erase_percent) {
         // do erase
         cache_->Erase(key);
       }
     }
+    if (handle) {
+      cache_->Release(handle);
+      handle = nullptr;
+    }
   }
 
   void PrintEnv() const {
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
-    printf("Number of threads   : %d\n", FLAGS_threads);
+    printf("Number of threads   : %u\n", FLAGS_threads);
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
     printf("Cache size          : %" PRIu64 "\n", FLAGS_cache_size);
-    printf("Num shard bits      : %d\n", FLAGS_num_shard_bits);
-    printf("Max key             : %" PRIu64 "\n", FLAGS_max_key);
-    printf("Populate cache      : %d\n", FLAGS_populate_cache);
-    printf("Insert percentage   : %d%%\n", FLAGS_insert_percent);
-    printf("Lookup percentage   : %d%%\n", FLAGS_lookup_percent);
-    printf("Erase percentage    : %d%%\n", FLAGS_erase_percent);
+    printf("Num shard bits      : %u\n", FLAGS_num_shard_bits);
+    printf("Max key             : %" PRIu64 "\n", max_key_);
+    printf("Resident ratio      : %g\n", FLAGS_resident_ratio);
+    printf("Skew degree         : %u\n", FLAGS_skew);
+    printf("Populate cache      : %d\n", int{FLAGS_populate_cache});
+    printf("Lookup+Insert pct   : %u%%\n", FLAGS_lookup_insert_percent);
+    printf("Insert percentage   : %u%%\n", FLAGS_insert_percent);
+    printf("Lookup percentage   : %u%%\n", FLAGS_lookup_percent);
+    printf("Erase percentage    : %u%%\n", FLAGS_erase_percent);
     printf("----------------------------\n");
   }
 };
@@ -270,6 +351,8 @@ int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::CacheBench bench;
   if (FLAGS_populate_cache) {
     bench.PopulateCache();
+    printf("Population complete\n");
+    printf("----------------------------\n");
   }
   if (bench.Run()) {
     return 0;
