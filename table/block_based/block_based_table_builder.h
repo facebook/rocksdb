@@ -90,6 +90,11 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
+  // Estimated size of the file generated so far. This is used when
+  // FileSize() cannot estimate final SST size, e.g. parallel compression
+  // is enabled.
+  uint64_t EstimatedFileSize() const override;
+
   bool NeedCompact() const override;
 
   // Get table properties
@@ -103,6 +108,10 @@ class BlockBasedTableBuilder : public TableBuilder {
 
  private:
   bool ok() const { return status().ok(); }
+
+  void SetStatusAtom(Status status);
+
+  void SetIOStatusAtom(IOStatus io_status);
 
   // Transition state from buffered to unbuffered. See `Rep::State` API comment
   // for details of the states.
@@ -137,6 +146,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
 
+  struct ParallelCompressionRep;
+
   // Advanced operation: flush any buffered key/value pairs to file.
   // Can be used to ensure that two adjacent entries never live in
   // the same data block.  Most clients should not need to use this method.
@@ -146,6 +157,22 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
+
+  // Get blocks from mem-table walking thread, compress them and
+  // pass them to the write thread. Used in parallel compression mode only
+  void BGWorkCompression(CompressionContext& compression_ctx,
+                         UncompressionContext* verify_ctx);
+
+  // Given raw block content, try to compress it and return result and
+  // compression type
+  void CompressAndVerifyBlock(
+      const Slice& raw_block_contents, bool is_data_block,
+      CompressionContext& compression_ctx, UncompressionContext* verify_ctx,
+      std::string& compressed_output, Slice& result_block_contents,
+      CompressionType& result_compression_type, Status& out_status);
+
+  // Get compressed blocks from BGWorkCompression and write them into SST
+  void BGWorkWriteRawBlock();
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,

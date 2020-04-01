@@ -1892,13 +1892,15 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
 
 class DBBasicTestWithParallelIO
     : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
+      public testing::WithParamInterface<
+          std::tuple<bool, bool, bool, bool, uint32_t>> {
  public:
   DBBasicTestWithParallelIO() : DBTestBase("/db_basic_test_with_parallel_io") {
     bool compressed_cache = std::get<0>(GetParam());
     bool uncompressed_cache = std::get<1>(GetParam());
     compression_enabled_ = std::get<2>(GetParam());
     fill_cache_ = std::get<3>(GetParam());
+    uint32_t compression_parallel_threads = std::get<4>(GetParam());
 
     if (compressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
@@ -1953,6 +1955,8 @@ class DBBasicTestWithParallelIO
     options.table_factory.reset(new BlockBasedTableFactory(table_options));
     if (!compression_enabled_) {
       options.compression = kNoCompression;
+    } else {
+      options.compression_opts.parallel_threads = compression_parallel_threads;
     }
     Reopen(options);
 
@@ -2354,10 +2358,10 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                         // Param 1 - Uncompressed cache enabled
                         // Param 2 - Data compression enabled
                         // Param 3 - ReadOptions::fill_cache
+                        // Param 4 - CompressionOptions::parallel_threads
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(),
-                                           ::testing::Bool()));
-
+                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Values(1, 4)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

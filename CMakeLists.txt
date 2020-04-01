@@ -1072,6 +1072,7 @@ if(WITH_TESTS)
         util/timer_queue_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
+        util/work_queue_test.cc
         utilities/backupable/backupable_db_test.cc
         utilities/blob_db/blob_db_test.cc
         utilities/cassandra/cassandra_functional_test.cc

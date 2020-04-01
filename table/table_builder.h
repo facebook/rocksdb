@@ -156,6 +156,11 @@ class TableBuilder {
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
 
+  // Estimated size of the file generated so far. This is used when
+  // FileSize() cannot estimate final SST size, e.g. parallel compression
+  // is enabled.
+  virtual uint64_t EstimatedFileSize() const { return FileSize(); }
+
   // If the user defined table properties collector suggest the file to
   // be further compacted.
   virtual bool NeedCompact() const { return false; }
