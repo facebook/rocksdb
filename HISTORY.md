@@ -6,6 +6,9 @@
 ### New Features
 * Added support for pipelined & parallel compression optimization for `BlockBasedTableBuilder`. This optimization makes block building, block compression and block appending a pipeline, and uses multiple threads to accelerate block compression. Users can set `CompressionOptions::parallel_threads` greater than 1 to enable compression parallelism.
 
+### Bug Fixes
+* Fix a bug which might crash the service when write buffer manager fails to insert the dummy handle to the block cache.
+
 ## 6.9.0 (03/29/2020)
 ### Public API Change
 * Fix spelling so that API now has correctly spelled transaction state name `COMMITTED`, while the old misspelled `COMMITED` is still available as an alias.
