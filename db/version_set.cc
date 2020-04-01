@@ -5271,8 +5271,10 @@ Status VersionSet::WriteCurrentStateToManifest(
         edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
                          meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
                          meta->GetChecksumValue());
-        edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
-                                meta->GetGarbageBlobBytes());
+        if (meta->GetGarbageBlobCount() > 0) {
+          edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
+                                  meta->GetGarbageBlobBytes());
+        }
       }
 
       const auto iter = curr_state.find(cfd->GetID());
