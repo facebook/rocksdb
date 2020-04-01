@@ -1085,6 +1085,54 @@ public class RocksDBTest {
   }
 
   @Test
+  public void continueBackgroundWorkAfterCancelAllBackgroundWork() throws RocksDBException {
+    try (final DBOptions opt = new DBOptions().
+        setCreateIfMissing(true).
+        setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+    ) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
+          );
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+      // open the database
+      try (final RocksDB db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles)) {
+        try {
+          db.cancelAllBackgroundWork(true);
+          try {
+            db.continueBackgroundWork();
+            fail("Expected RocksDBException to be thrown if we attempt to continue background " +
+                "work after all background work is cancelled.");
+          } catch (RocksDBException ignored) { }
+        } finally {
+          for (final ColumnFamilyHandle handle : columnFamilyHandles) {
+            handle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void cancelAllBackgroundWorkTwice() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())
+    ) {
+      // Cancel all background work synchronously
+      db.cancelAllBackgroundWork(true);
+      // Cancel all background work asynchronously
+      db.cancelAllBackgroundWork(false);
+    }
+  }
+
+  @Test
   public void pauseContinueBackgroundWork() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
