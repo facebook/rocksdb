@@ -589,7 +589,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
         raw_bytes_curr_block(0),
         raw_bytes_inflight(0),
         blocks_inflight(0),
-        curr_compression_ratio(0),
+        curr_compression_ratio(1.0),
         estimated_file_size(0),
         first_block(true),
         finished(false) {
@@ -1060,12 +1060,16 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
       if (r->compression_opts.parallel_threads > 1) {
         if (!r->pc_rep->finished) {
-          r->pc_rep->curr_compression_ratio =
-              (r->pc_rep->curr_compression_ratio *
-                   r->pc_rep->raw_bytes_compressed +
-               block_contents.size()) /
+          double new_raw_bytes =
               static_cast<double>(r->pc_rep->raw_bytes_compressed +
                                   r->pc_rep->raw_bytes_curr_block);
+          if (new_raw_bytes != 0) {
+            r->pc_rep->curr_compression_ratio =
+                (r->pc_rep->curr_compression_ratio *
+                     r->pc_rep->raw_bytes_compressed +
+                 block_contents.size()) /
+                new_raw_bytes;
+          }
           r->pc_rep->raw_bytes_compressed += r->pc_rep->raw_bytes_curr_block;
           uint64_t new_raw_bytes_inflight =
               r->pc_rep->raw_bytes_inflight.fetch_sub(
@@ -1076,8 +1080,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                          1;
           r->pc_rep->estimated_file_size =
               r->offset +
-              static_cast<uint64_t>(static_cast<double>(new_raw_bytes_inflight) *
-                                    r->pc_rep->curr_compression_ratio) +
+              static_cast<uint64_t>(
+                  static_cast<double>(new_raw_bytes_inflight) *
+                  r->pc_rep->curr_compression_ratio) +
               new_blocks_inflight * kBlockTrailerSize;
         } else {
           r->pc_rep->estimated_file_size = r->offset;
