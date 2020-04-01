@@ -2612,6 +2612,17 @@ jobjectArray Java_org_rocksdb_RocksDB_compactFiles(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    cancelAllBackgroundWork
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_RocksDB_cancelAllBackgroundWork(
+        JNIEnv*, jobject, jlong jdb_handle, jboolean jwait) {
+    auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+    rocksdb::CancelAllBackgroundWork(db, jwait);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    pauseBackgroundWork
  * Signature: (J)V
  */

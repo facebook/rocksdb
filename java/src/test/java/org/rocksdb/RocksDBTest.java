@@ -1085,6 +1085,19 @@ public class RocksDBTest {
   }
 
   @Test
+  public void cancelAllBackgroundWorkTwice() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())
+    ) {
+      // Cancel all background work synchronously
+      db.cancelAllBackgroundWork(true);
+      // Cancel all background work asynchronously
+      db.cancelAllBackgroundWork(false);
+    }
+  }
+
+  @Test
   public void pauseContinueBackgroundWork() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
