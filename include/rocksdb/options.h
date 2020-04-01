@@ -1500,6 +1500,8 @@ struct CompactRangeOptions {
   bool allow_write_stall = false;
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions = 0;
+  // If > 0, it will replace the option in the CFOptions for this compaction.
+  uint64_t max_compaction_bytes = 0;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
