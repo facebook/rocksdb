@@ -1,87 +1,93 @@
+// Copyright 2020 TiKV Project Authors. Licensed under Apache-2.0.
+
 #pragma once
 #ifndef ROCKSDB_LITE
 #ifdef OPENSSL
 #include <openssl/aes.h>
+#include <openssl/evp.h>
+
+#include <string>
 
 #include "rocksdb/encryption.h"
 #include "rocksdb/env_encryption.h"
-#include "util/coding.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace encryption {
 
-class AESBlockCipher final : public BlockCipher {
- public:
-  virtual ~AESBlockCipher() = default;
+#if OPENSSL_VERSION_NUMBER < 0x01010000f
 
-  const char* Name() const override { return "AESBlockCipher"; }
+#define InitCipherContext(ctx) \
+  EVP_CIPHER_CTX ctx##_var;    \
+  ctx = &ctx##_var;            \
+  EVP_CIPHER_CTX_init(ctx);
 
-  Status InitKey(const std::string& key);
+// do nothing
+#define FreeCipherContext(ctx)
 
-  size_t BlockSize() override {
-    return AES_BLOCK_SIZE;  // 16
+#else
+
+#define InitCipherContext(ctx)            \
+  ctx = EVP_CIPHER_CTX_new();             \
+  if (ctx != nullptr) {                   \
+    if (EVP_CIPHER_CTX_reset(ctx) != 1) { \
+      ctx = nullptr;                      \
+    }                                     \
   }
 
-  Status Encrypt(char* data) override {
-    AES_encrypt(reinterpret_cast<unsigned char*>(data),
-                reinterpret_cast<unsigned char*>(data), &encrypt_key_);
-    return Status::OK();
-  }
+#define FreeCipherContext(ctx) EVP_CIPHER_CTX_free(ctx);
 
-  Status Decrypt(char* data) override {
-    AES_decrypt(reinterpret_cast<unsigned char*>(data),
-                reinterpret_cast<unsigned char*>(data), &decrypt_key_);
-    return Status::OK();
-  }
-
- private:
-  AES_KEY encrypt_key_;
-  AES_KEY decrypt_key_;
-};
+#endif
 
 class AESCTRCipherStream : public BlockAccessCipherStream {
  public:
-  static constexpr size_t kNonceSize = AES_BLOCK_SIZE - sizeof(uint64_t);  // 8
+  AESCTRCipherStream(const EVP_CIPHER* cipher, const std::string& key,
+                     uint64_t iv_high, uint64_t iv_low)
+      : cipher_(cipher),
+        key_(key),
+        initial_iv_high_(iv_high),
+        initial_iv_low_(iv_low) {}
 
-  AESCTRCipherStream(const std::string& iv)
-      : nonce_(iv, 0, kNonceSize),
-        initial_counter_(
-            *reinterpret_cast<const uint64_t*>(iv.data() + kNonceSize)) {}
+  ~AESCTRCipherStream() = default;
 
   size_t BlockSize() override {
     return AES_BLOCK_SIZE;  // 16
   }
 
-  Status InitKey(const std::string& key) { return block_cipher_.InitKey(key); }
+  Status Encrypt(uint64_t file_offset, char* data, size_t data_size) override {
+    return Cipher(file_offset, data, data_size, true /*is_encrypt*/);
+  }
+
+  Status Decrypt(uint64_t file_offset, char* data, size_t data_size) override {
+    return Cipher(file_offset, data, data_size, false /*is_encrypt*/);
+  }
 
  protected:
-  void AllocateScratch(std::string& scratch) override {
-    scratch.reserve(BlockSize());
+  // Following methods required by BlockAccessCipherStream is unused.
+
+  void AllocateScratch(std::string& /*scratch*/) override {
+    // should not be called.
+    assert(false);
   }
 
-  Status EncryptBlock(uint64_t block_index, char* data,
-                      char* scratch) override {
-    memcpy(scratch, nonce_.data(), kNonceSize);
-    EncodeFixed64(scratch + kNonceSize, block_index + initial_counter_);
-    Status s = block_cipher_.Encrypt(scratch);
-    if (!s.ok()) {
-      return s;
-    }
-    for (size_t i = 0; i < AES_BLOCK_SIZE; i++) {
-      data[i] = data[i] ^ scratch[i];
-    }
-    return Status::OK();
+  Status EncryptBlock(uint64_t /*block_index*/, char* /*data*/,
+                      char* /*scratch*/) override {
+    return Status::NotSupported("EncryptBlock should not be called.");
   }
 
-  Status DecryptBlock(uint64_t block_index, char* data,
-                      char* scratch) override {
-    return EncryptBlock(block_index, data, scratch);
+  Status DecryptBlock(uint64_t /*block_index*/, char* /*data*/,
+                      char* /*scratch*/) override {
+    return Status::NotSupported("DecryptBlock should not be called.");
   }
 
  private:
-  AESBlockCipher block_cipher_;
-  std::string nonce_;
-  uint64_t initial_counter_;
+  Status Cipher(uint64_t file_offset, char* data, size_t data_size,
+                bool is_encrypt);
+
+  const EVP_CIPHER* cipher_;
+  const std::string key_;
+  const uint64_t initial_iv_high_;
+  const uint64_t initial_iv_low_;
 };
 
 extern Status NewAESCTRCipherStream(

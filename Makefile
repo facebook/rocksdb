@@ -621,6 +621,7 @@ TESTS_PLATFORM_DEPENDENT := \
 	crc32c_test \
 	coding_test \
 	inlineskiplist_test \
+	encryption_test \
 	env_basic_test \
 	env_test \
 	env_logger_test \
@@ -1982,6 +1983,10 @@ db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
 
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
+
+encryption_test: encryption/encryption_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
