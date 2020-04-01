@@ -71,6 +71,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   if (current_time > mutable_cf_options.ttl) {
     for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
       FileMetaData* f = *ritr;
+      assert(f);
       if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
         uint64_t creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
@@ -96,7 +97,8 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   for (const auto& f : inputs[0].files) {
     uint64_t creation_time = 0;
-    if (f && f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+    assert(f);
+    if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
       creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
     }
     ROCKS_LOG_BUFFER(log_buffer,
