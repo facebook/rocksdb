@@ -859,8 +859,6 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
 }
 
-#endif  // ROCKSDB_LITE
-
 TEST_F(DBOptionsTest, ChangeCompression) {
   if (!Snappy_Supported() || !LZ4_Supported()) {
     return;
@@ -920,6 +918,8 @@ TEST_F(DBOptionsTest, ChangeCompression) {
 
   SyncPoint::GetInstance()->DisableProcessing();
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
