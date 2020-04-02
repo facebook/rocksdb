@@ -151,7 +151,7 @@ struct KeyGen {
 
 char* createValue(Random64& rnd) {
   char* rv = new char[FLAGS_value_bytes];
-  // And fill with some filler data
+  // Fill with some filler data, and take some CPU time
   for (uint32_t i = 0; i < FLAGS_value_bytes; i += 8) {
     EncodeFixed64(rv + i, rnd.Next());
   }
