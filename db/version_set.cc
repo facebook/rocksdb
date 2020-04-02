@@ -5211,6 +5211,8 @@ Status VersionSet::WriteCurrentStateToManifest(
   }
 
   for (auto cfd : *column_family_set_) {
+    assert(cfd);
+
     if (cfd->IsDropped()) {
       continue;
     }
@@ -5243,6 +5245,9 @@ Status VersionSet::WriteCurrentStateToManifest(
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
 
+      assert(cfd->current());
+      assert(cfd->current()->storage_info());
+
       for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f :
              cfd->current()->storage_info()->LevelFiles(level)) {
@@ -5254,6 +5259,24 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->file_checksum, f->file_checksum_func_name);
         }
       }
+
+      const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
+      for (const auto& pair : blob_files) {
+        const uint64_t blob_file_number = pair.first;
+        const auto& meta = pair.second;
+
+        assert(meta);
+        assert(blob_file_number == meta->GetBlobFileNumber());
+
+        edit.AddBlobFile(blob_file_number, meta->GetTotalBlobCount(),
+                         meta->GetTotalBlobBytes(), meta->GetChecksumMethod(),
+                         meta->GetChecksumValue());
+        if (meta->GetGarbageBlobCount() > 0) {
+          edit.AddBlobFileGarbage(blob_file_number, meta->GetGarbageBlobCount(),
+                                  meta->GetGarbageBlobBytes());
+        }
+      }
+
       const auto iter = curr_state.find(cfd->GetID());
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
