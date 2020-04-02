@@ -839,6 +839,13 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   Rep* r = rep_;
   Slice block_contents;
   CompressionType type;
+  if (r->state == Rep::State::kBuffered) {
+    assert(is_data_block);
+    assert(!r->data_block_and_keys_buffers.empty());
+    r->data_block_and_keys_buffers.back().first = raw_block_contents.ToString();
+    r->data_begin_offset += r->data_block_and_keys_buffers.back().first.size();
+    return;
+  }
   CompressAndVerifyBlock(raw_block_contents, is_data_block,
                          *(r->compression_ctxs[0]), r->verify_ctxs[0].get(),
                          r->compressed_output, block_contents, type, r->status);
@@ -887,14 +894,6 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   StopWatchNano timer(
       r->ioptions.env,
       ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
-
-  if (r->state == Rep::State::kBuffered) {
-    assert(is_data_block);
-    assert(!r->data_block_and_keys_buffers.empty());
-    r->data_block_and_keys_buffers.back().first = raw_block_contents.ToString();
-    r->data_begin_offset += r->data_block_and_keys_buffers.back().first.size();
-    return;
-  }
 
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     const CompressionDict* compression_dict;
@@ -1060,6 +1059,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
       if (r->compression_opts.parallel_threads > 1) {
         if (!r->pc_rep->finished) {
+          assert(r->pc_rep->raw_bytes_compressed +
+                     r->pc_rep->raw_bytes_curr_block >
+                 0);
           r->pc_rep->curr_compression_ratio =
               (r->pc_rep->curr_compression_ratio *
                    r->pc_rep->raw_bytes_compressed +
