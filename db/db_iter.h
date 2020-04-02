@@ -231,7 +231,8 @@ class DBIter final : public Iterator {
   // entry can be found within the prefix.
   void PrevInternal(const Slice* prefix);
   bool TooManyInternalKeysSkipped(bool increment = true);
-  bool IsVisible(SequenceNumber sequence, const Slice& ts);
+  bool IsVisible(SequenceNumber sequence, const Slice& ts,
+                 bool* more_recent = nullptr);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -270,10 +271,13 @@ class DBIter final : public Iterator {
     return expect_total_order_inner_iter_;
   }
 
-  inline int UserComparatorCompare(const Slice& a, const Slice& b,
-                                   bool compareTimestamp) {
-    return compareTimestamp ? user_comparator_.Compare(a, b)
-                            : user_comparator_.CompareWithoutTimestamp(a, b);
+  // If lower bound of timestamp is given by ReadOptions.iter_start_ts, we need
+  // to return versions of the same key. We cannot just skip if the key value
+  // is the same but timestamps are different but fall in timestamp range.
+  inline int CompareKeyForSkip(const Slice& a, const Slice& b) {
+    return timestamp_lb_ != nullptr
+               ? user_comparator_.Compare(a, b)
+               : user_comparator_.CompareWithoutTimestamp(a, b);
   }
 
   const SliceTransform* prefix_extractor_;

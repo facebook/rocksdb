@@ -267,7 +267,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
     Slice read_ts = read_timestamps[i];
     Slice read_ts_lb = read_timestamps_lb[i];
     read_opts.timestamp = &read_ts;
-    read_opts.timestamp_iterate_lower_bound = &read_ts_lb;
+    read_opts.iter_start_ts = &read_ts_lb;
     std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
     int count = 0;
     uint64_t key = 0;
@@ -283,6 +283,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
     size_t expected_count = kMaxKey + 1;
     ASSERT_EQ(expected_count, count);
   }
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
