@@ -1076,8 +1076,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                          1;
           r->pc_rep->estimated_file_size =
               r->offset +
-              static_cast<uint64_t>(static_cast<double>(new_raw_bytes_inflight) *
-                                    r->pc_rep->curr_compression_ratio) +
+              static_cast<uint64_t>(
+                  static_cast<double>(new_raw_bytes_inflight) *
+                  r->pc_rep->curr_compression_ratio) +
               new_blocks_inflight * kBlockTrailerSize;
         } else {
           r->pc_rep->estimated_file_size = r->offset;

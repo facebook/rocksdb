@@ -14,6 +14,7 @@ int main() {
 #include <stdio.h>
 #include <sys/types.h>
 #include <cinttypes>
+#include <limits>
 
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -27,10 +28,12 @@ int main() {
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
-static const uint32_t KB = 1024;
+static constexpr uint32_t KiB = uint32_t{1} << 10;
+static constexpr uint32_t MiB = KiB << 10;
+static constexpr uint64_t GiB = MiB << 10;
 
 DEFINE_uint32(threads, 16, "Number of concurrent threads to run.");
-DEFINE_uint64(cache_size, 1 * KB * KB * KB,
+DEFINE_uint64(cache_size, 1 * GiB,
               "Number of bytes to use as a cache of uncompressed data.");
 DEFINE_uint32(num_shard_bits, 6, "shard_bits.");
 
@@ -38,7 +41,7 @@ DEFINE_double(resident_ratio, 0.25,
               "Ratio of keys fitting in cache to keyspace.");
 DEFINE_uint64(ops_per_thread, 0,
               "Number of operations per thread. (Default: 5 * keyspace size)");
-DEFINE_uint32(value_bytes, 8 * KB, "Size of each value added.");
+DEFINE_uint32(value_bytes, 8 * KiB, "Size of each value added.");
 
 DEFINE_uint32(skew, 5, "Degree of skew in key selection");
 DEFINE_bool(populate_cache, true, "Populate cache before operations");
@@ -64,12 +67,10 @@ class SharedState {
  public:
   explicit SharedState(CacheBench* cache_bench)
       : cv_(&mu_),
-        num_threads_(FLAGS_threads),
         num_initialized_(0),
         start_(false),
         num_done_(0),
-        cache_bench_(cache_bench) {
-  }
+        cache_bench_(cache_bench) {}
 
   ~SharedState() {}
 
@@ -93,13 +94,9 @@ class SharedState {
     num_done_++;
   }
 
-  bool AllInitialized() const {
-    return num_initialized_ >= num_threads_;
-  }
+  bool AllInitialized() const { return num_initialized_ >= FLAGS_threads; }
 
-  bool AllDone() const {
-    return num_done_ >= num_threads_;
-  }
+  bool AllDone() const { return num_done_ >= FLAGS_threads; }
 
   void SetStart() {
     start_ = true;
@@ -113,7 +110,6 @@ class SharedState {
   port::Mutex mu_;
   port::CondVar cv_;
 
-  const uint64_t num_threads_;
   uint64_t num_initialized_;
   bool start_;
   uint64_t num_done_;
@@ -163,13 +159,30 @@ char* createValue(Random64& rnd) {
 }
 
 void deleter(const Slice& /*key*/, void* value) {
-  delete[] reinterpret_cast<char*>(value);
+  delete[] static_cast<char*>(value);
 }
 }  // namespace
 
 class CacheBench {
+  static constexpr uint64_t kHundredthUint64 =
+      std::numeric_limits<uint64_t>::max() / 100U;
+
  public:
-  CacheBench() : num_threads_(FLAGS_threads) {
+  CacheBench()
+      : max_key_(static_cast<uint64_t>(FLAGS_cache_size / FLAGS_resident_ratio /
+                                       FLAGS_value_bytes)),
+        lookup_insert_threshold_(kHundredthUint64 *
+                                 FLAGS_lookup_insert_percent),
+        insert_threshold_(lookup_insert_threshold_ +
+                          kHundredthUint64 * FLAGS_insert_percent),
+        lookup_threshold_(insert_threshold_ +
+                          kHundredthUint64 * FLAGS_lookup_percent),
+        erase_threshold_(lookup_threshold_ +
+                         kHundredthUint64 * FLAGS_erase_percent) {
+    if (erase_threshold_ != 100U * kHundredthUint64) {
+      fprintf(stderr, "Percentages must add to 100.\n");
+      exit(1);
+    }
     if (FLAGS_use_clock_cache) {
       cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
       if (!cache_) {
@@ -179,8 +192,6 @@ class CacheBench {
     } else {
       cache_ = NewLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits);
     }
-    max_key_ = static_cast<uint64_t>(FLAGS_cache_size / FLAGS_resident_ratio /
-                                     FLAGS_value_bytes);
     if (FLAGS_ops_per_thread == 0) {
       FLAGS_ops_per_thread = 5 * max_key_;
     }
@@ -202,8 +213,8 @@ class CacheBench {
 
     PrintEnv();
     SharedState shared(this);
-    std::vector<std::unique_ptr<ThreadState> > threads(num_threads_);
-    for (uint32_t i = 0; i < num_threads_; i++) {
+    std::vector<std::unique_ptr<ThreadState> > threads(FLAGS_threads);
+    for (uint32_t i = 0; i < FLAGS_threads; i++) {
       threads[i].reset(new ThreadState(i, &shared));
       env->StartThread(ThreadBody, threads[i].get());
     }
@@ -236,11 +247,15 @@ class CacheBench {
 
  private:
   std::shared_ptr<Cache> cache_;
-  uint32_t num_threads_;
-  uint64_t max_key_;
+  const uint64_t max_key_;
+  // Cumulative thresholds in the space of a random uint64_t
+  const uint64_t lookup_insert_threshold_;
+  const uint64_t insert_threshold_;
+  const uint64_t lookup_threshold_;
+  const uint64_t erase_threshold_;
 
   static void ThreadBody(void* v) {
-    ThreadState* thread = reinterpret_cast<ThreadState*>(v);
+    ThreadState* thread = static_cast<ThreadState*>(v);
     SharedState* shared = thread->shared;
 
     {
@@ -265,13 +280,15 @@ class CacheBench {
   }
 
   void OperateCache(ThreadState* thread) {
-    uint64_t result = 0;  // To use looked-up values
+    // To use looked-up values
+    uint64_t result = 0;
+    // To hold handles for a non-trivial amount of time
     Cache::Handle* handle = nullptr;
     KeyGen gen;
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       Slice key = gen.GetRand(thread->rnd, max_key_);
-      uint32_t prob_op = static_cast<uint32_t>(thread->rnd.Uniform(100U));
-      if (prob_op >= 0 && prob_op < FLAGS_lookup_insert_percent) {
+      uint64_t random_op = thread->rnd.Next();
+      if (random_op < lookup_insert_threshold_) {
         if (handle) {
           cache_->Release(handle);
           handle = nullptr;
@@ -280,15 +297,14 @@ class CacheBench {
         handle = cache_->Lookup(key);
         if (handle) {
           // do something with the data
-          result += NPHash64(reinterpret_cast<char*>(cache_->Value(handle)),
+          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                              FLAGS_value_bytes);
         } else {
           // do insert
           cache_->Insert(key, createValue(thread->rnd), FLAGS_value_bytes,
                          &deleter, &handle);
         }
-      } else if (prob_op -= FLAGS_lookup_insert_percent,
-                 prob_op < FLAGS_insert_percent) {
+      } else if (random_op < insert_threshold_) {
         if (handle) {
           cache_->Release(handle);
           handle = nullptr;
@@ -296,8 +312,7 @@ class CacheBench {
         // do insert
         cache_->Insert(key, createValue(thread->rnd), FLAGS_value_bytes,
                        &deleter, &handle);
-      } else if (prob_op -= FLAGS_insert_percent,
-                 prob_op < FLAGS_lookup_percent) {
+      } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
           handle = nullptr;
@@ -306,13 +321,15 @@ class CacheBench {
         handle = cache_->Lookup(key);
         if (handle) {
           // do something with the data
-          result += NPHash64(reinterpret_cast<char*>(cache_->Value(handle)),
+          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                              FLAGS_value_bytes);
         }
-      } else if (prob_op -= FLAGS_lookup_percent,
-                 prob_op < FLAGS_erase_percent) {
+      } else if (random_op < erase_threshold_) {
         // do erase
         cache_->Erase(key);
+      } else {
+        // Should be extremely unlikely (noop)
+        assert(random_op >= kHundredthUint64 * 100U);
       }
     }
     if (handle) {

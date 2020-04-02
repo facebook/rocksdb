@@ -17,7 +17,6 @@
 #include <cassert>
 #include <condition_variable>
 #include <cstddef>
-#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <queue>
@@ -146,4 +145,4 @@ class WorkQueue {
     }
   }
 };
-}
+}  // namespace ROCKSDB_NAMESPACE
