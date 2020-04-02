@@ -183,8 +183,7 @@ Status BuildTable(
     }
 
     // Finish and check for builder errors
-    tp = builder->GetTableProperties();
-    bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
+    bool empty = builder->IsEmpty();
     s = c_iter.status();
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     if (!s.ok() || empty) {
