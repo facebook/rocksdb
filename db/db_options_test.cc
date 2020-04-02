@@ -872,6 +872,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   options.compression = CompressionType::kLZ4Compression;
   options.bottommost_compression = CompressionType::kNoCompression;
   options.bottommost_compression_opts.level = 2;
+  options.bottommost_compression_opts.parallel_threads = 1;
 
   ASSERT_OK(TryReopen(options));
 
@@ -897,12 +898,14 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kNoCompression, compression_used);
   ASSERT_EQ(options.compression_opts.level, compression_opt_used.level);
+  ASSERT_EQ(options.compression_opts.parallel_threads,
+            compression_opt_used.parallel_threads);
 
   compression_used = CompressionType::kLZ4Compression;
   compacted = false;
   ASSERT_OK(dbfull()->SetOptions(
       {{"bottommost_compression", "kSnappyCompression"},
-       {"bottommost_compression_opts", "0:6:0:0:0:true"}}));
+       {"bottommost_compression_opts", "0:6:0:0:0:4:true"}}));
   ASSERT_OK(Put("foo", "foofoofoo"));
   ASSERT_OK(Put("bar", "foofoofoo"));
   ASSERT_OK(Flush());
@@ -913,6 +916,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kSnappyCompression, compression_used);
   ASSERT_EQ(6, compression_opt_used.level);
+  ASSERT_EQ(4u, compression_opt_used.parallel_threads);
 
   SyncPoint::GetInstance()->DisableProcessing();
 }

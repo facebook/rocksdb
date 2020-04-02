@@ -419,8 +419,9 @@ TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
 
 class DBBasicTestWithTimestampCompressionSettings
     : public DBBasicTestWithTimestampBase,
-      public testing::WithParamInterface<std::tuple<
-          std::shared_ptr<const FilterPolicy>, CompressionType, uint32_t>> {
+      public testing::WithParamInterface<
+          std::tuple<std::shared_ptr<const FilterPolicy>, CompressionType,
+                     uint32_t, uint32_t>> {
  public:
   DBBasicTestWithTimestampCompressionSettings()
       : DBBasicTestWithTimestampBase(
@@ -460,6 +461,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
   if (comp_type == kZSTD) {
     options.compression_opts.zstd_max_train_bytes = std::get<2>(GetParam());
   }
+  options.compression_opts.parallel_threads = std::get<3>(GetParam());
   options.target_file_size_base = 1 << 26;  // 64MB
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -572,6 +574,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
   if (comp_type == kZSTD) {
     options.compression_opts.zstd_max_train_bytes = std::get<2>(GetParam());
   }
+  options.compression_opts.parallel_threads = std::get<3>(GetParam());
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -749,7 +752,7 @@ INSTANTIATE_TEST_CASE_P(
                               NewBloomFilterPolicy(10, false))),
         ::testing::Values(kNoCompression, kZlibCompression, kLZ4Compression,
                           kLZ4HCCompression, kZSTD),
-        ::testing::Values(0, 1 << 14)));
+        ::testing::Values(0, 1 << 14), ::testing::Values(1, 4)));
 
 class DBBasicTestWithTimestampPrefixSeek
     : public DBBasicTestWithTimestampBase,

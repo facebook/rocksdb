@@ -81,6 +81,11 @@ void BlockBuilder::Reset() {
   }
 }
 
+void BlockBuilder::SwapAndReset(std::string& buffer) {
+  std::swap(buffer_, buffer);
+  Reset();
+}
+
 size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
                                          const Slice& value) const {
   size_t estimate = CurrentSizeEstimate();
