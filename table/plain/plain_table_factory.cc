@@ -17,6 +17,34 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
+    {"user_key_len",
+     {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"bloom_bits_per_key",
+     {offsetof(struct PlainTableOptions, bloom_bits_per_key), OptionType::kInt,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"hash_table_ratio",
+     {offsetof(struct PlainTableOptions, hash_table_ratio), OptionType::kDouble,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"index_sparseness",
+     {offsetof(struct PlainTableOptions, index_sparseness), OptionType::kSizeT,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"huge_page_tlb_size",
+     {offsetof(struct PlainTableOptions, huge_page_tlb_size),
+      OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, 0}},
+    {"encoding_type",
+     {offsetof(struct PlainTableOptions, encoding_type),
+      OptionType::kEncodingType, OptionVerificationType::kByName,
+      OptionTypeFlags::kNone, 0}},
+    {"full_scan_mode",
+     {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+    {"store_index_in_file",
+     {offsetof(struct PlainTableOptions, store_index_in_file),
+      OptionType::kBoolean, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, 0}}};
 
 Status PlainTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
@@ -178,7 +206,7 @@ std::string ParsePlainTableOptions(const std::string& name,
     }
   }
   const auto& opt_info = iter->second;
-  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+  if (!opt_info.IsDeprecated() &&
       !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
                          opt_info.type, value)) {
     return "Invalid value";
@@ -202,12 +230,7 @@ Status GetPlainTableOptionsFromMap(
           !input_strings_escaped ||  // !input_strings_escaped indicates
                                      // the old API, where everything is
                                      // parsable.
-          (iter->second.verification != OptionVerificationType::kByName &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowFromNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
+          (!iter->second.IsByName() && !iter->second.IsDeprecated())) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse PlainTableOptions:",
