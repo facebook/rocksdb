@@ -469,6 +469,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   Status s;
   std::string old_manifest;
   std::string new_manifest;
+  std::atomic<bool> fail_manifest(false);
   DestroyAndReopen(options);
   old_manifest = GetManifestNameFromLiveFiles();
 
@@ -482,14 +483,32 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
 
   listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
   listener->EnableAutoRecovery(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      // Wait for flush of 2nd L0 file before starting compaction
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"},
+       // Wait for compaction to detect manifest write error
+       {"BackgroundCallCompaction:1", "CompactionManifestWriteError:0"},
+       // Make compaction thread wait for error to be cleared
+       {"CompactionManifestWriteError:1",
+        "DBImpl::BackgroundCallCompaction:FoundObsoleteFiles"}});
+  // trigger manifest write failure in compaction thread
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun",
-      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+      "BackgroundCallCompaction:0", [&](void*) { fail_manifest.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (fail_manifest.load()) {
+          fault_fs->SetFilesystemActive(false,error_msg); }
+        });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put(Key(1), "val");
   s = Flush();
   ASSERT_EQ(s, Status::OK());
+
+
+  TEST_SYNC_POINT("CompactionManifestWriteError:0");
+  TEST_SYNC_POINT("CompactionManifestWriteError:1");
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
