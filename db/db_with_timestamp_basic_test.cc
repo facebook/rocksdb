@@ -844,8 +844,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
       write_opts.timestamp = &write_ts;
       uint64_t key = kMinKey;
       do {
-        Status s =
-            db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
+        Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
         ASSERT_OK(s);
         if (key == kMaxKey) {
           break;
@@ -870,8 +869,8 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
 
       // Seek to kMaxKey
       iter->Seek(Key1(kMaxKey));
-      CheckIterUserEntry(iter.get(), Key1(kMaxKey),
-                         "value" + std::to_string(i), write_ts_list[i]);
+      CheckIterUserEntry(iter.get(), Key1(kMaxKey), "value" + std::to_string(i),
+                         write_ts_list[i]);
       iter->Next();
       ASSERT_FALSE(iter->Valid());
     }
@@ -926,14 +925,13 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(4)),
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
-            std::shared_ptr<const SliceTransform>(
-                NewFixedPrefixTransform(8))),
-        ::testing::Values(
-            std::shared_ptr<const FilterPolicy>(nullptr),
-            std::shared_ptr<const FilterPolicy>(
-                NewBloomFilterPolicy(10 /*bits_per_key*/, false)),
-            std::shared_ptr<const FilterPolicy>(
-                NewBloomFilterPolicy(20 /*bits_per_key*/, false))),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),
+        ::testing::Values(std::shared_ptr<const FilterPolicy>(nullptr),
+                          std::shared_ptr<const FilterPolicy>(
+                              NewBloomFilterPolicy(10 /*bits_per_key*/, false)),
+                          std::shared_ptr<const FilterPolicy>(
+                              NewBloomFilterPolicy(20 /*bits_per_key*/,
+                                                   false))),
         ::testing::Bool()));
 
 }  // namespace ROCKSDB_NAMESPACE
