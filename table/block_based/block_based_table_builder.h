@@ -86,6 +86,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Number of calls to Add() so far.
   uint64_t NumEntries() const override;
 
+  bool IsEmpty() const override;
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;

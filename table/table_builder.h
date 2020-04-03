@@ -152,6 +152,12 @@ class TableBuilder {
   // Number of calls to Add() so far.
   virtual uint64_t NumEntries() const = 0;
 
+  // Whether the output file is completely empty. It has neither entries
+  // or tombstones.
+  virtual bool IsEmpty() const {
+    return NumEntries() == 0 && GetTableProperties().num_range_deletions == 0;
+  }
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
