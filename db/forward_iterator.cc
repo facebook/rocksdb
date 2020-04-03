@@ -219,6 +219,8 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
       is_prev_set_(false),
       is_prev_inclusive_(false),
       pinned_iters_mgr_(nullptr) {
+  // arguably this should be in constructor for iterator classes
+  SetVlogForIteratorCF(cfd->vlog());
   if (sv_) {
     RebuildIterators(false);
   }

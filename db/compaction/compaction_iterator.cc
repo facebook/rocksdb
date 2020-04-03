@@ -8,6 +8,7 @@
 #include "port/likely.h"
 #include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
+#include "db/value_log_iterator.h"
 #include "test_util/sync_point.h"
 
 #define DEFINITELY_IN_SNAPSHOT(seq, snapshot)                       \
@@ -60,7 +61,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     SnapshotListFetchCallback* snap_list_callback)
-    : input_(input),
+    : input_(std::make_shared<VLogCountingIterator>(cmp, input)),
+      originput_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
@@ -87,13 +89,13 @@ CompactionIterator::CompactionIterator(
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
   ProcessSnapshotList();
-  input_->SetPinnedItersMgr(&pinned_iters_mgr_);
+  originput_->SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
 }
 
 CompactionIterator::~CompactionIterator() {
   // input_ Iteartor lifetime is longer than pinned_iters_mgr_ lifetime
-  input_->SetPinnedItersMgr(nullptr);
+  originput_->SetPinnedItersMgr(nullptr);
 }
 
 void CompactionIterator::ResetRecordCounts() {
@@ -105,12 +107,27 @@ void CompactionIterator::ResetRecordCounts() {
   iter_stats_.num_optimized_del_drop_obsolete = 0;
 }
 
+// the total length of all indirect data referred to, in each ring.
+// Pass to the iterator that has it
+void CompactionIterator::RingBytesRefd(std::vector<int64_t>& refbytes) {
+  refbytes=input_->RingBytesRefd();
+}
+
 void CompactionIterator::SeekToFirst() {
   NextFromInput();
   PrepareOutput();
 }
 
 void CompactionIterator::Next() {
+  // If this is an Active Recycling operation, the compaction iterator is simply
+  // going through the kvs in order, with no comparisons.
+  if(compaction_!=nullptr &&
+     compaction_->compaction_reason() == CompactionReason::kActiveRecycling) {
+    input_->Next();  // advance to next position in RecyclingIterator
+    NextFromInput();  // set our return variables from the RecyclingIterator
+    // scaf here we need to take any needed stats on the input stream
+    return;  // user will pick up the new values
+  }
   // If there is a merge output, return it before continuing to process the
   // input.
   if (merge_out_iter_.Valid()) {
@@ -158,7 +175,7 @@ void CompactionIterator::Next() {
 void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                               Slice* skip_until) {
   if (compaction_filter_ != nullptr &&
-      (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex)) {
+      IsTypeValue(ikey_.type)) {
     // If the user has specified a compaction filter and the sequence
     // number is greater than any external snapshot, then invoke the
     // filter. If the return value of the compaction filter is true,
@@ -167,18 +184,39 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     compaction_filter_value_.clear();
     compaction_filter_skip_until_.Clear();
     CompactionFilter::ValueType value_type =
-        ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
+        IsTypeValueNonBlob(ikey_.type) ? CompactionFilter::ValueType::kValue
                                  : CompactionFilter::ValueType::kBlobIndex;
     // Hack: pass internal key to BlobIndexCompactionFilter since it needs
     // to get sequence number.
-    Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
+    Slice& filter_key = IsTypeValueNonBlob(ikey_.type) ? ikey_.user_key : key_;
     {
       StopWatchNano timer(env_, report_detailed_time_);
-      filter = compaction_filter_->FilterV2(
-          compaction_->level(), filter_key, value_type, value_,
-          &compaction_filter_value_, compaction_filter_skip_until_.rep());
-      iter_stats_.total_filter_time +=
-          env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
+      // By default we assume the compaction filter understands only direct values.  We must then convert any indirect reference to a direct one.
+      // This could be slow, so if the user has told us by option that they understand indirects, we don't do it.  If the user doesn't
+      // change the value we revert it to the original reference, to avoid unnecessary remapping
+      Slice value_into_filter; std::string string_into_filter;  // workareas for the filter input.  The filter must copy these values if it returns them          CompactionFilter::ValueType type_into_filter = CompactionFilter::ValueType::kValue;
+      bool understandsV3 = false;   // scaf need option here
+      bool translatedindirect = IsTypeIndirect(ikey_.type) && !understandsV3;  // if user can't take indirect refs, we have to resolve them
+      if(translatedindirect){
+        input_->GetVlogForIteratorCF()->VLogGet(value_,string_into_filter);
+        value_into_filter = string_into_filter;  // convert to Slice
+      } else {
+        value_into_filter = value_;
+        if(IsTypeIndirect(ikey_.type))value_type = CompactionFilter::ValueType::kValueIndirect;
+      }
+      // Use the later function call if the user can accept it
+      if(understandsV3) {
+        filter = compaction_filter_->FilterV3(
+          compaction_->level(), filter_key,
+          value_type, value_into_filter,
+          &compaction_filter_value_, compaction_filter_skip_until_.rep(), input_->GetVlogForIteratorCF());
+      } else {
+        filter = compaction_filter_->FilterV2(
+            compaction_->level(), filter_key, value_type, value_into_filter,
+            &compaction_filter_value_, compaction_filter_skip_until_.rep());
+        iter_stats_.total_filter_time +=
+            env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
+      }
     }
 
     if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
@@ -199,6 +237,14 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       iter_stats_.num_record_drop_user++;
     } else if (filter == CompactionFilter::Decision::kChangeValue) {
       value_ = compaction_filter_value_;
+      // The user has changed the value.  Whether it was indirect or not to
+      // begin with, it is direct now.  If it was indirect, change it
+      // (leave it if not; it might be a Blob)
+      if(IsTypeIndirect(ikey_.type)){
+        ikey_.type = kTypeValue;
+        current_key_.UpdateInternalKey(ikey_.sequence, kTypeValue);
+        key_ = current_key_.GetInternalKey();
+      }
     } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
       *need_skip = true;
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
@@ -231,6 +277,24 @@ void CompactionIterator::ProcessSnapshotList() {
 }
 
 void CompactionIterator::NextFromInput() {
+  // If this is an Active Recycling operation, the compaction iterator is simply
+  // going through the kvs in order, with no comparisons..  We have to do the
+  // work here rather than in Next() because SeekToFirst() starts with a call
+  // to here to move to the first key
+  if (compaction_!=nullptr &&
+      compaction_->compaction_reason() == CompactionReason::kActiveRecycling) {
+    // read new values from the RecyclingIterator
+    valid_ = input_->Valid();
+    if(valid_) {  // don't read the other stuff if it's not valid
+      // Copy all the kv info into our iterator, where the caller will take it
+      key_ = input_->key();
+      value_ = input_->value();
+      status_ = input_->status();
+      // Calculate other derived info required by the interface
+      ParseInternalKey(key_, &ikey_);
+    }
+    return;  // user will pick up the new values
+  }
   at_next_ = false;
   valid_ = false;
 
@@ -348,7 +412,7 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      assert(ikey_.type == kTypeValue);
+      assert(IsTypeValueNonBlob(ikey_.type));
       assert(current_user_key_snapshot_ == last_snapshot);
 
       value_.clear();
@@ -422,8 +486,7 @@ void CompactionIterator::NextFromInput() {
             // is an unexpected Merge or Delete.  We will compact it out
             // either way. We will maintain counts of how many mismatches
             // happened
-            if (next_ikey.type != kTypeValue &&
-                next_ikey.type != kTypeBlobIndex) {
+            if (!IsTypeValueNonBlob(next_ikey.type)) {
               ++iter_stats_.num_single_del_mismatch;
             }
 
@@ -545,7 +608,7 @@ void CompactionIterator::NextFromInput() {
         valid_ = true;
         at_next_ = true;
       }
-    } else if (ikey_.type == kTypeMerge) {
+    } else if (IsTypeMerge(ikey_.type)) {
       if (!merge_helper_->HasOperator()) {
         status_ = Status::InvalidArgument(
             "merge_operator is not properly initialized.");
@@ -557,8 +620,9 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
+      Status s = merge_helper_->MergeUntil(&*input_, range_del_agg_,
                                            prev_snapshot, bottommost_level_);
+      // the &* is to allow input_ to be a shared_ptr or a regular pointer
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -615,6 +679,12 @@ void CompactionIterator::NextFromInput() {
 }
 
 void CompactionIterator::PrepareOutput() {
+  // If this is an Active Recycling operation, the compaction iterator is simply
+  // going through the kvs in order, with no comparisons.  We do nothing here
+  if (compaction_!=nullptr &&
+      compaction_->compaction_reason() == CompactionReason::kActiveRecycling) {
+    return;
+  }
   // Zeroing out the sequence number leads to better compression.
   // If this is the bottommost level (no files in lower levels)
   // and the earliest snapshot is larger than this seqno
@@ -628,7 +698,7 @@ void CompactionIterator::PrepareOutput() {
   // KeyNotExistsBeyondOutputLevel() return true?
   if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
       ikeyNotNeededForIncrementalSnapshot() && bottommost_level_ && valid_ &&
-      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && ikey_.type != kTypeMerge) {
+      IN_EARLIEST_SNAPSHOT(ikey_.sequence) && !IsTypeMerge(ikey_.type)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);

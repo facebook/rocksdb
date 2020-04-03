@@ -54,6 +54,15 @@ struct CompactionInputFiles {
   int level;
   std::vector<FileMetaData*> files;
   std::vector<AtomicCompactionUnitBoundary> atomic_compaction_unit_boundaries;
+
+  CompactionInputFiles(FileMetaData& meta) {
+    level = meta.level; files = std::vector<FileMetaData*>(1,&meta);
+  } // create a one-file 'level' for a single FileMetaData, for Active Recycling
+  CompactionInputFiles() {
+    level = 0;
+    files = std::vector<FileMetaData*>();
+  } // needed for resize(), even though we never use it because we resize down
+
   inline bool empty() const { return files.empty(); }
   inline size_t size() const { return files.size(); }
   inline void clear() { files.clear(); }
@@ -64,6 +73,7 @@ class Version;
 class ColumnFamilyData;
 class VersionStorageInfo;
 class CompactionFilter;
+class VLogRing;
 
 // A Compaction encapsulates metadata about a compaction.
 class Compaction {
@@ -78,7 +88,10 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
              bool deletion_compaction = false,
-             CompactionReason compaction_reason = CompactionReason::kUnknown);
+             CompactionReason compaction_reason = CompactionReason::kUnknown,
+             size_t ringno = 0,  // For Active Recycling (as indicated in compaction_reason): ring number being recycled
+             VLogRingRefFileno lastfileno = 0,  // For Active Recycling: last file in the recycled region 
+             int start_level = -1);  // number of lowest level being compacted
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -281,7 +294,7 @@ class Compaction {
 
   int GetInputBaseLevel() const;
 
-  CompactionReason compaction_reason() { return compaction_reason_; }
+  CompactionReason compaction_reason() const { return compaction_reason_; }
 
   const std::vector<FileMetaData*>& grandparents() const {
     return grandparents_;
@@ -292,6 +305,10 @@ class Compaction {
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
   uint64_t MaxInputFileCreationTime() const;
+
+  size_t ringno() const { return ringno_; }
+
+  VLogRingRefFileno lastfileno() const { return lastfileno_; }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -322,6 +339,8 @@ class Compaction {
 
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
+    // for AR, the highest level being compacted this is set only for
+    // Active Recycling passes in support of indirect values.
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;
@@ -340,6 +359,8 @@ class Compaction {
   const bool deletion_compaction_;
 
   // Compaction input files organized by level. Constant after construction
+  // During Active Recycling, each input 'level' contains exactly one file,
+  // and the files are in ascending key order.  Levels may be repeated.
   const std::vector<CompactionInputFiles> inputs_;
 
   // A copy of inputs_, organized more closely in memory
@@ -375,7 +396,19 @@ class Compaction {
   Slice largest_user_key_;
 
   // Reason for compaction
+  // Active Recycling is signified by an appropriate reason here
   CompactionReason compaction_reason_;
+
+  // for Active Recycling, points to the VLogRing that is being recycled.
+  // This is nonnull ONLY for Active Recycling and is used as the flag
+  // for that state.
+  VLogRing *vlogring_;
+  
+  // the ring number that is being Active Recycled
+  size_t ringno_;
+
+  // the last file in the recycled prefix
+  VLogRingRefFileno lastfileno_;
 };
 
 // Return sum of sizes of all files in `files`.

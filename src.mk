@@ -56,6 +56,8 @@ LIB_SOURCES =                                                   \
   db/version_builder.cc                                         \
   db/version_edit.cc                                            \
   db/version_set.cc                                             \
+  db/value_log.cc                                               \
+  db/value_log_iterator.cc                                      \
   db/wal_manager.cc                                             \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \

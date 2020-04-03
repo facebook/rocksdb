@@ -214,9 +214,12 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
-                       CompactionReason _compaction_reason)
+                       CompactionReason _compaction_reason,
+		       size_t ringno,    // for Active Recycling: ring number being recycled
+                       VLogRingRefFileno lastfileno,  // for Active Recycling: last filenumber in the recycled region
+                       int start_level)   // for Active Recycling: the smallest level that is referenced
     : input_vstorage_(vstorage),
-      start_level_(_inputs[0].level),
+      start_level_(start_level<0 ? _inputs[0].level : start_level),   // if defaulted, use the first level in the list
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
@@ -237,7 +240,9 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
-      compaction_reason_(_compaction_reason) {
+      compaction_reason_(_compaction_reason),
+      ringno_(ringno),   // for Active Recycling: ring number being recycled
+      lastfileno_(lastfileno) {  // for Active Recycling: last filenumber in the recycled region
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -251,6 +256,9 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     output_compression_opts_.max_dict_bytes = 0;
     output_compression_opts_.zstd_max_train_bytes = 0;
   }
+  // if we are Active Recycling, we don't need LevelFilesBrief or boundary keys.  And, we make
+  // no guarantee that the levels are in order.  So just  return before all that.
+  if(compaction_reason_ == CompactionReason::kActiveRecycling)return;
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {
@@ -300,9 +308,22 @@ bool Compaction::IsTrivialMove() const {
   // a very expensive merge later on.
   // If start_level_== output_level_, the purpose is to force compaction
   // filter to be applied to that level, and thus cannot be a trivial move.
-
+  // If we are building a VLog for this CF, we must avoid trivial moves.
+  // Compaction is the place where values get written to the VLog,
+  // and if we allow trivial moves we will end up with a full database with no
+  // VLogs.  We might have to revisit this for the case of
+  // bulk-loading the database
+  if(cfd_!=nullptr&&cfd_->vlog().get()!=nullptr &&
+     cfd_->vlog()->rings().size()!=0 &&
+     !mutable_cf_options_.allow_trivial_move)
+       return false;  // If VLogging, disallow trivial moves except for running
+       // tests.  cfd_ can be null if running tests that don't open a CF
+  // Don't allow a trivial move if we are doing Active Recycling, since the
+  // essence of the compaction is to pass over the inputs
+  if(compaction_reason_ == CompactionReason::kActiveRecycling)return false;
   // Check if start level have files with overlapping ranges
-  if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false) {
+  if (start_level_ == 0 &&
+      input_vstorage_->level0_non_overlapping() == false) {
     // We cannot move files from L0 to L1 if the files are overlapping
     return false;
   }
@@ -350,7 +371,7 @@ bool Compaction::IsTrivialMove() const {
 void Compaction::AddInputDeletions(VersionEdit* out_edit) {
   for (size_t which = 0; which < num_input_levels(); which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
-      out_edit->DeleteFile(level(which), inputs_[which][i]->fd.GetNumber());
+      out_edit->DeleteFile(level(which), inputs_[which][i]);
     }
   }
 }
@@ -405,7 +426,29 @@ const char* Compaction::InputLevelSummary(
     InputLevelSummaryBuffer* scratch) const {
   int len = 0;
   bool is_first = true;
-  for (auto& input_level : inputs_) {
+  std::vector<CompactionInputFiles> *inputarea =
+    const_cast<std::vector<CompactionInputFiles> *>(&inputs_);
+  // used for reformatting AR files
+  std::vector<CompactionInputFiles> totalsarea;
+
+  // For Active Recycling, the files are in key order, unrelated to level, with
+  // each file a single element of 'inputs_'.
+  // Formatted in the normal way, this leads to long
+  // descriptive strings which are hard to read and might even overflow the
+  // scratch buffer.  So for that case only, we convert the inputs_ to orthodox
+  // form
+  if(compaction_reason_ == CompactionReason::kActiveRecycling) {
+    totalsarea.resize(output_level_ - start_level_ + 1);
+    for (int i = start_level_; i<output_level_; ++i) {
+      totalsarea[i-start_level_].level = i;
+    }
+    for (auto& input_level : inputs_) {
+      totalsarea[input_level.level-start_level_].files.push_back(nullptr);
+    }  // for each file, add 1 to level file count
+    // use the coalesced version for the formatted string
+    inputarea = &totalsarea;
+  }
+  for (auto& input_level : *inputarea) {
     if (input_level.empty()) {
       continue;
     }
@@ -532,6 +575,10 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
+  // If this is Active Recycling, don't split up the compaction so that all the
+  // outputs get written to a single file.  That reduces the number of
+  // references outstanding
+  if (compaction_reason_ == CompactionReason::kActiveRecycling) return false;
   if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
     return false;
   }

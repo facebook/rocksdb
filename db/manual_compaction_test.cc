@@ -19,6 +19,10 @@ using namespace rocksdb;
 
 namespace {
 
+// Test in both normal and indirect configurations
+#define INDOPTIONSBGN do{
+#define INDOPTIONSEND(opts) }while(opts.vlogring_activation_level.push_back(0),opts.min_indirect_val_size[0]=0,opts.vlogring_activation_level.size()<2);
+
 // Reasoning: previously the number was 1100000. Since the keys are written to
 // the batch in one write each write will result into one SST file. each write
 // will result into one SST file. We reduced the write_buffer_size to 1K to
@@ -64,6 +68,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
   for (int iter = 0; iter < 2; ++iter) {
     DB* db;
     Options options;
+    INDOPTIONSBGN
     if (iter == 0) { // level compaction
       options.num_levels = 3;
       options.compaction_style = kCompactionStyleLevel;
@@ -93,6 +98,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     delete options.compaction_filter;
     delete db;
     DestroyDB(dbname_, options);
+    INDOPTIONSEND(options)
   }
 }
 
@@ -102,6 +108,7 @@ TEST_F(ManualCompactionTest, Test) {
   // specific scenario.
   rocksdb::DB* db;
   rocksdb::Options db_options;
+  INDOPTIONSBGN
   db_options.write_buffer_size = 1024;
   db_options.create_if_missing = true;
   db_options.compression = rocksdb::kNoCompression;
@@ -149,6 +156,7 @@ TEST_F(ManualCompactionTest, Test) {
   // close database
   delete db;
   DestroyDB(dbname_, rocksdb::Options());
+  INDOPTIONSEND(db_options)
 }
 
 }  // anonymous namespace

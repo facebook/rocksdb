@@ -682,15 +682,59 @@ class DBTestBase : public testing::Test {
     kConcurrentSkipList = 28,
     kPipelinedWrite = 29,
     kConcurrentWALWrites = 30,
-    kDirectIO,
-    kLevelSubcompactions,
-    kBlockBasedTableWithIndexRestartInterval,
-    kBlockBasedTableWithPartitionedIndex,
-    kBlockBasedTableWithPartitionedIndexFormat4,
-    kPartitionedFilterWithNewTableReaderForCompactions,
-    kUniversalSubcompactions,
-    kxxHash64Checksum,
-    kUnorderedWrite,
+    kDirectIO = 31,
+    kLevelSubcompactions = 32,
+    kBlockBasedTableWithIndexRestartInterval = 33,
+    kBlockBasedTableWithPartitionedIndex = 34,
+    kBlockBasedTableWithPartitionedIndexFormat4 = 35,
+    kPartitionedFilterWithNewTableReaderForCompactions = 36,
+    kUniversalSubcompactions = 37,
+    kxxHash64Checksum = 38,
+    kUnorderedWrite = 39,
+    // The following tests use indirect values.  We don't test combinations that
+    // are incompatible with, or have nothing to do with, indirect values
+    // MUST KEEP ALL THE INDIRECT CONFIGS TOGETHER!  Checked in SkipIndirect
+    kDefaultInd = 40,
+    kBlockBasedTableWithPrefixHashIndexInd = 41,
+    kBlockBasedTableWithWholeKeyHashIndexInd = 42,
+    // kPlainTableFirstBytePrefix = 3,
+    // kPlainTableCappedPrefix = 4,
+    // kPlainTableCappedPrefixNonMmap = 5,
+    // kPlainTableAllBytesPrefix = 6,
+    // kVectorRep = 7,
+    // kHashLinkList = 8,
+    kMergePutInd = 43,
+    kFilterInd = 44,
+    kFullFilterWithNewTableReaderForCompactionsInd = 45,
+    kUncompressedInd = 46,
+    kNumLevel_3Ind = 47,
+    kDBLogDirInd = 48,
+    kWalDirAndMmapReadsInd = 49,
+    // kManifestFileSize = 16,
+    // kPerfOptions = 17,
+    // kHashSkipList = 18,
+    kUniversalCompactionInd = 50,
+    kUniversalCompactionMultiLevelInd = 51,
+    kCompressedBlockCacheInd = 52,
+    kInfiniteMaxOpenFilesInd = 53,
+    // kxxHashChecksum = 23,
+    // kFIFOCompaction = 24,
+    kOptimizeFiltersForHitsInd = 54,
+    kRowCacheInd = 55,
+    // kRecycleLogFiles = 27,
+    // kConcurrentSkipList = 28,
+    // kPipelinedWrite = 29,
+    // kConcurrentWALWrites = 30,
+    kDirectIOInd = 56,
+    // kLevelSubcompactions = 32,
+    kBlockBasedTableWithIndexRestartIntervalInd = 57,
+    kBlockBasedTableWithPartitionedIndexInd = 58,
+    kBlockBasedTableWithPartitionedIndexFormat4Ind = 59,
+    // If you add another, must change references to this in SkipIndirect
+    kPartitionedFilterWithNewTableReaderForCompactionsInd = 60,
+    // kUniversalSubcompactions = 37,
+    // kxxHash64Checksum = 38,
+    // kUnorderedWrite = 39,
     // This must be the last line
     kEnd,
   };
@@ -721,6 +765,8 @@ class DBTestBase : public testing::Test {
     kSkipNoSeekToLast = 32,
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
+    kSkipDirectIO = 512,
+    kSkipIndirect =1024,  // skip indirect values
   };
 
   const int kRangeDelSkipConfigs =
@@ -746,24 +792,85 @@ class DBTestBase : public testing::Test {
     return std::string(buf);
   }
 
+  // For new files, we have to create keys in reverse order to avoid engaging
+  // ascending-write code
+  static std::string KeyNewFile(int i) { return Key(99999-i); }
+
+  // like Key, but give a big Key suitable for keeping constant kv size
+  // regardless of indirects. The kv is Invariant under Indirection: it makes
+  // the keys long and the values 16 bytes, so that an indirect reference has
+  // the same length as a direct value
+  std::string KeyInvInd(int i, size_t valuelen, bool vlogging) {
+    std::string retstg;
+    char buf[100];
+    snprintf(buf, sizeof(buf), "key%06d", i);
+    retstg.assign(buf);
+    if(vlogging){
+      // Extend key with predictable random data to the size appropriate for valuelen
+      if(valuelen>16) {
+        uint64_t randval = i;
+        retstg.reserve(valuelen-16);  // avoid multiple reallocations
+        for (size_t j=retstg.size();j<valuelen-16;++j) {
+          randval = (16807*randval)%2147483647;
+          retstg.push_back((char)(randval));
+        }
+      }
+    }
+    return retstg;
+  }
+  // This version used for generating new files.  The tests are exquisitely
+  // tuned to the file sizes, so we just copy what was done. key_idx is the
+  // key#, i is the index of that key within the file it is in.  For
+  // sequentially-generated files, i==key_idx%KNumKeysByGenerateNewFile
+  std::string KeyInvIndNewFile(int key_idx, int i, bool vlogging) {
+    return KeyInvInd(99999-key_idx, (i==99) ? 1 : 999, vlogging) ;
+  }  // key# descending to match creation of file
+
+  // like Key, but give a big Key suitable for keeping constant kv size
+  // regardless of indirects
+  std::string KeyInvInd(const std::string& k, size_t valuelen, bool vlogging) {
+    std::string retstg;
+    retstg.assign(k);
+    if(vlogging){
+      // Extend key with predictable random data to the size appropriate for
+      // valuelen
+      uint64_t randval = 1 + retstg.size()?(uint64_t)retstg.back():0;
+      retstg.reserve(valuelen-16);  // avoid multiple reallocations
+      for (size_t j=retstg.size();j<valuelen-16;++j) {
+        randval = (16807*randval)%2147483647;
+        retstg.push_back((char)(randval));
+      }
+    }
+    return retstg;
+  }
+
   static bool ShouldSkipOptions(int option_config, int skip_mask = kNoSkip);
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip);
 
+  // cycle through option sets
+  bool CycleThroughOptions(std::vector<int>& optioncycle,
+                           std::vector<int>& optionaction,
+                           bool destroy2, int skip_mask);
+
   // Switch between different compaction styles.
-  bool ChangeCompactOptions();
+  bool ChangeCompactOptions(int skip_mask = 0);
 
   // Switch between different WAL-realted options.
-  bool ChangeWalOptions();
+  bool ChangeWalOptions(int skip_mask = 0);
 
   // Switch between different filter policy
   // Jump from kDefault to kFilter to kFullFilter
-  bool ChangeFilterOptions();
+  bool ChangeFilterOptions(int skip_mask = 0);
 
   // Switch between different DB options for file ingestion tests.
   bool ChangeOptionsForFileIngestionTest();
+
+  // Switch between indirect values on/off
+  // Jump from kDefault to kDefaultInd
+  bool ChangeIndirectOptions(int skip_mask = 0);
 
   // Return the current option configuration.
   Options CurrentOptions(const anon::OptionsOverride& options_override =
@@ -819,6 +926,31 @@ class DBTestBase : public testing::Test {
   Status Flush(int cf = 0);
 
   Status Flush(const std::vector<int>& cf_ids);
+
+  // The InvInd version is Invariant under Indirection: it makes the keys long
+  // and the values 16 bytes, so that an indirect reference has the same length
+  // as a direct value
+  // write kv of constant total size regardless of indirect values
+  Status PutInvInd(const Slice& k, const Slice& v, bool vlogging,
+                   WriteOptions wo = WriteOptions());
+  // use valuelen as the implied value length, overriding the actual length.
+  // Key is numeric
+  Status PutInvInd(int k, size_t valuelen, const Slice& v, bool vlogging);
+  Status PutInvInd(int k, const Slice& v, bool vlogging,
+                   WriteOptions wo = WriteOptions()) {
+	  return PutInvInd(Key(k), v, vlogging, wo);
+  }
+  // write kv of constant total size regardless of indirect values
+  // to column family
+  Status PutInvInd(int cf, const Slice& k, const Slice& v, bool vlogging);
+  // use valuelen as the implied value length, overriding the actual length.
+  // Key is numeric
+  Status PutInvInd(int cf, int k, size_t valuelen, const Slice& v,
+                   bool vlogging);
+
+  // return the value that would have been written to make constant kv size.
+  // This is all of v for direct;  1st 16 bytes of v for indirect
+  std::string ValueInvInd(std::string s, bool vlogging){if(vlogging)return (s).substr(0,16); return s; }
 
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());
 
@@ -886,7 +1018,7 @@ class DBTestBase : public testing::Test {
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
 
-  size_t CountFiles();
+  size_t CountFiles(int types=3);  // types: 1=non-SSTs, 2=SSTs, 4=VLog
 
   uint64_t Size(const Slice& start, const Slice& limit, int cf = 0);
 
@@ -922,13 +1054,21 @@ class DBTestBase : public testing::Test {
 
   // this will generate non-overlapping files since it keeps increasing key_idx
   void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false);
+  // The InvInd version is Invariant under Indirection: it makes the keys long
+  // and the values 16 bytes, so that an indirect reference has the same length
+  // as a direct value
+  void GenerateNewFileInvInd(Random* rnd, int* key_idx, bool vlogging, bool nowait = false);
 
   void GenerateNewFile(int fd, Random* rnd, int* key_idx, bool nowait = false);
+  void GenerateNewFileInvInd(int fd, Random* rnd, int* key_idx, bool vlogging,
+                             bool nowait = false);
 
   static const int kNumKeysByGenerateNewRandomFile;
   static const int KNumKeysByGenerateNewFile = 100;
 
   void GenerateNewRandomFile(Random* rnd, bool nowait = false);
+  void GenerateNewRandomFileInvInd(Random* rnd, bool vlogging,
+                                   bool nowait = false);
 
   std::string IterStatus(Iterator* iter);
 

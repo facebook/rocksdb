@@ -51,6 +51,15 @@ struct CompactionJobStats {
   // the sum of the uncompressed input values in bytes.
   uint64_t total_input_raw_value_bytes;
 
+  // number of bytes written to VLog after compression
+  uint64_t vlog_bytes_written_comp;
+  // number of bytes written to VLog before compression
+  uint64_t vlog_bytes_written_raw;
+  // number of bytes moved from one VLog to another
+  uint64_t vlog_bytes_remapped;
+  // number of VLog files created
+  uint64_t vlog_files_created;
+
   // the number of deletion entries before compaction. Deletion entries
   // can disappear after compaction because they expired
   uint64_t num_input_deletion_records;

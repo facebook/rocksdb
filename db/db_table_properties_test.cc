@@ -132,7 +132,7 @@ DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
   return props;
 }
 
-TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
+TEST_F(DBTablePropertiesTest, DISABLED_GetPropertiesOfTablesInRange) {
   // Fixed random sead
   Random rnd(301);
 
@@ -149,6 +149,8 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   options.hard_pending_compaction_bytes_limit = 16 * 1024;
   options.num_levels = 8;
   options.env = env_;
+  // Disable TRocksDB optimization to place sequential data into last level
+  options.level_compaction_dynamic_level_bytes = false;
 
   DestroyAndReopen(options);
 

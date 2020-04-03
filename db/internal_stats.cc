@@ -49,6 +49,16 @@ const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
         {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec)"}},
         {LevelStatType::KEY_IN, LevelStat{"KeyIn", "KeyIn"}},
         {LevelStatType::KEY_DROP, LevelStat{"KeyDrop", "KeyDrop"}},
+        {LevelStatType::W_VLOG_GB, LevelStat{"WVLogCmpGB", "WVCmp(GB)"}},
+        {LevelStatType::W_VLOGUNCOMP_GB, LevelStat{"WVLogRawGB", "WVRaw(GB)"}},
+        {LevelStatType::W_VLOGREMAP_GB, LevelStat{"WVLogRemapGB", "WVRemap(GB)"}},
+        {LevelStatType::W_VLOGFILES, LevelStat{"WVFiles", "WVFiles"}},
+};
+
+const std::map<RingStatType, LevelStat> InternalStats::compaction_ring_stats = {
+        {RingStatType::NUM_FILES, LevelStat{"NumFiles", " Files"}},
+        {RingStatType::SIZE_BYTES, LevelStat{"SizeBytes", "  Size"}},
+        {RingStatType::FRAGMENTATION, LevelStat{"Fragmentation", " Frag(%)"}}
 };
 
 namespace {
@@ -65,7 +75,8 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
   };
   int line_size = snprintf(
       buf + written_size, len - written_size,
-      "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+      "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s"
+      " %s %s %s %s\n",
       // Note that we skip COMPACTED_FILES and merge it with Files column
       group_by.c_str(), hdr(LevelStatType::NUM_FILES),
       hdr(LevelStatType::SIZE_BYTES), hdr(LevelStatType::SCORE),
@@ -76,7 +87,29 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
       hdr(LevelStatType::WRITE_MBPS), hdr(LevelStatType::COMP_SEC),
       hdr(LevelStatType::COMP_CPU_SEC), hdr(LevelStatType::COMP_COUNT),
       hdr(LevelStatType::AVG_SEC), hdr(LevelStatType::KEY_IN),
-      hdr(LevelStatType::KEY_DROP));
+      hdr(LevelStatType::KEY_DROP), hdr(LevelStatType::W_VLOG_GB),
+      hdr(LevelStatType::W_VLOGUNCOMP_GB), hdr(LevelStatType::W_VLOGREMAP_GB),
+      hdr(LevelStatType::W_VLOGFILES));
+
+  written_size += line_size;
+  snprintf(buf + written_size, len - written_size, "%s\n",
+           std::string(line_size, '-').c_str());
+}
+
+void PrintRingStatsHeader(char* buf, size_t len, const std::string& cf_name) {
+  int written_size =
+      snprintf(buf, len, "\n** Compaction Ring Stats [%s] **\n", cf_name.c_str());
+  auto hdr = [](RingStatType t) {
+    return InternalStats::compaction_ring_stats.at(t).header_name.c_str();
+  };
+  int line_size = snprintf(
+      buf + written_size, len - written_size,
+      "Ring %s %s %s"
+      "\n",
+      hdr(RingStatType::NUM_FILES),
+      hdr(RingStatType::SIZE_BYTES),
+      hdr(RingStatType::FRAGMENTATION)
+      );
 
   written_size += line_size;
   snprintf(buf + written_size, len - written_size, "%s\n",
@@ -89,6 +122,7 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
                        const InternalStats::CompactionStats& stats) {
   uint64_t bytes_read =
       stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
+  bytes_read += stats.vlog_bytes_remapped;
   int64_t bytes_new = stats.bytes_written - stats.bytes_read_output_level;
   double elapsed = (stats.micros + 1) / kMicrosInSec;
 
@@ -116,6 +150,36 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
       static_cast<double>(stats.num_input_records);
   (*level_stats)[LevelStatType::KEY_DROP] =
       static_cast<double>(stats.num_dropped_records);
+  (*level_stats)[LevelStatType::W_VLOG_GB] =
+      stats.vlog_bytes_written_comp / kGB;
+  (*level_stats)[LevelStatType::W_VLOGUNCOMP_GB] =
+      stats.vlog_bytes_written_raw / kGB;
+  (*level_stats)[LevelStatType::W_VLOGREMAP_GB] =
+      stats.vlog_bytes_remapped / kGB;
+  (*level_stats)[LevelStatType::W_VLOGFILES] =
+      static_cast<double>(stats.vlog_files_created);
+}
+
+void PrepareRingStats(std::map<RingStatType, double>* ring_stats,
+                      double num_files, int64_t file_size,
+		      double fragmentation) {
+  (*ring_stats)[RingStatType::NUM_FILES] = num_files;
+  (*ring_stats)[RingStatType::SIZE_BYTES] = static_cast<double>(file_size);
+  (*ring_stats)[RingStatType::FRAGMENTATION] = fragmentation;
+}
+
+void PrepareVLogStats(std::map<VLogStatType, double>* vlog_stats,
+                      double nreads, double avglen, double readavg,
+		      double readalpha, double readbeta, double compavg,
+		      double compalpha, double compbeta) {
+  (*vlog_stats)[VLogStatType::NUM_VALUESREAD] = nreads;
+  (*vlog_stats)[VLogStatType::AVGRDLEN] = avglen;
+  (*vlog_stats)[VLogStatType::READAVG] = readavg;
+  (*vlog_stats)[VLogStatType::READALPHA] = readalpha;
+  (*vlog_stats)[VLogStatType::READBETA] = readbeta;
+  (*vlog_stats)[VLogStatType::COMPAVG] = compavg;
+  (*vlog_stats)[VLogStatType::COMPALPHA] = compalpha;
+  (*vlog_stats)[VLogStatType::COMPBETA] = compbeta;
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
@@ -140,7 +204,12 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       "%9d "      /*  Comp(cnt) */
       "%8.3f "    /*  Avg(sec) */
       "%7s "      /*  KeyIn */
-      "%6s\n",    /*  KeyDrop */
+      "%6s"       /*  KeyDrop */
+      "%9.1f"     /* WVCmp(GB) */
+      "%9.1f"     /* WVRaw(GB) */
+      "%11.1f"    /* WVRemap(GB) */
+      "%8d\n",    /* WVFiles */
+
       name.c_str(), static_cast<int>(stat_value.at(LevelStatType::NUM_FILES)),
       static_cast<int>(stat_value.at(LevelStatType::COMPACTED_FILES)),
       BytesToHumanString(
@@ -165,7 +234,11 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
           .c_str(),
       NumberToHumanString(
           static_cast<std::int64_t>(stat_value.at(LevelStatType::KEY_DROP)))
-          .c_str());
+          .c_str(),
+      stat_value.at(LevelStatType::W_VLOG_GB),
+      stat_value.at(LevelStatType::W_VLOGUNCOMP_GB),
+      stat_value.at(LevelStatType::W_VLOGREMAP_GB),
+      static_cast<int>(stat_value.at(LevelStatType::W_VLOGFILES)));
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
@@ -176,6 +249,23 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
   PrepareLevelStats(&level_stats, num_files, being_compacted, total_file_size,
                     score, w_amp, stats);
   PrintLevelStats(buf, len, name, level_stats);
+}
+
+void PrintRingStats(char* buf, size_t len, const std::string& name,
+                    const std::map<RingStatType, double>& stat_value) {
+  snprintf(
+      buf, len,
+      "%4s "             /*  Ring */
+      "%8d "             /*  Files */
+      "%8s "             /*  Size */
+      "%5.1f "             /*  Fragmentation */
+      "\n",
+      name.c_str(), static_cast<int>(stat_value.at(RingStatType::NUM_FILES)),
+      BytesToHumanString(
+        static_cast<uint64_t>(stat_value.at(RingStatType::SIZE_BYTES)))
+          .c_str(),
+      stat_value.at(RingStatType::FRAGMENTATION)
+           );
 }
 
 // Assumes that trailing numbers represent an optional argument. This requires
@@ -206,6 +296,7 @@ static const std::string cfstats_no_file_histogram =
 static const std::string cf_file_histogram = "cf-file-histogram";
 static const std::string dbstats = "dbstats";
 static const std::string levelstats = "levelstats";
+static const std::string vlogringstats = "vlogringstats";
 static const std::string num_immutable_mem_table = "num-immutable-mem-table";
 static const std::string num_immutable_mem_table_flushed =
     "num-immutable-mem-table-flushed";
@@ -271,6 +362,7 @@ const std::string DB::Properties::kCFFileHistogram =
     rocksdb_prefix + cf_file_histogram;
 const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
 const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
+const std::string DB::Properties::kVLogRingStats = rocksdb_prefix + vlogringstats;
 const std::string DB::Properties::kNumImmutableMemTable =
     rocksdb_prefix + num_immutable_mem_table;
 const std::string DB::Properties::kNumImmutableMemTableFlushed =
@@ -355,6 +447,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr, nullptr}},
         {DB::Properties::kLevelStats,
          {false, &InternalStats::HandleLevelStats, nullptr, nullptr, nullptr}},
+        {DB::Properties::kVLogRingStats,
+         {false, &InternalStats::HandleVLogRingStats, nullptr, nullptr}},
         {DB::Properties::kStats,
          {false, &InternalStats::HandleStats, nullptr, nullptr, nullptr}},
         {DB::Properties::kCFStats,
@@ -450,6 +544,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kLiveSstFilesSize,
          {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr,
           nullptr}},
+        {DB::Properties::kLiveSstFilesSize,
+         {false, nullptr, &InternalStats::HandleLiveSstFilesSize, nullptr}},
         {DB::Properties::kEstimatePendingCompactionBytes,
          {false, nullptr, &InternalStats::HandleEstimatePendingCompactionBytes,
           nullptr, nullptr}},
@@ -567,6 +663,35 @@ bool InternalStats::HandleLevelStats(std::string* value, Slice /*suffix*/) {
              vstorage->NumLevelBytes(level) / kMB);
     value->append(buf);
   }
+  return true;
+}
+
+bool InternalStats::HandleVLogRingStats(std::string* value, Slice /*suffix*/) {
+  char buf[1000];
+  snprintf(buf, sizeof(buf),
+           "Ring Files Size(MB) Frag(%%)\n"
+           "---------------------------\n");
+  value->append(buf);
+  double total_files = 0;
+  double total_file_size = 0;
+  double total_frag = 0;
+  const auto* vstorage = cfd_->current()->storage_info();
+  int total_rings = vstorage->num_rings();
+  for(int ring = 0;ring<total_rings;++ring) {  // for each ring...
+    // number of files per ring
+    double files = static_cast<double>(vstorage->NumRingFiles(ring));
+    total_files += files;
+    // the number of bytes allocated in each VLog ring
+    double file_size = static_cast<double>(vstorage->NumRingBytes(ring));
+    total_file_size += file_size;
+    // the amount of fragmentation in each ring, i. e. bytes in VLogs
+    double fragmentation = 100.0*vstorage->RingFrag(ring);
+    total_frag += fragmentation;
+    snprintf(buf, sizeof(buf), "%4d %8d %8.0f %5.1f\n", ring, static_cast<int>(files), file_size / kMB, fragmentation);
+    value->append(buf);
+  }
+  snprintf(buf, sizeof(buf), "%4s %8d %8.0f %5.1f\n", "Sum", static_cast<int>(total_files), total_file_size / kMB, total_frag/static_cast<double>(total_rings));
+  value->append(buf);
   return true;
 }
 
@@ -1130,10 +1255,18 @@ void InternalStats::DumpCFMapStats(
       } else {
         input_bytes = comp_stats_[level].bytes_read_non_output_levels;
       }
+      // The input_bytes to compaction are SST info coming in from the compacted
+      // files.  The bytes written include bytes written to SSTs and all bytes
+      // written to VLogs.  Some of the bytes written to VLogs are remappings,
+      // which drive up (& usually dominate) write amp for the last level; less
+      // so for earlier levels that have little remapping.  The assignment of
+      // remapping to levels is somewhat arbitrary; arguably we could remove the
+      // remapping from the level stats and include it only in the grand totals,
+      // but then someone might complain that the columns don't foot.
       double w_amp =
           (input_bytes == 0)
               ? 0.0
-              : static_cast<double>(comp_stats_[level].bytes_written) /
+              : (static_cast<double>(comp_stats_[level].bytes_written) + static_cast<double>(comp_stats_[level].vlog_bytes_written_comp)) /
                     input_bytes;
       std::map<LevelStatType, double> level_stats;
       PrepareLevelStats(&level_stats, files, files_being_compacted[level],
@@ -1143,13 +1276,49 @@ void InternalStats::DumpCFMapStats(
     }
   }
   // Cumulative summary
-  double w_amp = compaction_stats_sum->bytes_written /
+  // see above
+  double w_amp = (compaction_stats_sum->bytes_written +
+		  compaction_stats_sum->vlog_bytes_written_comp) /
                  static_cast<double>(curr_ingest + 1);
   // Stats summary across levels
   std::map<LevelStatType, double> sum_stats;
   PrepareLevelStats(&sum_stats, total_files, total_files_being_compacted,
                     total_file_size, 0, w_amp, *compaction_stats_sum);
   (*levels_stats)[-1] = sum_stats;  //  -1 is for the Sum level
+}
+
+void InternalStats::DumpCFMapStatsRing(
+    std::map<int, std::map<RingStatType, double>>* rings_stats,  // stats for each ring
+    std::map<VLogStatType, double>* vlog_stats) {
+  double total_files = 0;
+  int64_t total_file_size = 0;
+  double total_frag = 0;
+  const auto* vstorage = cfd_->current()->storage_info();
+  int total_rings = vstorage->num_rings();
+  for(int ring = 0;ring<total_rings;++ring) {  // for each ring...
+    // number of files per ring
+    double files = static_cast<double>(vstorage->NumRingFiles(ring));
+    total_files += files;
+    // the number of bytes allocated in each VLog ring
+    int64_t file_size = vstorage->NumRingBytes(ring);
+    total_file_size += file_size;
+    // the amount of fragmentation in each ring, i. e. bytes in VLogs
+    double fragmentation = 100.0*vstorage->RingFrag(ring);
+    total_frag += fragmentation;
+
+    std::map<RingStatType, double> ring_stats;
+    PrepareRingStats(&ring_stats, files, file_size, fragmentation);
+    (*rings_stats)[ring] = ring_stats;
+  }
+  std::map<RingStatType, double> sum_stats;
+  PrepareRingStats(&sum_stats, total_files, total_file_size, total_frag/static_cast<double>(total_rings));
+  (*rings_stats)[-1] = sum_stats;  //  -1 is for the Sum level
+  // Get the stats that apply to the entire VLog
+  if(cfd_->vlog()!=nullptr){
+    double nreads, avglen, readavg, readalpha, readbeta, compavg, compalpha, compbeta;
+    cfd_->vlog()->VLogCalcStats(nreads, avglen, readavg, readalpha, readbeta, compavg, compalpha, compbeta);
+    PrepareVLogStats(vlog_stats, nreads, avglen, readavg, readalpha, readbeta, compavg, compalpha, compbeta);
+  }
 }
 
 void InternalStats::DumpCFMapStatsByPriority(
@@ -1248,7 +1417,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   CompactionStats interval_stats(compaction_stats_sum);
   interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
   double w_amp =
-      interval_stats.bytes_written / static_cast<double>(interval_ingest);
+      (interval_stats.bytes_written+interval_stats.vlog_bytes_written_comp) /
+      static_cast<double>(interval_ingest);
   PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0, w_amp, interval_stats);
   value->append(buf);
 
@@ -1370,6 +1540,43 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            cf_stats_count_[MEMTABLE_LIMIT_SLOWDOWNS],
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
+
+  // Ring stats header
+  PrintRingStatsHeader(buf, sizeof(buf), cfd_->GetName());
+  value->append(buf);
+  // Print stats for each ring
+  std::map<int, std::map<RingStatType, double>> rings_stats;
+  std::map<VLogStatType, double> vlog_stats;
+  DumpCFMapStatsRing(&rings_stats,&vlog_stats);
+  std::vector<VLogRingRestartInfo>& vli = cfd_->vloginfo();
+  for(uint32_t i = 0;i<vli.size();++i) {  // for each ring...
+    if (rings_stats.find(i) != rings_stats.end()) {
+      PrintRingStats(buf, sizeof(buf), "R" + ToString(i), rings_stats[i]);
+      value->append(buf);
+    }
+  }
+  // Print sum of ring stats
+  PrintRingStats(buf, sizeof(buf), "Sum", rings_stats[-1]);
+  value->append(buf);
+  if(cfd_->vlog()!=nullptr){
+    // Write out latency information, if there are rings
+    snprintf(buf, sizeof(buf), "VLog Read Latency over %.0f reads with average length %.0f: %7.3f usec",
+      vlog_stats[VLogStatType::NUM_VALUESREAD],vlog_stats[VLogStatType::AVGRDLEN],vlog_stats[VLogStatType::READAVG]);
+    value->append(buf);
+    if(vlog_stats[VLogStatType::READALPHA]!=0.0){  // append a+bx model only if it is valid
+      snprintf(buf, sizeof(buf), " (a+bx model: %7.3f usec plus %6.3f usec/1000 bytes)",vlog_stats[VLogStatType::READALPHA],vlog_stats[VLogStatType::READBETA]*1000);
+      value->append(buf);
+    }
+    value->append("\n");
+    snprintf(buf, sizeof(buf), "VLog Decompress Latency over %.0f reads with average length %.0f: %7.3f usec",   // repeat for compression latency
+      vlog_stats[VLogStatType::NUM_VALUESREAD],vlog_stats[VLogStatType::AVGRDLEN],vlog_stats[VLogStatType::COMPAVG]);
+    value->append(buf);
+    if(vlog_stats[VLogStatType::COMPALPHA]!=0.0){
+      snprintf(buf, sizeof(buf), " (a+bx model: %7.3f usec plus %6.3f usec/1000 bytes)",vlog_stats[VLogStatType::COMPALPHA],vlog_stats[VLogStatType::COMPBETA]*1000);
+      value->append(buf);
+    }
+    value->append("\n");
+  }
 
   cf_stats_snapshot_.seconds_up = seconds_up;
   cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;

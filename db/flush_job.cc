@@ -295,6 +295,8 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_micros = db_options_.env->NowMicros();
   const uint64_t start_cpu_micros = db_options_.env->NowCPUNanos() / 1000;
   Status s;
+  // this communicates edit info and stats back from the flush
+  VLogEditStats vlog_flush_info;
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
     db_mutex_->Unlock();
@@ -377,7 +379,8 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
           Env::IO_HIGH, &table_properties_, 0 /* level */, current_time,
-          oldest_key_time, write_hint, current_time);
+          oldest_key_time, write_hint, current_time,
+	  cfd_ /* column family */, &vlog_flush_info);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,
@@ -400,6 +403,10 @@ Status FlushJob::WriteLevel0Table() {
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   if (s.ok() && meta_.fd.GetFileSize() > 0) {
+    // vlog_flush_info contains info about the flush.  The list of files added
+    // goes into the edit; the rest go into the stats
+    Coalesce(mems_[0]->GetEdits()->VLogAdditions(),
+             vlog_flush_info.restart_info,true /* allow_delete */);
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
@@ -408,7 +415,8 @@ Status FlushJob::WriteLevel0Table() {
     edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
                    meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
                    meta_.fd.smallest_seqno, meta_.fd.largest_seqno,
-                   meta_.marked_for_compaction);
+                   meta_.marked_for_compaction, meta_.indirect_ref_0,
+                   meta_.avgparentfileno);
   }
 
   // Note that here we treat flush as level 0 compaction in internal stats
@@ -416,6 +424,21 @@ Status FlushJob::WriteLevel0Table() {
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
+  // Include info about VLog I/O
+  stats.vlog_bytes_written_comp=vlog_flush_info.vlog_bytes_written_comp;
+  stats.vlog_bytes_written_raw=vlog_flush_info.vlog_bytes_written_raw;
+  stats.vlog_bytes_remapped=vlog_flush_info.vlog_bytes_remapped;
+  stats.vlog_files_created=vlog_flush_info.vlog_files_created;
+  // for some reason BYTES_FLUSHED is used for the write-amp calculation in
+  // internal_stats, so it needs to track the number of bytes ingested.
+  // Unfortunately it is the output file size instead of the input size, which
+  // means that encoding/indexing overhead is not properly charged as write amp.
+  // Moreover, if the flushed data is compressed, it is the compressed size that
+  // is used for write amp rather than the input size.  To make the numbers
+  // meaningful we add in the bytes written to VLog (BEFORE compression, as is
+  // proper).
+  cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
+                                     vlog_flush_info.vlog_bytes_written_raw);
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,

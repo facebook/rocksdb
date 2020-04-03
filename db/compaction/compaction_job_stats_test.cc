@@ -457,8 +457,12 @@ class CompactionJobStatsChecker : public EventListener {
 
     ASSERT_EQ(current_stats.num_output_records,
         stats.num_output_records);
-    ASSERT_EQ(current_stats.num_output_files,
-        stats.num_output_files);
+    // we allow files to get a little bigger than the usual compaction methods
+    // as we try to avoid runts and keep sizes equal
+    ASSERT_GE(current_stats.num_output_files,
+        stats.num_output_files-1);
+    ASSERT_LE(current_stats.num_output_files,
+        stats.num_output_files+1);
 
     ASSERT_EQ(current_stats.is_manual_compaction,
         stats.is_manual_compaction);
@@ -658,6 +662,9 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   options.bytes_per_sync = 512 * 1024;
 
   options.report_bg_io_stats = true;
+  // because this file writes long values with varying compression, the best we
+  // can do is turn off indirects
+  options.min_indirect_val_size = std::vector<uint64_t>({1LL<<40});
   for (int test = 0; test < 2; ++test) {
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -876,6 +883,9 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   options.compression = kNoCompression;
   options.max_bytes_for_level_multiplier = 2;
   options.max_subcompactions = max_subcompactions_;
+  // because this file writes long values with varying compression, the best we
+  // can do is turn off indirects
+  options.min_indirect_val_size = std::vector<uint64_t>({1LL<<40});
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -968,6 +978,9 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
   options.compaction_options_universal.size_ratio = 1;
   options.compaction_options_universal.max_size_amplification_percent = 1000;
   options.max_subcompactions = max_subcompactions_;
+  // because this file writes long values with varying compression, the best we
+  // can do is turn off indirects
+  options.min_indirect_val_size = std::vector<uint64_t>({1LL<<40});
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);

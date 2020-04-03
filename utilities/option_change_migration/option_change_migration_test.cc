@@ -58,6 +58,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   old_options.num_levels = level1_;
   old_options.max_bytes_for_level_multiplier = 3;
   old_options.max_bytes_for_level_base = 200 * 1024;
+  old_options.allow_trivial_move=true;
 
   Reopen(old_options);
 
@@ -126,6 +127,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   old_options.num_levels = level2_;
   old_options.max_bytes_for_level_multiplier = 3;
   old_options.max_bytes_for_level_base = 200 * 1024;
+  old_options.allow_trivial_move=true;
 
   Reopen(old_options);
 
@@ -195,6 +197,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   old_options.num_levels = level1_;
   old_options.max_bytes_for_level_multiplier = 3;
   old_options.max_bytes_for_level_base = 200 * 1024;
+  old_options.allow_trivial_move=true;
 
   Reopen(old_options);
   Random rnd(301);
@@ -269,6 +272,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   old_options.num_levels = level2_;
   old_options.max_bytes_for_level_multiplier = 3;
   old_options.max_bytes_for_level_base = 200 * 1024;
+  old_options.allow_trivial_move=true;
 
   Reopen(old_options);
   Random rnd(301);
@@ -365,6 +369,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   old_options.num_levels = 4;
   old_options.max_bytes_for_level_multiplier = 3;
   old_options.max_bytes_for_level_base = 200 * 1024;
+  old_options.allow_trivial_move=true;
 
   Reopen(old_options);
   Random rnd(301);

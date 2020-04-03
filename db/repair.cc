@@ -80,6 +80,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
+#include "db/value_log.h"
 
 namespace rocksdb {
 
@@ -254,6 +255,20 @@ class Repairer {
   // Lock over the persistent DB state. Non-nullptr iff successfully
   // acquired.
   FileLock* db_lock_;
+  struct VLogFileInfo {
+    uint64_t file_and_ring_no;
+    uint32_t path_id;
+    std::string column_family_name;
+    uint64_t filesize;
+
+  VLogFileInfo(uint64_t number, uint32_t pathid, std::string colname, uint64_t size)
+      : file_and_ring_no(number),
+        path_id(pathid),
+        column_family_name(colname),
+        filesize(size) {}
+
+  };
+  std::vector<VLogFileInfo> vlog_fds_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;
@@ -302,6 +317,13 @@ class Repairer {
             } else if (type == kTableFile) {
               table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
                                       0);
+            } else if (type == kVLogFile) {
+              // vlog file.  Extract the CF id from the file extension
+              size_t dotpos=filenames[i].find_last_of('.');  // find start of extension
+              std::string cfname(filenames[i].substr(dotpos+1+kRocksDbVLogFileExt.size()));
+              uint64_t file_size;
+              env_->GetFileSize(to_search_paths[path_id]+"/"+filenames[i], &file_size);
+              vlog_fds_.emplace_back(number, static_cast<uint32_t>(path_id),cfname,file_size);
             } else {
               // Ignore other files
             }
@@ -431,7 +453,7 @@ class Repairer {
           nullptr /* internal_stats */, TableFileCreationReason::kRecovery,
           nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
           nullptr /* table_properties */, -1 /* level */, current_time,
-          write_hint);
+          0 /* oldest_key_time */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -551,6 +573,45 @@ class Repairer {
         if (parsed.sequence > t->max_sequence) {
           t->max_sequence = parsed.sequence;
         }
+        // If this is an indirect reference, decode it into ring and file#s, and update the early-reference field if
+        // it is a new low, and the total size of references to the VLog
+        if(IsTypeIndirect(parsed.type)){
+          Slice opaquevalue = iter->value();
+          if(!(VLogRingRef::VLogRefAuditOpaque(opaquevalue)).ok()) {
+            ROCKS_LOG_ERROR(db_options_.info_log,
+                            "Table #%" PRIu64 ": invalid indirect value",
+                            t->meta.fd.GetNumber());
+            continue;
+          }
+	  // analyze the reference
+          VLogRingRef ref = VLogRingRef(opaquevalue.data());
+          // if the reference is a new low for its ring, store it
+          uint32_t ringno = ref.Ringno();  // ring number of reference
+          // extend ring with 0 (=invalid) if needed
+          while(ringno>=t->meta.indirect_ref_0.size()) {
+            t->meta.indirect_ref_0.emplace_back(0);
+          }
+          // length of ref - if 0, ignore the ref
+          VLogRingRefFileLen len = ref.Len();
+          if(len){
+            // file number in reference - must not be 0
+            VLogRingRefFileno fileno = ref.Fileno();
+            if (fileno!=0 &&
+                (t->meta.indirect_ref_0[ringno]==0 ||
+                 t->meta.indirect_ref_0[ringno]>fileno)) {
+              t->meta.indirect_ref_0[ringno]=fileno;  // set smallest ref file#
+            }
+          }
+          // accumulate the size of the references as negative fragmentation in
+	  // the CF.  Eventually we will add the total VLog size to yield the
+          // actual fragmentation
+          // restart info for the CF
+          std::vector<VLogRingRestartInfo>& vrest(cfd->vloginfo());
+          // expand to cover all referenced rings
+          while(vrest.size()<=ringno)vrest.emplace_back();
+          // count the active reference as negative fragmentation
+          vrest[ringno].frag -= len;
+        }
       }
       if (!iter->status().ok()) {
         status = iter->status();
@@ -591,8 +652,52 @@ class Repairer {
         edit.AddFile(0, table->meta.fd.GetNumber(), table->meta.fd.GetPathId(),
                      table->meta.fd.GetFileSize(), table->meta.smallest,
                      table->meta.largest, table->min_sequence,
-                     table->max_sequence, table->meta.marked_for_compaction);
+                     table->max_sequence, table->meta.marked_for_compaction,
+                     table->meta.indirect_ref_0, table->meta.avgparentfileno);
+		     // scaf these are not recovered, which will cause trouble
+		     // if the compactions are poorly ordered
       }
+      // Create the column_family_data VLogInfo, which will be written out by
+      // LogAndApply
+      // We go through all the VLog files, looking for ones that are in the CF.
+      // When we find them, we add them to the list for the ring.  When we have them all, we sort the ring and then
+      // Coalesce them into the info for the CF.  We insert each file as its
+      // own (start,end)
+      std::vector<VLogRingRestartInfo> accum_vlog_edits;  // one per ring
+      std::string cfname(cfd->GetName());
+      for (const auto& vfile : vlog_fds_) {
+        // if it matches our cf...
+        if(vfile.column_family_name.compare(cfname)==0){
+          // separate file# into ring and file
+          ParsedFnameRing pref(vfile.file_and_ring_no);
+          while(accum_vlog_edits.size()<=(size_t)pref.ringno_) {
+            accum_vlog_edits.emplace_back();
+          }
+	  // move in start file#
+          accum_vlog_edits[pref.ringno_].valid_files.emplace_back(pref.fileno_);
+	  // and end file#
+          accum_vlog_edits[pref.ringno_].valid_files.emplace_back(pref.fileno_);
+          // add the size of the file into the size for the ring
+          accum_vlog_edits[pref.ringno_].size += vfile.filesize;
+        }
+      }
+      // put the restart data into canonical form
+      for(auto& info : accum_vlog_edits){
+        // The frag field in the column family contains the negative size of all
+        // references found in the ring.  We want to add in the total size in
+        // VLog files, to give the amount of fragmentation
+        info.frag = info.size;
+        // sort each file list.  This leaves pairs of file#s in ascending order.
+        // They will be coalesced into runs presently
+        std::sort(info.valid_files.begin(),info.valid_files.end());
+      }
+      // Coalesce them into the initially-empty block for the CF, with no
+      // deletions allowed put the changes into the edit record.  That will
+      // ensure that they get written out as a change to the manifest AND
+      // installed into cfd.  If we just put them into cfd, reconstruction
+      // from the manifest will lose the changes
+      Coalesce(edit.VLogAdditions(),accum_vlog_edits,false);
+
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
       mutex_.Lock();

@@ -56,6 +56,10 @@ enum CustomTag : uint32_t {
   // removed when manifest becomes forward-comptabile.
   kMinLogNumberToKeepHack = 3,
   kPathId = 65,
+  // add earliest_ref field in Edit record
+  kIndirectRef0 = 70,  // indicates the oldest ref to VLog in this file
+  kValueLogStats = 71,  // files, frag, and bytes deleted/added
+  kAvgFileRef = 72,  // indicator of age in VLog of overlapping files in next level
 };
 // If this bit for the custom tag is set, opening DB should fail if
 // we don't know this field.
@@ -90,6 +94,7 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
+  vlog_additions.clear();  // no additions to rings
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -124,7 +129,8 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       return false;
     }
     bool has_customized_fields = false;
-    if (f.marked_for_compaction || has_min_log_number_to_keep_) {
+    if (f.marked_for_compaction || has_min_log_number_to_keep_ ||
+        f.indirect_ref_0.size() || f.avgparentfileno) {
       PutVarint32(dst, kNewFile4);
       has_customized_fields = true;
     } else if (f.fd.GetPathId() == 0) {
@@ -169,6 +175,20 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       //   tag kPathId: 1 byte as path_id
       //   tag kNeedCompaction:
       //        now only can take one char value 1 indicating need-compaction
+      //   tag kIndirectRef0:
+      //        varint32  length of rest of record
+      //        varint32 n - the number of rings for this cf
+      //        varint64[n] earliest file referred to in each ring
+      //   tag kValueLogStats
+      //        varint32  length of rest of record (not used)
+      //        varint32 b - number of rings for this cf
+      //      for each ring:
+      //        varint64 number of bytes added to size
+      //        varint64 number of bytes of fragmentation added - may be negative
+      //        varint32 m - number of file edits
+      //        varint64[m]  file edits, a sequence of closed intervals of
+      //          start,end file numbers.  If first start=0 it means delete
+      //          files up to end
       //
       if (f.fd.GetPathId() != 0) {
         PutVarint32(dst, CustomTag::kPathId);
@@ -187,6 +207,26 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
         PutLengthPrefixedSlice(dst, Slice(varint_log_number));
         min_log_num_written = true;
       }
+      if (f.indirect_ref_0.size()) {
+	// write out the record type
+        PutVarint32(dst, CustomTag::kIndirectRef0);
+	// init length to length of # refs
+        uint32_t totallength = VarintLength(f.indirect_ref_0.size());
+	// add in length of refs themselves
+        for(auto ref : f.indirect_ref_0)totallength += VarintLength(ref);
+        PutVarint32(dst, totallength);  // write out total field length
+	// write out number of refs
+        PutVarint32(dst, (uint32_t)f.indirect_ref_0.size());
+        for(auto ref : f.indirect_ref_0)PutVarint64(dst, ref);  // write refs
+      }
+      if (f.avgparentfileno) {
+	// write out the record type
+        PutVarint32(dst, CustomTag::kAvgFileRef);
+	// write out total field length
+        PutVarint32(dst, VarintLength(f.avgparentfileno));
+	// write out the data: average file position
+        PutVarint64(dst, f.avgparentfileno);
+      }
       TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                                dst);
 
@@ -197,6 +237,29 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   // 0 is default and does not need to be explicitly written
   if (column_family_ != 0) {
     PutVarint32Varint32(dst, kColumnFamily, column_family_);
+  }
+
+  // write the CF information for indirect values: the active file numbers for
+  // each ring, and the amount of fragmentation in those file
+  if(vlog_additions.size()) {   // if vlog changes are marked...
+    // Build up the record
+    PutVarint32(dst, CustomTag::kValueLogStats);  // write out the record type
+    std::string totalrcd;  // where we build up the whole thing
+    // start with # of structs
+    PutVarint32(&totalrcd, (uint32_t)vlog_additions.size());
+    for(auto add : vlog_additions) {   // for each addition
+      std::string addstring;  // place to build a single struct
+      // NOTE size and frag are signed; we cast to unsigned for the interface
+      PutVarint64(&addstring, (uint64_t)add.size);  // bytes added
+      PutVarint64(&addstring, (uint64_t)add.frag);   // frag added
+      // # files-added values
+      PutVarint32(&addstring, (uint32_t)add.valid_files.size());
+      // files-added intervals
+      for(auto fno : add.valid_files)PutVarint64(&addstring, (uint64_t)fno);
+      totalrcd.append(addstring);  // accumulate all the rings
+    }
+    PutVarint32(dst, (uint32_t)totalrcd.size());  // write out the record length
+    dst->append(totalrcd);  // write out the accumulated record
   }
 
   if (is_column_family_add_) {
@@ -291,6 +354,22 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
             return "deleted log number malformatted";
           }
           has_min_log_number_to_keep_ = true;
+          break;
+        case kIndirectRef0:
+          uint32_t nrings;   // number of rings in this field
+          if(!GetVarint32(&field,&nrings))return("indirect ref no # values");
+          f.indirect_ref_0.clear();  // empty the return area
+          uint64_t earlyref;  // place to decode the ref # for each ring
+          while(nrings--){
+            if(!GetVarint64(&field,&earlyref))return("indirect ref no value");
+            f.indirect_ref_0.push_back(earlyref);
+          }
+          f.level = level;  // If there's a ref0, there needs to be a level too
+          break;
+        case kAvgFileRef:
+          uint64_t avgparentfileno;   // number of rings in this field
+          if(!GetVarint64(&field,&avgparentfileno))return("avg parent ref no value");
+          f.avgparentfileno = avgparentfileno;  // install into meta
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -502,6 +581,29 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
+      case kValueLogStats:
+        {
+        vlog_additions.clear();   // init to no rings
+        uint32_t nrings;
+        GetVarint32(&input, &nrings);   // read & discard record length
+        // read # rings; for each ring...
+        for(GetVarint32(&input, &nrings); nrings; --nrings) {
+          uint64_t size; GetVarint64(&input, &size);  // get size
+          uint64_t frag; GetVarint64(&input, &frag);   // get frag
+          std::vector<uint64_t> files;   // get vector of files
+          uint32_t nfiles;
+          // read # files.  for each...
+          for(GetVarint32(&input, &nfiles); nfiles; --nfiles) {
+            uint64_t fileno;
+	    GetVarint64(&input, &fileno);
+	    files.push_back(fileno);  // append file#
+          }
+	  // create a new ring entry.  sizes must be signed, even though the
+	  // file interface demands unsigned
+          vlog_additions.emplace_back(files,(int64_t)size,(int64_t)frag);
+        }
+        break;
+        }
 
       default:
         if (tag & kTagSafeIgnoreMask) {
@@ -623,6 +725,25 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   if (has_last_sequence_) {
     jw << "LastSeq" << last_sequence_;
   }
+  if(vlog_additions.size()){
+    jw << "VLogAdditions";
+    jw.StartArray();
+
+    for (size_t i = 0; i < vlog_additions.size(); i++) {
+      jw.StartArrayedObject();
+      jw << "AddedBytes" << vlog_additions[i].size;
+      jw << "AddedFrag" << vlog_additions[i].frag;
+      jw << "RingFiles";
+      jw.StartArray();
+      for (size_t j = 0; j < vlog_additions[i].valid_files.size(); j++) {
+        jw <<vlog_additions[i].valid_files[j];
+      }
+      jw.EndArray();
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
 
   if (!deleted_files_.empty()) {
     jw << "DeletedFiles";
@@ -679,6 +800,22 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   jw.EndObject();
 
   return jw.Get();
+}
+
+// After the last kv has been written to the file, install the earliest refs
+// that were found in the file, one for each ring (0 means no ref).  Also
+// install other stuff needed in a new file: vlog pointer and level.  Files
+// created during compaction go through AddFile, but not detailed creation
+// therein
+void FileMetaData::InstallRef0(int outputlevel,
+    const std::vector<uint64_t> &earliestref,
+    ColumnFamilyData *cfd) {
+  indirect_ref_0 = earliestref;
+  // keep the chain fields lockstep in size with indirect_ref
+  ringfwdchain.resize(earliestref.size(),nullptr);
+  ringbwdchain.resize(earliestref.size(),nullptr);
+  vlog = cfd->vlog();
+  level = outputlevel;
 }
 
 }  // namespace rocksdb

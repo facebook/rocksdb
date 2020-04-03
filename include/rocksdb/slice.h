@@ -74,6 +74,9 @@ class Slice {
     return data_[n];
   }
 
+  // Fill in a slice to point to the given data with the given length
+  void install(const char *data, size_t size) { data_ = data, size_ = size; }
+
   // Change this slice to refer to an empty array
   void clear() {
     data_ = "";

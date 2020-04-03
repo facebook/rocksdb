@@ -169,6 +169,9 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   Slice GetLargestUserKey() const override {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
+  virtual CompactionReason compaction_reason() {
+    return CompactionReason::kLevelMaxLevelSize;
+  }
   bool allow_ingest_behind() const override { return false; }
 
   bool preserve_deletes() const override { return false; }
@@ -251,6 +254,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
 
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
+    // install a VLog so that the iterator will behave like a compaction iterator with VLog
+    iter_->SetVlogForIteratorCF(std::make_shared<VLog>());
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         earliest_write_conflict_snapshot, snapshot_checker_.get(),
@@ -469,6 +474,16 @@ TEST_P(CompactionIteratorTest, CompactionFilterSkipUntil) {
   // the underlying iterator.
   using A = LoggingForwardVectorIterator::Action;
   using T = A::Type;
+  // When there are indirect values, we have to visit each one for space
+  // accounting on the VLogRing, so we will issue only
+  // Next calls to the underlying iterator.
+  std::vector<A> expected_actions = {
+      A(T::SEEK_TO_FIRST),
+      A(T::NEXT), A(T::NEXT), A(T::NEXT), A(T::NEXT), A(T::NEXT),
+      A(T::NEXT), A(T::NEXT), A(T::NEXT), A(T::NEXT), A(T::NEXT),
+      A(T::NEXT), A(T::NEXT), A(T::NEXT), A(T::NEXT)
+      };
+  /*
   std::vector<A> expected_actions = {
       A(T::SEEK_TO_FIRST),
       A(T::NEXT),
@@ -479,6 +494,7 @@ TEST_P(CompactionIteratorTest, CompactionFilterSkipUntil) {
       A(T::SEEK, test::KeyStr("g+", kMaxSequenceNumber, kValueTypeForSeek)),
       A(T::NEXT),
       A(T::SEEK, test::KeyStr("z", kMaxSequenceNumber, kValueTypeForSeek))};
+  */
   ASSERT_EQ(expected_actions, iter_->log);
 }
 

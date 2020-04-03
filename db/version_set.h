@@ -44,6 +44,8 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include <math.h>
+#include "db/value_log.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
@@ -101,7 +103,9 @@ class VersionStorageInfo {
                      const Comparator* user_comparator, int num_levels,
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
-                     bool _force_consistency_checks);
+                     bool _force_consistency_checks,
+                     ColumnFamilyData* cfd);
+                     // the goods on the column family this Version belongs to
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -109,6 +113,114 @@ class VersionStorageInfo {
   void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
 
   void SetFinalized();
+
+  ColumnFamilyData* GetCfd() { return cfd_; }
+
+  // Return the low file# and range for the ring at this level.  If no ring,
+  // return 0 for file#
+  void GetVLogReshapingParms(int level, int& ring, VLogRingRefFileno& file0,
+                             VLogRingRefFileno& nfiles,
+                             int32_t& age_importance) {
+    // if there are no VLog or rings, return 0
+    file0 = 0;  // init 'no info' return
+    ring=0; nfiles=0; age_importance=0;  // suppress warnings
+    if(cfd_&&cfd_->vlog()){
+      // If there is a VLog, ask it.  cfd_ can be null only running test scripts
+      // that don't open a CF
+      cfd_->vlog()->GetVLogReshapingParms(level, ring, file0, nfiles);
+      if(file0) {
+        // get age_importance from the cf, limit to reasonable range
+        age_importance = std::min(100,
+            std::max(0,
+                cfd_->GetCurrentMutableCFOptions()->
+                    compaction_picker_age_importance[ring]));
+      }
+    }
+    return;
+  }
+  // Return the effective filesize for the file, taking position into account
+  // We mark up the sizes of files the closer their children are to the head of the result ring.
+  // Because the VLog SSTs are managed to avoid runt files, they will generally have a small variance in sizes -
+  // maybe 10% of a file.  This means that the markup based on position will usually be decisive, and we will be
+  // compacting the files near the head of the ring almost always.
+  // files that have no average parent position use a position toward the beginning of the tail region.
+  double GetFileVLogCompactionPriority(FileMetaData *f, int ring, VLogRingRefFileno file0, VLogRingRefFileno nfiles, int32_t age_importance){
+    // if there is no ring information, or no position information, leave file
+    // size as is, which corresponds to end-of-tail position
+    // no file info, use
+    if(file0 == 0)return (double)f->compensated_file_size;
+    // get the file number to use: avgparentfileno if given, otherwise ref_0 for
+    // the ring.  If none, leave filesize as is
+    // split ring/file into ring and file
+    ParsedFnameRing avgparent(f->avgparentfileno);
+    if(avgparent.fileno()==0) {
+      // replace fileno of 0 with indirect_ref_0 in the current ring.  If
+      // nonexistent or 0, leave size unmodified   scaf this is wrong if we
+      // change rings - indirect_ref_0 is meaningless
+      if ((uint32_t)ring >= f->indirect_ref_0.size() ||
+          f->indirect_ref_0[ring]==0) {
+        // if no ref, keep use size
+        return (double)f->compensated_file_size;
+      }
+      // make up a ring ref with the current info for this file
+      avgparent = ParsedFnameRing(ring,f->indirect_ref_0[ring]);
+    }
+    if (avgparent.ringno()!=ring || avgparent.fileno()==0) {
+      // if no valid file ref, use default
+      return (double)f->compensated_file_size;
+    }
+    // We calculate x=fractional position of result in the result ring
+    // (0=head,1=tail).  Then, bias down so that a position at the end of the
+    // tail has fraction 0.
+    // Here, the end of the tail is placed at 0.3 of the way from the tail to
+    // the head Then, reshape the curve by using biasedx as an exponent.
+    // The base is chosen to make a certain range fraction of the filespace
+    // correspond to a doubling of the effective filesize.  If age_importance
+    // is 10, this is a doubling for every 1/10 of the database.  0 means no
+    // effect
+    // 1/age_importance of the log size corresponds to factor of 2 in effective
+    // size.  convert from pct to frac
+    const double base = exp((std::log(2.0)*0.01)*age_importance);
+    const double bias = 0.3;  // end of the tail is at 0.3
+    // effective size.  fileno may be obsolete and low, so clamp it to file0
+    return f->compensated_file_size * std::pow(base,
+        bias-((double)(std::max((int64_t)0,
+            (int64_t)avgparent.fileno()-(int64_t)file0))/(double)nfiles));
+  }
+
+  int NumRingFiles(uint32_t ring) const {
+    assert(finalized_);
+    std::vector<VLogRingRestartInfo>& vli = cfd_->vloginfo();
+    uint64_t files = 0;
+    uint64_t vfx=0;  // running index of file-pair
+    // end of previous interval, starting with 0 or delete interval.
+    // The first file is file 1
+    uint64_t prevend=0;
+    // the first filenumber-pair may be a delete record, if the first file# is
+    // 0.  In that case, remember the delete-to point and skip over the pair
+    if (vli[ring].valid_files.size()>1 && vli[ring].valid_files[0]==0) {
+      prevend=vli[ring].valid_files[1]; vfx+=2;
+    } else { prevend = 0; }
+    for(;vfx<vli[ring].valid_files.size();vfx+=2){
+      // interval is (start,end)
+      files += (vli[ring].valid_files[vfx+1] -
+          std::max(prevend+1,vli[ring].valid_files[vfx]) + 1);
+    }
+    return static_cast<int>(files);
+  }
+
+  int64_t RingFiles(int ring) const {
+    return cfd_->vloginfo()[ring].size;
+  }
+
+  int64_t NumRingBytes(int ring) const;
+
+  double RingFrag(int ring) const {
+    return cfd_->vloginfo()[ring].fragfrac;
+  }
+
+  int num_rings() const { return (int)cfd_->vloginfo().size(); }
+
 
   // Update num_non_empty_levels_.
   void UpdateNumNonEmptyLevels();
@@ -532,6 +644,8 @@ class VersionStorageInfo {
   // If set to true, we will run consistency checks even if RocksDB
   // is compiled in release mode
   bool force_consistency_checks_;
+  // we need access to the cfd summary info, and through it to the VLog
+  ColumnFamilyData *cfd_;
 
   friend class Version;
   friend class VersionSet;
@@ -878,6 +992,8 @@ class VersionSet {
   uint64_t pending_manifest_file_number() const {
     return pending_manifest_file_number_;
   }
+
+  std::vector<ObsoleteFileInfo>& obsolete_files() { return obsolete_files_; }
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 

@@ -34,6 +34,12 @@
 namespace rocksdb {
 
 static const int kValueSize = 1000;
+// Test in both normal and indirect configurations
+#define INDOPTIONS do{
+#define INDOPTIONSEND(opts) }while(opts.vlogring_activation_level.push_back(0),opts.min_indirect_val_size[0]=0,opts.vlogring_activation_level.size()<2);
+// The tests in this file are not self-contained (they chain to each other).
+// So we must run all the direct-value tests first, then indirect
+static int useindirect = 0;  // set to make tests open with indirect values
 
 class CorruptionTest : public testing::Test {
  public:
@@ -44,6 +50,11 @@ class CorruptionTest : public testing::Test {
   DB* db_;
 
   CorruptionTest() {
+    if (useindirect) {
+      options_.vlogring_activation_level =
+        std::vector<int32_t>{0};
+      options_.min_indirect_val_size[0]=0;
+    }
     // If LRU cache shard bit is smaller than 2 (or -1 which will automatically
     // set it to 0), test SequenceNumberRecovery will fail, likely because of a
     // bug in recovery code. Keep it 4 for now to make the test passes.
@@ -127,8 +138,13 @@ class CorruptionTest : public testing::Test {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       uint64_t key;
       Slice in(iter->key());
-      if (!ConsumeDecimalNumber(&in, &key) ||
-          !in.empty() ||
+      size_t keylen=in.size();
+      std::string s = std::string(in.data(),in.size());
+      // key should be 14 digits, 1 space, followed by noise, ending with byte
+      // to make bytesum 0
+      if (Bytesum(s)!=0 ||
+          !ConsumeDecimalNumber(&in, &key) ||
+          in.size()!=(keylen-14) ||
           key < next_expected) {
         bad_keys++;
         continue;
@@ -178,7 +194,8 @@ class CorruptionTest : public testing::Test {
     Status s = ReadFileToString(Env::Default(), fname, &contents);
     ASSERT_TRUE(s.ok()) << s.ToString();
     for (int i = 0; i < bytes_to_corrupt; i++) {
-      contents[i + offset] ^= 0x80;
+      // vary the corruption to make checksum error more likely on key
+      contents[i + offset] ^= 0x80 + i;
     }
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
@@ -234,30 +251,47 @@ class CorruptionTest : public testing::Test {
     }
   }
 
+  // Return 1-byte sum of the string
+  char Bytesum(std::string& stg){
+    char sum=0; for(char c : stg)sum += c; return sum;
+  }
+
   // Return the ith key
   Slice Key(int i, std::string* storage) {
     char buf[100];
-    snprintf(buf, sizeof(buf), "%016d", i);
+    snprintf(buf, sizeof(buf), "%014d", i);
     storage->assign(buf, strlen(buf));
+    if (i==0) {
+      // make key kValueSize long
+      storage->resize(kValueSize-1,' ');
+    } else {
+      Random r(i);
+      std::string randstorage;
+      Slice rpad(test::RandomString(&r, kValueSize-17, &randstorage));
+      storage->append(rpad.data(),rpad.size());
+    }
+    storage->push_back(-Bytesum(*storage));
     return Slice(*storage);
   }
 
   // Return the value to associate with the specified key
   Slice Value(int k, std::string* storage) {
+    // make value 16 bytes so as not to change if turned into an indirect reference
+    const size_t vlen=16;
     if (k == 0) {
       // Ugh.  Random seed of 0 used to produce no entropy.  This code
       // preserves the implementation that was in place when all of the
       // magic values in this file were picked.
-      *storage = std::string(kValueSize, ' ');
+      *storage = std::string(vlen, ' ');
       return Slice(*storage);
     } else {
       Random r(k);
-      return test::RandomString(&r, kValueSize, storage);
+      return test::RandomString(&r, vlen, storage);
     }
   }
 };
 
-TEST_F(CorruptionTest, Recovery) {
+TEST_F(CorruptionTest, DISABLED_Recovery) {
   Build(100);
   Check(100, 100);
 #ifdef OS_WIN
@@ -296,7 +330,8 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
   bool failed = false;
   for (int i = 0; i < num; i++) {
     WriteBatch batch;
-    batch.Put("a", Value(100, &value_storage));
+    std::string workarea;
+    batch.Put(Key(1,&workarea), Value(100, &value_storage));
     s = db_->Write(WriteOptions(), &batch);
     if (!s.ok()) {
       failed = true;
@@ -309,7 +344,7 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
   Reopen();
 }
 
-TEST_F(CorruptionTest, TableFile) {
+TEST_F(CorruptionTest, DISABLED_TableFile) {
   Build(100);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
@@ -325,6 +360,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   Options options;
   // very big, we'll trigger flushes manually
   options.write_buffer_size = 100 * 1024 * 1024;
+  options.allow_trivial_move=true;
   Reopen(&options);
   // build 2 tables, flush at 5000
   Build(10000, 5000);
@@ -341,7 +377,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   ASSERT_NOK(dbi->VerifyChecksum());
 }
 
-TEST_F(CorruptionTest, MissingDescriptor) {
+TEST_F(CorruptionTest, DISABLED_MissingDescriptor) {
   Build(1000);
   RepairDB();
   Reopen();
@@ -386,7 +422,7 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_EQ("hello", v);
 }
 
-TEST_F(CorruptionTest, CompactionInputError) {
+TEST_F(CorruptionTest, DISABLED_CompactionInputError) {
   Options options;
   Reopen(&options);
   Build(10);
@@ -406,7 +442,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
   ASSERT_NOK(dbi->VerifyChecksum());
 }
 
-TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
+TEST_F(CorruptionTest, DISABLED_CompactionInputErrorParanoid) {
   Options options;
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
@@ -539,7 +575,10 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  rocksdb::useindirect=0;
+  int ret = RUN_ALL_TESTS();
+  if(ret==0){rocksdb::useindirect=1; ret = RUN_ALL_TESTS();}
+  return ret;
 }
 
 #else

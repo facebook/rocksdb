@@ -186,6 +186,78 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.ttl = mutable_cf_options.ttl;
   cf_opts.periodic_compaction_seconds =
       mutable_cf_options.periodic_compaction_seconds;
+  cf_opts.allow_trivial_move =
+      mutable_cf_options.allow_trivial_move;
+  cf_opts.vlog_direct_IO =
+      mutable_cf_options.vlog_direct_IO;
+  cf_opts.compaction_score_limit_L0 =
+      mutable_cf_options.compaction_score_limit_L0;
+
+  cf_opts.vlogring_activation_level.clear();
+  for (auto value :
+       mutable_cf_options.vlogring_activation_level) {
+    cf_opts.vlogring_activation_level.emplace_back(value);
+  }
+  cf_opts.min_indirect_val_size.clear();
+  for (auto value :
+       mutable_cf_options.min_indirect_val_size) {
+    cf_opts.min_indirect_val_size.emplace_back(value);
+  }
+  cf_opts.fraction_remapped_during_compaction.clear();
+  for (auto value :
+       mutable_cf_options.fraction_remapped_during_compaction) {
+    cf_opts.fraction_remapped_during_compaction.emplace_back(value);
+  }
+  cf_opts.fraction_remapped_during_active_recycling.clear();
+  for (auto value :
+       mutable_cf_options.fraction_remapped_during_active_recycling) {
+    cf_opts.fraction_remapped_during_active_recycling.emplace_back(value);
+  }
+  cf_opts.fragmentation_active_recycling_trigger.clear();
+  for (auto value :
+       mutable_cf_options.fragmentation_active_recycling_trigger) {
+    cf_opts.fragmentation_active_recycling_trigger.emplace_back(value);
+  }
+  cf_opts.fragmentation_active_recycling_klaxon.clear();
+  for (auto value :
+       mutable_cf_options.fragmentation_active_recycling_klaxon) {
+    cf_opts.fragmentation_active_recycling_klaxon.emplace_back(value);
+  }
+  cf_opts.active_recycling_sst_minct.clear();
+  for (auto value :
+       mutable_cf_options.active_recycling_sst_minct) {
+    cf_opts.active_recycling_sst_minct.emplace_back(value);
+  }
+  cf_opts.active_recycling_sst_maxct.clear();
+  for (auto value :
+       mutable_cf_options.active_recycling_sst_maxct) {
+    cf_opts.active_recycling_sst_maxct.emplace_back(value);
+  }
+  cf_opts.active_recycling_vlogfile_freed_min.clear();
+  for (auto value :
+       mutable_cf_options.active_recycling_vlogfile_freed_min) {
+    cf_opts.active_recycling_vlogfile_freed_min.emplace_back(value);
+  }
+  cf_opts.active_recycling_size_trigger.clear();
+  for (auto value :
+       mutable_cf_options.active_recycling_size_trigger) {
+    cf_opts.active_recycling_size_trigger.emplace_back(value);
+  }
+  cf_opts.vlogfile_max_size.clear();
+  for (auto value :
+       mutable_cf_options.vlogfile_max_size) {
+    cf_opts.vlogfile_max_size.emplace_back(value);
+  }
+  cf_opts.compaction_picker_age_importance.clear();
+  for (auto value :
+       mutable_cf_options.compaction_picker_age_importance) {
+    cf_opts.compaction_picker_age_importance.emplace_back(value);
+  }
+  cf_opts.ring_compression_style.clear();
+  for (auto value :
+       mutable_cf_options.ring_compression_style) {
+    cf_opts.ring_compression_style.emplace_back(value);
+  }
 
   cf_opts.max_bytes_for_level_multiplier_additional.clear();
   for (auto value :
@@ -576,6 +648,12 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompactionStopStyle>(
           compaction_stop_style_string_map, value,
           reinterpret_cast<CompactionStopStyle*>(opt_address));
+    case OptionType::kVectorInt32:
+      *reinterpret_cast<std::vector<int32_t>*>(opt_address) = ParseVectorInt32(value);
+      break;
+    case OptionType::kVectorInt64:
+      *reinterpret_cast<std::vector<uint64_t>*>(opt_address) = ParseVectorInt64(value);
+      break;
     default:
       return false;
   }
@@ -607,6 +685,14 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     case OptionType::kVectorInt:
       return SerializeIntVector(
           *reinterpret_cast<const std::vector<int>*>(opt_address), value);
+    case OptionType::kVectorInt32:
+      return SerializeVectorInt32(
+          *(reinterpret_cast<const std::vector<int32_t>*>(opt_address)), value);
+      break;
+    case OptionType::kVectorInt64:
+      return SerializeVectorInt64(
+          *(reinterpret_cast<const std::vector<uint64_t>*>(opt_address)), value);
+      break;
     case OptionType::kUInt:
       *value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
       break;
@@ -1802,6 +1888,70 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::disable_auto_compactions),
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct MutableCFOptions, disable_auto_compactions)}},
+        {"allow_trivial_move",
+         {offset_of(&ColumnFamilyOptions::allow_trivial_move),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, allow_trivial_move)}},
+        {"vlog_direct_IO",
+         {offset_of(&ColumnFamilyOptions::vlog_direct_IO),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, vlog_direct_IO)}},
+        {"compaction_score_limit_L0",
+         {offset_of(&ColumnFamilyOptions::compaction_score_limit_L0),
+          OptionType::kDouble, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, compaction_score_limit_L0)}},
+        {"vlogring_activation_level",
+         {offset_of(&ColumnFamilyOptions::vlogring_activation_level),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, vlogring_activation_level)}},
+        {"min_indirect_val_size",
+         {offset_of(&ColumnFamilyOptions::min_indirect_val_size),
+          OptionType::kVectorInt64, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, min_indirect_val_size)}},
+        {"fraction_remapped_during_compaction",
+         {offset_of(&ColumnFamilyOptions::fraction_remapped_during_compaction),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, fraction_remapped_during_compaction)}},
+        {"fraction_remapped_during_active_recycling",
+         {offset_of(&ColumnFamilyOptions::fraction_remapped_during_active_recycling),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, fraction_remapped_during_active_recycling)}},
+        {"fragmentation_active_recycling_trigger",
+         {offset_of(&ColumnFamilyOptions::fragmentation_active_recycling_trigger),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, fragmentation_active_recycling_trigger)}},
+        {"fragmentation_active_recycling_klaxon",
+         {offset_of(&ColumnFamilyOptions::fragmentation_active_recycling_klaxon),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, fragmentation_active_recycling_klaxon)}},
+        {"active_recycling_sst_minct",
+         {offset_of(&ColumnFamilyOptions::active_recycling_sst_minct),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, active_recycling_sst_minct)}},
+        {"active_recycling_sst_maxct",
+         {offset_of(&ColumnFamilyOptions::active_recycling_sst_maxct),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, active_recycling_sst_maxct)}},
+        {"active_recycling_vlogfile_freed_min",
+         {offset_of(&ColumnFamilyOptions::active_recycling_vlogfile_freed_min),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, active_recycling_vlogfile_freed_min)}},
+        {"active_recycling_size_trigger",
+         {offset_of(&ColumnFamilyOptions::active_recycling_size_trigger),
+          OptionType::kVectorInt64, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, active_recycling_size_trigger)}},
+        {"vlogfile_max_size",
+         {offset_of(&ColumnFamilyOptions::vlogfile_max_size),
+          OptionType::kVectorInt64, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, vlogfile_max_size)}},
+        {"compaction_picker_age_importance",
+         {offset_of(&ColumnFamilyOptions::compaction_picker_age_importance),
+          OptionType::kVectorInt32, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, compaction_picker_age_importance)}},
+        {"ring_compression_style",
+         {offset_of(&ColumnFamilyOptions::ring_compression_style),
+          OptionType::kVectorCompressionType, OptionVerificationType::kNormal, true,
+          offsetof(struct MutableCFOptions, ring_compression_style)}},
         {"filter_deletes",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, true,
           0}},

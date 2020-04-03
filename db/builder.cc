@@ -35,6 +35,7 @@
 #include "test_util/sync_point.h"
 #include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
+#include "db/value_log_iterator.h"
 
 namespace rocksdb {
 
@@ -82,7 +83,8 @@ Status BuildTable(
     TableFileCreationReason reason, EventLogger* event_logger, int job_id,
     const Env::IOPriority io_priority, TableProperties* table_properties,
     int level, const uint64_t creation_time, const uint64_t oldest_key_time,
-    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
+    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time,
+    ColumnFamilyData* cfd, VLogEditStats *vlog_flush_info) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -123,7 +125,7 @@ Status BuildTable(
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
-            job_id, meta->fd, tp, reason, s);
+            job_id, meta->fd, tp, reason, s, nullptr /* ref0 */);
         return s;
       }
       file->SetIOPriority(io_priority);
@@ -153,11 +155,30 @@ Status BuildTable(
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
-    for (; c_iter.Valid(); c_iter.Next()) {
-      const Slice& key = c_iter.key();
-      const Slice& value = c_iter.value();
+    // The IndirectIterator will do all mapping/remapping and will return the
+    // new key/values one by one
+    // The constructor called here immediately reads all the values from c_iter,
+    // buffers them, and writes values to the Value Log.
+    // Then in the loop it returns the references to the values that were
+    // written.  Errors encountered during c_iter are preserved
+    // and associated with the failing keys.
+    // If there is no VLog it means this table type doesn't support indirects,
+    // and the iterator will be a passthrough
+    std::unique_ptr<IndirectIterator> value_iter(
+        new IndirectIterator(&c_iter,cfd,
+            cfd!=nullptr && cfd->vlog()!=nullptr && cfd->vlog()->rings().size()!=0,
+            mutable_cf_options,job_id,paranoid_file_checks));
+    // keep iterator around till end of function
+    // initial status indicates errors writing VLog files;
+    s = value_iter->status();
+    bool empty = false;
+    if (s.ok()) { // this catches file errors in the IndirectIterator
+    // checked in next call to Valid()
+    for (; value_iter->Valid(); value_iter->Next()) {
+      const Slice& key = value_iter->key();
+      const Slice& value = value_iter->value();
       builder->Add(key, value);
-      meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+      meta->UpdateBoundaries(key, value_iter->ikey().sequence);
 
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&
@@ -179,8 +200,8 @@ Status BuildTable(
 
     // Finish and check for builder errors
     tp = builder->GetTableProperties();
-    bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
-    s = c_iter.status();
+    empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
+    s = value_iter->status();
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
@@ -197,6 +218,7 @@ Status BuildTable(
         *table_properties = tp;
       }
     }
+    } // if (s.ok())
     delete builder;
 
     // Finish and check for file errors
@@ -231,6 +253,20 @@ Status BuildTable(
         s = it->status();
       }
     }
+    if(cfd){  // if we are VLogging this flush...
+      std::vector<uint64_t> ref0;  // vector of file-refs
+      value_iter->ref0(ref0, true /* include_last */);
+      // true to pick up the very last key, which will not have been included
+      // in the file because we didn't know the file was ending
+      meta->InstallRef0(0,ref0,cfd);
+      // extract the edit/stats info from the flush job.  We pass this back for
+      // inclusion in the Version
+      value_iter->getedit(vlog_flush_info->restart_info,
+          vlog_flush_info->vlog_bytes_written_comp,
+          vlog_flush_info->vlog_bytes_written_raw,
+          vlog_flush_info->vlog_bytes_remapped,
+          vlog_flush_info->vlog_files_created);
+    }
   }
 
   // Check for input iterator errors
@@ -245,8 +281,8 @@ Status BuildTable(
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, tp, reason, s);
-
+      job_id, meta->fd, tp, reason, s,
+      &meta->indirect_ref_0); // lowest ref in each ring
   return s;
 }
 

@@ -18,6 +18,8 @@ class VersionStorageInfo;
 class VersionEdit;
 struct FileMetaData;
 class InternalStats;
+class ColumnFamilyData;
+struct VLogRingRestartInfo;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
@@ -32,12 +34,13 @@ class VersionBuilder {
                                   int level);
   bool CheckConsistencyForNumLevels();
   void Apply(VersionEdit* edit);
-  void SaveTo(VersionStorageInfo* vstorage);
+  void SaveTo(VersionStorageInfo* vstorage, ColumnFamilyData *cfd = nullptr);
   Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
                            const SliceTransform* prefix_extractor);
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
+  std::vector<VLogRingRestartInfo> VLogAdditions();
 
  private:
   class Rep;

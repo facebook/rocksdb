@@ -498,7 +498,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(rep_->state != Rep::State::kClosed);
   if (!ok()) return;
   ValueType value_type = ExtractValueType(key);
-  if (IsValueType(value_type)) {
+  if (IsTypeMemorSST(value_type)) {
 #ifndef NDEBUG
     if (r->props.num_entries > r->props.num_range_deletions) {
       assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);

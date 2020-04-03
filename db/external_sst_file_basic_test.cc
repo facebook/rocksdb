@@ -14,6 +14,10 @@
 
 namespace rocksdb {
 
+// Test in both normal and indirect configurations
+#define INDOPTIONSBGN do{
+#define INDOPTIONSEND(opts) }while(opts.vlogring_activation_level.push_back(0),opts.min_indirect_val_size[0]=0,opts.vlogring_activation_level.size()<2);
+
 #ifndef ROCKSDB_LITE
 class ExternalSSTFileBasicTest
     : public DBTestBase,
@@ -147,6 +151,7 @@ class ExternalSSTFileBasicTest
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
   Options options = CurrentOptions();
+  INDOPTIONSBGN
 
   SstFileWriter sst_file_writer(EnvOptions(), options);
 
@@ -190,10 +195,13 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   }
 
   DestroyAndRecreateExternalSSTFilesDir();
+  INDOPTIONSEND(options)
 }
 
 TEST_F(ExternalSSTFileBasicTest, NoCopy) {
   Options options = CurrentOptions();
+  INDOPTIONSBGN
+  DestroyAndReopen(options);
   const ImmutableCFOptions ioptions(options);
 
   SstFileWriter sst_file_writer(EnvOptions(), options);
@@ -256,6 +264,7 @@ TEST_F(ExternalSSTFileBasicTest, NoCopy) {
   for (int k = 0; k < 300; k++) {
     ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
   }
+  INDOPTIONSEND(options)
 }
 
 TEST_P(ExternalSSTFileBasicTest, IngestFileWithGlobalSeqnoPickedSeqno) {

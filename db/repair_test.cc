@@ -40,6 +40,7 @@ class RepairTest : public DBTestBase {
 };
 
 TEST_F(RepairTest, LostManifest) {
+  do{
   // Add a couple SST files, delete the manifest, and verify RepairDB() saves
   // the day.
   Put("key", "val");
@@ -59,9 +60,11 @@ TEST_F(RepairTest, LostManifest) {
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, CorruptManifest) {
+  do{
   // Manifest is in an invalid format. Expect a full recovery.
   Put("key", "val");
   Flush();
@@ -80,9 +83,11 @@ TEST_F(RepairTest, CorruptManifest) {
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, IncompleteManifest) {
+  do{
   // In this case, the manifest is valid but does not reference all of the SST
   // files. Expect a full recovery.
   Put("key", "val");
@@ -106,9 +111,11 @@ TEST_F(RepairTest, IncompleteManifest) {
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, PostRepairSstFileNumbering) {
+  do{
   // Verify after a DB is repaired, new files will be assigned higher numbers
   // than old files.
   Put("key", "val");
@@ -123,9 +130,11 @@ TEST_F(RepairTest, PostRepairSstFileNumbering) {
   Reopen(CurrentOptions());
   uint64_t post_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
   ASSERT_GE(post_repair_file_num, pre_repair_file_num);
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, LostSst) {
+  do{
   // Delete one of the SST files but preserve the manifest that refers to it,
   // then verify the DB is still usable for the intact SST.
   Put("key", "val");
@@ -142,9 +151,11 @@ TEST_F(RepairTest, LostSst) {
 
   // Exactly one of the key-value pairs should be in the DB now.
   ASSERT_TRUE((Get("key") == "val") != (Get("key2") == "val2"));
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, CorruptSst) {
+  do{
   // Corrupt one of the SST files but preserve the manifest that refers to it,
   // then verify the DB is still usable for the intact SST.
   Put("key", "val");
@@ -161,9 +172,11 @@ TEST_F(RepairTest, CorruptSst) {
 
   // Exactly one of the key-value pairs should be in the DB now.
   ASSERT_TRUE((Get("key") == "val") != (Get("key2") == "val2"));
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, UnflushedSst) {
+  do{
   // This test case invokes repair while some data is unflushed, then verifies
   // that data is in the db.
   Put("key", "val");
@@ -189,6 +202,7 @@ TEST_F(RepairTest, UnflushedSst) {
   GetAllSSTFiles(&total_ssts_size);
   ASSERT_GT(total_ssts_size, 0);
   ASSERT_EQ(Get("key"), "val");
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, SeparateWalDir) {
@@ -226,6 +240,7 @@ TEST_F(RepairTest, SeparateWalDir) {
 }
 
 TEST_F(RepairTest, RepairMultipleColumnFamilies) {
+  do{
   // Verify repair logic associates SST files with their original column
   // families.
   const int kNumCfs = 3;
@@ -261,9 +276,11 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
       ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
     }
   }
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, RepairColumnFamilyOptions) {
+  do{
   // Verify repair logic uses correct ColumnFamilyOptions when repairing a
   // database with different options for column families.
   const int kNumCfs = 2;
@@ -325,9 +342,11 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
       ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
     }
   }
+  }while(ChangeIndirectOptions());
 }
 
 TEST_F(RepairTest, DbNameContainsTrailingSlash) {
+  do{
   {
     bool tmp;
     if (env_->AreFilesSame("", "", &tmp).IsNotSupported()) {
@@ -345,6 +364,7 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
   ASSERT_OK(RepairDB(dbname_ + "/", CurrentOptions()));
   Reopen(CurrentOptions());
   ASSERT_EQ(Get("key"), "val");
+  }while(ChangeIndirectOptions());
 }
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb

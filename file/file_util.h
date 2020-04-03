@@ -24,8 +24,14 @@ extern Status CreateFile(Env* env, const std::string& destination,
 
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
                            const std::string& fname,
-                           const std::string& path_to_sync, const bool force_bg,
+                           const std::string& path_to_sync,
+                           const bool force_bg,
                            const bool force_fg);
+
+extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
+                           const std::string& fname,
+                           const std::string& path_to_sync,
+                           const bool force_bg);
 
 extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
 

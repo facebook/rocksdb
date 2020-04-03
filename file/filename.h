@@ -39,7 +39,8 @@ enum FileType {
   kMetaDatabase,
   kIdentityFile,
   kOptionsFile,
-  kBlobFile
+  kBlobFile,
+  kVLogFile
 };
 
 // Return the name of the log file with the specified number
@@ -76,6 +77,13 @@ extern uint64_t TableFileNameToNumber(const std::string& name);
 // "dbname".
 extern std::string TableFileName(const std::vector<DbPath>& db_paths,
                                  uint64_t number, uint32_t path_id);
+
+// Return the name of the VLog file with the specified number
+// in the db named by "dbname".  The result will be prefixed with
+// "dbname".  cf_name is the name of the column family
+extern std::string VLogFileName(const std::vector<DbPath>& db_paths,
+                                uint64_t number, uint32_t path_id,
+                                const std::string cf_name);
 
 // Sufficient buffer size for FormatFileNumber.
 const size_t kFormatFileNumberBufSize = 38;

@@ -1423,11 +1423,14 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                       immutable_db_options_.avoid_unnecessary_blocking_io);
     internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
-    return internal_iter;
   } else {
     CleanupSuperVersion(super_version);
+    internal_iter = NewErrorInternalIterator<Slice>(s, arena);
   }
-  return NewErrorInternalIterator<Slice>(s, arena);
+  // Install the VLog object into the iterator so that resolving values can get
+  // to it
+  internal_iter->SetVlogForIteratorCF(cfd->vlog());
+  return internal_iter;
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
@@ -1512,7 +1515,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
   // Prepare to store a list of merge operations if merge occurs.
-  MergeContext merge_context;
+  // Get() processing needs access to the VLog for the column family.
+  // We provide that through the merge context
+  MergeContext merge_context(cfd);
   SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
@@ -1722,6 +1727,9 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
+      // to support indirect values, Get() must have access to the VLog.
+      // We pass this in through the MergeContext so as not to disturb interfaces
+      merge_context.SetCfd(cfh->cfd());
       super_version->current->Get(read_options, lkey, &pinnable_val, &s,
                                   &merge_context, &max_covering_tombstone_seq);
       value->assign(pinnable_val.data(), pinnable_val.size());
@@ -1924,6 +1932,9 @@ void DBImpl::MultiGetImpl(
       if (done) {
         range.MarkKeyDone(mget_iter);
       } else {
+        // to support indirect values, Get() must have access to the VLog.
+	// We pass this in through the MergeContext so as not to disturb interfaces
+        merge_context.SetCfd(cfh->cfd());
         RecordTick(stats_, MEMTABLE_MISS);
         lookup_current = true;
       }
@@ -2926,7 +2937,7 @@ Status DBImpl::DeleteFile(std::string name) {
       return Status::InvalidArgument("File in level 0, but not oldest");
     }
     edit.SetColumnFamily(cfd->GetID());
-    edit.DeleteFile(level, number);
+    edit.DeleteFile(level, metadata);
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
@@ -3514,7 +3525,9 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool* found_record_for_key,
                                        bool* is_blob_index) {
   Status s;
-  MergeContext merge_context;
+  // Get() processing needs access to the VLog for the column family.
+  // We provide that through the merge context
+  MergeContext merge_context(sv->current->cfd());
   SequenceNumber max_covering_tombstone_seq = 0;
 
   ReadOptions read_options;

@@ -44,6 +44,8 @@ class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
+class VLog;
+struct VLogRingRestartInfo;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -240,6 +242,8 @@ struct SuperVersion {
   // delete all those memtables outside of mutex, during destruction
   autovector<MemTable*> to_delete;
 };
+
+extern Status CheckRingCompressionSupported(const ColumnFamilyOptions& cf_options);
 
 extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 
@@ -497,6 +501,17 @@ class ColumnFamilyData {
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
 
+  std::shared_ptr<VLog> vlog() { return vlog_;}    // the VLog to be used for this column family.  May contain no rings
+  std::vector<VLogRingRestartInfo>& vloginfo() { return vlog_info; }
+  void CheckForActiveRecycle(std::vector<CompactionInputFiles>& compaction_inputs,  // result: the files to Active Recycle, if any, each on its own 'level'.  If no AR needed, empty
+     size_t& ringno,    // result: the ring number to be recycled, if any
+     VLogRingRefFileno& lastfileno,    // the last file# in the recycled region
+     const MutableCFOptions& compoptions   // options in effect for this compaction
+     );
+  std::vector<int32_t>& VLogRingActivationLevel() { return mutable_cf_options_.vlogring_activation_level; }
+  // For each level in the database, the minimum path number that can be used for that level.  2 bits per level, starting at the LSB
+
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -584,6 +599,24 @@ class ColumnFamilyData {
 
   // Directories corresponding to cf_paths.
   std::vector<std::unique_ptr<Directory>> data_dirs_;
+
+  // The VLog persists for the entire life of the database, starting with the creation of the ColumnFamilyData for a CF.
+  // The ColumnFamilyData for the default column is created and then assigned to default_cfd_cache_.  Apparently the
+  // original CFD object may then be destroyed.  This is catastrophic if the VLog was created in the scope of the original object,
+  // because it leaves default_cfd_cache_ holding a pointer to a deleted object.  To avoid this problem, we put the VLog
+  // under control of a shared_ptr, so that the default VLog will be deleted only when the final default_cfd_cache_ is freed.
+  std::shared_ptr<VLog> vlog_;   // the VLog to be used for this column family.  May contain 0 rings
+
+  // If there are VLogs, we keep an inventory of the VLogFiles that will be valid on a restart, and the total size and fragmentation associated with them.
+  // To allow us to decide when to Active Recycle, we remove a file from the fragmentation count when we are about to remove the file from the current version
+  // (it might not be deletable until references to it have been removed, but we want to take credit for the fragmentation reduction immediately so we don't
+  // try to recycle the same files again).  Once we have removed a file from the frag count we need to remove it from the valid-files list at the same time
+  // to make sure that we don't count the deletion twice (if we restart before the file is deleted).  So the frag/size refers only to files in the valid-file list;
+  // other files will be quietly deleted at startup.
+
+  // There is one stats structure for each ring.
+  std::vector<VLogRingRestartInfo> vlog_info;   // files and bytes added
+
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

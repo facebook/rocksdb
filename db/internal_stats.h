@@ -76,6 +76,35 @@ enum class LevelStatType {
   AVG_SEC,
   KEY_IN,
   KEY_DROP,
+  W_VLOG_GB,   // bytes written to VLog files
+  W_VLOGUNCOMP_GB,  // uncompressed bytes presented for writing to VLog files
+  W_VLOGREMAP_GB,  // bytes that were copied from the tail of the VLog to the head
+  W_VLOGFILES,   // number of VLog files created
+  TOTAL  // total number of types
+};
+
+enum class RingStatType {
+  INVALID = 0,
+  NUM_FILES,
+  SIZE_BYTES,
+  FRAGMENTATION,
+  NUM_VALUESREAD,
+  READALPHA,
+  READBETA,
+  COMPALPHA,
+  COMPBETA,
+  TOTAL  // total number of types
+};
+enum class VLogStatType {
+  INVALID = 0,
+  NUM_VALUESREAD,
+  AVGRDLEN,
+  READAVG,
+  READALPHA,
+  READBETA,
+  COMPAVG,
+  COMPALPHA,
+  COMPBETA,
   TOTAL  // total number of types
 };
 
@@ -89,6 +118,7 @@ struct LevelStat {
 class InternalStats {
  public:
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
+  static const std::map<RingStatType, LevelStat> compaction_ring_stats;
 
   enum InternalCFStatsType {
     L0_FILE_COUNT_LIMIT_SLOWDOWNS,
@@ -167,6 +197,15 @@ class InternalStats {
     // (num input entries - num output entires) for compaction  levels N and N+1
     uint64_t num_dropped_records;
 
+    // number of bytes written to VLog after compression
+    uint64_t vlog_bytes_written_comp;
+    // number of bytes written to VLog before compression
+    uint64_t vlog_bytes_written_raw;
+    // number of bytes moved from one VLog to another
+    uint64_t vlog_bytes_remapped;
+    // number of VLog files created
+    uint64_t vlog_files_created;
+
     // Number of compactions done
     int count;
 
@@ -185,6 +224,10 @@ class InternalStats {
           num_output_files(0),
           num_input_records(0),
           num_dropped_records(0),
+          vlog_bytes_written_comp(0),
+          vlog_bytes_written_raw(0),
+          vlog_bytes_remapped(0),
+          vlog_files_created(0),
           count(0) {
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
@@ -204,6 +247,10 @@ class InternalStats {
           num_output_files(0),
           num_input_records(0),
           num_dropped_records(0),
+          vlog_bytes_written_comp(0),
+          vlog_bytes_written_raw(0),
+          vlog_bytes_remapped(0),
+          vlog_files_created(0),
           count(c) {
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
@@ -230,6 +277,10 @@ class InternalStats {
           num_output_files(c.num_output_files),
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
+          vlog_bytes_written_comp(c.vlog_bytes_written_comp),
+          vlog_bytes_written_raw(c.vlog_bytes_written_raw),
+          vlog_bytes_remapped(c.vlog_bytes_remapped),
+          vlog_files_created(c.vlog_files_created),
           count(c.count) {
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
@@ -250,6 +301,10 @@ class InternalStats {
       num_output_files = c.num_output_files;
       num_input_records = c.num_input_records;
       num_dropped_records = c.num_dropped_records;
+      vlog_bytes_written_comp = c.vlog_bytes_written_comp;
+      vlog_bytes_written_raw = c.vlog_bytes_written_raw;
+      vlog_bytes_remapped = c.vlog_bytes_remapped;
+      vlog_files_created = c.vlog_files_created;
       count = c.count;
 
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
@@ -271,6 +326,10 @@ class InternalStats {
       this->num_output_files = 0;
       this->num_input_records = 0;
       this->num_dropped_records = 0;
+      this->vlog_bytes_written_comp = 0;
+      this->vlog_bytes_written_raw = 0;
+      this->vlog_bytes_remapped = 0;
+      this->vlog_files_created = 0;
       this->count = 0;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
@@ -292,6 +351,10 @@ class InternalStats {
       this->num_output_files += c.num_output_files;
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
+      this->vlog_bytes_written_comp += c.vlog_bytes_written_comp;
+      this->vlog_bytes_written_raw += c.vlog_bytes_written_raw;
+      this->vlog_bytes_remapped += c.vlog_bytes_remapped;
+      this->vlog_files_created += c.vlog_files_created;
       this->count += c.count;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i< num_of_reasons; i++) {
@@ -313,6 +376,10 @@ class InternalStats {
       this->num_output_files -= c.num_output_files;
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
+      this->vlog_bytes_written_comp -= c.vlog_bytes_written_comp;
+      this->vlog_bytes_written_raw -= c.vlog_bytes_written_raw;
+      this->vlog_bytes_remapped -= c.vlog_bytes_remapped;
+      this->vlog_files_created -= c.vlog_files_created;
       this->count -= c.count;
       int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
       for (int i = 0; i < num_of_reasons; i++) {
@@ -406,6 +473,9 @@ class InternalStats {
   void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
+  void DumpCFMapStatsRing(
+      std::map<int, std::map<RingStatType, double>>* level_stats,
+      std::map<VLogStatType, double> *vlog_stats);
   void DumpCFMapStatsByPriority(
       std::map<int, std::map<LevelStatType, double>>* priorities_stats);
   void DumpCFMapStatsIOStalls(std::map<std::string, std::string>* cf_stats);
@@ -518,6 +588,7 @@ class InternalStats {
   bool HandleNumFilesAtLevel(std::string* value, Slice suffix);
   bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
   bool HandleLevelStats(std::string* value, Slice suffix);
+  bool HandleVLogRingStats(std::string* value, Slice suffix);
   bool HandleStats(std::string* value, Slice suffix);
   bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats);
   bool HandleCFStats(std::string* value, Slice suffix);
@@ -640,6 +711,15 @@ class InternalStats {
     int num_output_files;
     uint64_t num_input_records;
     uint64_t num_dropped_records;
+    // number of bytes written to VLog after compression
+    uint64_t vlog_bytes_written_comp;
+    // number of bytes written to VLog before compression
+    uint64_t vlog_bytes_written_raw;
+    // number of bytes moved from one VLog to another
+    uint64_t vlog_bytes_remapped;
+    // number of VLog files created
+    uint64_t vlog_files_created;
+
     int count;
 
     explicit CompactionStats() {}

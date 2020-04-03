@@ -357,6 +357,32 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::vector<DbPath>)},
       {offset_of(&ColumnFamilyOptions::compaction_thread_limiter),
        sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
+      {offset_of(&ColumnFamilyOptions::vlogring_activation_level),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::min_indirect_val_size),
+       sizeof(std::vector<uint64_t>)},
+      {offset_of(&ColumnFamilyOptions::fraction_remapped_during_compaction),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::fraction_remapped_during_active_recycling),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::fragmentation_active_recycling_trigger),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::fragmentation_active_recycling_klaxon),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::active_recycling_sst_minct),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::active_recycling_sst_maxct),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::active_recycling_vlogfile_freed_min),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::active_recycling_size_trigger),
+       sizeof(std::vector<uint64_t>)},
+      {offset_of(&ColumnFamilyOptions::vlogfile_max_size),
+       sizeof(std::vector<uint64_t>)},
+      {offset_of(&ColumnFamilyOptions::compaction_picker_age_importance),
+       sizeof(std::vector<int32_t>)},
+      {offset_of(&ColumnFamilyOptions::ring_compression_style),
+       sizeof(std::vector<CompressionType>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -457,7 +483,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "periodic_compaction_seconds=3600;"
       "sample_for_compression=0;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;};",
+      "compaction=false;};"
+      "allow_trivial_move=false;"
+      "vlog_direct_IO=false;"
+      "compaction_score_limit_L0=1000.0;",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,

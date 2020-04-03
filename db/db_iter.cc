@@ -143,6 +143,7 @@ class DBIter final: public Iterator {
         range_del_agg_(&cf_options.internal_comparator, s),
         db_impl_(db_impl),
         cfd_(cfd),
+        resolved_indirect_vals(std::vector<std::shared_ptr<std::string>>(16)),
         start_seqnum_(read_options.iter_start_seqnum) {
     RecordTick(statistics_, NO_ITERATOR_CREATED);
     prefix_extractor_ = mutable_cf_options.prefix_extractor.get();
@@ -154,6 +155,8 @@ class DBIter final: public Iterator {
     if (iter_.iter()) {
       iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
     }
+    // init a capacity that will probably cover all needs
+    resolved_indirect_vals.reserve(16);
   }
   ~DBIter() override {
     // Release pinned data if any
@@ -174,6 +177,116 @@ class DBIter final: public Iterator {
     return &range_del_agg_;
   }
 
+  // When we move the iter_, call here to init for the new key
+  void NewKeyForIndirect() {
+    indirect_state = iter_.Valid() ?
+      (IsTypeIndirect(ExtractValueType(iter_.key())) ?
+        kISResolveNeeded :
+	kISResolveNotNeeded) :
+      kISNoKeySeen;
+    // we have a new key, so we must resolve it if it is indirect
+  }
+
+  // This replaces iter_.Next()
+  void CallIteratorNext() {
+    iter_.Next(); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+
+  // This replaces iter_.Prev()
+  void CallIteratorPrev() {
+    iter_.Prev(); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+
+  // This replaces iter_.Seek()
+  void CallIteratorSeek(std::string key) {
+    iter_.Seek(key); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+  void CallIteratorSeek(Slice key) {
+    iter_.Seek(key); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+
+  // This replaces iter_.SeekToFirst()
+  void CallIteratorSeekToFirst() {
+    iter_.SeekToFirst(); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+
+  // This replaces iter_.SeekToLast()
+  void CallIteratorSeekToLast() {
+    iter_.SeekToLast(); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+
+  // This replaces iter_.SeekForPrev()
+  void CallIteratorSeekForPrev(Slice key) {
+    iter_.SeekForPrev(key); NewKeyForIndirect();
+    // advance, and invalidate resolution buffer
+  }
+
+
+  // Call here to init when the user calls Next() or Prev() in this iterator,
+  // to get a new key/value
+  void ClearIndirectList() {
+    resolved_indirect_vals.clear();
+    // Since this starts a new merge, it's safe to forget previous values
+    // DO NOT tamper with indirect_state: the next key may have been read already
+  }
+
+  // This replaces iter_.iter()->IsValuePinned
+  // We could enhance this by observing that any indirect value is pinned (in
+  // the sense that it doesn't need to be copied to be used as a merge operand).
+  // But since pinned is wired to true for block-based tables, and those are the
+  // only tables for which indirect values are supported, there's not much gain in it.
+  bool IsResolvedValuePinned() {
+    return iter_.iter()->IsValuePinned();
+  }
+
+  // call this instead of iter_.value()
+  // This gets the next value from the iterator and uses the indirect_state to
+  // decide whether it needs resolution now, or was resolved already earlier, or
+  // doesn't need resolution at all
+  // const is a fraud, required by declaration of value()
+  Slice ResolvedValue() const {
+    // get the value corresponding to saved_key_
+    Slice val = (Slice) iter_.value();
+    // resolve the indirect value
+    assert(indirect_state!=kISNoKeySeen);
+    if(indirect_state != kISResolveNotNeeded){
+      // The key specifies an indirect type.  If we haven't resolved it already,
+      // do so now
+      if(indirect_state == kISResolveNeeded) {
+        // create a new string to hold the resolved value.  We keep all the
+        // values for a single result in separate strings, so that they are all
+        // available for merge.  The string is copied to the persistent name
+        // resolved_indirect_vals before it is filled.
+        //
+        // We have to cast names here to avoid compiler complaints about
+        // constness. Thus, this function violates the const declaration.
+        // Really, it's none of the user's business whether value() modifies
+        // the object, so this function should not be defined as const; but that
+        // would affect user code, so we don't change it
+        auto newstring = std::make_shared<std::string>();
+        // add a new empty string for upcoming read
+        (const_cast<std::vector<std::shared_ptr<std::string>>&>(
+          resolved_indirect_vals)).emplace_back(newstring);
+        // resolve the value in the new string.
+        // turn the reference into a value, in the string
+        iter_.iter()->GetVlogForIteratorCF()->VLogGet(
+          val,*(const_cast<std::vector<std::shared_ptr<std::string>>&>(
+            resolved_indirect_vals)).back().get());
+        // change state so we don't resolve again
+        const_cast<IndirectState&>(indirect_state) = kISResolved;
+      }
+      // In any case, the key is now the last string in the read buffers.
+      val = Slice(*resolved_indirect_vals.back());  // create a slice for the resolved value
+    }
+    return val;
+  }
+
   bool Valid() const override { return valid_; }
   Slice key() const override {
     assert(valid_);
@@ -185,14 +298,19 @@ class DBIter final: public Iterator {
   }
   Slice value() const override {
     assert(valid_);
+    // if this is a merge or Prev result, the value has already gone through
+    // resolution before it was moved into pinned_value_ or saved_value_
     if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
       return pinned_value_.data() ? pinned_value_ : saved_value_;
     } else if (direction_ == kReverse) {
       return pinned_value_;
+      // The saved result from the previous call to value()
     } else {
-      return iter_.value();
+      // here the value has not been precomputed - go get it from the iterator
+      // and resolve it
+      return ResolvedValue();
     }
   }
   Status status() const override {
@@ -347,6 +465,44 @@ class DBIter final: public Iterator {
   PinnedIteratorsManager pinned_iters_mgr_;
   DBImpl* db_impl_;
   ColumnFamilyData* cfd_;
+  // State machine for translating indirects
+  // When we first encounter a key, we note whether it needs resolving.  If so
+  // the next call to value() will translate it.  Subsequent calls for the same
+  // key will reuse the previous value
+  enum IndirectState : unsigned char {
+    kISNoKeySeen = 0x0,
+    kISResolveNeeded = 0x1,
+    kISResolved = 0x2,
+    kISResolveNotNeeded = 0x3
+  };
+  // this tells us what to do, based on the states above
+  IndirectState indirect_state;
+  // When we encounter an indirect value, we resolve it by reading it into a
+  // string in this object. That way, the string stays allocated for the
+  // lifetime of this iterator, i. e. it can be returned to the user in a
+  // pinnable slice.  NOTE that the string will be overwritten by the next key,
+  // so the user must save it before calling Next().  This is the same semantics
+  // as direct values, whose SSTs are guaranteed pinned only until Next().
+  //
+  // To handle Merges easily, we keep all the resolved merge records in separate
+  // strings.  That allows us to report any indirect value as 'pinned' (not in
+  // the pinned-slice sense, but in the sense that the value can be passed into
+  // the merge mill as a reference rather than with a copy).
+  //
+  // The seemingly natural way to do this is as a vector of strings.
+  // Unfortunately, when a vector of strings is resized, the strings are all
+  // copied - deep copied - and the addresses change; so that pointers to those
+  // strings, for example in the merge operands, will become invalid.  So, we
+  // need a vector of pointers.  To handle freeing the buffers, we need a vector
+  // of unique_ptrs.  But you can't have a vector of unique_ptrs, because
+  // resizing such a vector copies the contents, and unique_ptrs are uncopyable.
+  // So we have a vector of shared_ptrs, which is overkill.  If you can find a
+  // container that doesn't deep-copy its contents on a resize, use it.
+  //
+  // This container persists to the end of the iterator, at which time all the
+  // strings are freed.  It is initialized with a capacity of 16, which will
+  // probably be enough for any normal use.
+  std::vector<std::shared_ptr<std::string>> resolved_indirect_vals;
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
@@ -374,6 +530,7 @@ void DBIter::Next() {
 
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, env_);
   // Release temporarily pinned blocks from last operation
+  ClearIndirectList();  // Clear any indirect blocks read for previous search
   ReleaseTempPinnedData();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
@@ -390,8 +547,7 @@ void DBIter::Next() {
     // Next() without checking the current key.
     // If the current key is a merge, very likely iter already points
     // to the next internal position.
-    assert(iter_.Valid());
-    iter_.Next();
+    CallIteratorNext();
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
   }
 
@@ -462,6 +618,7 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
     if (!ParseKey(&ikey_)) {
       is_key_seqnum_zero_ = false;
       return false;
+      // If we want to keep processing:      CallIteratorNext(); continue;
     }
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
@@ -520,6 +677,7 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             }
             break;
+          case kTypeIndirectValue:
           case kTypeValue:
           case kTypeBlobIndex:
             if (start_seqnum_ > 0) {
@@ -572,6 +730,7 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
               }
             }
             break;
+          case kTypeIndirectMerge:
           case kTypeMerge:
             saved_key_.SetUserKey(
                 ikey_.user_key,
@@ -649,10 +808,10 @@ inline bool DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) 
                           ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
                                             kValueTypeForSeek));
       }
-      iter_.Seek(last_key);
+      CallIteratorSeek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {
-      iter_.Next();
+      CallIteratorNext();
     }
   } while (iter_.Valid());
 
@@ -679,12 +838,12 @@ bool DBIter::MergeValuesNewToOld() {
   merge_context_.Clear();
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(
-      iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+      ResolvedValue(), iter_.iter()->IsValuePinned() /* operand_pinned */);
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
   Status s;
-  for (iter_.Next(); iter_.Valid(); iter_.Next()) {
+  for (CallIteratorNext(); iter_.Valid(); CallIteratorNext()) {
     TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
       return false;
@@ -698,12 +857,12 @@ bool DBIter::MergeValuesNewToOld() {
                    ikey, RangeDelPositioningMode::kForwardTraversal)) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
-      iter_.Next();
+      CallIteratorNext();
       break;
-    } else if (kTypeValue == ikey.type) {
+    } else if (IsTypeValueNonBlob(ikey.type)) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
-      const Slice val = iter_.value();
+      const Slice val = ResolvedValue();
       s = MergeHelper::TimedFullMerge(
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
           &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
@@ -713,17 +872,17 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       // iter_ is positioned after put
-      iter_.Next();
+      CallIteratorNext();
       if (!iter_.status().ok()) {
         valid_ = false;
         return false;
       }
       return true;
-    } else if (kTypeMerge == ikey.type) {
+    } else if (IsTypeMerge(ikey.type)) {
       // hit a merge, add the value as an operand and run associative merge.
       // when complete, add result to operands and continue.
       merge_context_.PushOperand(
-          iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+          ResolvedValue(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
       if (!allow_blob_) {
@@ -768,6 +927,7 @@ bool DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
+  ClearIndirectList();  // Clear any indirect blocks read for previous search
 
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, env_);
   ReleaseTempPinnedData();
@@ -800,7 +960,7 @@ bool DBIter::ReverseToForward() {
     IterKey last_key;
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
-    iter_.Seek(last_key.GetInternalKey());
+    CallIteratorSeek(last_key.GetInternalKey());
   }
 
   direction_ = kForward;
@@ -813,7 +973,7 @@ bool DBIter::ReverseToForward() {
     if (user_comparator_.Compare(ikey.user_key, saved_key_.GetUserKey()) >= 0) {
       return true;
     }
-    iter_.Next();
+    CallIteratorNext();
   }
 
   if (!iter_.status().ok()) {
@@ -841,15 +1001,16 @@ bool DBIter::ReverseToBackward() {
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
     if (prefix_extractor_ != nullptr && !total_order_seek_) {
-      iter_.SeekForPrev(last_key.GetInternalKey());
+      CallIteratorSeekForPrev(last_key.GetInternalKey());
+      (last_key.GetInternalKey());
     } else {
       // Some iterators may not support SeekForPrev(), so we avoid using it
       // when prefix seek mode is disabled. This is somewhat expensive
       // (an extra Prev(), as well as an extra change of direction of iter_),
       // so we may need to reconsider it later.
-      iter_.Seek(last_key.GetInternalKey());
+      CallIteratorSeek(last_key.GetInternalKey());
       if (!iter_.Valid() && iter_.status().ok()) {
-        iter_.SeekToLast();
+        CallIteratorSeekToLast();
       }
     }
   }
@@ -954,6 +1115,7 @@ bool DBIter::FindValueForCurrentKey() {
 
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
+      case kTypeIndirectValue:
       case kTypeValue:
       case kTypeBlobIndex:
         if (range_del_agg_.ShouldDelete(
@@ -962,7 +1124,7 @@ bool DBIter::FindValueForCurrentKey() {
           PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         } else {
           assert(iter_.iter()->IsValuePinned());
-          pinned_value_ = iter_.value();
+          pinned_value_ = ResolvedValue();
         }
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
@@ -973,6 +1135,7 @@ bool DBIter::FindValueForCurrentKey() {
         last_not_merge_type = last_key_entry_type;
         PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         break;
+      case kTypeIndirectMerge:
       case kTypeMerge:
         if (range_del_agg_.ShouldDelete(
                 ikey, RangeDelPositioningMode::kBackwardTraversal)) {
@@ -983,7 +1146,7 @@ bool DBIter::FindValueForCurrentKey() {
         } else {
           assert(merge_operator_ != nullptr);
           merge_context_.PushOperandBack(
-              iter_.value(),
+              ResolvedValue(),
               iter_.iter()->IsValuePinned() /* operand_pinned */);
           PERF_COUNTER_ADD(internal_merge_count, 1);
         }
@@ -993,7 +1156,7 @@ bool DBIter::FindValueForCurrentKey() {
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-    iter_.Prev();
+    CallIteratorPrev();
     ++num_skipped;
   }
 
@@ -1010,11 +1173,10 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeRangeDeletion:
       valid_ = false;
       return true;
+    case kTypeIndirectMerge:
     case kTypeMerge:
       current_entry_is_merged_ = true;
-      if (last_not_merge_type == kTypeDeletion ||
-          last_not_merge_type == kTypeSingleDeletion ||
-          last_not_merge_type == kTypeRangeDeletion) {
+      if (IsTypeDelete(last_not_merge_type)) {
         s = MergeHelper::TimedFullMerge(
             merge_operator_, saved_key_.GetUserKey(), nullptr,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
@@ -1032,13 +1194,14 @@ bool DBIter::FindValueForCurrentKey() {
         valid_ = false;
         return false;
       } else {
-        assert(last_not_merge_type == kTypeValue);
+        assert(IsTypeValueNonBlob(last_not_merge_type));
         s = MergeHelper::TimedFullMerge(
             merge_operator_, saved_key_.GetUserKey(), &pinned_value_,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
             env_, &pinned_value_, true);
       }
       break;
+    case kTypeIndirectValue:
     case kTypeValue:
       // do nothing - we've already has value in pinned_value_
       break;
@@ -1077,7 +1240,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   std::string last_key;
   AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
                                                  sequence_, kValueTypeForSeek));
-  iter_.Seek(last_key);
+  CallIteratorSeek(last_key);
   RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
 
   // In case read_callback presents, the value we seek to may not be visible.
@@ -1104,7 +1267,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       break;
     }
 
-    iter_.Next();
+    CallIteratorNext();
   }
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
@@ -1121,22 +1284,22 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return false;
   }
-  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
+  if (IsTypeValue(ikey.type)) {
     assert(iter_.iter()->IsValuePinned());
-    pinned_value_ = iter_.value();
+    pinned_value_ = ResolvedValue();
     valid_ = true;
     return true;
   }
 
   // kTypeMerge. We need to collect all kTypeMerge values and save them
   // in operands
-  assert(ikey.type == kTypeMerge);
+  assert(IsTypeMerge(ikey.type));
   current_entry_is_merged_ = true;
   merge_context_.Clear();
   merge_context_.PushOperand(
-      iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+      ResolvedValue(), iter_.iter()->IsValuePinned() /* operand_pinned */);
   while (true) {
-    iter_.Next();
+    CallIteratorNext();
 
     if (!iter_.Valid()) {
       if (!iter_.status().ok()) {
@@ -1156,8 +1319,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         range_del_agg_.ShouldDelete(
             ikey, RangeDelPositioningMode::kForwardTraversal)) {
       break;
-    } else if (ikey.type == kTypeValue) {
-      const Slice val = iter_.value();
+    } else if (IsTypeValue(ikey.type)) {
+      const Slice val = ResolvedValue();
       Status s = MergeHelper::TimedFullMerge(
           merge_operator_, saved_key_.GetUserKey(), &val,
           merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
@@ -1169,9 +1332,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       }
       valid_ = true;
       return true;
-    } else if (ikey.type == kTypeMerge) {
+    } else if (IsTypeMerge(ikey.type)) {
       merge_context_.PushOperand(
-          iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+          ResolvedValue(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (ikey.type == kTypeBlobIndex) {
       if (!allow_blob_) {
@@ -1205,11 +1368,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // seeked to the current key.
   if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_.Valid()) {
     if (prefix_extractor_ != nullptr && !total_order_seek_) {
-      iter_.SeekForPrev(last_key);
+      CallIteratorSeekForPrev(last_key);
     } else {
-      iter_.Seek(last_key);
+      CallIteratorSeek(last_key);
       if (!iter_.Valid() && iter_.status().ok()) {
-        iter_.SeekToLast();
+        CallIteratorSeekToLast();
       }
     }
     RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
@@ -1252,7 +1415,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
           saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
       // It would be more efficient to use SeekForPrev() here, but some
       // iterators may not support it.
-      iter_.Seek(last_key.GetInternalKey());
+      CallIteratorSeek(last_key.GetInternalKey());
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       if (!iter_.Valid()) {
         break;
@@ -1261,7 +1424,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       ++num_skipped;
     }
 
-    iter_.Prev();
+    CallIteratorPrev();
   }
 
   if (!iter_.status().ok()) {
@@ -1319,7 +1482,7 @@ void DBIter::Seek(const Slice& target) {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.Seek(saved_key_.GetInternalKey());
+    CallIteratorSeek(saved_key_.GetInternalKey());
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
   RecordTick(statistics_, NUMBER_DB_SEEK);
@@ -1372,7 +1535,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekForPrev(saved_key_.GetInternalKey());
+    CallIteratorSeekForPrev(saved_key_.GetInternalKey());
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
@@ -1429,7 +1592,7 @@ void DBIter::SeekToFirst() {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekToFirst();
+    CallIteratorSeekToFirst();
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
@@ -1482,7 +1645,7 @@ void DBIter::SeekToLast() {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_.SeekToLast();
+    CallIteratorSeekToLast();
     range_del_agg_.InvalidateRangeDelMapPositions();
   }
   PrevInternal();

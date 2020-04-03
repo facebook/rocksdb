@@ -57,6 +57,7 @@
 #include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "db/value_log_iterator.h"
 
 namespace rocksdb {
 
@@ -84,6 +85,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ManualCompaction";
     case CompactionReason::kFilesMarkedForCompaction:
       return "FilesMarkedForCompaction";
+    case CompactionReason::kActiveRecycling:
+      return "ActiveRecycling";
     case CompactionReason::kBottommostFiles:
       return "BottommostFiles";
     case CompactionReason::kTtl:
@@ -154,7 +157,8 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
-
+  // file numbers written
+  std::vector<VLogRingRestartInfo> vlog_additions;
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
       : compaction(c),
@@ -192,6 +196,7 @@ struct CompactionJob::SubcompactionState {
     grandparent_index = std::move(o.grandparent_index);
     overlapped_bytes = std::move(o.overlapped_bytes);
     seen_key = std::move(o.seen_key);
+    vlog_additions = std::move(o.vlog_additions);
     return *this;
   }
 
@@ -247,6 +252,15 @@ struct CompactionJob::CompactionState {
   uint64_t num_input_records;
   uint64_t num_output_records;
 
+  // number of bytes written to VLog after compression
+  uint64_t vlog_bytes_written_comp;
+  // number of bytes written to VLog before compression
+  uint64_t vlog_bytes_written_raw;
+  // number of bytes moved from one VLog to another
+  uint64_t vlog_bytes_remapped;
+  // number of VLog files created
+  uint64_t vlog_files_created;
+
   explicit CompactionState(Compaction* c)
       : compaction(c),
         total_bytes(0),
@@ -285,6 +299,9 @@ struct CompactionJob::CompactionState {
   }
 };
 
+// Collect the statistics from the subcompactions and put them into the
+// compaction totals if there is a compaction_job_stats_ block,
+// add them in there too
 void CompactionJob::AggregateStatistics() {
   for (SubcompactionState& sc : compact_->sub_compact_states) {
     compact_->total_bytes += sc.total_bytes;
@@ -743,13 +760,16 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
         stats.bytes_written / static_cast<double>(stats.micros);
   }
 
+#define VLOG_STATSF  "VLog writes (MB): %.1f (out), %.1f (new), %.1f (copy), %d files \n"
+#define VLOG_STATSD  ,stats.vlog_bytes_written_comp / 1048576.0, stats.vlog_bytes_written_raw / 1048576.0, stats.vlog_bytes_remapped / 1048576.0, stats.vlog_files_created
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %" PRIu64
-      ", records dropped: %" PRIu64 " output_compression: %s\n",
+      ", records dropped: %" PRIu64 " output_compression: %s\n" VLOG_STATSF,
       cfd->GetName().c_str(), vstorage->LevelSummary(&tmp), bytes_read_per_sec,
       bytes_written_per_sec, compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
@@ -760,7 +780,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       status.ToString().c_str(), stats.num_input_records,
       stats.num_dropped_records,
       CompressionTypeToString(compact_->compaction->output_compression())
-          .c_str());
+          .c_str() VLOG_STATSD);
 
   UpdateCompactionJobStats(stats);
 
@@ -811,37 +831,31 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 
-  // Create compaction filter and fail the compaction if
-  // IgnoreSnapshots() = false because it is not supported anymore
-  const CompactionFilter* compaction_filter =
-      cfd->ioptions()->compaction_filter;
-  std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
-  if (compaction_filter == nullptr) {
-    compaction_filter_from_factory =
-        sub_compact->compaction->CreateCompactionFilter();
-    compaction_filter = compaction_filter_from_factory.get();
+  std::unique_ptr<CompactionRangeDelAggregator> range_del_agg;
+  std::unique_ptr<InternalIterator> input;
+  if(const_cast<Compaction*>(sub_compact->compaction)->compaction_reason() !=
+     CompactionReason::kActiveRecycling) {
+    // normal case, using the merging iterator
+    range_del_agg.reset(new CompactionRangeDelAggregator(
+                          &cfd->internal_comparator(),
+			  existing_snapshots_));
+    input.reset(versions_->MakeInputIterator(sub_compact->compaction,
+			    range_del_agg.get(),
+			    env_options_for_read_));
+  } else {
+    // Active Recycling, using the RecyclingIterator
+    // leave range_del_agg null, since we don't need it
+    input.reset(new RecyclingIterator(
+                  const_cast<Compaction*>(sub_compact->compaction),
+                  env_options_for_read_));
   }
-  if (compaction_filter != nullptr && !compaction_filter->IgnoreSnapshots()) {
-    sub_compact->status = Status::NotSupported(
-        "CompactionFilter::IgnoreSnapshots() = false is not supported "
-        "anymore.");
-    return;
-  }
-
-  CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
-                                             existing_snapshots_);
-
-  // Although the v2 aggregator is what the level iterator(s) know about,
-  // the AddTombstones calls will be propagated down to the v1 aggregator.
-  std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, &range_del_agg, env_options_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
 
   // I/O measurement variables
   PerfLevel prev_perf_level = PerfLevel::kEnableTime;
-  const uint64_t kRecordStatsEvery = 1000;
+  //const uint64_t kRecordStatsEvery = 1000;
   uint64_t prev_write_nanos = 0;
   uint64_t prev_fsync_nanos = 0;
   uint64_t prev_range_sync_nanos = 0;
@@ -859,6 +873,25 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
 
+  // Create compaction filter and fail the compaction if
+  // IgnoreSnapshots() = false because it is not supported anymore
+  const CompactionFilter* compaction_filter =
+      cfd->ioptions()->compaction_filter;
+  std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
+  if (compaction_filter == nullptr) {
+    compaction_filter_from_factory =
+        sub_compact->compaction->CreateCompactionFilter();
+    compaction_filter = compaction_filter_from_factory.get();
+  }
+  if (compaction_filter != nullptr && !compaction_filter->IgnoreSnapshots()) {
+    sub_compact->status = Status::NotSupported(
+        "CompactionFilter::IgnoreSnapshots() = false is not supported "
+        "anymore.");
+    return;
+  }
+
+  // really ought to make merge a pointer rather than a reference since it is
+  // not needed by Active Recycling
   MergeHelper merge(
       env_, cfd->user_comparator(), cfd->ioptions()->merge_operator,
       compaction_filter, db_options_.info_log.get(),
@@ -884,13 +917,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
-      &range_del_agg, sub_compact->compaction, compaction_filter,
+      range_del_agg.get(), sub_compact->compaction, compaction_filter,
       shutting_down_, preserve_deletes_seqnum_,
       // Currently range_del_agg is incompatible with snapshot refresh feature.
-      range_del_agg.IsEmpty() ? snap_list_callback_ : nullptr));
+      range_del_agg&&range_del_agg->IsEmpty() ? snap_list_callback_ : nullptr));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
-  if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
+  if (c_iter->Valid() && sub_compact->compaction->output_level() != 0 &&
+      sub_compact->compaction->compaction_reason() != CompactionReason::kActiveRecycling) {
     // ShouldStopBefore() maintains state based on keys processed so far. The
     // compaction loop always calls it on the "next" key, thus won't tell it the
     // first key. So we do that here.
@@ -898,17 +932,47 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
+  // Use the name value_iter to access the input values.  If we are producing
+  // indirect values, the values will come from the IndirectIterator; if not,
+  // they will come from the original c_iter.
+  // The IndirectIterator will do all mapping/remapping and will return the new
+  // key/values one by one.
+  // The constructor called here immediately reads all the values from c_iter,
+  // buffers them, and writes values to the Value Log. Then in the loop it
+  // returns the references to the values that were written.  Errors
+  // encountered during c_iter are preserved and associated with the failing
+  // keys. If there is no VLog it means this table type doesn't support
+  // indirects, and the iterator will be a passthrough
+  std::unique_ptr<IndirectIterator> value_iter(new IndirectIterator(
+    c_iter,cfd,sub_compact->compaction,end,
+    cfd->vlog()!=nullptr && cfd->vlog()->rings().size()!=0,
+    // For Active Recycling we pass a pointer to the RecyclingIterator, so the
+    // IndirectIterator can query it directly about end-of-file
+    sub_compact->compaction->compaction_reason() ==
+      CompactionReason::kActiveRecycling ? (RecyclingIterator*)input.get() : nullptr,
+    job_id_,paranoid_file_checks_));  // keep iterator around till end of function
+  // initial status indicates errors writing VLog files
+  status = value_iter->status();
+  // For Active Recycling, we need to keep track of which input file's keys we
+  // are working on so that when we create the corresponding output file we
+  // mark it at the correct level.  If we are not AR, we will just use the output_level
+  int arfileno = 0;
+#if DEBLEVEL&512
+  std::vector<uint64_t> our_ref0;  // vector of file-refs
+  our_ref0.push_back(~0);
+#endif
 
-  while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
-    // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
+  while (status.ok() && !cfd->IsDropped() && value_iter->Valid()) {
+    // Invariant: value_iter.status() is guaranteed to be OK if value_iter->Valid()
     // returns true.
-    const Slice& key = c_iter->key();
-    const Slice& value = c_iter->value();
+    Slice& key = (Slice&) value_iter->key();
+    Slice& value = (Slice&) value_iter->value();
 
+    /*
     // If an end key (exclusive) is specified, check if the current key is
     // >= than it and exit if it is because the iterator is out of its range
     if (end != nullptr &&
-        cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
+        cfd->user_comparator()->Compare(value_iter->user_key(), *end) >= 0) {
       break;
     }
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
@@ -917,6 +981,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       c_iter->ResetRecordCounts();
       RecordCompactionIOStats();
     }
+    */
 
     // Open output file if necessary
     if (sub_compact->builder == nullptr) {
@@ -928,10 +993,23 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     assert(sub_compact->builder != nullptr);
     assert(sub_compact->current_output() != nullptr);
     sub_compact->builder->Add(key, value);
+#if DEBLEVEL&512
+    VLogRingRef ref(value.data());   // analyze the reference
+    if (ref.Fileno()<our_ref0[ref.Ringno()]) {
+      our_ref0[ref.Ringno()] = ref.Fileno();
+    }
+#endif
     sub_compact->current_output_file_size = sub_compact->builder->FileSize();
     sub_compact->current_output()->meta.UpdateBoundaries(
-        key, c_iter->ikey().sequence);
+        key, value_iter->ikey().sequence);
     sub_compact->num_output_records++;
+
+    // If we are Active Recycling, we close exactly when the input file runs
+    // out of records.  The override code indicates this:
+    // 0=no override, proceed normally, closing based on size;
+    // 1=override, close now;
+    // -1=override, don't close
+    int overrideclose = value_iter->OverrideClose();
 
     // Close output file if it is big enough. Two possibilities determine it's
     // time to close it: (1) the current key should be this file's last key, (2)
@@ -941,20 +1019,29 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // during subcompactions (i.e. if output size, estimated by input size, is
     // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
     // and 0.6MB instead of 1MB and 0.2MB)
+    // We want to enforce the size limit on SSTs for files at levels > 0.
+    // If we are compacting into L0, we have gotten behind and there is nothing
+    // to be gained from splitting the file since we are going to be compacting
+    // all the L0 files into L1 at once anyway.  However, if we are doing AR on
+    // level 0, which is just barely possible, we need to preserve the SST
+    // input sizes.  So we have included the level-0 logic in the calculation
+    // of overrideclose, and we can give that priority over output_level.
+    // output_level and the length are used only when value logging is not used.
     bool output_file_ended = false;
     Status input_status;
-    if (sub_compact->compaction->output_level() != 0 &&
+    if (overrideclose>0 || (!overrideclose &&
+        sub_compact->compaction->output_level() != 0 &&
         sub_compact->current_output_file_size >=
-            sub_compact->compaction->max_output_file_size()) {
+            sub_compact->compaction->max_output_file_size())) {
       // (1) this key terminates the file. For historical reasons, the iterator
       // status before advancing will be given to FinishCompactionOutputFile().
       input_status = input->status();
       output_file_ended = true;
     }
-    c_iter->Next();
-    if (!output_file_ended && c_iter->Valid() &&
+    value_iter->Next();
+    if (!overrideclose && !output_file_ended && value_iter->Valid() &&
         sub_compact->compaction->output_level() != 0 &&
-        sub_compact->ShouldStopBefore(c_iter->key(),
+        sub_compact->ShouldStopBefore(value_iter->key(),
                                       sub_compact->current_output_file_size) &&
         sub_compact->builder != nullptr) {
       // (2) this key belongs to the next file. For historical reasons, the
@@ -965,12 +1052,33 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
     if (output_file_ended) {
       const Slice* next_key = nullptr;
-      if (c_iter->Valid()) {
-        next_key = &c_iter->key();
+      if (value_iter->Valid()) {
+        next_key = &value_iter->key();
       }
+      // Install the earliest-file-refs that were encountered for the file being closed, and reset that value for the next file
+      std::vector<uint64_t> ref0;  // vector of file-refs
+      // pick up refs that apply to this file
+      value_iter->ref0(ref0,false /* include_last */);
+#if DEBLEVEL&512
+      if (our_ref0[0]!=ref0[0]) {
+        printf("Mismatched ref0\n");
+      }
+      our_ref0[0]=~0;  // reset for next time
+#endif
+      // Put the output level into the FileMetaData so that we keep track of
+      // what level each file is on.
+      // That level is the output level EXCEPT when we are doing Active
+      // Recycling, in which case it comes from the corresponding input level
+      sub_compact->current_output()->meta.InstallRef0(
+        sub_compact->compaction->compaction_reason() ==
+	  CompactionReason::kActiveRecycling ?
+	  (*(const_cast<Compaction*>(sub_compact->compaction))->inputs())[arfileno].level
+	    : sub_compact->compaction->output_level(),
+         ref0,cfd);
+      ++arfileno;   // increment the file number now that we have output the file
       CompactionIterationStats range_del_out_stats;
       status =
-          FinishCompactionOutputFile(input_status, sub_compact, &range_del_agg,
+          FinishCompactionOutputFile(input_status, sub_compact, range_del_agg.get(),
                                      &range_del_out_stats, next_key);
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
@@ -1008,11 +1116,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status = input->status();
   }
   if (status.ok()) {
-    status = c_iter->status();
+    status = value_iter->status();
   }
 
   if (status.ok() && sub_compact->builder == nullptr &&
-      sub_compact->outputs.size() == 0 && !range_del_agg.IsEmpty()) {
+      range_del_agg!=nullptr &&
+      sub_compact->outputs.size() == 0 && !range_del_agg->IsEmpty()) {
     // handle subcompaction containing only range deletions
     status = OpenCompactionOutputFile(sub_compact);
   }
@@ -1020,8 +1129,23 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // Call FinishCompactionOutputFile() even if status is not ok: it needs to
   // close the output file.
   if (sub_compact->builder != nullptr) {
+    // if AR, we must have matched the keys exactly
+    assert(sub_compact->compaction->compaction_reason() != CompactionReason::kActiveRecycling);
+    // Install the earliest-file-refs that were encountered for the file being
+    // closed, and reset that value for the next file
+    std::vector<uint64_t> ref0;  // vector of file-refs
+    // true to pick up the very last key, which will not have been included
+    // in the file because we didn't know the file was ending
+    value_iter->ref0(ref0, true /* include_last */);
+#if DEBLEVEL&512
+    if (our_ref0[0]!=ref0[0]) {
+      printf("Mismatched ref0\n");
+    }
+    our_ref0[0]=~0;  // reset for next time
+#endif
+    sub_compact->current_output()->meta.InstallRef0(sub_compact->compaction->output_level(),ref0,cfd);
     CompactionIterationStats range_del_out_stats;
-    Status s = FinishCompactionOutputFile(status, sub_compact, &range_del_agg,
+    Status s = FinishCompactionOutputFile(status, sub_compact, range_del_agg.get(),
                                           &range_del_out_stats);
     if (status.ok()) {
       status = s;
@@ -1050,6 +1174,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 
+  // Now that we have processed all the I/O, collect the VLog-related changes
+  // for the subcompaction.
+  // We will later merge the subcomps and put the aggregate into the edit.
+  value_iter->getedit(sub_compact->vlog_additions,
+                      sub_compact->compaction_job_stats.vlog_bytes_written_comp,
+                      sub_compact->compaction_job_stats.vlog_bytes_written_raw,
+                      sub_compact->compaction_job_stats.vlog_bytes_remapped,
+                      sub_compact->compaction_job_stats.vlog_files_created);
   sub_compact->c_iter.reset();
   input.reset();
   sub_compact->status = status;
@@ -1114,7 +1246,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   Status s = input_status;
   auto meta = &sub_compact->current_output()->meta;
   assert(meta != nullptr);
-  if (s.ok()) {
+  if (s.ok() && range_del_agg!=nullptr) {
     Slice lower_bound_guard, upper_bound_guard;
     std::string smallest_user_key;
     const Slice *lower_bound, *upper_bound;
@@ -1343,7 +1475,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      job_id_, output_fd, tp, TableFileCreationReason::kCompaction, s);
+      job_id_, output_fd, tp, TableFileCreationReason::kCompaction, s,
+      meta?&meta->indirect_ref_0:nullptr); // lowest ref in each ring
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
@@ -1398,11 +1531,239 @@ Status CompactionJob::InstallCompactionResults(
   // Add compaction inputs
   compaction->AddInputDeletions(compact_->compaction->edit());
 
+#ifndef NDEBUG // to support test hooks
+  uint64_t comptotal_stats[4]={0,0,0,0};
+  // number of bytes written to VLog before compression
+  // number of bytes moved from one VLog to another
+  // number of VLog files created
+#endif
+
   for (const auto& sub_compact : compact_->sub_compact_states) {
+    // Collect the files written by subcompactions into a single set
+    Coalesce(compaction->edit()->VLogAdditions(),
+             sub_compact.vlog_additions,true /* allow_delete */);
+    // other stats are collected by Add()
+#ifndef NDEBUG  // to support test hooks
+    comptotal_stats[0]+=sub_compact.compaction_job_stats.vlog_bytes_written_comp;
+    comptotal_stats[1]+=sub_compact.compaction_job_stats.vlog_bytes_written_raw;
+    comptotal_stats[2]+=sub_compact.compaction_job_stats.vlog_bytes_remapped;
+    comptotal_stats[3]+=sub_compact.compaction_job_stats.vlog_files_created;
+#endif
+    // For files that are not at the last level, we must assign a ring position
+    // that we can use for picking compactions, giving priority to compactions
+    // that will free up files in the tail.  The ring position is the minimum
+    // file number of the last-level files that overlap the key-range of the new
+    // file.  We assign the number based on the last-level files, not the parent
+    // files, because ultimately the last-level files are the ones that need to
+    // be freed.  The 'last level' is the last level within the ring that the
+    // new outputs are to be compacted into thus if we are compacting into the
+    // last level of ring n, the file number will be with respect to the last
+    // level of ring n+1.
+    //
+    // Files that come out of Active Recycling simply keep their ring position,
+    // since nothing has happened to change the files that would be compacted
+    // if they were picked.  We make no effort to update the ring position in
+    // files in lower levels.  Such files will thus be compacted a little early,
+    // but in practice this won't happen much because the files selected for
+    // Active Recycling are precisely those files that do not have files in
+    // lower levels overlapping with them (if they did, they would have been
+    // selected for a compaction rather than an AR).
+    // For Active Recycling, copy the references from the input to the output
+    if(compaction->compaction_reason() == CompactionReason::kActiveRecycling) {
+      for (uint32_t i = 0;i<sub_compact.outputs.size();++i)
+        const_cast<SubcompactionState&>(sub_compact).outputs[i].meta.avgparentfileno =
+          (*compaction->inputs())[i].files[0]->avgparentfileno;
+    } else {
+      // Normal compaction.  Find the last level in the ring the new outputs
+      // will be compacted into.
+      int outlevel;
+
+      VLog *vlog = compaction->column_family_data()->vlog().get();
+      if(vlog!=nullptr) {  // if this CF supports VLogs...
+        // ring# the output goes into
+        int outringno =
+          vlog->VLogRingNoForLevelOutput(compaction->output_level()+1);
+        if(outringno>=0) {  // if there are rings...
+	  // get last level for output ring
+          outlevel = outringno >= int64_t(vlog->rings().size())-1 ?
+            compaction->column_family_data()->current()->storage_info()->num_levels()-1
+	    : compaction->column_family_data()->vlog()->starting_level_for_ring(outringno+1)-1;
+          for(;outlevel>compaction->output_level();--outlevel) {
+            if(compaction->column_family_data()->current()
+                 ->storage_info()->NumLevelFiles(outlevel)!=0) {
+              break;
+            }
+          }
+          // now outlevel is the last level in the output ring that has files.
+          // If that's not below the new files, there's nothing to look at.
+          // If outlevel is far below the compaction result, there will be
+          // many files - perhaps the entire database - in the region of
+          // overlap. And the hint is not needed so much, because the chance
+          // is high that a file a couple of levels above the bottom will have
+          // been compacted naturally before it gets close to the tail of the
+          // ring.  But what's the bottom?  If the last level is sparsely
+          // filled, the real action is in the next-to-bottom level.
+          // So, we don't bother with calculating avg file hints for files
+          // that are 3 or more levels away from the last level in the ring
+          // (scaf should look at the fanout of the level sizes to make this
+          // decision); but we look in up to 2 levels below the output level
+          // to find VLog files depending on the keys in this file.  This is
+          // expensive but it's an important decision.
+          // scaf i  ssue: if the last level is sparsely filled, shouldn't we
+          // be allowing trivial moves to populate it?
+          // First, install a default avgparent in case we don't calculate one
+          // below.  There are two possibilities: (1) the new file is far
+          // enough from the bottom level of its ring that we don't bother
+          // calculating an average parent.  In this case the file will be
+          // pushed out of its ring by normal key action, and the only use for
+          // avgparentno is to prevent it from stagnating at the same level if
+          // by chance it keys never come along.  Any reasonable avg value
+          // will do;
+          // (2) the new file calculates an avgparentno, but there are no
+          // overlapping files in the levels below.  This breaks into 2 cases:
+          // (2a) the output ring is the same ring as the file.  In that case,
+          // we use the ref_0 of the file itself, so that it will be moved
+          // along when it gets old enough; (2b) the output ring in not the
+          // ring of the file.  The ref_0 of the file is not germane, because
+          // it is not in the same ring as the parents.  We assign a parentno
+          // near the end of the output ring.  As in case 1, normal key action
+          // will probably compact the file before its number comes around,
+          // but just in case its keys aren't called, we would like to compact
+          // it to prevent it from stagnating in a level above the bottom, and
+          // before it requires Active Recycling to claim it.
+          //
+          // Rather than installing the ref_0 of the file, we use a value of 0
+          // as a proxy, so that if the file is recycled we will not keep the
+          // old ref_0 indefinitely (which would lead to premature compaction
+          // of the file)
+          VLogRingRefFileno case2bno = vlog->rings()[outringno]->nearhead();
+          for(uint32_t curroutx = 0; curroutx<sub_compact.outputs.size();++curroutx) {
+            // default as described above: ref from file if any, otherwise near
+	    // end of output ring
+            const_cast<SubcompactionState&>(sub_compact).outputs[curroutx].meta.avgparentfileno =
+              (uint32_t)outringno < sub_compact.outputs[curroutx].meta.indirect_ref_0.size() &&
+	      sub_compact.outputs[curroutx].meta.indirect_ref_0[outringno]
+                ? sub_compact.outputs[curroutx].meta.indirect_ref_0[outringno] : case2bno;
+          }
+          // For levels close to the bottom of the ring, calculate overlaps
+          if(compaction->output_level()>0 &&
+             compaction->output_level()<outlevel &&
+             compaction->output_level()>outlevel-3) {
+            // if the new output files are not already in the last populated
+	    // level, and we need the hint...
+            // *ref_files is the files in the ref level.
+	    // pointers to the files for each level we are
+            std::vector<std::vector<FileMetaData*>> overlapping_files;
+
+            // For each level we are checking, binary search to find the files
+	    // in the ref level(s) that overlap the outputs.  We know the output
+	    // files are in key order
+            for(int checklevel = compaction->output_level()+1;
+                checklevel<=outlevel;++checklevel) {
+	      // create place to store the overlaps
+              overlapping_files.push_back(std::vector<FileMetaData*>());
+              // if no files output, don't look for overlaps
+              if (const_cast<SubcompactionState&>(sub_compact).outputs.size()) {
+                // sets overlapping_files to the overlaps, in order
+                compaction->column_family_data()->current()->storage_info()
+                  ->GetOverlappingInputsRangeBinarySearch(
+                    checklevel,
+                    &const_cast<SubcompactionState&>(sub_compact).outputs.front().meta.smallest,
+                    &const_cast<SubcompactionState&>(sub_compact).outputs.back().meta.largest,
+                    &overlapping_files.back(),
+                    -1 /* no hint */,
+                    nullptr /* place to return found index */,
+                    false /* 'look for overlapping files' */);
+              }
+            }
+
+	    // the comparator for this CF
+            const Comparator* user_cmp = compaction->column_family_data()->user_comparator();
+
+            // Traverse the files, accumulating the ring-ref_0s for the output files
+	    // running pointer into files - one for each level we are keeping
+            std::vector<uint32_t> curroverlapx(overlapping_files.size(),0);
+            for(uint32_t curroutx = 0; curroutx<sub_compact.outputs.size();
+              ++curroutx) {
+              // we are looking for overlaps with curroutx.  Count the numbers
+              // of files and the index of each
+              int nolaps = 0;
+	      double totalolaps = 0.0;
+	      // number of overlaps, and total/min indexes.  Init ref to high_value
+	      VLogRingRefFileno minolap = (VLogRingRefFileno)~0;
+              // look for overlaps in each level, advancing the file pointers
+	      // for each level independently, and accumulating overlap totals
+              for (uint32_t checklevel=0; checklevel<overlapping_files.size();
+                ++checklevel) {
+		// the overlapping files for the current level
+                auto& ofiles = overlapping_files[checklevel];
+                // skip over files that do not go past the min key for curroutx
+                while(curroverlapx[checklevel]<ofiles.size() &&
+                    user_cmp->Compare(
+                      *const_cast<SubcompactionState&>(sub_compact).
+		        outputs[curroutx].meta.smallest.rep(),
+                      *ofiles[curroverlapx[checklevel]]->largest.rep()) > 0) {
+                  ++curroverlapx[checklevel];
+                }
+                // process files, stopping when one goes past the max key for
+                // curroutx.  Ignore files that have no reference in the ring
+                // we are looking at
+                while (curroverlapx[checklevel]<ofiles.size()) {
+                  if (!ofiles[curroverlapx[checklevel]]->being_compacted &&
+                      (uint32_t)outringno<ofiles[curroverlapx[checklevel]]->
+		        indirect_ref_0.size()) {
+                    // if this SST has an entry for the ring of interest
+                    // value of the ref
+                    VLogRingRefFileno ref0 =
+                      ofiles[curroverlapx[checklevel]]->indirect_ref_0[outringno];
+                    // if the ref is to a legit file...
+                    if(ref0) {
+                      // accumulate the file reference into the total
+                      ++nolaps, totalolaps += ref0, minolap = std::min(minolap, ref0);
+                    }
+                  }
+                  if (user_cmp->Compare(*const_cast<SubcompactionState&>(sub_compact).
+                          outputs[curroutx].meta.largest.rep(),
+                        *ofiles[curroverlapx[checklevel]]->largest.rep()) < 0) {
+                    // stop if the next file cannot possibly overlap this
+		    // output.  It may overlap the next output.
+                    break;
+                  }
+                  ++curroverlapx[checklevel];
+                }
+              }
+              // store the average result.  curroverlapx still points to the
+	      // file that passed the max key.  It may overlap
+              // the next output file so we will start looking there
+              if (nolaps) {
+                const_cast<SubcompactionState&>(sub_compact).
+                  outputs[curroutx].meta.avgparentfileno =
+                    ParsedFnameRing(outringno,minolap).filering();
+                // min is better than average:
+                // ParsedFnameRing(outringno,(VLogRingRefFileno) totalolaps/nolaps).filering();
+                // calculate average ref0, if there are any.  Otherwise leave default
+              }
+            }
+          }
+        }
+      }
+    }
+
     for (const auto& out : sub_compact.outputs) {
-      compaction->edit()->AddFile(compaction->output_level(), out.meta);
+      // For Active Recycling there is no concept of 'output level', because
+      // each file is put back into the level it started at. We take advantage
+      // of the fact that subcompactions are disabled for AR, and thus that the
+      // output files in the sole subcompaction match one-for-one with the files
+      // in the input.  For other types, since we have already installed the
+      // correct level into the FileMetaData, just use that level here
+
+      compaction->edit()->AddFile(out.meta.level, out.meta);
     }
   }
+#if !defined(NDEBUG)
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::InstallCompactionResults",
+                           &comptotal_stats);
+#endif
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),
                                 db_mutex_, db_directory_);
@@ -1454,7 +1815,7 @@ Status CompactionJob::OpenCompactionOutputFile(
     EventHelpers::LogAndNotifyTableFileCreationFinished(
         event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
         fname, job_id_, FileDescriptor(), TableProperties(),
-        TableFileCreationReason::kCompaction, s);
+        TableFileCreationReason::kCompaction, s, nullptr); // lowest ref in each ring
     return s;
   }
 
@@ -1544,6 +1905,7 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 
 #endif  // !ROCKSDB_LITE
 
+// Collect subcompaction stats into compaction_stats_
 void CompactionJob::UpdateCompactionStats() {
   Compaction* compaction = compact_->compaction;
   compaction_stats_.num_input_files_in_non_output_levels = 0;
@@ -1570,6 +1932,15 @@ void CompactionJob::UpdateCompactionStats() {
       --num_output_files;
     }
     compaction_stats_.num_output_files += static_cast<int>(num_output_files);
+    // transfer all subcompaction VLog stats to the compaction
+    compaction_stats_.vlog_bytes_written_comp +=
+      sub_compact.compaction_job_stats.vlog_bytes_written_comp;
+    compaction_stats_.vlog_bytes_written_raw +=
+      sub_compact.compaction_job_stats.vlog_bytes_written_raw;
+    compaction_stats_.vlog_bytes_remapped +=
+      sub_compact.compaction_job_stats.vlog_bytes_remapped;
+    compaction_stats_.vlog_files_created +=
+      sub_compact.compaction_job_stats.vlog_files_created;
 
     for (const auto& out : sub_compact.outputs) {
       compaction_stats_.bytes_written += out.meta.fd.file_size;
@@ -1657,7 +2028,13 @@ void CompactionJob::LogCompaction() {
       stream << ("files_L" + ToString(compaction->level(i)));
       stream.StartArray();
       for (auto f : *compaction->inputs(i)) {
-        stream << f->fd.GetNumber();
+        // If there are no indirect refs for a file, don't try to print one.
+	// Even if flush goes to VLog normally, flush for recovery does not,
+	// and has no indirect refs
+        char buf[80];
+        sprintf(buf,"%zd[%zd]",f->fd.GetNumber(),
+          f->indirect_ref_0.size()?f->indirect_ref_0[0]:0);
+        stream << buf;
       }
       stream.EndArray();
     }

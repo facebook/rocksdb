@@ -396,7 +396,59 @@ std::vector<int> ParseVectorInt(const std::string& value) {
   return result;
 }
 
+std::vector<int32_t> ParseVectorInt32(const std::string& value) {
+  std::vector<int32_t> result;
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find(':', start);
+    if (end == std::string::npos) {
+      result.push_back(ParseInt32(value.substr(start)));
+      break;
+    } else {
+      result.push_back(ParseInt32(value.substr(start, end - start)));
+      start = end + 1;
+    }
+  }
+  return result;
+}
+std::vector<uint64_t> ParseVectorInt64(const std::string& value) {
+  std::vector<uint64_t> result;
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find(':', start);
+    if (end == std::string::npos) {
+      result.push_back(ParseUint64(value.substr(start)));
+      break;
+    } else {
+      result.push_back(ParseUint64(value.substr(start, end - start)));
+      start = end + 1;
+    }
+  }
+  return result;
+}
+
 bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
+  *value = "";
+  for (size_t i = 0; i < vec.size(); ++i) {
+    if (i > 0) {
+      *value += ":";
+    }
+    *value += ToString(vec[i]);
+  }
+  return true;
+}
+
+bool SerializeVectorInt32(const std::vector<int32_t>& vec, std::string* value) {
+  *value = "";
+  for (size_t i = 0; i < vec.size(); ++i) {
+    if (i > 0) {
+      *value += ":";
+    }
+    *value += ToString(vec[i]);
+  }
+  return true;
+}
+bool SerializeVectorInt64(const std::vector<uint64_t>& vec, std::string* value) {
   *value = "";
   for (size_t i = 0; i < vec.size(); ++i) {
     if (i > 0) {
