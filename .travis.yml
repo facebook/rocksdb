@@ -201,7 +201,7 @@ before_script:
   - ulimit -n 8192
 
 script:
-  - ${CXX} --version
+  - date; ${CXX} --version
   - if [ `command -v ccache` ]; then ccache -C; fi
   - case $TEST_GROUP in
     platform_dependent)
