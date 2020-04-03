@@ -34,7 +34,7 @@ class SharedBlobFileMetaData {
     assert(checksum_method_.empty() == checksum_value_.empty());
   }
 
-  ~SharedBlobFileMetaData();
+  ~SharedBlobFileMetaData() = default;
 
   SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
   SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
