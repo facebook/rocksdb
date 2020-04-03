@@ -781,10 +781,12 @@ void BlockBasedTableBuilder::Flush() {
   if (r->data_block.empty()) return;
   if (r->compression_opts.parallel_threads > 1 &&
       r->state == Rep::State::kUnbuffered) {
-    ParallelCompressionRep::BlockRep* block_rep;
+    ParallelCompressionRep::BlockRep* block_rep = nullptr;
     r->pc_rep->block_rep_pool.pop(block_rep);
+    assert(block_rep != nullptr);
 
     r->data_block.Finish();
+    assert(block_rep->data);
     r->data_block.SwapAndReset(*(block_rep->data));
 
     block_rep->contents = *(block_rep->data);
