@@ -291,6 +291,10 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
+  // Need to disable compaction to bottommost level when sequence number will be
+  // zeroed out, causing the verification of sequence number to fail in this
+  // test.
+  options.disable_auto_compactions = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
