@@ -1716,7 +1716,7 @@ INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
                                           std::make_tuple(false, true)));
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest2, MaxCompactionBytesTest) {
+TEST_F(DBTest2, DISABLED_MaxCompactionBytesTest) {
   Options options = CurrentOptions();
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));

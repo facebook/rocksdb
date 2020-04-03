@@ -80,8 +80,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   options.max_bytes_for_level_base = 1 << 30;
   options.compression = kNoCompression;
   Reopen(options);
-  bool values_are_indirect = false;  // Set if we are using VLogging
-  values_are_indirect = options.vlogring_activation_level.size()!=0;
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
   // 1 L0 file, use CompactedDB if max_open_files = -1
   ASSERT_OK(Put(KeyInvInd(std::string("aaa"),kHalfFileSize,values_are_indirect),
                 ValueInvInd(std::string(kHalfFileSize,'1'),values_are_indirect)));
@@ -204,11 +203,11 @@ TEST_F(DBBasicTest, CompactedDB) {
             "Not implemented: Not supported operation in read only mode.");
 }
 
-TEST_F(DBBasicTest, LevelLimitReopen) {
+//TRocksDB - runs too long and fills up hard drive
+TEST_F(DBBasicTest, DISABLED_LevelLimitReopen) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
-  bool values_are_indirect = false;  // Set if we are using VLogging
-  values_are_indirect = options.vlogring_activation_level.size()!=0;
+  bool values_are_indirect = options.vlogring_activation_level.size()!=0;
 
   const std::string value(1024 * 1024, ' ');
   int i = 0;

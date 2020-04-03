@@ -466,7 +466,11 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 1;
+#ifdef ROCKSDB_JEMALLOC
   options.write_buffer_size = 120 << 10;     // 120KB (75% buffer)
+#else
+  options.write_buffer_size = 100 << 10;     // 100KB
+#endif
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 3;
   // Initial setup of compaction_options_universal will prevent universal

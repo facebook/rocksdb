@@ -957,6 +957,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // are working on so that when we create the corresponding output file we
   // mark it at the correct level.  If we are not AR, we will just use the output_level
   int arfileno = 0;
+#if DEBLEVEL&512
+  std::vector<uint64_t> our_ref0;  // vector of file-refs
+  our_ref0.push_back(~0);
+#endif
 
   while (status.ok() && !cfd->IsDropped() && value_iter->Valid()) {
     // Invariant: value_iter.status() is guaranteed to be OK if value_iter->Valid()
@@ -989,6 +993,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     assert(sub_compact->builder != nullptr);
     assert(sub_compact->current_output() != nullptr);
     sub_compact->builder->Add(key, value);
+#if DEBLEVEL&512
+    VLogRingRef ref(value.data());   // analyze the reference
+    if (ref.Fileno()<our_ref0[ref.Ringno()]) {
+      our_ref0[ref.Ringno()] = ref.Fileno();
+    }
+#endif
     sub_compact->current_output_file_size = sub_compact->builder->FileSize();
     sub_compact->current_output()->meta.UpdateBoundaries(
         key, value_iter->ikey().sequence);
@@ -1049,6 +1059,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       std::vector<uint64_t> ref0;  // vector of file-refs
       // pick up refs that apply to this file
       value_iter->ref0(ref0,false /* include_last */);
+#if DEBLEVEL&512
+      if (our_ref0[0]!=ref0[0]) {
+        printf("Mismatched ref0\n");
+      }
+      our_ref0[0]=~0;  // reset for next time
+#endif
       // Put the output level into the FileMetaData so that we keep track of
       // what level each file is on.
       // That level is the output level EXCEPT when we are doing Active
@@ -1121,6 +1137,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // true to pick up the very last key, which will not have been included
     // in the file because we didn't know the file was ending
     value_iter->ref0(ref0, true /* include_last */);
+#if DEBLEVEL&512
+    if (our_ref0[0]!=ref0[0]) {
+      printf("Mismatched ref0\n");
+    }
+    our_ref0[0]=~0;  // reset for next time
+#endif
     sub_compact->current_output()->meta.InstallRef0(sub_compact->compaction->output_level(),ref0,cfd);
     CompactionIterationStats range_del_out_stats;
     Status s = FinishCompactionOutputFile(status, sub_compact, range_del_agg.get(),

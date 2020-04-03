@@ -170,6 +170,9 @@ Status BuildTable(
             mutable_cf_options,job_id,paranoid_file_checks));
     // keep iterator around till end of function
     // initial status indicates errors writing VLog files;
+    s = value_iter->status();
+    bool empty = false;
+    if (s.ok()) { // this catches file errors in the IndirectIterator
     // checked in next call to Valid()
     for (; value_iter->Valid(); value_iter->Next()) {
       const Slice& key = value_iter->key();
@@ -197,7 +200,7 @@ Status BuildTable(
 
     // Finish and check for builder errors
     tp = builder->GetTableProperties();
-    bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
+    empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
     s = value_iter->status();
     if (!s.ok() || empty) {
       builder->Abandon();
@@ -215,6 +218,7 @@ Status BuildTable(
         *table_properties = tp;
       }
     }
+    } // if (s.ok())
     delete builder;
 
     // Finish and check for file errors

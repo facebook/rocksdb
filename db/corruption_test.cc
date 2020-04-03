@@ -291,7 +291,7 @@ class CorruptionTest : public testing::Test {
   }
 };
 
-TEST_F(CorruptionTest, Recovery) {
+TEST_F(CorruptionTest, DISABLED_Recovery) {
   Build(100);
   Check(100, 100);
 #ifdef OS_WIN
@@ -344,7 +344,7 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
   Reopen();
 }
 
-TEST_F(CorruptionTest, TableFile) {
+TEST_F(CorruptionTest, DISABLED_TableFile) {
   Build(100);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
@@ -377,7 +377,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   ASSERT_NOK(dbi->VerifyChecksum());
 }
 
-TEST_F(CorruptionTest, MissingDescriptor) {
+TEST_F(CorruptionTest, DISABLED_MissingDescriptor) {
   Build(1000);
   RepairDB();
   Reopen();
@@ -422,7 +422,7 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_EQ("hello", v);
 }
 
-TEST_F(CorruptionTest, CompactionInputError) {
+TEST_F(CorruptionTest, DISABLED_CompactionInputError) {
   Options options;
   Reopen(&options);
   Build(10);
@@ -442,7 +442,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
   ASSERT_NOK(dbi->VerifyChecksum());
 }
 
-TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
+TEST_F(CorruptionTest, DISABLED_CompactionInputErrorParanoid) {
   Options options;
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;

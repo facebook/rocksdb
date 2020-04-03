@@ -497,7 +497,7 @@ Options DBTestBase::GetOptions(
         options.use_direct_reads = true;
         options.use_direct_io_for_flush_and_compaction = true;
         options.compaction_readahead_size = 2 * 1024 * 1024;
-  #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
       !defined(OS_AIX) && !defined(OS_OPENBSD)
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -510,7 +510,7 @@ Options DBTestBase::GetOptions(
               *val &= ~O_DIRECT;
             });
         rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  #endif
+#endif
         break;
       }
 #endif  // ROCKSDB_LITE

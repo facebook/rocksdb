@@ -431,11 +431,13 @@ bool CompactionPicker::SetupOtherInputs(
     return true;
   }
 
+  /*
   // For now, we only support merging two levels, start level and output level.
   // We need to assert other levels are empty.
   for (int l = input_level + 1; l < output_level; l++) {
     assert(vstorage->NumLevelFiles(l) == 0);
   }
+  */
 
   InternalKey smallest, largest;
 
@@ -1145,7 +1147,7 @@ int64_t CompactionPicker::GetOverlappingL0Files(
     for (size_t i = 0; i<level_files.size();++i) {
       if (!level_files[i]->being_compacted) {
         start_level_inputs->files.push_back(level_files[i]);  // add file to the list
-        if (smallkeyfile==nullptr ||
+        if ((smallkeyfile==nullptr) ||
             icmp_->Compare(level_files[i]->smallest,smallkeyfile->smallest)<0) {
           smallkeyfile=level_files[i];  // remember the smallest key
         }

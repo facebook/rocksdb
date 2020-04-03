@@ -2242,7 +2242,6 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
   // visible to any snapshot.
   VerifyKeys({{"foo", "bar"}});
   VerifyKeys({{"foo", "bar"}}, snapshot);
-  VerifyInternalKeys({{"foo", "bar", 0, kTypeValue}});
   int exptype = kTypeValue;
   if(options.vlogring_activation_level.size())exptype = kTypeIndirectValue;
   VerifyInternalKeys({{"foo", "bar", 0, exptype}});

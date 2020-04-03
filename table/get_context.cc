@@ -194,9 +194,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     appendToReplayLog(replay_log_, parsed_key.type, value);
 
     // set if the value was indirect, which means we can't pin it
-    bool value_was_indirect = false;
+    bool value_was_indirect = IsTypeIndirect(parsed_key.type);
     // resolve the Get() value before putting it through the merge maze
-    value_was_indirect = IsTypeIndirect(parsed_key.type);
     if(value_was_indirect){   // remember if this was indirected; if so...
       if(!(merge_context_->GetVlog()->VLogGet((Slice)value,resolved_value)).ok()) {
         // error reading from log; will have been logged earlier.  Abort here
@@ -234,7 +233,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (kNotFound == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
-            if (LIKELY(value_pinner != nullptr)) {
+            if (LIKELY(!value_was_indirect && value_pinner != nullptr)) {
               // If the backing resources for the value are provided, pin them
               pinnable_val_->PinSlice(value, value_pinner);
             } else {

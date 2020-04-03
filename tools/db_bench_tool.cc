@@ -2216,7 +2216,7 @@ class Benchmark {
   inline bool CompressSlice(const CompressionInfo& compression_info,
                             const Slice& input, std::string* compressed) {
     bool ok = true;
-    switch (FLAGS_compression_type_e) {
+    switch (FLAGS_ring_compression_style_e) {
       case rocksdb::kSnappyCompression:
         ok = Snappy_Compress(compression_info, input.data(), input.size(),
                              compressed);
