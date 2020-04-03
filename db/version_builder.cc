@@ -90,6 +90,7 @@ class VersionBuilder::Rep {
   Logger* info_log_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
+  VersionSet* version_set_;
   int num_levels_;
   LevelState* levels_;
   // Store states of levels larger than num_levels_. We do this instead of
@@ -108,12 +109,13 @@ class VersionBuilder::Rep {
 
  public:
   Rep(const FileOptions& file_options, Logger* info_log,
-      TableCache* table_cache,
-      VersionStorageInfo* base_vstorage)
+      TableCache* table_cache, VersionStorageInfo* base_vstorage,
+      VersionSet* version_set)
       : file_options_(file_options),
         info_log_(info_log),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage),
+        version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
         has_invalid_levels_(false) {
     levels_ = new LevelState[num_levels_];
@@ -746,8 +748,9 @@ class VersionBuilder::Rep {
 VersionBuilder::VersionBuilder(const FileOptions& file_options,
                                TableCache* table_cache,
                                VersionStorageInfo* base_vstorage,
-                               Logger* info_log)
-    : rep_(new Rep(file_options, info_log, table_cache, base_vstorage)) {}
+                               VersionSet* version_set, Logger* info_log)
+    : rep_(new Rep(file_options, info_log, table_cache, base_vstorage,
+                   version_set)) {}
 
 VersionBuilder::~VersionBuilder() = default;
 
@@ -774,7 +777,8 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd)
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->table_cache(),
-          cfd->current()->storage_info(), cfd->ioptions()->info_log)),
+          cfd->current()->storage_info(), cfd->current()->version_set(),
+          cfd->ioptions()->info_log)),
       version_(cfd->current()) {
   version_->Ref();
 }
@@ -783,7 +787,7 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, Version* v)
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->table_cache(),
-          v->storage_info(), cfd->ioptions()->info_log)),
+          v->storage_info(), v->version_set(), cfd->ioptions()->info_log)),
       version_(v) {
   assert(version_ != cfd->current());
 }
