@@ -1061,6 +1061,7 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
+                        std::vector<uint64_t>* blob_files,
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
@@ -1194,6 +1195,7 @@ class VersionSet {
   uint64_t manifest_file_size_;
 
   std::vector<ObsoleteFileInfo> obsolete_files_;
+  std::vector<uint64_t> obsolete_blob_files_;
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
