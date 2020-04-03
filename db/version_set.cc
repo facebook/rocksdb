@@ -5746,7 +5746,7 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
   obsolete_files_.swap(pending_files);
 
   std::vector<uint64_t> pending_blob_files;
-  for (auto& blob_file : obsolete_blob_files_) {
+  for (const auto& blob_file : obsolete_blob_files_) {
     if (blob_file < min_pending_output) {
       blob_files->emplace_back(blob_file);
     } else {
