@@ -1120,51 +1120,53 @@ class BlockBasedTableTest
       const std::vector<BlockCacheTraceRecord>& expected_records) {
     c->block_cache_tracer_.EndTrace();
 
-    std::unique_ptr<TraceReader> trace_reader;
-    Status s =
-        NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
-    EXPECT_OK(s);
-    BlockCacheTraceReader reader(std::move(trace_reader));
-    BlockCacheTraceHeader header;
-    EXPECT_OK(reader.ReadHeader(&header));
-    uint32_t index = 0;
-    while (s.ok()) {
-      BlockCacheTraceRecord access;
-      s = reader.ReadAccess(&access);
-      if (!s.ok()) {
-        break;
-      }
-      ASSERT_LT(index, expected_records.size());
-      EXPECT_NE("", access.block_key);
-      EXPECT_EQ(access.block_type, expected_records[index].block_type);
-      EXPECT_GT(access.block_size, 0);
-      EXPECT_EQ(access.caller, expected_records[index].caller);
-      EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
-      EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
-      // Get
-      if (access.caller == TableReaderCaller::kUserGet) {
-        EXPECT_EQ(access.referenced_key,
-                  expected_records[index].referenced_key);
-        EXPECT_EQ(access.get_id, expected_records[index].get_id);
-        EXPECT_EQ(access.get_from_user_specified_snapshot,
-                  expected_records[index].get_from_user_specified_snapshot);
-        if (access.block_type == TraceType::kBlockTraceDataBlock) {
-          EXPECT_GT(access.referenced_data_size, 0);
-          EXPECT_GT(access.num_keys_in_block, 0);
-          EXPECT_EQ(access.referenced_key_exist_in_block,
-                    expected_records[index].referenced_key_exist_in_block);
+    {
+      std::unique_ptr<TraceReader> trace_reader;
+      Status s =
+          NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+      EXPECT_OK(s);
+      BlockCacheTraceReader reader(std::move(trace_reader));
+      BlockCacheTraceHeader header;
+      EXPECT_OK(reader.ReadHeader(&header));
+      uint32_t index = 0;
+      while (s.ok()) {
+        BlockCacheTraceRecord access;
+        s = reader.ReadAccess(&access);
+        if (!s.ok()) {
+          break;
         }
-      } else {
-        EXPECT_EQ(access.referenced_key, "");
-        EXPECT_EQ(access.get_id, 0);
-        EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
-        EXPECT_EQ(access.referenced_data_size, 0);
-        EXPECT_EQ(access.num_keys_in_block, 0);
-        EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+        ASSERT_LT(index, expected_records.size());
+        EXPECT_NE("", access.block_key);
+        EXPECT_EQ(access.block_type, expected_records[index].block_type);
+        EXPECT_GT(access.block_size, 0);
+        EXPECT_EQ(access.caller, expected_records[index].caller);
+        EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
+        EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
+        // Get
+        if (access.caller == TableReaderCaller::kUserGet) {
+          EXPECT_EQ(access.referenced_key,
+                    expected_records[index].referenced_key);
+          EXPECT_EQ(access.get_id, expected_records[index].get_id);
+          EXPECT_EQ(access.get_from_user_specified_snapshot,
+                    expected_records[index].get_from_user_specified_snapshot);
+          if (access.block_type == TraceType::kBlockTraceDataBlock) {
+            EXPECT_GT(access.referenced_data_size, 0);
+            EXPECT_GT(access.num_keys_in_block, 0);
+            EXPECT_EQ(access.referenced_key_exist_in_block,
+                      expected_records[index].referenced_key_exist_in_block);
+          }
+        } else {
+          EXPECT_EQ(access.referenced_key, "");
+          EXPECT_EQ(access.get_id, 0);
+          EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+          EXPECT_EQ(access.referenced_data_size, 0);
+          EXPECT_EQ(access.num_keys_in_block, 0);
+          EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+        }
+        index++;
       }
-      index++;
+      EXPECT_EQ(index, expected_records.size());
     }
-    EXPECT_EQ(index, expected_records.size());
     EXPECT_OK(env_->DeleteFile(trace_file_path_));
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
