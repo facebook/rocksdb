@@ -498,14 +498,14 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void*) {
         if (fail_manifest.load()) {
-          fault_fs->SetFilesystemActive(false,error_msg); }
-        });
+          fault_fs->SetFilesystemActive(false, error_msg);
+        }
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Put(Key(1), "val");
   s = Flush();
   ASSERT_EQ(s, Status::OK());
-
 
   TEST_SYNC_POINT("CompactionManifestWriteError:0");
   TEST_SYNC_POINT("CompactionManifestWriteError:1");
