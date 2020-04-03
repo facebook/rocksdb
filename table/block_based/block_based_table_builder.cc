@@ -50,6 +50,18 @@
 #include "util/work_queue.h"
 #include "util/xxhash.h"
 
+#ifdef ROCKSDB_TSAN_RUN
+#if defined(__clang__)
+#define DISABLE_TSAN __attribute__((__no_sanitize__("thread")))
+#elif defined(__GNUC__)
+#define DISABLE_TSAN __attribute__((__no_sanitize_thread__))
+#else
+#define DISABLE_TSAN
+#endif
+#else
+#define DISABLE_TSAN
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 extern const std::string kHashIndexPrefixesBlock;
@@ -283,7 +295,7 @@ struct BlockBasedTableBuilder::Rep {
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   WritableFileWriter* file;
-  std::atomic<uint64_t> offset;
+  uint64_t offset = 0;
   Status status;
   IOStatus io_status;
   // Synchronize status & io_status accesses across threads from main thread,
@@ -365,8 +377,8 @@ struct BlockBasedTableBuilder::Rep {
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
 
-  uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
-  void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
+  uint64_t get_offset() const;
+  void set_offset(uint64_t o);
 
   Rep(const ImmutableCFOptions& _ioptions, const MutableCFOptions& _moptions,
       const BlockBasedTableOptions& table_opt,
@@ -385,7 +397,6 @@ struct BlockBasedTableBuilder::Rep {
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
-        offset(0),
         alignment(table_options.block_align
                       ? std::min(table_options.block_size, kDefaultPageSize)
                       : 0),
@@ -470,6 +481,13 @@ struct BlockBasedTableBuilder::Rep {
 
   ~Rep() {}
 };
+
+// offset will only be updated by only one thread in WriteRawBlock at any time,
+// disable TSAN.
+DISABLE_TSAN
+uint64_t BlockBasedTableBuilder::Rep::get_offset() const { return offset; }
+DISABLE_TSAN
+void BlockBasedTableBuilder::Rep::set_offset(uint64_t o) { offset = o; }
 
 struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Keys is a wrapper of vector of strings avoiding
@@ -571,9 +589,14 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // Number of blocks under compression and not appended yet.
   std::atomic<uint64_t> blocks_inflight;
   // Current compression ratio, maintained by BGWorkWriteRawBlock.
-  std::atomic<double> curr_compression_ratio;
+  double curr_compression_ratio;
   // Estimated SST file size.
-  std::atomic<uint64_t> estimated_file_size;
+  uint64_t estimated_file_size;
+
+  double get_curr_compression_ratio() const;
+  void set_curr_compression_ratio(double r);
+  uint64_t get_estimated_file_size() const;
+  void set_estimated_file_size(uint64_t s);
 
   // Wait for the completion of first block compression to get a
   // non-zero compression ratio.
@@ -612,6 +635,30 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
 
   ~ParallelCompressionRep() { block_rep_pool.finish(); }
 };
+
+// curr_compression_ratio and estimated_file_size are always blindly
+// written, disable TSAN.
+DISABLE_TSAN
+double
+BlockBasedTableBuilder::ParallelCompressionRep::get_curr_compression_ratio()
+    const {
+  return curr_compression_ratio;
+}
+DISABLE_TSAN
+void BlockBasedTableBuilder::ParallelCompressionRep::set_curr_compression_ratio(
+    double r) {
+  curr_compression_ratio = r;
+}
+DISABLE_TSAN
+uint64_t BlockBasedTableBuilder::ParallelCompressionRep::get_estimated_file_size()
+    const {
+  return estimated_file_size;
+}
+DISABLE_TSAN
+void BlockBasedTableBuilder::ParallelCompressionRep::set_estimated_file_size(
+    uint64_t s) {
+  estimated_file_size = s;
+}
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
     const ImmutableCFOptions& ioptions, const MutableCFOptions& moptions,
@@ -808,15 +855,17 @@ void BlockBasedTableBuilder::Flush() {
         block_rep->data->size();
     uint64_t new_blocks_inflight =
         r->pc_rep->blocks_inflight.fetch_add(1, std::memory_order_relaxed) + 1;
-    r->pc_rep->estimated_file_size.store(
+    r->pc_rep->set_estimated_file_size(
         r->get_offset() +
-            static_cast<uint64_t>(static_cast<double>(new_raw_bytes_inflight) *
-                                  r->pc_rep->curr_compression_ratio.load(
-                                      std::memory_order_relaxed)) +
-            new_blocks_inflight * kBlockTrailerSize,
-        std::memory_order_relaxed);
+        static_cast<uint64_t>(static_cast<double>(new_raw_bytes_inflight) *
+                              r->pc_rep->get_curr_compression_ratio()) +
+        new_blocks_inflight * kBlockTrailerSize);
 
     assert(block_rep->status.ok());
+
+    // Read out first_block first to suppress TSAN data race warning
+    bool first_block = r->pc_rep->first_block;
+
     if (!r->pc_rep->write_queue.push(block_rep->slot.get())) {
       return;
     }
@@ -824,7 +873,7 @@ void BlockBasedTableBuilder::Flush() {
       return;
     }
 
-    if (r->pc_rep->first_block) {
+    if (first_block) {
       std::unique_lock<std::mutex> lock(r->pc_rep->first_block_mutex);
       r->pc_rep->first_block_cond.wait(lock,
                                        [=] { return !r->pc_rep->first_block; });
@@ -864,9 +913,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   r->compressed_output.clear();
   if (is_data_block) {
     if (r->filter_builder != nullptr) {
-      r->filter_builder->StartBlock(r->get_offset());
+      r->filter_builder->StartBlock(r->offset);
     }
-    r->props.data_size = r->get_offset();
+    r->props.data_size = r->offset;
     ++r->props.num_data_blocks;
   }
 }
@@ -1071,14 +1120,12 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
           assert(r->pc_rep->raw_bytes_compressed +
                      r->pc_rep->raw_bytes_curr_block >
                  0);
-          r->pc_rep->curr_compression_ratio.store(
-              (r->pc_rep->curr_compression_ratio.load(
-                   std::memory_order_relaxed) *
+          r->pc_rep->set_curr_compression_ratio(
+              (r->pc_rep->get_curr_compression_ratio() *
                    r->pc_rep->raw_bytes_compressed +
                block_contents.size()) /
-                  static_cast<double>(r->pc_rep->raw_bytes_compressed +
-                                      r->pc_rep->raw_bytes_curr_block),
-              std::memory_order_relaxed);
+              static_cast<double>(r->pc_rep->raw_bytes_compressed +
+                                  r->pc_rep->raw_bytes_curr_block));
           r->pc_rep->raw_bytes_compressed += r->pc_rep->raw_bytes_curr_block;
           uint64_t new_raw_bytes_inflight =
               r->pc_rep->raw_bytes_inflight.fetch_sub(
@@ -1087,17 +1134,14 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
           uint64_t new_blocks_inflight = r->pc_rep->blocks_inflight.fetch_sub(
                                              1, std::memory_order_relaxed) -
                                          1;
-          r->pc_rep->estimated_file_size.store(
+          r->pc_rep->set_estimated_file_size(
               r->get_offset() +
-                  static_cast<uint64_t>(
-                      static_cast<double>(new_raw_bytes_inflight) *
-                      r->pc_rep->curr_compression_ratio.load(
-                          std::memory_order_relaxed)) +
-                  new_blocks_inflight * kBlockTrailerSize,
-              std::memory_order_relaxed);
+              static_cast<uint64_t>(
+                  static_cast<double>(new_raw_bytes_inflight) *
+                  r->pc_rep->get_curr_compression_ratio()) +
+              new_blocks_inflight * kBlockTrailerSize);
         } else {
-          r->pc_rep->estimated_file_size.store(r->get_offset(),
-                                               std::memory_order_relaxed);
+          r->pc_rep->set_estimated_file_size(r->get_offset());
         }
       }
     }
@@ -1138,7 +1182,7 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
     }
 
     if (r->pc_rep->first_block) {
-      std::unique_lock<std::mutex> lock(r->pc_rep->first_block_mutex);
+      std::lock_guard<std::mutex> lock(r->pc_rep->first_block_mutex);
       r->pc_rep->first_block = false;
       r->pc_rep->first_block_cond.notify_one();
     }
@@ -1467,7 +1511,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   assert(r->io_status.ok());
   r->io_status = r->file->Append(footer_encoding);
   if (r->io_status.ok()) {
-    r->set_offset(r->get_offset() + footer_encoding.size());
+    r->offset += footer_encoding.size();
   }
   r->status = r->io_status;
 }
@@ -1647,7 +1691,7 @@ uint64_t BlockBasedTableBuilder::EstimatedFileSize() const {
   if (rep_->compression_opts.parallel_threads > 1) {
     // Use compression ratio so far and inflight raw bytes to estimate
     // final SST size.
-    return rep_->pc_rep->estimated_file_size.load(std::memory_order_relaxed);
+    return rep_->pc_rep->get_estimated_file_size();
   } else {
     return FileSize();
   }
