@@ -390,11 +390,23 @@ class VersionBuilder::Rep {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
+    // Note: in C++14, this could be done in a more elegant way using
+    // generalized lambda capture.
+    VersionSet* const vs = version_set_;
+    auto deleter = [vs](SharedBlobFileMetaData* shared_meta) {
+      if (vs) {
+        assert(shared_meta);
+        vs->AddObsoleteBlobFile(shared_meta->GetBlobFileNumber());
+      }
+
+      delete shared_meta;
+    };
+
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, blob_file_addition.GetTotalBlobCount(),
         blob_file_addition.GetTotalBlobBytes(),
         blob_file_addition.GetChecksumMethod(),
-        blob_file_addition.GetChecksumValue());
+        blob_file_addition.GetChecksumValue(), deleter);
 
     constexpr uint64_t garbage_blob_count = 0;
     constexpr uint64_t garbage_blob_bytes = 0;
