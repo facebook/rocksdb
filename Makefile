@@ -946,7 +946,7 @@ check: all
 	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
-	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
+	      echo "===== Running $$t (`date`)"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
 ifneq ($(PLATFORM), OS_AIX)
@@ -959,7 +959,7 @@ endif
 
 # TODO add ldb_tests
 check_some: $(SUBSET)
-	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
+	for t in $(SUBSET); do echo "===== Running $$t (`date`)"; ./$$t || exit 1; done
 
 .PHONY: ldb_tests
 ldb_tests: ldb
@@ -1065,7 +1065,7 @@ ifneq ($(PAR_TEST),)
 parloop:
 	ret_bad=0;							\
 	for t in $(PAR_TEST); do		\
-		echo "===== Running $$t in parallel $(NUM_PAR)";\
+		echo "===== Running $$t in parallel $(NUM_PAR) (`date`)";\
 		if [ $(db_test) -eq 1 ]; then \
 			seq $(J) | v="$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
 				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
