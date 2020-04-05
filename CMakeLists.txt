@@ -522,8 +522,12 @@ int main() {
 unset(CMAKE_REQUIRED_FLAGS)
 
 if(HAVE_IMPLICIT_THIS_LAMBDA_CAPTURE)
-  add_definitions(-DROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE)
+  set(ROCKSDB_THIS_LAMBDA_CAPTURE "=")
+else()
+  set(ROCKSDB_THIS_LAMBDA_CAPTURE "=, this")
 endif()
+add_definitions(-DROCKSDB_THIS_LAMBDA_CAPTURE=${ROCKSDB_THIS_LAMBDA_CAPTURE})
+
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)

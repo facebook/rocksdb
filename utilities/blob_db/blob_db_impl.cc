@@ -622,25 +622,19 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsolete() {
   const SequenceNumber obsolete_seq = GetLatestSequenceNumber();
 
   MarkUnreferencedBlobFilesObsoleteImpl(
-#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
-        [=](const std::shared_ptr<BlobFile>& blob_file) {
-#else
-        [=, this](const std::shared_ptr<BlobFile>& blob_file) {
-#endif
+      [ROCKSDB_THIS_LAMBDA_CAPTURE](const std::shared_ptr<BlobFile>& blob_file) {
         WriteLock file_lock(&blob_file->mutex_);
         return MarkBlobFileObsoleteIfNeeded(blob_file, obsolete_seq);
-      });
+      }
+  );
 }
 
 void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteDuringOpen() {
   MarkUnreferencedBlobFilesObsoleteImpl(
-#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
-      [=](const std::shared_ptr<BlobFile>& blob_file) {
-#else
-      [=, this](const std::shared_ptr<BlobFile>& blob_file) {
-#endif
+      [ROCKSDB_THIS_LAMBDA_CAPTURE](const std::shared_ptr<BlobFile>& blob_file) {
         return MarkBlobFileObsoleteIfNeeded(blob_file, /* obsolete_seq */ 0);
-      });
+      }
+  );
 }
 
 void BlobDBImpl::CloseRandomAccessLocked(

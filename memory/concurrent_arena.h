@@ -49,12 +49,8 @@ class ConcurrentArena : public Allocator {
 
   char* Allocate(size_t bytes) override {
     return AllocateImpl(bytes, false /*force_arena*/,
-#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
-                        [=]() {
-#else
-                        [=, this]() {
-#endif
-      return arena_.Allocate(bytes);
+      [ROCKSDB_THIS_LAMBDA_CAPTURE]() {
+        return arena_.Allocate(bytes);
     });
   }
 
@@ -65,13 +61,10 @@ class ConcurrentArena : public Allocator {
            (rounded_up % sizeof(void*)) == 0);
 
     return AllocateImpl(rounded_up, huge_page_size != 0 /*force_arena*/,
-#ifdef ROCKSDB_SUPPORT_IMPLICIT_THIS_LAMBDA_CAPTURE
-                        [=]() {
-#else
-                        [=, this]() {
-#endif
-      return arena_.AllocateAligned(rounded_up, huge_page_size, logger);
-    });
+      [ROCKSDB_THIS_LAMBDA_CAPTURE]() {
+        return arena_.AllocateAligned(rounded_up, huge_page_size, logger);
+      }
+    );
   }
 
   size_t ApproximateMemoryUsage() const {
