@@ -685,7 +685,7 @@ EOF
 fi
 
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
 struct test {
   test() : value_(0) {}
   

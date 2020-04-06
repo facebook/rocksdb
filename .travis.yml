@@ -50,12 +50,18 @@ env:
   - JOB_NAME=examples # 5-7 minutes
   - JOB_NAME=cmake # 3-5 minutes
   - JOB_NAME=cmake-gcc8 # 3-5 minutes
+  - JOB_NAME=cmake-gcc9 # 3-5 minutes
+  - JOB_NAME=cmake-gcc9-c++20 # 3-5 minutes
   - JOB_NAME=cmake-mingw # 3 minutes
 
 matrix:
   exclude:
   - os: osx
     env: JOB_NAME=cmake-gcc8
+  - os: osx
+    env: JOB_NAME=cmake-gcc9
+  - os: osx
+    env: JOB_NAME=cmake-gcc9-c++20
   - os: osx
     env: JOB_NAME=cmake-mingw
   - os: osx
@@ -157,7 +163,22 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc8
-
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-gcc9
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-gcc9
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-gcc9-c++20
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-gcc9-c++20
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
       PATH=$PATH:/usr/local/opt/ccache/libexec;
@@ -165,6 +186,10 @@ install:
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
       sudo apt-get install -y g++-8;
       CC=gcc-8 && CXX=g++-8;
+    fi
+  - if [ "${JOB_NAME}" == cmake-gcc9 ] || [ "${JOB_NAME}" == cmake-gcc9-c++20 ]; then
+      sudo apt-get install -y g++-9;
+      CC=gcc-9 && CXX=g++-9;
     fi
   - if [ "${JOB_NAME}" == cmake-mingw ]; then
       sudo apt-get install -y mingw-w64 ;
@@ -235,7 +260,13 @@ script:
       mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       ;;
     cmake*)
-      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release && make -j4 rocksdb rocksdbjni
+      case $JOB_NAME in
+        *-c++20)
+          OPT=-DCMAKE_CXX_STANDARD=20
+          ;;
+      esac
+
+      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
       ;;
     esac
 notifications:

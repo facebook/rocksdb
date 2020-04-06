@@ -393,7 +393,7 @@ if(MSVC)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1")
 
     # Minimal Build is deprecated after MSVC 2015
-    if( MSVC_VERSION GREATER 140 )
+    if( MSVC_VERSION GREATER 1900 )
       set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm-")
     else()
       set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm")
