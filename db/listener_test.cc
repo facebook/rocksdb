@@ -18,6 +18,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
@@ -38,6 +39,8 @@
 #ifndef ROCKSDB_LITE
 
 namespace ROCKSDB_NAMESPACE {
+
+class ListenerTest : public testing::Test {};
 
 class EventListenerTest : public DBTestBase {
  public:
@@ -1032,6 +1035,27 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   ASSERT_GT(listener->file_reads_.load(), 0);
 }
 
+TEST_F(ListenerTest, GetStringFromCompactionReason) {
+  std::string res;
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kUnknown));
+  ASSERT_EQ(res, "Unknown");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kLevelL0FilesNum));
+  ASSERT_EQ(res, "LevelL0FilesNum");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kLevelMaxLevelSize));
+  ASSERT_EQ(res, "LevelMaxLevelSize");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kUniversalSizeAmplification));
+  ASSERT_EQ(res, "UniversalSizeAmplification");
+
+  ASSERT_OK(GetStringFromCompactionReason(&res, CompactionReason::kUniversalSizeRatio));
+  ASSERT_EQ(res, "UniversalSizeRatio");
+
+  ASSERT_NOK(
+      GetStringFromCompactionReason(&res, static_cast<CompactionReason>(-10)));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

@@ -135,6 +135,9 @@ struct WriteStallInfo {
   } condition;
 };
 
+Status GetStringFromCompactionReason(std::string* compaction_str,
+                                     CompactionReason compaction_reason);
+
 #ifndef ROCKSDB_LITE
 
 struct TableFileDeletionInfo {
