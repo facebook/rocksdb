@@ -151,7 +151,7 @@ case "$TARGET_OS" in
         else
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
         if test $ROCKSDB_USE_IO_URING; then
             # check for liburing
             $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
