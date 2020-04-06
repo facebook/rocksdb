@@ -390,7 +390,15 @@ if(MSVC)
     message(STATUS "Debug optimization is enabled")
     set(CMAKE_CXX_FLAGS_DEBUG "/Oxt")
   else()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm-")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1")
+
+    # Minimal Build is deprecated after MSVC 2015
+    if( MSVC_VERSION GREATER 140 )
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm-")
+    else()
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm")
+    endif()
+     
   endif()
   if(WITH_RUNTIME_DEBUG)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}d")
@@ -504,9 +512,18 @@ include(CxxFlags)
 get_cxx_std_flags(CMAKE_REQUIRED_FLAGS)
 
 CHECK_CXX_SOURCE_COMPILES("
+template< typename F >
+int apply(F f) {
+  return f();
+}
+
 struct test {
+  test() : value_(0) {}
+  
   int lambda() {
-    return [=]() { return value_; }();
+    return apply([=]() {
+      return value_;
+    });
   }
 
   int value_;
@@ -514,7 +531,7 @@ struct test {
 
 int main() {
   test t;
-  t.lambda();
+  return t.lambda();
 }
 " HAVE_IMPLICIT_THIS_LAMBDA_CAPTURE
 )
