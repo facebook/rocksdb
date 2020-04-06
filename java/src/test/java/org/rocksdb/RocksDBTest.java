@@ -1170,7 +1170,6 @@ public class RocksDBTest {
     }
   }
 
-  @Ignore("This test crashes. Re-enable after fixing.")
   @Test
   public void getApproximateSizes() throws RocksDBException {
     final byte key1[] = "key1".getBytes(UTF_8);
@@ -1185,7 +1184,7 @@ public class RocksDBTest {
 
         final long[] sizes = db.getApproximateSizes(
             Arrays.asList(
-                new Range(new Slice(key1), new Slice(key2)),
+                new Range(new Slice(key1), new Slice(key1)),
                 new Range(new Slice(key2), new Slice(key3))
             ),
             SizeApproximationFlag.INCLUDE_FILES,
