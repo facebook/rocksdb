@@ -4441,11 +4441,13 @@ uint64_t rocksdb_approximate_memory_usage_get_cache_total(
   return memory_usage->cache_total;
 }
 
-void rocksdb_options_set_dump_malloc_stats(rocksdb_options_t* opt, int val) {
+void rocksdb_options_set_dump_malloc_stats(rocksdb_options_t* opt,
+                                           unsigned char val) {
   opt->rep.dump_malloc_stats = val;
 }
 
-void rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t* opt, int val) {
+void rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t* opt,
+                                                      unsigned char val) {
   opt->rep.memtable_whole_key_filtering = val;
 }
 
