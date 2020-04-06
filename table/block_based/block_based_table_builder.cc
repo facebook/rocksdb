@@ -1184,21 +1184,21 @@ IOStatus BlockBasedTableBuilder::io_status() const {
   }
 }
 
-void BlockBasedTableBuilder::SetStatusAtom(Status status) {
+void BlockBasedTableBuilder::SetStatusAtom(Status s) {
   if (rep_->compression_opts.parallel_threads > 1) {
     std::lock_guard<std::mutex> lock(rep_->status_mutex);
-    rep_->status = status;
+    rep_->status = s;
   } else {
-    rep_->status = status;
+    rep_->status = s;
   }
 }
 
-void BlockBasedTableBuilder::SetIOStatusAtom(IOStatus io_status) {
+void BlockBasedTableBuilder::SetIOStatusAtom(IOStatus io_s) {
   if (rep_->compression_opts.parallel_threads > 1) {
     std::lock_guard<std::mutex> lock(rep_->io_status_mutex);
-    rep_->io_status = io_status;
+    rep_->io_status = io_s;
   } else {
-    rep_->io_status = io_status;
+    rep_->io_status = io_s;
   }
 }
 
