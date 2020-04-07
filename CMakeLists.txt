@@ -1070,6 +1070,7 @@ if(WITH_TESTS)
         util/slice_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
+        util/timer_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
