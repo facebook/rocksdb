@@ -1716,7 +1716,6 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
   status = service->Run(param, &result);
 
   // update compaction stats
-  compaction_stats_.micros = env_->NowMicros() - start_micros;
   compaction_stats_.cpu_micros = 0;
   for (size_t i = 0; i < compact_->sub_compact_states.size(); i++) {
     compaction_stats_.cpu_micros +=
@@ -1760,6 +1759,7 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
   // Install all remotely compacted file into local files.
   auto statuses =
       service->InstallFiles(sources, destinations, env_options_, env_);
+  compaction_stats_.micros = env_->NowMicros() - start_micros;
 
   for (uint32_t i = 0; i < statuses.size(); ++i) {
     if (!statuses[i].ok()) {
