@@ -220,12 +220,14 @@ std::string ParsePlainTableOptions(const std::string& name,
     }
   }
   const auto& opt_info = iter->second;
-  if (!opt_info.IsDeprecated() &&
-      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info.type, value)) {
-    return "Invalid value";
+  Status s = opt_info.ParseOption(
+      name, value, options,
+      reinterpret_cast<char*>(new_options) + opt_info.offset);
+  if (s.ok()) {
+    return "";
+  } else {
+    return s.ToString();
   }
-  return "";
 }
 
 Status GetPlainTableOptionsFromMap(

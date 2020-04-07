@@ -14,6 +14,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 
@@ -331,6 +332,30 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, best_efforts_recovery),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
+        // The following properties were handled as special cases in ParseOption
+        // This means that the properties could be read from the options file
+        // but never written to the file or compared to each other.
+        {"rate_limiter_bytes_per_sec",
+         {offsetof(struct DBOptions, rate_limiter), OptionType::kUnknown,
+          OptionVerificationType::kNormal,
+          (OptionTypeFlags::kStringNone | OptionTypeFlags::kCompareNever), 0,
+          [](const std::string& /*name*/, const std::string& value,
+             const ConfigOptions& /*opts*/, char* addr) {
+            auto limiter =
+                reinterpret_cast<std::shared_ptr<RateLimiter>*>(addr);
+            limiter->reset(NewGenericRateLimiter(
+                static_cast<int64_t>(ParseUint64(value))));
+            return Status::OK();
+          }}},
+        {"env",
+         {offsetof(struct DBOptions, env), OptionType::kUnknown,
+          OptionVerificationType::kNormal,
+          (OptionTypeFlags::kStringNone | OptionTypeFlags::kCompareNever), 0,
+          [](const std::string& /*name*/, const std::string& value,
+             const ConfigOptions& /*opts*/, char* addr) {
+            auto env = reinterpret_cast<Env**>(addr);
+            return Env::LoadEnv(value, env);
+          }}},
 };
 #endif  // ROCKSDB_LITE
 

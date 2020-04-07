@@ -20,17 +20,20 @@
 #pragma once
 
 #include <stdlib.h>
+
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 struct BlockBasedTableOptions;
+struct ConfigOptions;
 
 // A class that takes a bunch of keys, then generates filter
 class FilterBitsBuilder {
@@ -125,6 +128,12 @@ class FilterPolicy {
  public:
   virtual ~FilterPolicy();
 
+  // Creates a new FilterPolicy based on the input value string and returns the
+  // result The value might be an ID, and ID with properties, or an old-style
+  // policy string.
+  static Status CreateFromString(const std::string& value,
+                                 const ConfigOptions& options,
+                                 std::shared_ptr<const FilterPolicy>* result);
   // Return the name of this policy.  Note that if the filter encoding
   // changes in an incompatible way, the name returned by this method
   // must be changed.  Otherwise, old incompatible filters may be

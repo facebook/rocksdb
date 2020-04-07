@@ -5,7 +5,13 @@
 
 #pragma once
 
+#include <functional>
+#include <memory>
+#include <unordered_map>
+
+#include "rocksdb/convenience.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -58,29 +64,57 @@ enum class OptionVerificationType {
                          // where one of them is a nullptr.
   kByNameAllowFromNull,  // Same as kByName, but it also allows the case
                          // where the old option is nullptr.
-  kDeprecated            // The option is no longer used in rocksdb. The RocksDB
+  kDeprecated,           // The option is no longer used in rocksdb. The RocksDB
                          // OptionsParser will still accept this option if it
                          // happen to exists in some Options file.  However,
                          // the parser will not include it in serialization
                          // and verification processes.
+  kAlias,                // This option represents is a name/shortcut for
+                         // another option and should not be written or verified
+                         // independently
 };
 
 enum class OptionTypeFlags : uint32_t {
-  kNone = 0x00,     // No flags
-  kMutable = 0x01,  // Option is mutable
+  kNone = 0x00,  // No flags
+  kCompareDefault = 0x0,
+  kCompareNever = ConfigOptions::kSanityLevelNone,
+  kCompareLoose = ConfigOptions::kSanityLevelLooselyCompatible,
+  kCompareExact = ConfigOptions::kSanityLevelExactMatch,
+
+  kMutable = 0x0100,     // Option is mutable
+  kStringNone = 0x2000,  // Don't serialize the option
 };
 
-inline OptionTypeFlags operator|(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator|(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) |
                                       static_cast<uint32_t>(b));
 }
 
-inline OptionTypeFlags operator&(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator&(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
 }
+
+// Function for converting a option "value" into its underlying
+// representation in "addr"
+using ParserFunc = std::function<Status(
+    const std::string& /*name*/, const std::string& /*value*/,
+    const ConfigOptions& /*opts*/, char* /*addr*/)>;
+
+// Function for converting an option "addr" into its
+// string "value" representation
+using StringFunc = std::function<Status(
+    const std::string& /*name*/, const char* /*address*/,
+    const ConfigOptions& /*opts*/, std::string* /*value*/)>;
+
+// Function for comparing the option at address1 to adddress2
+// If they are not equal, updates "mismatch" with the name of the bad option
+using EqualsFunc =
+    std::function<bool(const std::string& /*name*/, const char* /*address1*/,
+                       const char* /*address2*/, const ConfigOptions& /*opts*/,
+                       std::string* mismatch)>;
 
 // A struct for storing constant option information such as option name,
 // option type, and offset.
@@ -88,12 +122,14 @@ class OptionTypeInfo {
  public:
   int offset;
   int mutable_offset;
-  OptionType type;
 
   // A simple "normal", non-mutable Type "_type" at _offset
   OptionTypeInfo(int _offset, OptionType _type)
       : offset(_offset),
         mutable_offset(0),
+        parser_func(nullptr),
+        string_func(nullptr),
+        equals_func(nullptr),
         type(_type),
         verification(OptionVerificationType::kNormal),
         flags(OptionTypeFlags::kNone) {}
@@ -102,6 +138,9 @@ class OptionTypeInfo {
   OptionTypeInfo(int _offset, OptionType _type, int _mutable_offset)
       : offset(_offset),
         mutable_offset(_mutable_offset),
+        parser_func(nullptr),
+        string_func(nullptr),
+        equals_func(nullptr),
         type(_type),
         verification(OptionVerificationType::kNormal),
         flags(OptionTypeFlags::kMutable) {}
@@ -111,6 +150,34 @@ class OptionTypeInfo {
                  int _mutable_offset)
       : offset(_offset),
         mutable_offset(_mutable_offset),
+        parser_func(nullptr),
+        string_func(nullptr),
+        equals_func(nullptr),
+        type(_type),
+        verification(_verification),
+        flags(_flags) {}
+
+  OptionTypeInfo(int _offset, OptionType _type,
+                 OptionVerificationType _verification, OptionTypeFlags _flags,
+                 int _mutable_offset, const ParserFunc& _pfunc)
+      : offset(_offset),
+        mutable_offset(_mutable_offset),
+        parser_func(_pfunc),
+        string_func(nullptr),
+        equals_func(nullptr),
+        type(_type),
+        verification(_verification),
+        flags(_flags) {}
+
+  OptionTypeInfo(int _offset, OptionType _type,
+                 OptionVerificationType _verification, OptionTypeFlags _flags,
+                 int _mutable_offset, const ParserFunc& _pfunc,
+                 const StringFunc& _sfunc, const EqualsFunc& _efunc)
+      : offset(_offset),
+        mutable_offset(_mutable_offset),
+        parser_func(_pfunc),
+        string_func(_sfunc),
+        equals_func(_efunc),
         type(_type),
         verification(_verification),
         flags(_flags) {}
@@ -123,8 +190,40 @@ class OptionTypeInfo {
     return IsEnabled(OptionVerificationType::kDeprecated);
   }
 
+  bool IsAlias() const { return IsEnabled(OptionVerificationType::kAlias); }
+
   bool IsEnabled(OptionVerificationType ovf) const {
     return verification == ovf;
+  }
+
+  // Returns the sanity level for comparing the option.
+  // If the options should not be compared, returns None
+  // If the option has a compare flag, returns it.
+  // Otherwise, returns "exact"
+  ConfigOptions::SanityLevel GetSanityLevel() const {
+    if (IsDeprecated() || IsAlias()) {
+      return ConfigOptions::SanityLevel::kSanityLevelNone;
+    } else {
+      auto match = (flags & OptionTypeFlags::kCompareExact);
+      if (match == OptionTypeFlags::kCompareDefault) {
+        return ConfigOptions::SanityLevel::kSanityLevelExactMatch;
+      } else {
+        return (ConfigOptions::SanityLevel)match;
+      }
+    }
+  }
+
+  // Returns true if the option should be serialized.
+  // Options should be serialized if the are not deprecated, aliases, 
+  // or marked as "Don't Serialize"
+  bool ShouldSerialize() const {
+    if (IsDeprecated() || IsAlias()) {
+      return false;
+    } else if (IsEnabled(OptionTypeFlags::kStringNone)) {
+      return false;
+    } else {
+      return true;
+    }
   }
 
   bool IsByName() const {
@@ -133,8 +232,42 @@ class OptionTypeInfo {
             verification == OptionVerificationType::kByNameAllowFromNull);
   }
 
- protected:
+  // Parses the option in "opt_value" according to the rules of this class
+  // and updates the value at "opt_addr".
+  Status ParseOption(const std::string& opt_name, const std::string& opt_value,
+                     const ConfigOptions& options, char* opt_addr) const;
+
+  // Serializes the option in "opt_addr" according to the rules of this class
+  // into the value at "opt_value".
+  Status SerializeOption(const std::string& opt_name, const char* opt_addr,
+                         const ConfigOptions& options,
+                         std::string* opt_value) const;
+
+  // Compares the "addr1" and "addr2" values according to the rules of this class
+  // and returns true if they match.  On a failed match, mismatch is the name
+  // of the option that failed to match.
+  bool MatchesOption(const std::string& opt_name, const char* addr1,
+                     const char* addr2, const ConfigOptions& options,
+                     std::string* mismatch) const;
+
+  // Used to override the match rules for "ByName" options.
+  bool CheckByName(const std::string& opt_name, const char* this_offset,
+                   const char* that_offset, const ConfigOptions& options) const;
+  bool CheckByName(const std::string& opt_name, const char* this_ptr,
+                   const std::string& that_value,
+                   const ConfigOptions& options) const;
+
  private:
+  // The optional function to convert a string to its representation
+  ParserFunc parser_func;
+
+  // The optional function to convert a value to its string representation
+  StringFunc string_func;
+
+  // The optional function to convert a match to option values
+  EqualsFunc equals_func;
+  
+  OptionType type;
   OptionVerificationType verification;
   OptionTypeFlags flags;
 };
