@@ -2529,6 +2529,32 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "66");
 }
+
+TEST_F(OptionTypeInfoTest, TestVectorType) {
+  OptionTypeInfo vec_info = OptionTypeInfo::Vector<std::string>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
+      {0, OptionType::kString});
+  std::vector<std::string> vec1, vec2;
+  std::string mismatch;
+
+  ConfigOptions opts;
+  TestAndCompareOption(vec_info, "v", "a:b:c:d", &vec1, &vec2, opts);
+  ASSERT_EQ(vec1.size(), 4);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b");
+  ASSERT_EQ(vec1[2], "c");
+  ASSERT_EQ(vec1[3], "d");
+  vec1[3] = "e";
+  ASSERT_FALSE(vec_info.MatchesOption("v", reinterpret_cast<char*>(&vec1),
+                                      reinterpret_cast<char*>(&vec2), opts,
+                                      &mismatch));
+  ASSERT_EQ(mismatch, "v");
+
+  OptionTypeInfo bar_info = OptionTypeInfo::Vector<std::string>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
+      {0, OptionType::kString}, '|');
+  TestAndCompareOption(vec_info, "v", "x|y|z", &vec1, &vec2, opts);
+}
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
