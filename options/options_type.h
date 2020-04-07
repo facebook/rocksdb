@@ -41,18 +41,13 @@ enum class OptionType {
   kCompactionStopStyle,
   kMergeOperator,
   kMemTableRepFactory,
-  kBlockBasedTableIndexType,
-  kBlockBasedTableDataBlockIndexType,
-  kBlockBasedTableIndexShorteningMode,
   kFilterPolicy,
   kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
-  kWALRecoveryMode,
-  kAccessHint,
-  kInfoLogLevel,
   kLRUCacheOptions,
   kEnv,
+  kEnum,
   kUnknown,
 };
 
@@ -95,6 +90,29 @@ inline OptionTypeFlags operator&(const OptionTypeFlags& a,
                                  const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
+}
+
+template <typename T>
+bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
+               const std::string& type, T* value) {
+  auto iter = type_map.find(type);
+  if (iter != type_map.end()) {
+    *value = iter->second;
+    return true;
+  }
+  return false;
+}
+
+template <typename T>
+bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
+                   const T& type, std::string* value) {
+  for (const auto& pair : type_map) {
+    if (pair.second == type) {
+      *value = pair.first;
+      return true;
+    }
+  }
+  return false;
 }
 
 // Function for converting a option "value" into its underlying
@@ -182,6 +200,65 @@ class OptionTypeInfo {
         verification(_verification),
         flags(_flags) {}
 
+  OptionTypeInfo(int _offset, OptionType _type,
+                 OptionVerificationType _verification, OptionTypeFlags _flags,
+                 int _mutable_offset, const ParserFunc& _pfunc)
+      : offset(_offset),
+        mutable_offset(_mutable_offset),
+        parser_func(_pfunc),
+        string_func(nullptr),
+        equals_func(nullptr),
+        type(_type),
+        verification(_verification),
+        flags(_flags) {}
+
+  OptionTypeInfo(int _offset, OptionType _type,
+                 OptionVerificationType _verification, OptionTypeFlags _flags,
+                 int _mutable_offset, const ParserFunc& _pfunc,
+                 const StringFunc& _sfunc, const EqualsFunc& _efunc)
+      : offset(_offset),
+        mutable_offset(_mutable_offset),
+        parser_func(_pfunc),
+        string_func(_sfunc),
+        equals_func(_efunc),
+        type(_type),
+        verification(_verification),
+        flags(_flags) {}
+
+  template <typename T>
+  static OptionTypeInfo Enum(
+      int _offset, const std::unordered_map<std::string, T>* const map) {
+    return OptionTypeInfo(
+        _offset, OptionType::kEnum, OptionVerificationType::kNormal,
+        OptionTypeFlags::kNone, 0,
+        [map](const std::string& name, const std::string& value,
+              const ConfigOptions&, char* addr) {
+          if (map == nullptr) {
+            return Status::NotSupported("No enum mapping ", name);
+          } else if (ParseEnum<T>(*map, value, reinterpret_cast<T*>(addr))) {
+            return Status::OK();
+          } else {
+            return Status::InvalidArgument("No mapping for enum ", name);
+          }
+        },
+        [map](const std::string& name, const char* addr, const ConfigOptions&,
+              std::string* value) {
+          if (map == nullptr) {
+            return Status::NotSupported("No enum mapping ", name);
+          } else if (SerializeEnum<T>(*map, (*reinterpret_cast<const T*>(addr)),
+                                      value)) {
+            return Status::OK();
+          } else {
+            return Status::InvalidArgument("No mapping for enum ", name);
+          }
+        },
+        [](const std::string&, const char* addr1, const char* addr2,
+           const ConfigOptions&, std::string*) {
+          return (*reinterpret_cast<const T*>(addr1) ==
+                  *reinterpret_cast<const T*>(addr2));
+        });
+  }
+
   bool IsEnabled(OptionTypeFlags otf) const { return (flags & otf) == otf; }
 
   bool IsMutable() const { return IsEnabled(OptionTypeFlags::kMutable); }
@@ -214,7 +291,7 @@ class OptionTypeInfo {
   }
 
   // Returns true if the option should be serialized.
-  // Options should be serialized if the are not deprecated, aliases, 
+  // Options should be serialized if the are not deprecated, aliases,
   // or marked as "Don't Serialize"
   bool ShouldSerialize() const {
     if (IsDeprecated() || IsAlias()) {
@@ -243,9 +320,9 @@ class OptionTypeInfo {
                          const ConfigOptions& options,
                          std::string* opt_value) const;
 
-  // Compares the "addr1" and "addr2" values according to the rules of this class
-  // and returns true if they match.  On a failed match, mismatch is the name
-  // of the option that failed to match.
+  // Compares the "addr1" and "addr2" values according to the rules of this
+  // class and returns true if they match.  On a failed match, mismatch is the
+  // name of the option that failed to match.
   bool MatchesOption(const std::string& opt_name, const char* addr1,
                      const char* addr2, const ConfigOptions& options,
                      std::string* mismatch) const;
@@ -266,7 +343,7 @@ class OptionTypeInfo {
 
   // The optional function to convert a match to option values
   EqualsFunc equals_func;
-  
+
   OptionType type;
   OptionVerificationType verification;
   OptionTypeFlags flags;
