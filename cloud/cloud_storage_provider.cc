@@ -286,17 +286,6 @@ CloudStorageProviderImpl::CloudStorageProviderImpl() : rng_(time(nullptr)) {}
 
 CloudStorageProviderImpl::~CloudStorageProviderImpl() {}
 
-Status CloudStorageProviderImpl::Verify() const {
-  if (!status_.ok()) {
-    return status_;
-  } else if (!env_) {
-    return Status::InvalidArgument("Storage Provider not initialized: ",
-                                   Name());
-  } else {
-    return Status::OK();
-  }
-}
-
 Status CloudStorageProviderImpl::Prepare(CloudEnv* env) {
   status_ = Initialize(env);
   if (status_.ok()) {

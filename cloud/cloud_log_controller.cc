@@ -76,15 +76,6 @@ Status CloudLogControllerImpl::Prepare(CloudEnv* env) {
   return status_;
 }
 
-Status CloudLogControllerImpl::Verify() const {
-  if (!status_.ok()) {
-    return status_;
-  } else if (!env_) {
-    return Status::InvalidArgument("Log Controller not initialized: ", Name());
-  }
-  return status_;
-}
-
 std::string CloudLogControllerImpl::GetCachePath(
     const Slice& original_pathname) const {
   const std::string & cache_dir = GetCacheDir();

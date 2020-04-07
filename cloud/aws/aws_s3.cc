@@ -33,7 +33,7 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/ServerSideEncryption.h>
 #include <aws/transfer/TransferManager.h>
-#endif // USE_AWS
+#endif  // USE_AWS
 
 #include <cassert>
 #include <cinttypes>
@@ -389,8 +389,6 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                               const std::string& object_path,
                               std::unique_ptr<CloudStorageWritableFile>* result,
                               const EnvOptions& options) override;
-  Status Verify() const override;
-
  protected:
   Status Initialize(CloudEnv* env) override;
   Status DoGetObject(const std::string& bucket_name,
@@ -449,16 +447,6 @@ Status S3StorageProvider::Initialize(CloudEnv* env) {
     }
   }
   return status;
-}
-
-Status S3StorageProvider::Verify() const {
-  Status s = CloudStorageProviderImpl::Verify();
-  if (s.ok()) {
-    if (!s3client_) {
-      s = Status::InvalidArgument("S3Client Failed to initialize");
-    }
-  }
-  return s;
 }
 
 //

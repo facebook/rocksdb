@@ -999,24 +999,6 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   return Status::OK();
 }
 
-Status CloudEnvImpl::Verify() const {
-  Status s;
-  if (!cloud_env_options.storage_provider) {
-    s = Status::InvalidArgument(
-        "Cloud environment requires a storage provider");
-  } else {
-    s = cloud_env_options.storage_provider->Verify();
-  }
-  if (s.ok()) {
-    if (cloud_env_options.cloud_log_controller) {
-      s = cloud_env_options.cloud_log_controller->Verify();
-    } else if (!cloud_env_options.keep_local_log_files) {
-      s = Status::InvalidArgument(
-          "Log controller required for remote log files");
-    }
-  }
-  return s;
-}
 Status CloudEnvImpl::Prepare() {
   Header(info_log_, "     %s.src_bucket_name: %s", Name(),
          cloud_env_options.src_bucket.GetBucketName().c_str());

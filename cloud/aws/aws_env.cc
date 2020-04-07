@@ -76,7 +76,7 @@ Status AwsCloudAccessCredentials::TEST_Initialize() {
 Status AwsCloudAccessCredentials::CheckCredentials(
     const AwsAccessType& aws_type) const {
 #ifndef USE_AWS
-  (void) aws_type;
+  (void)aws_type;
   return Status::NotSupported("AWS not supported");
 #else
   if (aws_type == AwsAccessType::kSimple) {

@@ -55,8 +55,6 @@ class CloudLogControllerImpl : public CloudLogController {
   Status FileExists(const std::string& fname) override;
   Status GetFileSize(const std::string& logical_fname, uint64_t* size) override;
   virtual Status Prepare(CloudEnv* env) override;
-  virtual Status Verify() const override;
-
  protected:
   virtual Status Initialize(CloudEnv* env);
   // Converts an original pathname to a pathname in the cache.

@@ -112,8 +112,5 @@ class CloudStorageProvider {
 
   // Prepares/Initializes the storage provider for the input cloud environment
   virtual Status Prepare(CloudEnv* env);
-
-  // Verifies the storage provider is correctly initialized and ready to use.
-  virtual Status Verify() const = 0;
 };
 }  // namespace rocksdb

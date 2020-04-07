@@ -189,8 +189,6 @@ class KinesisController : public CloudLogControllerImpl {
 
   CloudLogWritableFile* CreateWritableFile(const std::string& fname,
                                            const EnvOptions& options) override;
-  Status Verify() const override;
-
  protected:
   Status Initialize(CloudEnv* env) override;
 
@@ -212,17 +210,17 @@ class KinesisController : public CloudLogControllerImpl {
 };
 
 Status KinesisController::Initialize(CloudEnv* env) {
-  Status status = CloudLogControllerImpl::Initialize(env);
-  if (status.ok()) {
+  Status st = CloudLogControllerImpl::Initialize(env);
+  if (st.ok()) {
     Aws::Client::ClientConfiguration config;
     const auto& options = env->GetCloudEnvOptions();
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
-    status = options.credentials.GetCredentialsProvider(&provider);
-    if (status.ok()) {
-      status = AwsCloudOptions::GetClientConfiguration(
+    st = options.credentials.GetCredentialsProvider(&provider);
+    if (st.ok()) {
+      st = AwsCloudOptions::GetClientConfiguration(
           env, options.src_bucket.GetRegion(), &config);
     }
-    if (status.ok()) {
+    if (st.ok()) {
       kinesis_client_.reset(
           provider ? new Aws::Kinesis::KinesisClient(provider, config)
                    : new Aws::Kinesis::KinesisClient(config));
@@ -230,22 +228,12 @@ Status KinesisController::Initialize(CloudEnv* env) {
       std::string bucket = env->GetSrcBucketName();
       topic_ = Aws::String(bucket.c_str(), bucket.size());
 
-      Log(InfoLogLevel::DEBUG_LEVEL, env->info_log_,
+      Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
           "[%s] KinesisController opening stream %s using cachedir '%s'",
           Name(), topic_.c_str(), cache_dir_.c_str());
     }
   }
-  return status;
-}
-
-Status KinesisController::Verify() const {
-  Status s = CloudLogControllerImpl::Verify();
-  if (s.ok()) {
-    if (!kinesis_client_) {
-      s = Status::InvalidArgument("Failed to initialize kinesis client");
-    }
-  }
-  return s;
+  return st;
 }
 
 Status KinesisController::TailStream() {

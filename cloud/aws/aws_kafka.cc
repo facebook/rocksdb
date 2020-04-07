@@ -203,8 +203,6 @@ class KafkaController : public CloudLogControllerImpl {
   virtual CloudLogWritableFile* CreateWritableFile(const std::string& fname,
                                                    const EnvOptions& options) override;
 
-  Status Verify() const override;
-
  protected:
   Status Initialize(CloudEnv* env) override;
 
@@ -240,12 +238,11 @@ Status KafkaController::Initialize(CloudEnv* env) {
   for (auto const& item : kconf) {
     if (conf->set(item.first, item.second, conf_errstr) !=
         RdKafka::Conf::CONF_OK) {
-      s = Status::InvalidArgument(
-          "Failed adding specified conf to Kafka conf", conf_errstr.c_str());
+      s = Status::InvalidArgument("Failed adding specified conf to Kafka conf",
+                                  conf_errstr.c_str());
 
       Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
-          "[aws] NewAwsEnv Kafka conf set error: %s",
-          s.ToString().c_str());
+          "[aws] NewAwsEnv Kafka conf set error: %s", s.ToString().c_str());
       return s;
     }
   }
@@ -284,24 +281,6 @@ Status KafkaController::Initialize(CloudEnv* env) {
     assert(producer_topic_ != nullptr);
     assert(consumer_topic_ != nullptr);
     assert(consuming_queue_ != nullptr);
-  }
-  return s;
-}
-
-Status KafkaController::Verify() const {
-  Status s = CloudLogControllerImpl::Verify();
-  if (s.ok()) {
-    if (!producer_) {
-      s = Status::InvalidArgument("Failed creating Kafka producer");
-    } else if (!consumer_) {
-      s = Status::InvalidArgument("Failed creating Kafka consumer");
-    } else if (producer_topic_ == nullptr) {
-      s = Status::InvalidArgument("Failed to initialize Kafa Producer Topic");
-    } else if (consumer_topic_ == nullptr) {
-      s = Status::InvalidArgument("Failed to initialize Kafa Consumer Topic");
-    } else if (consuming_queue_ == nullptr) {
-      s = Status::InvalidArgument("Failed to initialize Kafa Consuming Queue");
-    }
   }
   return s;
 }
