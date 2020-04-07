@@ -95,9 +95,6 @@ matrix:
     arch: ppc64le
     env: TEST_GROUP=2
   - if: type = pull_request
-    os: osx
-    env: TEST_GROUP=3
-  - if: type = pull_request
     os : linux
     arch: arm64
     env: TEST_GROUP=3
