@@ -447,9 +447,10 @@ MAIN_SOURCES =                                                          \
   util/repeatable_thread_test.cc                                        \
   util/slice_test.cc                                                    \
   util/slice_transform_test.cc                                          \
+  util/timer_queue_test.cc                                              \
+  util/timer_test.cc                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
-  util/timer_test.cc                                                    \
   util/work_queue_test.cc                                               \
   utilities/backupable/backupable_db_test.cc                            \
   utilities/blob_db/blob_db_test.cc                                     \
