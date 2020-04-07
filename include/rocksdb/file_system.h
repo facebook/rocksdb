@@ -95,6 +95,8 @@ struct FileOptions : EnvOptions {
   // to be issued for the file open/creation
   IOOptions io_options;
 
+  FileOptions& operator=(const FileOptions& opts) = default;
+
   FileOptions() : EnvOptions() {}
 
   FileOptions(const DBOptions& opts)

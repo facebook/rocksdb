@@ -1011,7 +1011,7 @@ Status GetStringFromStruct(
     const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
-  for (const auto iter : type_info) {
+  for (const auto& iter : type_info) {
     const auto& opt_info = iter.second;
     if (opt_info.IsDeprecated()) {
       // If the option is no longer used in rocksdb and marked as deprecated,

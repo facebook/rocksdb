@@ -823,6 +823,9 @@ if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
 else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
+  if(UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(SYSTEM_LIBS ${SYSTEM_LIBS} atomic)
+  endif()
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
@@ -1187,10 +1190,12 @@ if(WITH_BENCHMARK_TOOLS)
   target_link_libraries(range_del_aggregator_bench
     ${ROCKSDB_LIB})
 
-  add_executable(table_reader_bench
-    table/table_reader_bench.cc)
-  target_link_libraries(table_reader_bench
-    ${ROCKSDB_LIB} testharness)
+  if(WITH_TESTS)
+    add_executable(table_reader_bench
+      table/table_reader_bench.cc)
+    target_link_libraries(table_reader_bench
+      ${ROCKSDB_LIB} testharness)
+  endif()
 
   add_executable(filter_bench
     util/filter_bench.cc)
