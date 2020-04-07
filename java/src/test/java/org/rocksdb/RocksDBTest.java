@@ -1086,6 +1086,8 @@ public class RocksDBTest {
 
   @Test
   public void continueBackgroundWorkAfterCancelAllBackgroundWork() throws RocksDBException {
+    final int KEY_SIZE = 20;
+    final int VALUE_SIZE = 300;
     try (final DBOptions opt = new DBOptions().
         setCreateIfMissing(true).
         setCreateMissingColumnFamilies(true);
@@ -1106,9 +1108,10 @@ public class RocksDBTest {
         try {
           db.cancelAllBackgroundWork(true);
           try {
-            db.continueBackgroundWork();
-            fail("Expected RocksDBException to be thrown if we attempt to continue background " +
-                "work after all background work is cancelled.");
+            db.put(new byte[KEY_SIZE], new byte[VALUE_SIZE]);
+            db.flush(new FlushOptions().setWaitForFlush(true));
+            fail("Expected RocksDBException to be thrown if we attempt to trigger a flush after" +
+                " all background work is cancelled.");
           } catch (RocksDBException ignored) { }
         } finally {
           for (final ColumnFamilyHandle handle : columnFamilyHandles) {
