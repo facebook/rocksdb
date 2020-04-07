@@ -36,8 +36,6 @@ enum class OptionType {
   kComparator,
   kCompactionFilter,
   kCompactionFilterFactory,
-  kCompactionOptionsFIFO,
-  kCompactionOptionsUniversal,
   kCompactionStopStyle,
   kMergeOperator,
   kMemTableRepFactory,
@@ -45,9 +43,9 @@ enum class OptionType {
   kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
-  kLRUCacheOptions,
   kEnv,
   kEnum,
+  kStruct,
   kUnknown,
 };
 
@@ -200,31 +198,6 @@ class OptionTypeInfo {
         verification(_verification),
         flags(_flags) {}
 
-  OptionTypeInfo(int _offset, OptionType _type,
-                 OptionVerificationType _verification, OptionTypeFlags _flags,
-                 int _mutable_offset, const ParserFunc& _pfunc)
-      : offset(_offset),
-        mutable_offset(_mutable_offset),
-        parser_func(_pfunc),
-        string_func(nullptr),
-        equals_func(nullptr),
-        type(_type),
-        verification(_verification),
-        flags(_flags) {}
-
-  OptionTypeInfo(int _offset, OptionType _type,
-                 OptionVerificationType _verification, OptionTypeFlags _flags,
-                 int _mutable_offset, const ParserFunc& _pfunc,
-                 const StringFunc& _sfunc, const EqualsFunc& _efunc)
-      : offset(_offset),
-        mutable_offset(_mutable_offset),
-        parser_func(_pfunc),
-        string_func(_sfunc),
-        equals_func(_efunc),
-        type(_type),
-        verification(_verification),
-        flags(_flags) {}
-
   template <typename T>
   static OptionTypeInfo Enum(
       int _offset, const std::unordered_map<std::string, T>* const map) {
@@ -256,6 +229,32 @@ class OptionTypeInfo {
            const ConfigOptions&, std::string*) {
           return (*reinterpret_cast<const T*>(addr1) ==
                   *reinterpret_cast<const T*>(addr2));
+        });
+  }
+
+  static OptionTypeInfo Struct(
+      const std::string& struct_name,
+      const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
+      int _offset, OptionVerificationType _verification, OptionTypeFlags _flags,
+      int _mutable_offset) {
+    return OptionTypeInfo(
+        _offset, OptionType::kStruct, _verification, _flags, _mutable_offset,
+        [struct_name, struct_map](const std::string& name,
+                                  const std::string& value,
+                                  const ConfigOptions& opts, char* addr) {
+          return ParseStruct(struct_name, struct_map, name, value, opts, addr);
+        },
+        [struct_name, struct_map](const std::string& name, const char* addr,
+                                  const ConfigOptions& opts,
+                                  std::string* value) {
+          return SerializeStruct(struct_name, struct_map, name, addr, opts,
+                                 value);
+        },
+        [struct_name, struct_map](const std::string& name, const char* addr1,
+                                  const char* addr2, const ConfigOptions& opts,
+                                  std::string* mismatch) {
+          return MatchesStruct(struct_name, struct_map, name, addr1, addr2,
+                               opts, mismatch);
         });
   }
 
@@ -309,6 +308,8 @@ class OptionTypeInfo {
             verification == OptionVerificationType::kByNameAllowFromNull);
   }
 
+  bool IsStruct() const { return (type == OptionType::kStruct); }
+
   // Parses the option in "opt_value" according to the rules of this class
   // and updates the value at "opt_addr".
   Status ParseOption(const std::string& opt_name, const std::string& opt_value,
@@ -333,6 +334,46 @@ class OptionTypeInfo {
   bool CheckByName(const std::string& opt_name, const char* this_ptr,
                    const std::string& that_value,
                    const ConfigOptions& options) const;
+
+  // Parses the input value according to the map for the struct at opt_addr
+  // struct_name is the name of the struct option as registered
+  // opt_name is the name of the option being evaluated.  This may
+  // be the whole struct or a sub-element of it
+  static Status ParseStruct(
+      const std::string& struct_name,
+      const std::unordered_map<std::string, OptionTypeInfo>* map,
+      const std::string& opt_name, const std::string& value,
+      const ConfigOptions& opts, char* opt_addr);
+
+  // Serializes the input addr according to the map for the struct to value.
+  // struct_name is the name of the struct option as registered
+  // opt_name is the name of the option being evaluated.  This may
+  // be the whole struct or a sub-element of it
+  static Status SerializeStruct(
+      const std::string& struct_name,
+      const std::unordered_map<std::string, OptionTypeInfo>* map,
+      const std::string& opt_name, const char* opt_addr,
+      const ConfigOptions& opts, std::string* value);
+
+  // Matches the input offsets according to the map for the struct.
+  // struct_name is the name of the struct option as registered
+  // opt_name is the name of the option being evaluated.  This may
+  // be the whole struct or a sub-element of it
+  static bool MatchesStruct(
+      const std::string& struct_name,
+      const std::unordered_map<std::string, OptionTypeInfo>* map,
+      const std::string& opt_name, const char* this_offset,
+      const char* that_offset, const ConfigOptions& opts,
+      std::string* mismatch);
+
+  // Finds the entry for the opt_name in the opt_map, returning
+  // nullptr if not found.
+  // If found, elem_name will be the name of option to find.
+  // This may be opt_name, or a substring of opt_name.
+  static const OptionTypeInfo* FindOption(
+      const std::string& opt_name,
+      const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
+      std::string* elem_name);
 
  private:
   // The optional function to convert a string to its representation

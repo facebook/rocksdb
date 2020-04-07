@@ -2447,6 +2447,88 @@ TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
     ASSERT_EQ(e1, iter.second);
   }
 }
+
+TEST_F(OptionTypeInfoTest, TestStruct) {
+  struct Basic {
+    int i = 42;
+    std::string s = "Hello";
+  };
+
+  struct Extended {
+    int j = 11;
+    Basic b;
+  };
+
+  std::unordered_map<std::string, OptionTypeInfo> basic_type_map = {
+      {"i", {offsetof(struct Basic, i), OptionType::kInt}},
+      {"s", {offsetof(struct Basic, s), OptionType::kString}},
+  };
+  OptionTypeInfo basic_info = OptionTypeInfo::Struct(
+      "b", &basic_type_map, 0, OptionVerificationType::kNormal,
+      OptionTypeFlags::kMutable, 0);
+
+  std::unordered_map<std::string, OptionTypeInfo> extended_type_map = {
+      {"j", {offsetof(struct Extended, j), OptionType::kInt}},
+      {"b", OptionTypeInfo::Struct(
+                "b", &basic_type_map, offsetof(struct Extended, b),
+                OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0)},
+      {"m", OptionTypeInfo::Struct(
+                "m", &basic_type_map, offsetof(struct Extended, b),
+                OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+                offsetof(struct Extended, b))},
+  };
+  OptionTypeInfo extended_info = OptionTypeInfo::Struct(
+      "e", &extended_type_map, 0, OptionVerificationType::kNormal,
+      OptionTypeFlags::kMutable, 0);
+  Extended e1, e2;
+  ConfigOptions opts;
+  std::string mismatch;
+  TestAndCompareOption(basic_info, "b", "{i=33;s=33}", &e1.b, &e2.b, opts);
+  ASSERT_EQ(e1.b.i, 33);
+  ASSERT_EQ(e1.b.s, "33");
+
+  TestAndCompareOption(basic_info, "b.i", "44", &e1.b, &e2.b, opts);
+  ASSERT_EQ(e1.b.i, 44);
+
+  TestAndCompareOption(basic_info, "i", "55", &e1.b, &e2.b, opts);
+  ASSERT_EQ(e1.b.i, 55);
+
+  e1.b.i = 0;
+  auto e1bc = reinterpret_cast<char*>(&e1.b);
+  auto e2bc = reinterpret_cast<char*>(&e2.b);
+
+  ASSERT_FALSE(basic_info.MatchesOption("b", e1bc, e2bc, opts, &mismatch));
+  ASSERT_EQ(mismatch, "b.i");
+  mismatch.clear();
+  ASSERT_FALSE(basic_info.MatchesOption("b.i", e1bc, e2bc, opts, &mismatch));
+  ASSERT_EQ(mismatch, "b.i");
+  mismatch.clear();
+  ASSERT_FALSE(basic_info.MatchesOption("i", e1bc, e2bc, opts, &mismatch));
+  ASSERT_EQ(mismatch, "b.i");
+  mismatch.clear();
+
+  e1 = e2;
+  ASSERT_NOK(basic_info.ParseOption("b", "{i=33;s=33;j=44}", opts, e1bc));
+  ASSERT_TRUE(basic_info.MatchesOption("b.i", e1bc, e2bc, opts, &mismatch));
+  ASSERT_NOK(basic_info.ParseOption("b.j", "44", opts, e1bc));
+  ASSERT_TRUE(basic_info.MatchesOption("b.i", e1bc, e2bc, opts, &mismatch));
+  ASSERT_NOK(basic_info.ParseOption("j", "44", opts, e1bc));
+  ASSERT_TRUE(basic_info.MatchesOption("b.i", e1bc, e2bc, opts, &mismatch));
+
+  TestAndCompareOption(extended_info, "e", "b={i=55;s=55}; j=22;", &e1, &e2,
+                       opts);
+  ASSERT_EQ(e1.b.i, 55);
+  ASSERT_EQ(e1.j, 22);
+  ASSERT_EQ(e1.b.s, "55");
+  TestAndCompareOption(extended_info, "e.b", "{i=66;s=66;}", &e1, &e2, opts);
+  ASSERT_EQ(e1.b.i, 66);
+  ASSERT_EQ(e1.j, 22);
+  ASSERT_EQ(e1.b.s, "66");
+  TestAndCompareOption(extended_info, "e.b.i", "77", &e1, &e2, opts);
+  ASSERT_EQ(e1.b.i, 77);
+  ASSERT_EQ(e1.j, 22);
+  ASSERT_EQ(e1.b.s, "66");
+}
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 

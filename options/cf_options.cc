@@ -118,6 +118,76 @@ static Status ParseCompressionOptions(const std::string& value,
   return Status::OK();
 }
 
+static CompactionOptionsUniversal dummy_comp_options_universal;
+static CompactionOptionsFIFO dummy_comp_options;
+template <typename T1>
+int offset_of(T1 CompactionOptionsUniversal::*member) {
+  return int(size_t(&(dummy_comp_options_universal.*member)) -
+             size_t(&dummy_comp_options_universal));
+}
+
+template <typename T1>
+int offset_of(T1 CompactionOptionsFIFO::*member) {
+  return int(size_t(&(dummy_comp_options.*member)) -
+             size_t(&dummy_comp_options));
+}
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    fifo_compaction_options_type_info = {
+        {"max_table_files_size",
+         {offset_of(&CompactionOptionsFIFO::max_table_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct CompactionOptionsFIFO, max_table_files_size)}},
+        {"ttl",
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"allow_compaction",
+         {offset_of(&CompactionOptionsFIFO::allow_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    universal_compaction_options_type_info = {
+        {"size_ratio",
+         {offset_of(&CompactionOptionsUniversal::size_ratio), OptionType::kUInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, size_ratio)}},
+        {"min_merge_width",
+         {offset_of(&CompactionOptionsUniversal::min_merge_width),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, min_merge_width)}},
+        {"max_merge_width",
+         {offset_of(&CompactionOptionsUniversal::max_merge_width),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, max_merge_width)}},
+        {"max_size_amplification_percent",
+         {offset_of(
+              &CompactionOptionsUniversal::max_size_amplification_percent),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal,
+                   max_size_amplification_percent)}},
+        {"compression_size_percent",
+         {offset_of(&CompactionOptionsUniversal::compression_size_percent),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal,
+                   compression_size_percent)}},
+        {"stop_style",
+         {offset_of(&CompactionOptionsUniversal::stop_style),
+          OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, stop_style)}},
+        {"allow_trivial_move",
+         {offset_of(&CompactionOptionsUniversal::allow_trivial_move),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, allow_trivial_move)}}};
+
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::cf_options_type_info = {
         /* not yet supported
@@ -473,14 +543,44 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone, 0}},
         {"compaction_options_fifo",
          {offset_of(&ColumnFamilyOptions::compaction_options_fifo),
-          OptionType::kCompactionOptionsFIFO, OptionVerificationType::kNormal,
+          OptionType::kStruct, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
-          offsetof(struct MutableCFOptions, compaction_options_fifo)}},
+          offsetof(struct MutableCFOptions, compaction_options_fifo),
+          [](const std::string& name, const std::string& value,
+             const ConfigOptions& opts, char* addr) {
+            // This is to handle backward compatibility, where
+            // compaction_options_fifo could be assigned a single scalar value,
+            // say, like "23", which would be assigned to max_table_files_size.
+            if (value.find("=") != std::string::npos) {
+              return OptionTypeInfo::ParseStruct(
+                  "compaction_options_fifo", &fifo_compaction_options_type_info,
+                  name, value, opts, addr);
+            } else {
+              // Old format. Parse just a single uint64_t value.
+              auto options = reinterpret_cast<CompactionOptionsFIFO*>(addr);
+              options->max_table_files_size = ParseUint64(value);
+              return Status::OK();
+            }
+          },
+          [](const std::string& name, const char* addr,
+             const ConfigOptions& opts, std::string* value) {
+            return OptionTypeInfo::SerializeStruct(
+                "compaction_options_fifo", &fifo_compaction_options_type_info,
+                name, addr, opts, value);
+          },
+          [](const std::string& name, const char* addr1, const char* addr2,
+             const ConfigOptions& opts, std::string* mismatch) {
+            return OptionTypeInfo::MatchesStruct(
+                "compaction_options_fifo", &fifo_compaction_options_type_info,
+                name, addr1, addr2, opts, mismatch);
+          }}},
         {"compaction_options_universal",
-         {offset_of(&ColumnFamilyOptions::compaction_options_universal),
-          OptionType::kCompactionOptionsUniversal,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct MutableCFOptions, compaction_options_universal)}},
+         OptionTypeInfo::Struct(
+             "compaction_options_universal",
+             &universal_compaction_options_type_info,
+             offset_of(&ColumnFamilyOptions::compaction_options_universal),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             offsetof(struct MutableCFOptions, compaction_options_universal))},
         {"ttl",
          {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
