@@ -152,7 +152,7 @@ class NonBatchedOpsStressTest : public StressTest {
 #ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->EnableErrorInjection();
-      filter_read_error = false;
+      SharedState::filter_read_error = false;
     }
 #endif // NDEBUG
     Status s = db_->Get(read_opts, cfh, key, &from_db);
@@ -164,7 +164,7 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
 #ifndef NDEBUG
       if (fault_fs_guard) {
-        if (error_count && !filter_read_error) {
+        if (error_count && !SharedState::filter_read_error) {
           // Grab mutex so multiple thread don't try to print the
           // stack trace at the same time
           MutexLock l(thread->shared->GetMutex());
@@ -272,7 +272,7 @@ class NonBatchedOpsStressTest : public StressTest {
 #ifndef NDEBUG
       if (fault_fs_guard) {
         fault_fs_guard->EnableErrorInjection();
-        filter_read_error = false;
+        SharedState::filter_read_error = false;
       }
 #endif // NDEBUG
       db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
@@ -293,7 +293,7 @@ class NonBatchedOpsStressTest : public StressTest {
     for (const auto& s : statuses) {
       if (s.ok()) {
 #ifndef NDEBUG
-        if (fault_fs_guard && error_count && !filter_read_error) {
+        if (fault_fs_guard && error_count && !SharedState::filter_read_error) {
           // Grab mutex so multiple thread don't try to print the
           // stack trace at the same time
           MutexLock l(thread->shared->GetMutex());

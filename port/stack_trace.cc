@@ -122,7 +122,7 @@ void PrintStack(int first_frames_to_skip) {
 }
 
 void PrintAndFreeStack(void* callstack, int num_frames) {
-  PrintStack((void**)callstack, num_frames);
+  PrintStack(static_cast<void**>(callstack), num_frames);
   free(callstack);
 }
 
