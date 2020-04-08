@@ -1939,7 +1939,7 @@ class DBImpl : public DB {
   std::unordered_map<uint64_t, PurgeFileInfo> purge_files_;
 
   // A vector to store the file numbers that have been assigned to certain
-  // JobContext. Current implementation tracks ssts only.
+  // JobContext. Current implementation tracks table and blob files only.
   std::unordered_set<uint64_t> files_grabbed_for_purge_;
 
   // A queue to store log writers to close
