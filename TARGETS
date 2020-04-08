@@ -1471,6 +1471,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "transaction_lock_mgr_test",
+        "utilities/transactions/transaction_lock_mgr_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "transaction_test",
         "utilities/transactions/transaction_test.cc",
         "parallel",
