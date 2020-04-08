@@ -2277,10 +2277,11 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
 
   auto ranges = std::unique_ptr<ROCKSDB_NAMESPACE::Range[]>(
       new ROCKSDB_NAMESPACE::Range[range_count]);
+  size_t range_offset = 0;
   for (jsize i = 0; i < jlen; ++i) {
     auto* start = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jranges[i]);
     auto* limit = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jranges[++i]);
-    ranges.get()[i] = ROCKSDB_NAMESPACE::Range(*start, *limit);
+    ranges.get()[range_offset++] = ROCKSDB_NAMESPACE::Range(*start, *limit);
   }
 
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
