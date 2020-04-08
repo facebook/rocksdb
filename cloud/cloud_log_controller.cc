@@ -54,14 +54,14 @@ Status CloudLogControllerImpl::Initialize(CloudEnv* env) {
   cache_dir_ = bucket_dir + pathsep + uid;
 
   // Create temporary directories.
-  Status status = env_->GetBaseEnv()->CreateDirIfMissing(kCacheDir);
-  if (status.ok()) {
-    status = env_->GetBaseEnv()->CreateDirIfMissing(bucket_dir);
+  Status st = env_->GetBaseEnv()->CreateDirIfMissing(kCacheDir);
+  if (st.ok()) {
+    st = env_->GetBaseEnv()->CreateDirIfMissing(bucket_dir);
   }
-  if (status.ok()) {
-    status = env_->GetBaseEnv()->CreateDirIfMissing(cache_dir_);
+  if (st.ok()) {
+    st = env_->GetBaseEnv()->CreateDirIfMissing(cache_dir_);
   }
-  return status;
+  return st;
 }
 
 Status CloudLogControllerImpl::Prepare(CloudEnv* env) {
