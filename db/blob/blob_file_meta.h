@@ -34,10 +34,11 @@ class SharedBlobFileMetaData {
     assert(checksum_method_.empty() == checksum_value_.empty());
   }
 
-  ~SharedBlobFileMetaData() = default;
-
   SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
   SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
+
+  SharedBlobFileMetaData(SharedBlobFileMetaData&&) = delete;
+  SharedBlobFileMetaData& operator=(SharedBlobFileMetaData&&) = delete;
 
   uint64_t GetBlobFileNumber() const { return blob_file_number_; }
   uint64_t GetTotalBlobCount() const { return total_blob_count_; }
@@ -78,10 +79,11 @@ class BlobFileMetaData {
     assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
   }
 
-  ~BlobFileMetaData() = default;
-
   BlobFileMetaData(const BlobFileMetaData&) = delete;
   BlobFileMetaData& operator=(const BlobFileMetaData&) = delete;
+
+  BlobFileMetaData(BlobFileMetaData&&) = delete;
+  BlobFileMetaData& operator=(BlobFileMetaData&&) = delete;
 
   const std::shared_ptr<SharedBlobFileMetaData>& GetSharedMeta() const {
     return shared_meta_;
