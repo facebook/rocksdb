@@ -772,7 +772,7 @@ Status S3StorageProvider::CopyObject(const std::string& bucket_name_src,
         src_url.c_str(), dest_object.c_str(), errmsg.c_str());
     return Status::IOError(dest_object.c_str(), errmsg.c_str());
   }
-  Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
       "[s3] S3WritableFile src path %s copied to %s %s", src_url.c_str(),
       dest_object.c_str(), st.ToString().c_str());
   return st;
