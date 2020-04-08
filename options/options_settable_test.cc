@@ -9,6 +9,8 @@
 
 #include <cstring>
 
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "test_util/testharness.h"

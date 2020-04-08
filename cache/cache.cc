@@ -15,33 +15,24 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
-LRUCacheOptions dummy_lru_cache_options;
-
-template <typename T1>
-int offset_of(T1 LRUCacheOptions::*member) {
-  return int(size_t(&(dummy_lru_cache_options.*member)) -
-             size_t(&dummy_lru_cache_options));
-}
 
 static std::unordered_map<std::string, OptionTypeInfo>
     lru_cache_options_type_info = {
         {"capacity",
-         {offset_of(&LRUCacheOptions::capacity), OptionType::kSizeT,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, capacity)}},
+         {offsetof(struct LRUCacheOptions, capacity), OptionType::kSizeT,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
         {"num_shard_bits",
-         {offset_of(&LRUCacheOptions::num_shard_bits), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, num_shard_bits)}},
+         {offsetof(struct LRUCacheOptions, num_shard_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
         {"strict_capacity_limit",
-         {offset_of(&LRUCacheOptions::strict_capacity_limit),
+         {offsetof(struct LRUCacheOptions, strict_capacity_limit),
           OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, strict_capacity_limit)}},
+          OptionTypeFlags::kMutable}},
         {"high_pri_pool_ratio",
-         {offset_of(&LRUCacheOptions::high_pri_pool_ratio), OptionType::kDouble,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, high_pri_pool_ratio)}}};
+         {offsetof(struct LRUCacheOptions, high_pri_pool_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+};
 #endif  // ROCKSDB_LITE
 
 Status Cache::CreateFromString(const std::string& value,
