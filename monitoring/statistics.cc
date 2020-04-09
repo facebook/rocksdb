@@ -176,6 +176,12 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.block.cache.compression.dict.bytes.insert"},
     {BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
      "rocksdb.block.cache.compression.dict.bytes.evict"},
+    {BLOCK_CACHE_REPLACE, "rocksdb.block.cache.replace"},
+    {BLOCK_CACHE_INDEX_REPLACE, "rocksdb.block.cache.index.replace"},
+    {BLOCK_CACHE_FILTER_REPLACE, "rocksdb.block.cache.filter.replace"},
+    {BLOCK_CACHE_DATA_REPLACE, "rocksdb.block.cache.data.replace"},
+    {BLOCK_CACHE_COMPRESSION_DICT_REPLACE,
+     "rocksdb.block.cache.compression.dict.replace"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {

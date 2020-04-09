@@ -337,36 +337,51 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
 
 void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
                                                   GetContext* get_context,
-                                                  size_t usage) const {
+                                                  size_t usage,
+                                                  bool redundant) const {
   Statistics* const statistics = rep_->ioptions.statistics;
 
   // TODO: introduce perf counters for block cache insertions
   if (get_context) {
-    ++get_context->get_context_stats_.num_cache_add;
+    if (redundant) {
+      ++get_context->get_context_stats_.num_cache_replace;
+    } else {
+      ++get_context->get_context_stats_.num_cache_add;
+    }
     get_context->get_context_stats_.num_cache_bytes_write += usage;
   } else {
-    RecordTick(statistics, BLOCK_CACHE_ADD);
+    RecordTick(statistics, redundant ? BLOCK_CACHE_REPLACE : BLOCK_CACHE_ADD);
     RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usage);
   }
 
   switch (block_type) {
     case BlockType::kFilter:
       if (get_context) {
-        ++get_context->get_context_stats_.num_cache_filter_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_filter_replace;
+        } else {
+          ++get_context->get_context_stats_.num_cache_filter_add;
+        }
         get_context->get_context_stats_.num_cache_filter_bytes_insert += usage;
       } else {
-        RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
+        RecordTick(statistics, redundant ? BLOCK_CACHE_FILTER_REPLACE
+                                         : BLOCK_CACHE_FILTER_ADD);
         RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, usage);
       }
       break;
 
     case BlockType::kCompressionDictionary:
       if (get_context) {
-        ++get_context->get_context_stats_.num_cache_compression_dict_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_compression_dict_replace;
+        } else {
+          ++get_context->get_context_stats_.num_cache_compression_dict_add;
+        }
         get_context->get_context_stats_
             .num_cache_compression_dict_bytes_insert += usage;
       } else {
-        RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_ADD);
+        RecordTick(statistics, redundant ? BLOCK_CACHE_COMPRESSION_DICT_REPLACE
+                                         : BLOCK_CACHE_COMPRESSION_DICT_ADD);
         RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
                    usage);
       }
@@ -374,10 +389,15 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
 
     case BlockType::kIndex:
       if (get_context) {
-        ++get_context->get_context_stats_.num_cache_index_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_index_replace;
+        } else {
+          ++get_context->get_context_stats_.num_cache_index_add;
+        }
         get_context->get_context_stats_.num_cache_index_bytes_insert += usage;
       } else {
-        RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
+        RecordTick(statistics, redundant ? BLOCK_CACHE_INDEX_REPLACE
+                                         : BLOCK_CACHE_INDEX_ADD);
         RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, usage);
       }
       break;
@@ -386,10 +406,15 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
       // TODO: introduce dedicated tickers/statistics/counters
       // for range tombstones
       if (get_context) {
-        ++get_context->get_context_stats_.num_cache_data_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_data_replace;
+        } else {
+          ++get_context->get_context_stats_.num_cache_data_add;
+        }
         get_context->get_context_stats_.num_cache_data_bytes_insert += usage;
       } else {
-        RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
+        RecordTick(statistics,
+                   redundant ? BLOCK_CACHE_DATA_REPLACE : BLOCK_CACHE_DATA_ADD);
         RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, usage);
       }
       break;
@@ -1177,7 +1202,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
         block->SetCachedValue(block_holder.release(), block_cache,
                               cache_handle);
 
-        UpdateCacheInsertionMetrics(block_type, get_context, charge);
+        UpdateCacheInsertionMetrics(block_type, get_context, charge,
+                                    s.IsOkRedundant());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       }
@@ -1282,7 +1308,8 @@ Status BlockBasedTable::PutDataBlockToCache(
       cached_block->SetCachedValue(block_holder.release(), block_cache,
                                    cache_handle);
 
-      UpdateCacheInsertionMetrics(block_type, get_context, charge);
+      UpdateCacheInsertionMetrics(block_type, get_context, charge,
+                                  s.IsOkRedundant());
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
     }
