@@ -441,6 +441,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         // TODO(yhchiang): carefully modify the third condition to safely
         //                 remove the temp options files.
         keep = (sst_live_set.find(number) != sst_live_set.end()) ||
+               (blob_live_set.find(number) != blob_live_set.end()) ||
                (number == state.pending_manifest_file_number) ||
                (to_delete.find(kOptionsFileNamePrefix) != std::string::npos);
         break;
