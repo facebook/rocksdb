@@ -15,7 +15,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based/data_block_hash_index.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BlockBuilder {
  public:
@@ -31,6 +31,9 @@ class BlockBuilder {
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
+
+  // Swap the contents in BlockBuilder with buffer, then reset the BlockBuilder.
+  void SwapAndReset(std::string& buffer);
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
@@ -72,4 +75,4 @@ class BlockBuilder {
   DataBlockHashIndexBuilder data_block_hash_index_builder_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -12,24 +12,25 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // SequentialFileReader is a wrapper on top of Env::SequentialFile. It handles
 // Buffered (i.e when page cache is enabled) and Direct (with O_DIRECT / page
 // cache disabled) reads appropriately, and also updates the IO stats.
 class SequentialFileReader {
  private:
-  std::unique_ptr<SequentialFile> file_;
+  std::unique_ptr<FSSequentialFile> file_;
   std::string file_name_;
   std::atomic<size_t> offset_{0};  // read offset
 
  public:
-  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
+  explicit SequentialFileReader(std::unique_ptr<FSSequentialFile>&& _file,
                                 const std::string& _file_name)
       : file_(std::move(_file)), file_name_(_file_name) {}
 
-  explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file,
+  explicit SequentialFileReader(std::unique_ptr<FSSequentialFile>&& _file,
                                 const std::string& _file_name,
                                 size_t _readahead_size)
       : file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size)),
@@ -51,7 +52,7 @@ class SequentialFileReader {
 
   Status Skip(uint64_t n);
 
-  SequentialFile* file() { return file_.get(); }
+  FSSequentialFile* file() { return file_.get(); }
 
   std::string file_name() { return file_name_; }
 
@@ -60,7 +61,7 @@ class SequentialFileReader {
  private:
   // NewReadaheadSequentialFile provides a wrapper over SequentialFile to
   // always prefetch additional data with every read.
-  static std::unique_ptr<SequentialFile> NewReadaheadSequentialFile(
-      std::unique_ptr<SequentialFile>&& file, size_t readahead_size);
+  static std::unique_ptr<FSSequentialFile> NewReadaheadSequentialFile(
+      std::unique_ptr<FSSequentialFile>&& file, size_t readahead_size);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -434,10 +434,16 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   int maxSubcompactions();
 
   /**
+   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+   * value of max_background_jobs. For backwards compatibility we will set
+   * `max_background_jobs = max_background_compactions + max_background_flushes`
+   * in the case where user sets at least one of `max_background_compactions` or
+   * `max_background_flushes`.
+   *
    * Specifies the maximum number of concurrent background flush jobs.
    * If you're increasing this, also consider increasing number of threads in
    * HIGH priority thread pool. For more information, see
-   * Default: 1
+   * Default: -1
    *
    * @param maxBackgroundFlushes number of max concurrent flush jobs
    * @return the instance of the current object.
@@ -452,10 +458,16 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   T setMaxBackgroundFlushes(int maxBackgroundFlushes);
 
   /**
+   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+   * value of max_background_jobs. For backwards compatibility we will set
+   * `max_background_jobs = max_background_compactions + max_background_flushes`
+   * in the case where user sets at least one of `max_background_compactions` or
+   * `max_background_flushes`.
+   *
    * Returns the maximum number of concurrent background flush jobs.
    * If you're increasing this, also consider increasing number of threads in
    * HIGH priority thread pool. For more information, see
-   * Default: 1
+   * Default: -1
    *
    * @return the maximum number of concurrent background flush jobs.
    * @see RocksEnv#setBackgroundThreads(int)
@@ -569,7 +581,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   /**
    * Manifest file is rolled over on reaching this limit.
    * The older manifest file be deleted.
-   * The default value is MAX_INT so that roll-over does not take place.
+   * The default value is 1GB so that the manifest file can grow, but not
+   * reach the limit of storage capacity.
    *
    * @param maxManifestFileSize the size limit of a manifest file.
    * @return the instance of the current object.
@@ -579,7 +592,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   /**
    * Manifest file is rolled over on reaching this limit.
    * The older manifest file be deleted.
-   * The default value is MAX_INT so that roll-over does not take place.
+   * The default value is 1GB so that the manifest file can grow, but not
+   * reach the limit of storage capacity.
    *
    * @return the size limit of a manifest file.
    */
@@ -1134,7 +1148,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * It is strongly recommended to set
    * {@link #setEnableWriteThreadAdaptiveYield(boolean)} if you are going to use
    * this feature.
-   * Default: false
+   * Default: true
    *
    * @param allowConcurrentMemtableWrite true to enable concurrent writes
    *     for the memtable
@@ -1151,7 +1165,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * It is strongly recommended to set
    * {@link #setEnableWriteThreadAdaptiveYield(boolean)} if you are going to use
    * this feature.
-   * Default: false
+   * Default: true
    *
    * @return true if concurrent writes are enabled for the memtable
    */
@@ -1162,7 +1176,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * wait for up to {@link #writeThreadMaxYieldUsec()} before blocking on a
    * mutex. This can substantially improve throughput for concurrent workloads,
    * regardless of whether {@link #allowConcurrentMemtableWrite()} is enabled.
-   * Default: false
+   * Default: true
    *
    * @param enableWriteThreadAdaptiveYield true to enable adaptive yield for the
    *     write threads
@@ -1177,7 +1191,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * wait for up to {@link #writeThreadMaxYieldUsec()} before blocking on a
    * mutex. This can substantially improve throughput for concurrent workloads,
    * regardless of whether {@link #allowConcurrentMemtableWrite()} is enabled.
-   * Default: false
+   * Default: true
    *
    * @return true if adaptive yield is enabled
    *    for the writing threads

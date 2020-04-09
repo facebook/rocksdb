@@ -10,7 +10,7 @@
 #include "table/format.h"
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 AdaptiveTableFactory::AdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write,
@@ -120,5 +120,5 @@ extern TableFactory* NewAdaptiveTableFactory(
       block_based_table_factory, plain_table_factory, cuckoo_table_factory);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

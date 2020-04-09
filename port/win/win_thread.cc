@@ -17,7 +17,7 @@
 #include <system_error>
 #include <thread>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 struct WindowsThread::Data {
@@ -138,7 +138,12 @@ void WindowsThread::join() {
       "WaitForSingleObjectFailed: thread join");
   }
 
-  BOOL rc;
+  BOOL rc
+#if defined(_MSC_VER)
+    = FALSE;
+#else
+    __attribute__((__unused__));
+#endif
   rc = CloseHandle(reinterpret_cast<HANDLE>(data_->handle_));
   assert(rc != 0);
   data_->handle_ = 0;
@@ -171,4 +176,4 @@ unsigned int __stdcall  WindowsThread::Data::ThreadProc(void* arg) {
   return 0;
 }
 } // namespace port
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

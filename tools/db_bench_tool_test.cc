@@ -17,7 +17,7 @@
 #ifdef GFLAGS
 #include "util/gflags_compat.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 static const int kMaxArgCount = 100;
 static const size_t kArgBufferSize = 100000;
@@ -66,8 +66,8 @@ class DBBenchTest : public testing::Test {
   void VerifyOptions(const Options& opt) {
     DBOptions loaded_db_opts;
     std::vector<ColumnFamilyDescriptor> cf_descs;
-    ASSERT_OK(LoadLatestOptions(db_path_, Env::Default(), &loaded_db_opts,
-                                &cf_descs));
+    ASSERT_OK(LoadLatestOptions(db_path_, FileSystem::Default(),
+                                &loaded_db_opts, &cf_descs));
 
     ASSERT_OK(
         RocksDBOptionsParser::VerifyDBOptions(DBOptions(opt), loaded_db_opts));
@@ -304,7 +304,7 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
   VerifyOptions(opt);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

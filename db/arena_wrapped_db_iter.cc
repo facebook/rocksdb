@@ -16,7 +16,7 @@
 #include "table/iterator_wrapper.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                        std::string* prop) {
@@ -64,7 +64,7 @@ Status ArenaWrappedDBIter::Refresh() {
     arena_.~Arena();
     new (&arena_) Arena();
 
-    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
+    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
     if (read_callback_) {
       read_callback_->Refresh(latest_seq);
     }
@@ -103,4 +103,4 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   return iter;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

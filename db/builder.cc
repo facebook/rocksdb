@@ -37,7 +37,7 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TableFactory;
 
@@ -66,8 +66,9 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
+    const std::string& dbname, Env* env, FileSystem* fs,
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
@@ -80,10 +81,11 @@ Status BuildTable(
     SnapshotChecker* snapshot_checker, const CompressionType compression,
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     bool paranoid_file_checks, InternalStats* internal_stats,
-    TableFileCreationReason reason, EventLogger* event_logger, int job_id,
-    const Env::IOPriority io_priority, TableProperties* table_properties,
-    int level, const uint64_t creation_time, const uint64_t oldest_key_time,
-    Env::WriteLifeTimeHint write_hint, const uint64_t file_creation_time) {
+    TableFileCreationReason reason, IOStatus* io_status,
+    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    TableProperties* table_properties, int level, const uint64_t creation_time,
+    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
+    const uint64_t file_creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -115,12 +117,12 @@ Status BuildTable(
     compression_opts_for_flush.max_dict_bytes = 0;
     compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
-      std::unique_ptr<WritableFile> file;
+      std::unique_ptr<FSWritableFile> file;
 #ifndef NDEBUG
-      bool use_direct_writes = env_options.use_direct_writes;
+      bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      s = NewWritableFile(env, fname, &file, env_options);
+      s = NewWritableFile(fs, fname, &file, file_options);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
@@ -130,9 +132,10 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(
-          new WritableFileWriter(std::move(file), fname, env_options, env,
-                                 ioptions.statistics, ioptions.listeners));
+      file_writer.reset(new WritableFileWriter(
+          std::move(file), fname, file_options, env, ioptions.statistics,
+          ioptions.listeners, ioptions.file_checksum_gen_factory));
+
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
@@ -180,14 +183,15 @@ Status BuildTable(
     }
 
     // Finish and check for builder errors
-    tp = builder->GetTableProperties();
-    bool empty = builder->NumEntries() == 0 && tp.num_range_deletions == 0;
+    bool empty = builder->IsEmpty();
     s = c_iter.status();
+    TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
       s = builder->Finish();
     }
+    *io_status = builder->io_status();
 
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
@@ -204,11 +208,22 @@ Status BuildTable(
     // Finish and check for file errors
     if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-      s = file_writer->Sync(ioptions.use_fsync);
+      *io_status = file_writer->Sync(ioptions.use_fsync);
     }
-    if (s.ok() && !empty) {
-      s = file_writer->Close();
+    if (io_status->ok() && !empty) {
+      *io_status = file_writer->Close();
     }
+    if (io_status->ok() && !empty) {
+      // Add the checksum information to file metadata.
+      meta->file_checksum = file_writer->GetFileChecksum();
+      meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
+    }
+
+    if (!io_status->ok()) {
+      s = *io_status;
+    }
+
+    // TODO Also check the IO status when create the Iterator.
 
     if (s.ok() && !empty) {
       // Verify that the table is usable
@@ -218,7 +233,7 @@ Status BuildTable(
       // we will regrad this verification as user reads since the goal is
       // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          ReadOptions(), env_options, internal_comparator, *meta,
+          ReadOptions(), file_options, internal_comparator, *meta,
           nullptr /* range_del_agg */,
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
@@ -241,7 +256,7 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
-    env->DeleteFile(fname);
+    fs->DeleteFile(fname, IOOptions(), nullptr);
   }
 
   if (meta->fd.GetFileSize() == 0) {
@@ -255,4 +270,4 @@ Status BuildTable(
   return s;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

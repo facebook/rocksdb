@@ -13,7 +13,7 @@
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 class DBSecondaryTest : public DBTestBase {
@@ -193,6 +193,90 @@ TEST_F(DBSecondaryTest, OpenAsSecondary) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   verify_db_func("new_foo_value", "new_bar_value");
+}
+
+namespace {
+class TraceFileEnv : public EnvWrapper {
+ public:
+  explicit TraceFileEnv(Env* _target) : EnvWrapper(_target) {}
+  Status NewRandomAccessFile(const std::string& f,
+                             std::unique_ptr<RandomAccessFile>* r,
+                             const EnvOptions& env_options) override {
+    class TracedRandomAccessFile : public RandomAccessFile {
+     public:
+      TracedRandomAccessFile(std::unique_ptr<RandomAccessFile>&& target,
+                             std::atomic<int>& counter)
+          : target_(std::move(target)), files_closed_(counter) {}
+      ~TracedRandomAccessFile() override {
+        files_closed_.fetch_add(1, std::memory_order_relaxed);
+      }
+      Status Read(uint64_t offset, size_t n, Slice* result,
+                  char* scratch) const override {
+        return target_->Read(offset, n, result, scratch);
+      }
+
+     private:
+      std::unique_ptr<RandomAccessFile> target_;
+      std::atomic<int>& files_closed_;
+    };
+    Status s = target()->NewRandomAccessFile(f, r, env_options);
+    if (s.ok()) {
+      r->reset(new TracedRandomAccessFile(std::move(*r), files_closed_));
+    }
+    return s;
+  }
+
+  int files_closed() const {
+    return files_closed_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  std::atomic<int> files_closed_{0};
+};
+}  // namespace
+
+TEST_F(DBSecondaryTest, SecondaryCloseFiles) {
+  Options options;
+  options.env = env_;
+  options.max_open_files = 1;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  Options options1;
+  std::unique_ptr<Env> traced_env(new TraceFileEnv(env_));
+  options1.env = traced_env.get();
+  OpenSecondary(options1);
+
+  static const auto verify_db = [&]() {
+    std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
+    std::unique_ptr<Iterator> iter2(db_secondary_->NewIterator(ReadOptions()));
+    for (iter1->SeekToFirst(), iter2->SeekToFirst();
+         iter1->Valid() && iter2->Valid(); iter1->Next(), iter2->Next()) {
+      ASSERT_EQ(iter1->key(), iter2->key());
+      ASSERT_EQ(iter1->value(), iter2->value());
+    }
+    ASSERT_FALSE(iter1->Valid());
+    ASSERT_FALSE(iter2->Valid());
+  };
+
+  ASSERT_OK(Put("a", "value"));
+  ASSERT_OK(Put("c", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  verify_db();
+
+  ASSERT_OK(Put("b", "value"));
+  ASSERT_OK(Put("d", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  verify_db();
+
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
+  ASSERT_EQ(2, static_cast<TraceFileEnv*>(traced_env.get())->files_closed());
+
+  Status s = db_secondary_->SetDBOptions({{"max_open_files", "-1"}});
+  ASSERT_TRUE(s.IsNotSupported());
+  CloseSecondary();
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondaryWALTailing) {
@@ -776,10 +860,10 @@ TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
 }
 #endif  //! ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

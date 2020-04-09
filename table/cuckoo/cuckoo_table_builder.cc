@@ -24,7 +24,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 const std::string CuckooTablePropertyNames::kEmptyKey =
       "rocksdb.cuckoo.bucket.empty.key";
 const std::string CuckooTablePropertyNames::kNumHashFunc =
@@ -252,9 +252,9 @@ Status CuckooTableBuilder::Finish() {
       hash_table_size_ =
         static_cast<uint64_t>(num_entries_ / max_hash_table_ratio_);
     }
-    s = MakeHashTable(&buckets);
-    if (!s.ok()) {
-      return s;
+    status_ = MakeHashTable(&buckets);
+    if (!status_.ok()) {
+      return status_;
     }
     // Determine unused_user_key to fill empty buckets.
     std::string unused_user_key = smallest_user_key_;
@@ -301,18 +301,19 @@ Status CuckooTableBuilder::Finish() {
   uint32_t num_added = 0;
   for (auto& bucket : buckets) {
     if (bucket.vector_idx == kMaxVectorIdx) {
-      s = file_->Append(Slice(unused_bucket));
+      io_status_ = file_->Append(Slice(unused_bucket));
     } else {
       ++num_added;
-      s = file_->Append(GetKey(bucket.vector_idx));
-      if (s.ok()) {
+      io_status_ = file_->Append(GetKey(bucket.vector_idx));
+      if (io_status_.ok()) {
         if (value_size_ > 0) {
-          s = file_->Append(GetValue(bucket.vector_idx));
+          io_status_ = file_->Append(GetValue(bucket.vector_idx));
         }
       }
     }
-    if (!s.ok()) {
-      return s;
+    if (!io_status_.ok()) {
+      status_ = io_status_;
+      return status_;
     }
   }
   assert(num_added == NumEntries());
@@ -364,10 +365,11 @@ Status CuckooTableBuilder::Finish() {
   BlockHandle property_block_handle;
   property_block_handle.set_offset(offset);
   property_block_handle.set_size(property_block.size());
-  s = file_->Append(property_block);
+  io_status_ = file_->Append(property_block);
   offset += property_block.size();
-  if (!s.ok()) {
-    return s;
+  if (!io_status_.ok()) {
+    status_ = io_status_;
+    return status_;
   }
 
   meta_index_builder.Add(kPropertiesBlock, property_block_handle);
@@ -376,9 +378,10 @@ Status CuckooTableBuilder::Finish() {
   BlockHandle meta_index_block_handle;
   meta_index_block_handle.set_offset(offset);
   meta_index_block_handle.set_size(meta_index_block.size());
-  s = file_->Append(meta_index_block);
-  if (!s.ok()) {
-    return s;
+  io_status_ = file_->Append(meta_index_block);
+  if (!io_status_.ok()) {
+    status_ = io_status_;
+    return status_;
   }
 
   Footer footer(kCuckooTableMagicNumber, 1);
@@ -386,8 +389,9 @@ Status CuckooTableBuilder::Finish() {
   footer.set_index_handle(BlockHandle::NullBlockHandle());
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
-  s = file_->Append(footer_encoding);
-  return s;
+  io_status_ = file_->Append(footer_encoding);
+  status_ = io_status_;
+  return status_;
 }
 
 void CuckooTableBuilder::Abandon() {
@@ -512,5 +516,21 @@ bool CuckooTableBuilder::MakeSpaceForKey(
   return null_found;
 }
 
-}  // namespace rocksdb
+std::string CuckooTableBuilder::GetFileChecksum() const {
+  if (file_ != nullptr) {
+    return file_->GetFileChecksum();
+  } else {
+    return kUnknownFileChecksum;
+  }
+}
+
+const char* CuckooTableBuilder::GetFileChecksumFuncName() const {
+  if (file_ != nullptr) {
+    return file_->GetFileChecksumFuncName();
+  } else {
+    return kUnknownFileChecksumFuncName.c_str();
+  }
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

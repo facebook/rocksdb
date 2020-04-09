@@ -30,7 +30,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "util/compression.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);
@@ -183,6 +183,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "%" PRIu32,
         bottommost_compression_opts.zstd_max_train_bytes);
     ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.parallel_threads: "
+        "%" PRIu32,
+        bottommost_compression_opts.parallel_threads);
+    ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
         bottommost_compression_opts.enabled ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
@@ -199,6 +204,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(log,
+                     "        Options.compression_opts.parallel_threads: "
+                     "%" PRIu32,
+                     compression_opts.parallel_threads);
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
                      compression_opts.enabled ? "true" : "false");
@@ -478,8 +487,8 @@ DBOptions* DBOptions::OptimizeForSmallDb(std::shared_ptr<Cache>* cache) {
   max_open_files = 5000;
 
   // Cost memtable to block cache too.
-  std::shared_ptr<rocksdb::WriteBufferManager> wbm =
-      std::make_shared<rocksdb::WriteBufferManager>(
+  std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager> wbm =
+      std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(
           0, (cache != nullptr) ? *cache : std::shared_ptr<Cache>());
   write_buffer_manager = wbm;
 
@@ -592,6 +601,7 @@ ReadOptions::ReadOptions()
       tailing(false),
       managed(false),
       total_order_seek(false),
+      auto_prefix_mode(false),
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
@@ -611,6 +621,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       tailing(false),
       managed(false),
       total_order_seek(false),
+      auto_prefix_mode(false),
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
@@ -618,4 +629,4 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       iter_start_seqnum(0),
       timestamp(nullptr) {}
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -19,15 +19,13 @@
 //
 // See transaction.h and examples/transaction_example.cc
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TransactionDBMutexFactory;
 
 enum TxnDBWritePolicy {
   WRITE_COMMITTED = 0,  // write only the committed data
-  // TODO(myabandeh): Not implemented yet
   WRITE_PREPARED,  // write data after the prepare phase of 2pc
-  // TODO(myabandeh): Not implemented yet
   WRITE_UNPREPARED  // write data before the prepare phase of 2pc
 };
 
@@ -306,6 +304,6 @@ class TransactionDB : public StackableDB {
   void operator=(const TransactionDB&) = delete;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

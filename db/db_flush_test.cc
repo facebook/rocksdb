@@ -18,7 +18,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBFlushTest : public DBTestBase {
  public:
@@ -212,6 +212,30 @@ TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
   t.join();
 }
 
+TEST_F(DBFlushTest, ScheduleOnlyOneBgThread) {
+  Options options = CurrentOptions();
+  Reopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  int called = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto unscheduled_flushes = *reinterpret_cast<int*>(arg);
+        ASSERT_EQ(0, unscheduled_flushes);
+        ++called;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("a", "foo"));
+  FlushOptions flush_opts;
+  ASSERT_OK(dbfull()->Flush(flush_opts));
+  ASSERT_EQ(1, called);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
@@ -370,7 +394,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::FlushMemTable:AfterScheduleFlush",
+      {{"DBImpl::BackgroundCallFlush:start",
         "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst"},
        {"DBImpl::FlushMemTableToOutputFile:Finish",
         "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitSecond"}});
@@ -401,7 +425,7 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
     // flush_opts.wait = true
     ASSERT_OK(db_->Flush(FlushOptions()));
   });
-  // Wait for first flush scheduled.
+  // Wait for first flush started.
   TEST_SYNC_POINT(
       "DBFlushTest::FireOnFlushCompletedAfterCommittedResult:WaitFirst");
   // The second flush will exit early without commit its result. The work
@@ -717,15 +741,44 @@ TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "value"));
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+      [&](void* /*arg*/) { fault_injection_env->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  FlushOptions flush_opts;
+  Status s = db_->Flush(flush_opts, handles_);
+  ASSERT_NOK(s);
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
 INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

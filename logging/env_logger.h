@@ -23,11 +23,11 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EnvLogger : public Logger {
  public:
-  EnvLogger(std::unique_ptr<WritableFile>&& writable_file,
+  EnvLogger(std::unique_ptr<FSWritableFile>&& writable_file,
             const std::string& fname, const EnvOptions& options, Env* env,
             InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
@@ -162,4 +162,4 @@ class EnvLogger : public Logger {
   std::atomic<bool> flush_pending_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

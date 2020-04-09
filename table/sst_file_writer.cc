@@ -8,13 +8,14 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "env/composite_env_wrapper.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const std::string ExternalSstFilePropertyNames::kVersion =
     "rocksdb.external_sst_file.version";
@@ -69,7 +70,8 @@ struct SstFileWriter::Rep {
       if (internal_comparator.user_comparator()->Compare(
               user_key, file_info.largest_key) <= 0) {
         // Make sure that keys are added in order
-        return Status::InvalidArgument("Keys must be added in order");
+        return Status::InvalidArgument(
+            "Keys must be added in strict ascending order.");
       }
     }
 
@@ -148,7 +150,7 @@ struct SstFileWriter::Rep {
     if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
-      // Tell the OS that we dont need this file in page cache
+      // Tell the OS that we don't need this file in page cache
       file_writer->InvalidateCache(0, 0);
       last_fadvise_size = builder->FileSize();
     }
@@ -188,20 +190,21 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   CompressionType compression_type;
   CompressionOptions compression_opts;
-  if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
-    compression_type = r->ioptions.bottommost_compression;
-    if (r->ioptions.bottommost_compression_opts.enabled) {
-      compression_opts = r->ioptions.bottommost_compression_opts;
+  if (r->mutable_cf_options.bottommost_compression !=
+      kDisableCompressionOption) {
+    compression_type = r->mutable_cf_options.bottommost_compression;
+    if (r->mutable_cf_options.bottommost_compression_opts.enabled) {
+      compression_opts = r->mutable_cf_options.bottommost_compression_opts;
     } else {
-      compression_opts = r->ioptions.compression_opts;
+      compression_opts = r->mutable_cf_options.compression_opts;
     }
   } else if (!r->ioptions.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
     compression_type = *(r->ioptions.compression_per_level.rbegin());
-    compression_opts = r->ioptions.compression_opts;
+    compression_opts = r->mutable_cf_options.compression_opts;
   } else {
     compression_type = r->mutable_cf_options.compression;
-    compression_opts = r->ioptions.compression_opts;
+    compression_opts = r->mutable_cf_options.compression_opts;
   }
   uint64_t sample_for_compression =
       r->mutable_cf_options.sample_for_compression;
@@ -240,9 +243,10 @@ Status SstFileWriter::Open(const std::string& file_path) {
       &int_tbl_prop_collector_factories, compression_type,
       sample_for_compression, compression_opts, r->skip_filters,
       r->column_family_name, unknown_level);
-  r->file_writer.reset(new WritableFileWriter(
-      std::move(sst_file), file_path, r->env_options, r->ioptions.env,
-      nullptr /* stats */, r->ioptions.listeners));
+  r->file_writer.reset(
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(sst_file)),
+                             file_path, r->env_options, r->ioptions.env,
+                             nullptr /* stats */, r->ioptions.listeners));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
@@ -313,4 +317,4 @@ uint64_t SstFileWriter::FileSize() {
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

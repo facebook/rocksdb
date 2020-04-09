@@ -11,7 +11,7 @@
 #include <vector>
 #include "db/db_impl/db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImplReadOnly : public DBImpl {
  public:
@@ -132,6 +132,6 @@ class DBImplReadOnly : public DBImpl {
  private:
   friend class DB;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

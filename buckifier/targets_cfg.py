@@ -38,7 +38,7 @@ ROCKSDB_EXTERNAL_DEPS = [
 ROCKSDB_OS_DEPS = [
     (
         "linux",
-        ["third-party//numa:numa"],
+        ["third-party//numa:numa", "third-party//liburing:uring"],
     ),
 ]
 
@@ -52,7 +52,9 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS = [
             "-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX",
             "-DROCKSDB_RANGESYNC_PRESENT",
             "-DROCKSDB_SCHED_GETCPU_PRESENT",
+            "-DROCKSDB_IOURING_PRESENT",
             "-DHAVE_SSE42",
+            "-DLIBURING",
             "-DNUMA",
         ],
     ),

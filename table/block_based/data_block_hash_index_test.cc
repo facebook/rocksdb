@@ -18,7 +18,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool SearchForOffset(DataBlockHashIndex& index, const char* data,
                      uint16_t map_offset, const Slice& key,
@@ -284,7 +284,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -306,7 +306,7 @@ TEST(DataBlockHashIndex, BlockRestartIndexExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinarySearch);
@@ -337,7 +337,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     ASSERT_EQ(reader.IndexType(),
               BlockBasedTableOptions::kDataBlockBinaryAndHash);
@@ -361,7 +361,7 @@ TEST(DataBlockHashIndex, BlockSizeExceedMax) {
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+    Block reader(std::move(contents));
 
     // the index type have fallen back to binary when build finish.
     ASSERT_EQ(reader.IndexType(),
@@ -388,10 +388,11 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   const InternalKeyComparator icmp(BytewiseComparator());
-  auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
+  auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+                                     kDisableGlobalSequenceNumber);
   bool may_exist;
   // search in block for the key just inserted
   {
@@ -469,12 +470,13 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
   const InternalKeyComparator icmp(BytewiseComparator());
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
+    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+                                       kDisableGlobalSequenceNumber);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "1" /* existing key marker */);
@@ -511,7 +513,8 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   //     C         true          false
 
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator());
+    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+                                       kDisableGlobalSequenceNumber);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
     std::string ukey(keys[index] + "0" /* non-existing key marker */);
@@ -570,14 +573,13 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_writer->Flush();
   EXPECT_TRUE(s.ok()) << s.ToString();
 
-  EXPECT_EQ(static_cast<test::StringSink*>(file_writer->writable_file())
-                ->contents()
-                .size(),
-            builder->FileSize());
+  EXPECT_EQ(
+      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
+      builder->FileSize());
 
   // Open the table
   file_reader.reset(test::GetRandomAccessFileReader(new test::StringSource(
-      static_cast<test::StringSink*>(file_writer->writable_file())->contents(),
+      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents(),
       0 /*uniq_id*/, ioptions.allow_mmap_reads)));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
@@ -586,9 +588,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),
       std::move(file_reader),
-      static_cast<test::StringSink*>(file_writer->writable_file())
-          ->contents()
-          .size(),
+      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
       &table_reader);
   // Search using Get()
   ReadOptions ro;
@@ -714,7 +714,7 @@ TEST(DataBlockHashIndex, BlockBoundary) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

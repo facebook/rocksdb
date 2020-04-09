@@ -40,7 +40,7 @@ DEFINE_bool(write, false,
     "Should write new values to file in performance tests?");
 DEFINE_bool(identity_as_first_hash, true, "use identity as first hash");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 const uint32_t kNumHashFunc = 10;
@@ -91,8 +91,9 @@ class CuckooReaderTest : public testing::Test {
       const Comparator* ucomp = BytewiseComparator()) {
     std::unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(writable_file), fname, env_options));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(writable_file)), fname,
+        env_options));
 
     CuckooTableBuilder builder(
         file_writer.get(), 0.9, kNumHashFunc, 100, ucomp, 2, false, false,
@@ -112,7 +113,8 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(read_file), fname));
+        new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(read_file),
+                                   fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
@@ -141,7 +143,8 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(read_file), fname));
+        new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(read_file),
+                                   fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
@@ -211,6 +214,14 @@ class CuckooReaderTest : public testing::Test {
   Env* env;
   EnvOptions env_options;
 };
+
+TEST_F(CuckooReaderTest, FileNotMmaped) {
+  options.allow_mmap_reads = false;
+  ImmutableCFOptions ioptions(options);
+  CuckooTableReader reader(ioptions, nullptr, 0, nullptr, nullptr);
+  ASSERT_TRUE(reader.status().IsInvalidArgument());
+  ASSERT_STREQ("File is not mmaped", reader.status().getState());
+}
 
 TEST_F(CuckooReaderTest, WhenKeyExists) {
   SetUp(kNumHashFunc);
@@ -323,7 +334,8 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file), fname));
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(read_file),
+                                 fname));
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
                            GetSliceHash);
@@ -410,8 +422,9 @@ void WriteFile(const std::vector<std::string>& keys,
 
   std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
-  std::unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(writable_file), fname, env_options));
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(writable_file)), fname,
+      env_options));
   CuckooTableBuilder builder(
       file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
       false, FLAGS_identity_as_first_hash, nullptr, 0 /* column_family_id */,
@@ -432,7 +445,8 @@ void WriteFile(const std::vector<std::string>& keys,
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file), fname));
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(read_file),
+                                 fname));
 
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
@@ -464,7 +478,8 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file), fname));
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(read_file),
+                                 fname));
 
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
@@ -545,15 +560,14 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
     fprintf(stderr, "\n");
   }
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  if (rocksdb::port::kLittleEndian) {
+  if (ROCKSDB_NAMESPACE::port::kLittleEndian) {
     ::testing::InitGoogleTest(&argc, argv);
     ParseCommandLineFlags(&argc, &argv, true);
     return RUN_ALL_TESTS();
-  }
-  else {
+  } else {
     fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
     return 0;
   }

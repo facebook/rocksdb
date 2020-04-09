@@ -12,6 +12,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
+#include "env/composite_env_wrapper.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -24,7 +25,7 @@
 #include "test_util/testutil.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TablePropertiesTest : public testing::Test,
                             public testing::WithParamInterface<bool> {
@@ -48,7 +49,8 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  std::unique_ptr<TableBuilder>* builder) {
   std::unique_ptr<WritableFile> wf(new test::StringSink);
   writable->reset(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                             "" /* don't care */, EnvOptions()));
   int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
@@ -282,8 +284,9 @@ void TestCustomizedTablePropertiesCollector(
   writer->Flush();
 
   // -- Step 2: Read properties
-  test::StringSink* fwf =
-      static_cast<test::StringSink*>(writer->writable_file());
+  LegacyWritableFileWrapper* file =
+      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
+  test::StringSink* fwf = static_cast<test::StringSink*>(file->target());
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
       test::GetRandomAccessFileReader(
           new test::StringSource(fwf->contents())));
@@ -422,8 +425,9 @@ void TestInternalKeyPropertiesCollector(
     ASSERT_OK(builder->Finish());
     writable->Flush();
 
-    test::StringSink* fwf =
-        static_cast<test::StringSink*>(writable->writable_file());
+    LegacyWritableFileWrapper* file =
+        static_cast<LegacyWritableFileWrapper*>(writable->writable_file());
+    test::StringSink* fwf = static_cast<test::StringSink*>(file->target());
     std::unique_ptr<RandomAccessFileReader> reader(
         test::GetRandomAccessFileReader(
             new test::StringSource(fwf->contents())));
@@ -503,7 +507,7 @@ INSTANTIATE_TEST_CASE_P(InternalKeyPropertiesCollector, TablePropertiesTest,
 INSTANTIATE_TEST_CASE_P(CustomizedTablePropertiesCollector, TablePropertiesTest,
                         ::testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

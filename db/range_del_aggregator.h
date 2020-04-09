@@ -19,15 +19,15 @@
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/version_edit.h"
-#include "include/rocksdb/comparator.h"
-#include "include/rocksdb/types.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/types.h"
 #include "table/internal_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/table_builder.h"
 #include "util/heap.h"
 #include "util/kv_map.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TruncatedRangeDelIterator {
  public:
@@ -438,4 +438,4 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
   const std::vector<SequenceNumber>* snapshots_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

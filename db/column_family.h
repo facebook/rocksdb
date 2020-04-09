@@ -27,7 +27,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Version;
 class VersionSet;
@@ -198,6 +198,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 struct SuperVersion {
   // Accessing members of this class is not thread-safe and requires external
   // synchronization (ie db mutex held or on write thread).
+  ColumnFamilyData* cfd;
   MemTable* mem;
   MemTableListVersion* imm;
   Version* current;
@@ -221,8 +222,8 @@ struct SuperVersion {
   // that needs to be deleted in to_delete vector. Unrefing those
   // objects needs to be done in the mutex
   void Cleanup();
-  void Init(MemTable* new_mem, MemTableListVersion* new_imm,
-            Version* new_current);
+  void Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
+            MemTableListVersion* new_imm, Version* new_current);
 
   // The value of dummy is not actually used. kSVInUse takes its address as a
   // mark in the thread local storage to indicate the SuperVersion is in use
@@ -288,6 +289,11 @@ class ColumnFamilyData {
     return old_refs == 1;
   }
 
+  // UnrefAndTryDelete() decreases the reference count and do free if needed,
+  // return true if this is freed else false, UnrefAndTryDelete() can only
+  // be called while holding a DB mutex, or during single-threaded recovery.
+  bool UnrefAndTryDelete();
+
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
   // 2) from single-threaded write thread, AND
@@ -318,7 +324,7 @@ class ColumnFamilyData {
   }
   FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
-  const EnvOptions* soptions() const;
+  const FileOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
@@ -430,11 +436,11 @@ class ColumnFamilyData {
   SuperVersion* GetSuperVersion() { return super_version_; }
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
-  SuperVersion* GetReferencedSuperVersion(InstrumentedMutex* db_mutex);
+  SuperVersion* GetReferencedSuperVersion(DBImpl* db);
   // thread-safe
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
-  SuperVersion* GetThreadLocalSuperVersion(InstrumentedMutex* db_mutex);
+  SuperVersion* GetThreadLocalSuperVersion(DBImpl* db);
   // Try to return SuperVersion back to thread local storage. Retrun true on
   // success and false on failure. It fails when the thread local storage
   // contains anything other than SuperVersion::kSVInUse flag.
@@ -491,22 +497,28 @@ class ColumnFamilyData {
 
   Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
-  Status AddDirectories();
+  // created_dirs remembers directory created, so that we don't need to call
+  // the same data creation operation again.
+  Status AddDirectories(
+      std::map<std::string, std::shared_ptr<FSDirectory>>* created_dirs);
 
-  Directory* GetDataDir(size_t path_id) const;
+  FSDirectory* GetDataDir(size_t path_id) const;
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
 
  private:
   friend class ColumnFamilySet;
+  static const uint32_t kDummyColumnFamilyDataId;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const ImmutableDBOptions& db_options,
-                   const EnvOptions& env_options,
+                   const FileOptions& file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer);
+
+  std::vector<std::string> GetDbPaths() const;
 
   uint32_t id_;
   const std::string name_;
@@ -583,7 +595,9 @@ class ColumnFamilyData {
   std::atomic<uint64_t> last_memtable_id_;
 
   // Directories corresponding to cf_paths.
-  std::vector<std::unique_ptr<Directory>> data_dirs_;
+  std::vector<std::shared_ptr<FSDirectory>> data_dirs_;
+
+  bool db_paths_registered_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -632,9 +646,9 @@ class ColumnFamilySet {
 
   ColumnFamilySet(const std::string& dbname,
                   const ImmutableDBOptions* db_options,
-                  const EnvOptions& env_options, Cache* table_cache,
-                  WriteBufferManager* write_buffer_manager,
-                  WriteController* write_controller,
+                  const FileOptions& file_options, Cache* table_cache,
+                  WriteBufferManager* _write_buffer_manager,
+                  WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer);
   ~ColumnFamilySet();
 
@@ -664,6 +678,10 @@ class ColumnFamilySet {
 
   Cache* get_table_cache() { return table_cache_; }
 
+  WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
+
+  WriteController* write_controller() { return write_controller_; }
+
  private:
   friend class ColumnFamilyData;
   // helper function that gets called from cfd destructor
@@ -690,7 +708,7 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const ImmutableDBOptions* const db_options_;
-  const EnvOptions env_options_;
+  const FileOptions file_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
@@ -745,4 +763,4 @@ extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
 extern const Comparator* GetColumnFamilyUserComparator(
     ColumnFamilyHandle* column_family);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

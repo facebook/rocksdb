@@ -16,7 +16,7 @@
 #include "port/port.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // LRU cache implementation. This class is not thread-safe.
 
@@ -133,7 +133,6 @@ struct LRUHandle {
   // Caclculate the memory usage by metadata
   inline size_t CalcTotalCharge(
       CacheMetadataChargePolicy metadata_charge_policy) {
-    assert(key_length);
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -337,4 +336,4 @@ class LRUCache
   int num_shards_ = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

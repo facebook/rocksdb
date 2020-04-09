@@ -23,7 +23,7 @@
 #include "util/autovector.h"
 #include "utilities/transactions/transaction_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TransactionBaseImpl : public Transaction {
  public:
@@ -98,7 +98,7 @@ class TransactionBaseImpl : public Transaction {
 
   void MultiGet(const ReadOptions& options, ColumnFamilyHandle* column_family,
                 const size_t num_keys, const Slice* keys, PinnableSlice* values,
-                Status* statuses, bool sorted_input = false) override;
+                Status* statuses, const bool sorted_input = false) override;
 
   using Transaction::MultiGetForUpdate;
   std::vector<Status> MultiGetForUpdate(
@@ -369,6 +369,6 @@ class TransactionBaseImpl : public Transaction {
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

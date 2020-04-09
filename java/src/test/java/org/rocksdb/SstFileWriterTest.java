@@ -5,32 +5,32 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.BytewiseComparator;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.fail;
-
 public class SstFileWriterTest {
   private static final String SST_FILE_NAME = "test.sst";
   private static final String DB_DIRECTORY_NAME = "test_db";
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource
-      = new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE
+      = new RocksNativeLibraryResource();
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
-  enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES}
+  enum OpType { PUT, PUT_BYTES, PUT_DIRECT, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES }
 
   class KeyValueWithOp {
     KeyValueWithOp(String key, String value, OpType opType) {
@@ -65,10 +65,10 @@ public class SstFileWriterTest {
     ComparatorOptions comparatorOptions = null;
     BytewiseComparator comparator = null;
     if (useJavaBytewiseComparator) {
-      comparatorOptions = new ComparatorOptions();
+      comparatorOptions = new ComparatorOptions().setUseDirectBuffer(false);
       comparator = new BytewiseComparator(comparatorOptions);
       options.setComparator(comparator);
-      sstFileWriter = new SstFileWriter(envOptions, options, comparator);
+      sstFileWriter = new SstFileWriter(envOptions, options);
     } else {
       sstFileWriter = new SstFileWriter(envOptions, options);
     }
@@ -76,17 +76,31 @@ public class SstFileWriterTest {
     final File sstFile = parentFolder.newFile(SST_FILE_NAME);
     try {
       sstFileWriter.open(sstFile.getAbsolutePath());
+      assertThat(sstFileWriter.fileSize()).isEqualTo(0);
       for (KeyValueWithOp keyValue : keyValues) {
         Slice keySlice = new Slice(keyValue.getKey());
         Slice valueSlice = new Slice(keyValue.getValue());
         byte[] keyBytes = keyValue.getKey().getBytes();
         byte[] valueBytes = keyValue.getValue().getBytes();
+        ByteBuffer keyDirect = ByteBuffer.allocateDirect(keyBytes.length);
+        keyDirect.put(keyBytes);
+        keyDirect.flip();
+        ByteBuffer valueDirect = ByteBuffer.allocateDirect(valueBytes.length);
+        valueDirect.put(valueBytes);
+        valueDirect.flip();
         switch (keyValue.getOpType()) {
           case PUT:
             sstFileWriter.put(keySlice, valueSlice);
             break;
           case PUT_BYTES:
             sstFileWriter.put(keyBytes, valueBytes);
+            break;
+          case PUT_DIRECT:
+            sstFileWriter.put(keyDirect, valueDirect);
+            assertThat(keyDirect.position()).isEqualTo(keyBytes.length);
+            assertThat(keyDirect.limit()).isEqualTo(keyBytes.length);
+            assertThat(valueDirect.position()).isEqualTo(valueBytes.length);
+            assertThat(valueDirect.limit()).isEqualTo(valueBytes.length);
             break;
           case MERGE:
             sstFileWriter.merge(keySlice, valueSlice);
@@ -107,6 +121,7 @@ public class SstFileWriterTest {
         valueSlice.close();
       }
       sstFileWriter.finish();
+      assertThat(sstFileWriter.fileSize()).isGreaterThan(100);
     } finally {
       assertThat(sstFileWriter).isNotNull();
       sstFileWriter.close();
@@ -152,7 +167,7 @@ public class SstFileWriterTest {
   public void ingestSstFile() throws RocksDBException, IOException {
     final List<KeyValueWithOp> keyValues = new ArrayList<>();
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
-    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT_DIRECT));
     keyValues.add(new KeyValueWithOp("key3", "value3", OpType.PUT_BYTES));
     keyValues.add(new KeyValueWithOp("key4", "value4", OpType.MERGE));
     keyValues.add(new KeyValueWithOp("key5", "value5", OpType.MERGE_BYTES));

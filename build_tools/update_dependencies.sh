@@ -92,6 +92,7 @@ get_lib_base jemalloc   LATEST  platform007
 get_lib_base numa       LATEST  platform007
 get_lib_base libunwind  LATEST  platform007
 get_lib_base tbb        LATEST  platform007
+get_lib_base liburing   LATEST  platform007
 
 get_lib_base kernel-headers fb platform007
 get_lib_base binutils   LATEST centos7-native

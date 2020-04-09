@@ -36,11 +36,10 @@
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/murmurhash.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -206,7 +205,9 @@ InternalIterator* PlainTableReader::NewIterator(
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
-  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
+  // Auto prefix mode is not implemented in PlainTable.
+  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek &&
+                         !options.auto_prefix_mode;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
   } else {
@@ -287,7 +288,8 @@ void PlainTableReader::FillBloom(const std::vector<uint32_t>& prefix_hashes) {
 Status PlainTableReader::MmapDataIfNeeded() {
   if (file_info_.is_mmap_mode) {
     // Get mmapped memory.
-    return file_info_.file->Read(0, static_cast<size_t>(file_size_), &file_info_.file_data, nullptr);
+    return file_info_.file->Read(0, static_cast<size_t>(file_size_),
+                                 &file_info_.file_data, nullptr, nullptr);
   }
   return Status::OK();
 }
@@ -770,5 +772,5 @@ Status PlainTableIterator::status() const {
   return status_;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

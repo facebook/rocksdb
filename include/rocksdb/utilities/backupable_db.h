@@ -19,9 +19,10 @@
 #include "rocksdb/utilities/stackable_db.h"
 
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct BackupableDBOptions {
   // Where to keep the backup files. Has to be different than dbname_
@@ -104,13 +105,13 @@ struct BackupableDBOptions {
   // Default: 4194304
   uint64_t callback_trigger_interval_size;
 
-  // When Open() is called, it will open at most this many of the latest
-  // non-corrupted backups.
+  // For BackupEngineReadOnly, Open() will open at most this many of the
+  // latest non-corrupted backups.
   //
-  // Note setting this to a non-default value prevents old files from being
-  // deleted in the shared directory, as we can't do proper ref-counting. If
-  // using this option, make sure to occasionally disable it (by resetting to
-  // INT_MAX) and run GarbageCollect to clean accumulated stale files.
+  // Note: this setting is ignored (behaves like INT_MAX) for any kind of
+  // writable BackupEngine because it would inhibit accounting for shared
+  // files for proper backup deletion, including purging any incompletely
+  // created backups on creation of a new backup.
   //
   // Default: INT_MAX
   int max_valid_backups_to_open;
@@ -140,6 +141,24 @@ struct BackupableDBOptions {
         max_valid_backups_to_open(_max_valid_backups_to_open) {
     assert(share_table_files || !share_files_with_checksum);
   }
+};
+
+struct CreateBackupOptions {
+  // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
+  bool flush_before_backup = false;
+
+  // Callback for reporting progress.
+  std::function<void()> progress_callback = []() {};
+
+  // If false, background_thread_cpu_priority is ignored.
+  // Otherwise, the cpu priority can be decreased,
+  // if you try to increase the priority, the priority will not change.
+  // The initial priority of the threads is CpuPriority::kNormal,
+  // so you can decrease to priorities lower than kNormal.
+  bool decrease_background_thread_cpu_priority = false;
+  CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
 };
 
 struct RestoreOptions {
@@ -208,8 +227,13 @@ class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
                      BackupEngineReadOnly** backup_engine_ptr);
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngineReadOnly** backup_engine_ptr) {
+    return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
+  }
 
   // Returns info about backups in backup_info
   // You can GetBackupInfo safely, even with other BackupEngine performing
@@ -225,14 +249,29 @@ class BackupEngineReadOnly {
   // responsibility to synchronize the operation, i.e. don't delete the backup
   // when you're restoring from it
   // See also the corresponding doc in BackupEngine
+  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
+                                     BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  }
 
   // See the corresponding doc in BackupEngine
+  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
+                                           const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
+  }
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
@@ -253,33 +292,54 @@ class BackupEngine {
 
   // BackupableDBOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
                      BackupEngine** backup_engine_ptr);
 
-  // same as CreateNewBackup, but stores extra application metadata
-  // Flush will always trigger if 2PC is enabled.
-  // If write-ahead logs are disabled, set flush_before_backup=true to
-  // avoid losing unflushed key/value pairs from the memtable.
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngine** backup_engine_ptr) {
+    return BackupEngine::Open(options, db_env, backup_engine_ptr);
+  }
+
+  // same as CreateNewBackup, but stores extra application metadata.
+  virtual Status CreateNewBackupWithMetadata(
+      const CreateBackupOptions& options, DB* db,
+      const std::string& app_metadata) = 0;
+
+  // keep here for backward compatibility.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
-      std::function<void()> progress_callback = []() {}) = 0;
+      std::function<void()> progress_callback = []() {}) {
+    CreateBackupOptions options;
+    options.flush_before_backup = flush_before_backup;
+    options.progress_callback = progress_callback;
+    return CreateNewBackupWithMetadata(options, db, app_metadata);
+  }
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
-  // Flush will always trigger if 2PC is enabled.
-  // If write-ahead logs are disabled, set flush_before_backup=true to
-  // avoid losing unflushed key/value pairs from the memtable.
+  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db) {
+    return CreateNewBackupWithMetadata(options, db, "");
+  }
+
+  // keep here for backward compatibility.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {
-    return CreateNewBackupWithMetadata(db, "", flush_before_backup,
-                                       progress_callback);
+    CreateBackupOptions options;
+    options.flush_before_backup = flush_before_backup;
+    options.progress_callback = progress_callback;
+    return CreateNewBackup(options, db);
   }
 
-  // deletes old backups, keeping latest num_backups_to_keep alive
+  // Deletes old backups, keeping latest num_backups_to_keep alive.
+  // See also DeleteBackup.
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
 
-  // deletes a specific backup
+  // Deletes a specific backup. If this operation (or PurgeOldBackups)
+  // is not completed due to crash, power failure, etc. the state
+  // will be cleaned up the next time you call DeleteBackup,
+  // PurgeOldBackups, or GarbageCollect.
   virtual Status DeleteBackup(BackupID backup_id) = 0;
 
   // Call this from another thread if you want to stop the backup
@@ -287,8 +347,8 @@ class BackupEngine {
   // not wait for the backup to stop.
   // The backup will stop ASAP and the call to CreateNewBackup will
   // return Status::Incomplete(). It will not clean up after itself, but
-  // the state will remain consistent. The state will be cleaned up
-  // next time you create BackupableDB or RestoreBackupableDB.
+  // the state will remain consistent. The state will be cleaned up the
+  // next time you call CreateNewBackup or GarbageCollect.
   virtual void StopBackup() = 0;
 
   // Returns info about backups in backup_info
@@ -309,25 +369,44 @@ class BackupEngine {
   // database will diverge from backups 4 and 5 and the new backup will fail.
   // If you want to create new backup, you will first have to delete backups 4
   // and 5.
+  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
+                                     BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  }
 
   // restore from the latest backup
+  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
+                                           const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
+  }
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id) = 0;
 
-  // Will delete all the files we don't need anymore
-  // It will do the full scan of the files/ directory and delete all the
-  // files that are not referenced.
+  // Will delete any files left over from incomplete creation or deletion of
+  // a backup. This is not normally needed as those operations also clean up
+  // after prior incomplete calls to the same kind of operation (create or
+  // delete).
+  // NOTE: This is not designed to delete arbitrary files added to the backup
+  // directory outside of BackupEngine, and clean-up is always subject to
+  // permissions on and availability of the underlying filesystem.
   virtual Status GarbageCollect() = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

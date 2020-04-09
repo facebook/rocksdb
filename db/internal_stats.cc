@@ -22,7 +22,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -231,6 +231,7 @@ static const std::string is_file_deletions_enabled =
     "is-file-deletions-enabled";
 static const std::string num_snapshots = "num-snapshots";
 static const std::string oldest_snapshot_time = "oldest-snapshot-time";
+static const std::string oldest_snapshot_sequence = "oldest-snapshot-sequence";
 static const std::string num_live_versions = "num-live-versions";
 static const std::string current_version_number =
     "current-super-version-number";
@@ -309,6 +310,8 @@ const std::string DB::Properties::kNumSnapshots =
     rocksdb_prefix + num_snapshots;
 const std::string DB::Properties::kOldestSnapshotTime =
     rocksdb_prefix + oldest_snapshot_time;
+const std::string DB::Properties::kOldestSnapshotSequence =
+    rocksdb_prefix + oldest_snapshot_sequence;
 const std::string DB::Properties::kNumLiveVersions =
     rocksdb_prefix + num_live_versions;
 const std::string DB::Properties::kCurrentSuperVersionNumber =
@@ -426,6 +429,9 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kOldestSnapshotTime,
          {false, nullptr, &InternalStats::HandleOldestSnapshotTime, nullptr,
+          nullptr}},
+        {DB::Properties::kOldestSnapshotSequence,
+         {false, nullptr, &InternalStats::HandleOldestSnapshotSequence, nullptr,
           nullptr}},
         {DB::Properties::kNumLiveVersions,
          {false, nullptr, &InternalStats::HandleNumLiveVersions, nullptr,
@@ -657,7 +663,6 @@ bool InternalStats::HandleNumImmutableMemTableFlushed(uint64_t* value,
 
 bool InternalStats::HandleMemTableFlushPending(uint64_t* value, DBImpl* /*db*/,
                                                Version* /*version*/) {
-  // Return number of mem tables that are ready to flush (made immutable)
   *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
   return true;
 }
@@ -769,6 +774,12 @@ bool InternalStats::HandleNumSnapshots(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleOldestSnapshotTime(uint64_t* value, DBImpl* db,
                                              Version* /*version*/) {
   *value = static_cast<uint64_t>(db->snapshots().GetOldestSnapshotTime());
+  return true;
+}
+
+bool InternalStats::HandleOldestSnapshotSequence(uint64_t* value, DBImpl* db,
+                                                 Version* /*version*/) {
+  *value = static_cast<uint64_t>(db->snapshots().GetOldestSnapshotSequence());
   return true;
 }
 
@@ -1410,4 +1421,4 @@ const DBPropertyInfo* GetPropertyInfo(const Slice& /*property*/) {
 
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

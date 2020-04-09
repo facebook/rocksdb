@@ -83,8 +83,8 @@ public class TransactionDB extends RocksDB
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
           .get(i);
-      cfNames[i] = cfDescriptor.columnFamilyName();
-      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
     final long[] handles = open(dbOptions.nativeHandle_,

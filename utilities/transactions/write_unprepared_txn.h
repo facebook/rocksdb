@@ -12,7 +12,7 @@
 #include "utilities/transactions/write_prepared_txn.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteUnpreparedTxnDB;
 class WriteUnpreparedTxn;
@@ -194,7 +194,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
                         ColumnFamilyHandle* column_family,
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
-                        bool sorted_input = false) override;
+                        const bool sorted_input = false) override;
 
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;
@@ -212,6 +212,9 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   friend class WriteUnpreparedTxnDB;
 
   const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
+  Status WriteRollbackKeys(const TransactionKeyMap& tracked_keys,
+                           WriteBatchWithIndex* rollback_batch,
+                           ReadCallback* callback, const ReadOptions& roptions);
 
   Status MaybeFlushWriteBatchToDB();
   Status FlushWriteBatchToDB(bool prepared);
@@ -315,8 +318,24 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   // batch, it is possible that the delta iterator on the iterator will point to
   // invalid memory.
   std::vector<Iterator*> active_iterators_;
+
+  // Untracked keys that we have to rollback.
+  //
+  // TODO(lth): Currently we we do not record untracked keys per-savepoint.
+  // This means that when rolling back to savepoints, we have to check all
+  // keys in the current transaction for rollback. Note that this is only
+  // inefficient, but still correct because we take a snapshot at every
+  // savepoint, and we will use that snapshot to construct the rollback batch.
+  // The rollback batch will then contain a reissue of the same marker.
+  //
+  // A more optimal solution would be to only check keys changed since the
+  // last savepoint. Also, it may make sense to merge this into tracked_keys_
+  // and differentiate between tracked but not locked keys to avoid having two
+  // very similar data structures.
+  using KeySet = std::unordered_map<uint32_t, std::vector<std::string>>;
+  KeySet untracked_keys_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

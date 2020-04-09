@@ -16,7 +16,7 @@
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const uint64_t kRangeTombstoneSentinel =
     PackSequenceAndType(kMaxSequenceNumber, kTypeRangeDeletion);
@@ -275,9 +275,7 @@ Compaction::~Compaction() {
     input_version_->Unref();
   }
   if (cfd_ != nullptr) {
-    if (cfd_->Unref()) {
-      delete cfd_;
-    }
+    cfd_->UnrefAndTryDelete();
   }
 }
 
@@ -545,21 +543,22 @@ bool Compaction::ShouldFormSubcompactions() const {
   }
 }
 
-uint64_t Compaction::MaxInputFileCreationTime() const {
-  uint64_t max_creation_time = 0;
-  for (const auto& file : inputs_[0].files) {
-    if (file->fd.table_reader != nullptr &&
-        file->fd.table_reader->GetTableProperties() != nullptr) {
-      uint64_t creation_time =
-          file->fd.table_reader->GetTableProperties()->creation_time;
-      max_creation_time = std::max(max_creation_time, creation_time);
+uint64_t Compaction::MinInputFileOldestAncesterTime() const {
+  uint64_t min_oldest_ancester_time = port::kMaxUint64;
+  for (const auto& level_files : inputs_) {
+    for (const auto& file : level_files.files) {
+      uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+      if (oldest_ancester_time != 0) {
+        min_oldest_ancester_time =
+            std::min(min_oldest_ancester_time, oldest_ancester_time);
+      }
     }
   }
-  return max_creation_time;
+  return min_oldest_ancester_time;
 }
 
 int Compaction::GetInputBaseLevel() const {
   return input_vstorage_->base_level();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

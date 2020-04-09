@@ -198,18 +198,19 @@ public abstract class AbstractMutableOptions {
       return self();
     }
 
+    @SuppressWarnings("unchecked")
     protected <N extends Enum<N>> N getEnum(final K key)
         throws NoSuchElementException, NumberFormatException {
       final MutableOptionValue<?> value = options.get(key);
-      if(value == null) {
+      if (value == null) {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
 
-      if(!(value instanceof MutableOptionValue.MutableOptionEnumValue)) {
+      if (!(value instanceof MutableOptionValue.MutableOptionEnumValue)) {
         throw new NoSuchElementException(key.name() + " is not of Enum type");
       }
 
-      return ((MutableOptionValue.MutableOptionEnumValue<N>)value).asObject();
+      return ((MutableOptionValue.MutableOptionEnumValue<N>) value).asObject();
     }
 
     public U fromString(

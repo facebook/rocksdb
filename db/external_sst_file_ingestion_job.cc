@@ -24,7 +24,7 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
@@ -46,7 +46,7 @@ Status ExternalSstFileIngestionJob::Prepare(
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
         f.cf_id != cfd_->GetID()) {
       return Status::InvalidArgument(
-          "External file column family id dont match");
+          "External file column family id don't match");
     }
   }
 
@@ -55,7 +55,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
   } else if (num_files > 1) {
-    // Verify that passed files dont have overlapping ranges
+    // Verify that passed files don't have overlapping ranges
     autovector<const IngestedFileInfo*> sorted_files;
     for (size_t i = 0; i < num_files; i++) {
       sorted_files.push_back(&files_to_ingest_[i]);
@@ -101,14 +101,15 @@ Status ExternalSstFileIngestionJob::Prepare(
         TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
-      status = env_->LinkFile(path_outside_db, path_inside_db);
+      status =
+          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
-        std::unique_ptr<WritableFile> file_to_sync;
-        status = env_->ReopenWritableFile(path_inside_db, &file_to_sync,
-                                          env_options_);
+        std::unique_ptr<FSWritableFile> file_to_sync;
+        status = fs_->ReopenWritableFile(path_inside_db, env_options_,
+                                         &file_to_sync, nullptr);
         if (status.ok()) {
           TEST_SYNC_POINT(
               "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
@@ -133,7 +134,7 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
@@ -147,7 +148,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
   if (status.ok()) {
     for (auto path_id : ingestion_path_ids) {
-      status = directories_->GetDataDir(path_id)->Fsync();
+      status = directories_->GetDataDir(path_id)->Fsync(IOOptions(), nullptr);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "Failed to sync directory %" ROCKSDB_PRIszt
@@ -211,7 +212,7 @@ Status ExternalSstFileIngestionJob::Run() {
 
   if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
     // We need to assign a global sequence number to all the files even
-    // if the dont overlap with any ranges since we have snapshots
+    // if the don't overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
   // It is safe to use this instead of LastAllocatedSequence since we are
@@ -244,10 +245,21 @@ Status ExternalSstFileIngestionJob::Run() {
       return status;
     }
 
-    edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key,
-                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
-                  false, kInvalidBlobFileNumber);
+    // We use the import time as the ancester time. This is the time the data
+    // is written to the database.
+    int64_t temp_current_time = 0;
+    uint64_t current_time = kUnknownFileCreationTime;
+    uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+    if (env_->GetCurrentTime(&temp_current_time).ok()) {
+      current_time = oldest_ancester_time =
+          static_cast<uint64_t>(temp_current_time);
+    }
+
+    edit_.AddFile(
+        f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
+        f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
+        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
+        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName);
   }
   return status;
 }
@@ -349,17 +361,19 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
-  Status status = env_->GetFileSize(external_file, &file_to_ingest->file_size);
+  Status status = fs_->GetFileSize(external_file, IOOptions(),
+                                   &file_to_ingest->file_size, nullptr);
   if (!status.ok()) {
     return status;
   }
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
-  std::unique_ptr<RandomAccessFile> sst_file;
+  std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = env_->NewRandomAccessFile(external_file, &sst_file, env_options_);
+  status = fs_->NewRandomAccessFile(external_file, env_options_,
+                                    &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -574,7 +588,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
-    // We dont overlap with any keys in this level, but we still need to check
+    // We don't overlap with any keys in this level, but we still need to check
     // if our file can fit in it
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
@@ -632,7 +646,7 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     return Status::InvalidArgument("Global seqno is required, but disabled");
   } else if (file_to_ingest->global_seqno_offset == 0) {
     return Status::InvalidArgument(
-        "Trying to set global seqno for a file that dont have a global seqno "
+        "Trying to set global seqno for a file that don't have a global seqno "
         "field");
   }
 
@@ -640,13 +654,15 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     // Determine if we can write global_seqno to a given offset of file.
     // If the file system does not support random write, then we should not.
     // Otherwise we should.
-    std::unique_ptr<RandomRWFile> rwfile;
-    Status status = env_->NewRandomRWFile(file_to_ingest->internal_file_path,
-                                          &rwfile, env_options_);
+    std::unique_ptr<FSRandomRWFile> rwfile;
+    Status status =
+        fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
+                             &rwfile, nullptr);
     if (status.ok()) {
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
-      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val);
+      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val,
+                             IOOptions(), nullptr);
       if (status.ok()) {
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
         status = SyncIngestedFile(rwfile.get());
@@ -704,12 +720,12 @@ template <typename TWritableFile>
 Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
   assert(file != nullptr);
   if (db_options_.use_fsync) {
-    return file->Fsync();
+    return file->Fsync(IOOptions(), nullptr);
   } else {
-    return file->Sync();
+    return file->Sync(IOOptions(), nullptr);
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

@@ -10,13 +10,14 @@
 #include "env/mock_env.h"
 #include <algorithm>
 #include <chrono>
+#include "file/filename.h"
 #include "port/sys_time.h"
 #include "util/cast_util.h"
 #include "util/murmurhash.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemFile {
  public:
@@ -587,6 +588,7 @@ Status MockEnv::Truncate(const std::string& fname, size_t size) {
 
 Status MockEnv::CreateDir(const std::string& dirname) {
   auto dn = NormalizePath(dirname);
+  MutexLock lock(&mutex_);
   if (file_map_.find(dn) == file_map_.end()) {
     MemFile* file = new MemFile(this, dn, false);
     file->Ref();
@@ -746,17 +748,6 @@ Status MockEnv::CorruptBuffer(const std::string& fname) {
   return Status::OK();
 }
 
-std::string MockEnv::NormalizePath(const std::string path) {
-  std::string dst;
-  for (auto c : path) {
-    if (!dst.empty() && c == '/' && dst.back() == '/') {
-      continue;
-    }
-    dst.push_back(c);
-  }
-  return dst;
-}
-
 void MockEnv::FakeSleepForMicroseconds(int64_t micros) {
   fake_sleep_micros_.fetch_add(micros);
 }
@@ -771,4 +762,4 @@ Env* NewMemEnv(Env* /*base_env*/) { return nullptr; }
 
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

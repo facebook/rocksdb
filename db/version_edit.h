@@ -13,17 +13,24 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
+#include "table/table_reader.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class VersionSet;
 
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
-constexpr uint64_t kInvalidBlobFileNumber = 0;
+constexpr uint64_t kUnknownOldestAncesterTime = 0;
+constexpr uint64_t kUnknownFileCreationTime = 0;
+
+extern const std::string kUnknownFileChecksum;
+extern const std::string kUnknownFileChecksumFuncName;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
@@ -122,18 +129,41 @@ struct FileMetaData {
   // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
 
+  // The file could be the compaction output from other SST files, which could
+  // in turn be outputs for compact older SST files. We track the memtable
+  // flush timestamp for the oldest SST file that eventaully contribute data
+  // to this file. 0 means the information is not available.
+  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+
+  // Unix time when the SST file is created.
+  uint64_t file_creation_time = kUnknownFileCreationTime;
+
+  // File checksum
+  std::string file_checksum = kUnknownFileChecksum;
+
+  // File checksum function name
+  std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
                const InternalKey& smallest_key, const InternalKey& largest_key,
                const SequenceNumber& smallest_seq,
                const SequenceNumber& largest_seq, bool marked_for_compact,
-               uint64_t oldest_blob_file)
+               uint64_t oldest_blob_file, uint64_t _oldest_ancester_time,
+               uint64_t _file_creation_time, const std::string& _file_checksum,
+               const std::string& _file_checksum_func_name)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
         marked_for_compaction(marked_for_compact),
-        oldest_blob_file_number(oldest_blob_file) {}
+        oldest_blob_file_number(oldest_blob_file),
+        oldest_ancester_time(_oldest_ancester_time),
+        file_creation_time(_file_creation_time),
+        file_checksum(_file_checksum),
+        file_checksum_func_name(_file_checksum_func_name) {
+    TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
+  }
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
@@ -153,6 +183,29 @@ struct FileMetaData {
     }
     fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
     fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+  }
+
+  // Try to get oldest ancester time from the class itself or table properties
+  // if table reader is already pinned.
+  // 0 means the information is not available.
+  uint64_t TryGetOldestAncesterTime() {
+    if (oldest_ancester_time != kUnknownOldestAncesterTime) {
+      return oldest_ancester_time;
+    } else if (fd.table_reader != nullptr &&
+               fd.table_reader->GetTableProperties() != nullptr) {
+      return fd.table_reader->GetTableProperties()->creation_time;
+    }
+    return kUnknownOldestAncesterTime;
+  }
+
+  uint64_t TryGetFileCreationTime() {
+    if (file_creation_time != kUnknownFileCreationTime) {
+      return file_creation_time;
+    } else if (fd.table_reader != nullptr &&
+               fd.table_reader->GetTableProperties() != nullptr) {
+      return fd.table_reader->GetTableProperties()->file_creation_time;
+    }
+    return kUnknownFileCreationTime;
   }
 };
 
@@ -197,56 +250,74 @@ struct LevelFilesBrief {
 // to the MANIFEST file.
 class VersionEdit {
  public:
-  VersionEdit() { Clear(); }
-  ~VersionEdit() { }
-
   void Clear();
 
   void SetDBId(const std::string& db_id) {
     has_db_id_ = true;
     db_id_ = db_id;
   }
+  bool HasDbId() const { return has_db_id_; }
+  const std::string& GetDbId() const { return db_id_; }
 
   void SetComparatorName(const Slice& name) {
     has_comparator_ = true;
     comparator_ = name.ToString();
   }
+  bool HasComparatorName() const { return has_comparator_; }
+  const std::string& GetComparatorName() const { return comparator_; }
+
   void SetLogNumber(uint64_t num) {
     has_log_number_ = true;
     log_number_ = num;
   }
+  bool HasLogNumber() const { return has_log_number_; }
+  uint64_t GetLogNumber() const { return log_number_; }
+
   void SetPrevLogNumber(uint64_t num) {
     has_prev_log_number_ = true;
     prev_log_number_ = num;
   }
+  bool HasPrevLogNumber() const { return has_prev_log_number_; }
+  uint64_t GetPrevLogNumber() const { return prev_log_number_; }
+
   void SetNextFile(uint64_t num) {
     has_next_file_number_ = true;
     next_file_number_ = num;
   }
-  void SetLastSequence(SequenceNumber seq) {
-    has_last_sequence_ = true;
-    last_sequence_ = seq;
-  }
+  bool HasNextFile() const { return has_next_file_number_; }
+  uint64_t GetNextFile() const { return next_file_number_; }
+
   void SetMaxColumnFamily(uint32_t max_column_family) {
     has_max_column_family_ = true;
     max_column_family_ = max_column_family;
   }
+  bool HasMaxColumnFamily() const { return has_max_column_family_; }
+  uint32_t GetMaxColumnFamily() const { return max_column_family_; }
+
   void SetMinLogNumberToKeep(uint64_t num) {
     has_min_log_number_to_keep_ = true;
     min_log_number_to_keep_ = num;
   }
+  bool HasMinLogNumberToKeep() const { return has_min_log_number_to_keep_; }
+  uint64_t GetMinLogNumberToKeep() const { return min_log_number_to_keep_; }
 
-  bool has_db_id() { return has_db_id_; }
+  void SetLastSequence(SequenceNumber seq) {
+    has_last_sequence_ = true;
+    last_sequence_ = seq;
+  }
+  bool HasLastSequence() const { return has_last_sequence_; }
+  SequenceNumber GetLastSequence() const { return last_sequence_; }
 
-  bool has_log_number() { return has_log_number_; }
+  // Delete the specified table file from the specified level.
+  void DeleteFile(int level, uint64_t file) {
+    deleted_files_.emplace(level, file);
+  }
 
-  uint64_t log_number() { return log_number_; }
+  // Retrieve the table files deleted as well as their associated levels.
+  using DeletedFiles = std::set<std::pair<int, uint64_t>>;
+  const DeletedFiles& GetDeletedFiles() const { return deleted_files_; }
 
-  bool has_next_file_number() const { return has_next_file_number_; }
-
-  uint64_t next_file_number() const { return next_file_number_; }
-
-  // Add the specified file at the specified number.
+  // Add the specified table file at the specified level.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
   // REQUIRES: "oldest_blob_file_number" is the number of the oldest blob file
@@ -255,12 +326,16 @@ class VersionEdit {
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno, bool marked_for_compaction,
-               uint64_t oldest_blob_file_number) {
+               uint64_t oldest_blob_file_number, uint64_t oldest_ancester_time,
+               uint64_t file_creation_time, const std::string& file_checksum,
+               const std::string& file_checksum_func_name) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level, FileMetaData(file, file_path_id, file_size, smallest, largest,
                             smallest_seqno, largest_seqno,
-                            marked_for_compaction, oldest_blob_file_number));
+                            marked_for_compaction, oldest_blob_file_number,
+                            oldest_ancester_time, file_creation_time,
+                            file_checksum, file_checksum_func_name));
   }
 
   void AddFile(int level, const FileMetaData& f) {
@@ -268,21 +343,50 @@ class VersionEdit {
     new_files_.emplace_back(level, f);
   }
 
-  // Delete the specified "file" from the specified "level".
-  void DeleteFile(int level, uint64_t file) {
-    deleted_files_.insert({level, file});
+  // Retrieve the table files added as well as their associated levels.
+  using NewFiles = std::vector<std::pair<int, FileMetaData>>;
+  const NewFiles& GetNewFiles() const { return new_files_; }
+
+  // Add a new blob file.
+  void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
+                   uint64_t total_blob_bytes, std::string checksum_method,
+                   std::string checksum_value) {
+    blob_file_additions_.emplace_back(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        std::move(checksum_method), std::move(checksum_value));
+  }
+
+  // Retrieve all the blob files added.
+  using BlobFileAdditions = std::vector<BlobFileAddition>;
+  const BlobFileAdditions& GetBlobFileAdditions() const {
+    return blob_file_additions_;
+  }
+
+  // Add garbage for an existing blob file.  Note: intentionally broken English
+  // follows.
+  void AddBlobFileGarbage(uint64_t blob_file_number,
+                          uint64_t garbage_blob_count,
+                          uint64_t garbage_blob_bytes) {
+    blob_file_garbages_.emplace_back(blob_file_number, garbage_blob_count,
+                                     garbage_blob_bytes);
+  }
+
+  // Retrieve all the blob file garbage added.
+  using BlobFileGarbages = std::vector<BlobFileGarbage>;
+  const BlobFileGarbages& GetBlobFileGarbages() const {
+    return blob_file_garbages_;
   }
 
   // Number of edits
-  size_t NumEntries() { return new_files_.size() + deleted_files_.size(); }
-
-  bool IsColumnFamilyManipulation() {
-    return is_column_family_add_ || is_column_family_drop_;
+  size_t NumEntries() const {
+    return new_files_.size() + deleted_files_.size() +
+           blob_file_additions_.size() + blob_file_garbages_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
     column_family_ = column_family_id;
   }
+  uint32_t GetColumnFamily() const { return column_family_; }
 
   // set column family ID by calling SetColumnFamily()
   void AddColumnFamily(const std::string& name) {
@@ -301,71 +405,73 @@ class VersionEdit {
     is_column_family_drop_ = true;
   }
 
-  // return true on success.
-  bool EncodeTo(std::string* dst) const;
-  Status DecodeFrom(const Slice& src);
-
-  const char* DecodeNewFile4From(Slice* input);
-
-  typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
-
-  const DeletedFileSet& GetDeletedFiles() { return deleted_files_; }
-  const std::vector<std::pair<int, FileMetaData>>& GetNewFiles() {
-    return new_files_;
+  bool IsColumnFamilyManipulation() const {
+    return is_column_family_add_ || is_column_family_drop_;
   }
 
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
     remaining_entries_ = remaining_entries;
   }
+  bool IsInAtomicGroup() const { return is_in_atomic_group_; }
+  uint32_t GetRemainingEntries() const { return remaining_entries_; }
+
+  // return true on success.
+  bool EncodeTo(std::string* dst) const;
+  Status DecodeFrom(const Slice& src);
 
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
-  const std::string GetDbId() { return db_id_; }
-
  private:
   friend class ReactiveVersionSet;
+  friend class VersionEditHandler;
+  friend class VersionEditHandlerPointInTime;
   friend class VersionSet;
   friend class Version;
   friend class AtomicGroupReadBuffer;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 
-  int max_level_;
+  const char* DecodeNewFile4From(Slice* input);
+
+  int max_level_ = 0;
   std::string db_id_;
   std::string comparator_;
-  uint64_t log_number_;
-  uint64_t prev_log_number_;
-  uint64_t next_file_number_;
-  uint32_t max_column_family_;
+  uint64_t log_number_ = 0;
+  uint64_t prev_log_number_ = 0;
+  uint64_t next_file_number_ = 0;
+  uint32_t max_column_family_ = 0;
   // The most recent WAL log number that is deleted
-  uint64_t min_log_number_to_keep_;
-  SequenceNumber last_sequence_;
-  bool has_db_id_;
-  bool has_comparator_;
-  bool has_log_number_;
-  bool has_prev_log_number_;
-  bool has_next_file_number_;
-  bool has_last_sequence_;
-  bool has_max_column_family_;
-  bool has_min_log_number_to_keep_;
+  uint64_t min_log_number_to_keep_ = 0;
+  SequenceNumber last_sequence_ = 0;
+  bool has_db_id_ = false;
+  bool has_comparator_ = false;
+  bool has_log_number_ = false;
+  bool has_prev_log_number_ = false;
+  bool has_next_file_number_ = false;
+  bool has_max_column_family_ = false;
+  bool has_min_log_number_to_keep_ = false;
+  bool has_last_sequence_ = false;
 
-  DeletedFileSet deleted_files_;
-  std::vector<std::pair<int, FileMetaData>> new_files_;
+  DeletedFiles deleted_files_;
+  NewFiles new_files_;
+
+  BlobFileAdditions blob_file_additions_;
+  BlobFileGarbages blob_file_garbages_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
-  uint32_t column_family_;
+  uint32_t column_family_ = 0;
   // a version edit can be either column_family add or
   // column_family drop. If it's column family add,
   // it also includes column family name.
-  bool is_column_family_drop_;
-  bool is_column_family_add_;
+  bool is_column_family_drop_ = false;
+  bool is_column_family_add_ = false;
   std::string column_family_name_;
 
-  bool is_in_atomic_group_;
-  uint32_t remaining_entries_;
+  bool is_in_atomic_group_ = false;
+  uint32_t remaining_entries_ = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -61,7 +61,7 @@
 #include "util/string_util.h"
 #include "util/util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // anon namespace for file-local types
 namespace {
@@ -1784,14 +1784,28 @@ class MemTableInserter : public WriteBatch::Handler {
     // check if memtable_list size exceeds max_write_buffer_size_to_maintain
     if (trim_history_scheduler_ != nullptr) {
       auto* cfd = cf_mems_->current();
-      assert(cfd != nullptr);
-      if (cfd->ioptions()->max_write_buffer_size_to_maintain > 0 &&
-          cfd->mem()->ApproximateMemoryUsageFast() +
-                  cfd->imm()->ApproximateMemoryUsageExcludingLast() >=
-              static_cast<size_t>(
-                  cfd->ioptions()->max_write_buffer_size_to_maintain) &&
-          cfd->imm()->MarkTrimHistoryNeeded()) {
-        trim_history_scheduler_->ScheduleWork(cfd);
+
+      assert(cfd);
+      assert(cfd->ioptions());
+
+      const size_t size_to_maintain = static_cast<size_t>(
+          cfd->ioptions()->max_write_buffer_size_to_maintain);
+
+      if (size_to_maintain > 0) {
+        MemTableList* const imm = cfd->imm();
+        assert(imm);
+
+        if (imm->HasHistory()) {
+          const MemTable* const mem = cfd->mem();
+          assert(mem);
+
+          if (mem->ApproximateMemoryUsageFast() +
+                      imm->ApproximateMemoryUsageExcludingLast() >=
+                  size_to_maintain &&
+              imm->MarkTrimHistoryNeeded()) {
+            trim_history_scheduler_->ScheduleWork(cfd);
+          }
+        }
       }
     }
   }
@@ -1814,8 +1828,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
       rebuilding_trx_seq_ = sequence_;
-      // We only call MarkBeginPrepare once per batch, and unprepared_batch_
-      // is initialized to false by default.
+      // Verify that we have matching MarkBeginPrepare/MarkEndPrepare markers.
+      // unprepared_batch_ should be false because it is false by default, and
+      // gets reset to false in MarkEndPrepare.
       assert(!unprepared_batch_);
       unprepared_batch_ = unprepare;
 
@@ -1840,6 +1855,7 @@ class MemTableInserter : public WriteBatch::Handler {
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_, rebuilding_trx_seq_,
                                       batch_cnt, unprepared_batch_);
+      unprepared_batch_ = false;
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
@@ -2073,4 +2089,4 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

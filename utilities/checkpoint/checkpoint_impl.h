@@ -12,7 +12,7 @@
 #include "file/filename.h"
 #include "rocksdb/db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CheckpointImpl : public Checkpoint {
  public:
@@ -28,7 +28,8 @@ class CheckpointImpl : public Checkpoint {
   // The directory will be an absolute path
   using Checkpoint::CreateCheckpoint;
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
-                                  uint64_t log_size_for_flush) override;
+                                  uint64_t log_size_for_flush,
+                                  uint64_t* sequence_number_ptr) override;
 
   // Exports all live SST files of a specified Column Family onto export_dir
   // and returning SST files information in metadata.
@@ -74,6 +75,6 @@ class CheckpointImpl : public Checkpoint {
   DB* db_;
 };
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

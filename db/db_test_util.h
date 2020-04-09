@@ -52,7 +52,7 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace anon {
 class AtomicCounter {
@@ -850,7 +850,8 @@ class DBTestBase : public testing::Test {
 
   std::vector<std::string> MultiGet(std::vector<int> cfs,
                                     const std::vector<std::string>& k,
-                                    const Snapshot* snapshot = nullptr);
+                                    const Snapshot* snapshot,
+                                    const bool batched);
 
   std::vector<std::string> MultiGet(const std::vector<std::string>& k,
                                     const Snapshot* snapshot = nullptr);
@@ -858,6 +859,8 @@ class DBTestBase : public testing::Test {
   uint64_t GetNumSnapshots();
 
   uint64_t GetTimeOldestSnapshots();
+
+  uint64_t GetSequenceOldestSnapshots();
 
   // Return a string that contains all key,value pairs in order,
   // formatted like "(k1->v1)(k2->v2)".
@@ -987,6 +990,11 @@ class DBTestBase : public testing::Test {
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
     return options.statistics->getTickerCount(ticker_type);
   }
+
+  uint64_t TestGetAndResetTickerCount(const Options& options,
+                                      Tickers ticker_type) {
+    return options.statistics->getAndResetTickerCount(ticker_type);
+  }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

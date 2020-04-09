@@ -15,13 +15,18 @@
 #include <cstring>
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const char* Status::CopyState(const char* state) {
 #ifdef OS_WIN
   const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
   char* result = new char[cch];
-  errno_t ret;
+  errno_t ret
+#if defined(_MSC_VER)
+    ;
+#else
+    __attribute__((__unused__));
+#endif
   ret = strncpy_s(result, cch, state, cch - 1);
   result[cch - 1] = '\0';
   assert(ret == 0);
@@ -135,4 +140,4 @@ std::string Status::ToString() const {
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

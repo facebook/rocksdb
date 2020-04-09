@@ -15,16 +15,17 @@
 #include <sstream>
 
 #include "db/memtable_list.h"
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
-const uint32_t kLatestFormatVersion = 4u;
+const uint32_t kLatestFormatVersion = 5u;
 
 Slice RandomString(Random* rnd, int len, std::string* dst) {
   dst->resize(len);
@@ -127,19 +128,20 @@ const Comparator* Uint64Comparator() {
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
                                           const std::string& fname) {
   std::unique_ptr<WritableFile> file(wf);
-  return new WritableFileWriter(std::move(file), fname, EnvOptions());
+  return new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                                fname, EnvOptions());
 }
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
   std::unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(std::move(file),
+  return new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
                                     "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
                                               const std::string& fname) {
   std::unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(std::move(file), fname);
+  return new SequentialFileReader(NewLegacySequentialFileWrapper(file), fname);
 }
 
 void CorruptKeyType(InternalKey* ikey) {
@@ -263,6 +265,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
+  db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
@@ -448,4 +451,4 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
 }
 
 }  // namespace test
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

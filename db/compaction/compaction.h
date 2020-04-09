@@ -13,7 +13,7 @@
 #include "options/cf_options.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // The file contains class Compaction, as well as some helper functions
 // and data structures used by the class.
 
@@ -291,7 +291,7 @@ class Compaction {
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
-  uint64_t MaxInputFileCreationTime() const;
+  uint64_t MinInputFileOldestAncesterTime() const;
 
  private:
   // mark (or clear) all files that are being compacted
@@ -381,4 +381,4 @@ class Compaction {
 // Return sum of sizes of all files in `files`.
 extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

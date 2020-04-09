@@ -23,7 +23,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 // A helper class that form universal compactions. The class is used by
 // UniversalCompactionPicker::PickCompaction().
@@ -247,7 +247,8 @@ bool UniversalCompactionBuilder::IsInputFilesNonOverlapping(Compaction* c) {
 
     next.f = nullptr;
 
-    if (curr.level != 0 && curr.index < c->num_input_files(curr.level) - 1) {
+    if (c->level(curr.level) != 0 &&
+        curr.index < c->num_input_files(curr.level) - 1) {
       next.f = c->input(curr.level, curr.index + 1);
       next.level = curr.level;
       next.index = curr.index + 1;
@@ -277,7 +278,8 @@ bool UniversalCompactionPicker::NeedsCompaction(
 
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+    SequenceNumber /* earliest_memtable_seqno */) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
                                      mutable_cf_options, vstorage, this,
                                      log_buffer);
@@ -749,7 +751,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
       LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
                          1, enable_compression),
-      GetCompressionOptions(ioptions_, vstorage_, start_level,
+      GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
                             enable_compression),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);
@@ -957,7 +959,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level, 1),
-      GetCompressionOptions(ioptions_, vstorage_, output_level),
+      GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
@@ -1027,7 +1029,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
       LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
                          1, true /* enable_compression */),
-      GetCompressionOptions(ioptions_, vstorage_, start_level,
+      GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
                             true /* enable_compression */),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);
@@ -1098,6 +1100,6 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
 
   return c;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

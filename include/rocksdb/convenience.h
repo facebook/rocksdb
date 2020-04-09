@@ -13,7 +13,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 // The following set of functions provide a way to construct RocksDB Options
@@ -348,4 +348,4 @@ Status VerifySstFileChecksum(const Options& options,
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

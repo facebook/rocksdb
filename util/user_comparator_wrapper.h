@@ -11,15 +11,15 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Wrapper of user comparator, with auto increment to
 // perf_context.user_key_comparison_count.
 class UserComparatorWrapper final : public Comparator {
  public:
   explicit UserComparatorWrapper(const Comparator* const user_cmp)
-      : user_comparator_(user_cmp) {}
-  
+      : Comparator(user_cmp->timestamp_size()), user_comparator_(user_cmp) {}
+
   ~UserComparatorWrapper() = default;
 
   const Comparator* user_comparator() const { return user_comparator_; }
@@ -58,8 +58,19 @@ class UserComparatorWrapper final : public Comparator {
     return user_comparator_->CanKeysWithDifferentByteContentsBeEqual();
   }
 
+  int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
+    return user_comparator_->CompareTimestamp(ts1, ts2);
+  }
+
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                              bool b_has_ts) const override {
+    PERF_COUNTER_ADD(user_key_comparison_count, 1);
+    return user_comparator_->CompareWithoutTimestamp(a, a_has_ts, b, b_has_ts);
+  }
+
  private:
   const Comparator* user_comparator_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

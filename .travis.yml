@@ -3,28 +3,39 @@ language: cpp
 os:
   - linux
   - osx
+arch:
+  - amd64
+  - arm64
+  - ppc64le
 compiler:
   - clang
   - gcc
-osx_image: xcode8.3
-jdk:
-  - openjdk7
+osx_image: xcode9.4
 cache:
   - ccache
-  - apt
 
 addons:
   apt:
     sources:
       - ubuntu-toolchain-r-test
     packages:
-      - curl
-      - g++-8
-      - libbz2-dev
       - libgflags-dev
+      - libbz2-dev
+      - liblz4-dev
       - libsnappy-dev
-      - mingw-w64
+      - liblzma-dev  # xv
+      - libzstd-dev
       - zlib1g-dev
+  homebrew:
+    update: true
+    packages:
+      - ccache
+      - gflags
+      - lz4
+      - snappy
+      - xz
+      - zstd
+
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
@@ -44,36 +55,144 @@ env:
 matrix:
   exclude:
   - os: osx
-    env: TEST_GROUP=1
-  - os: osx
-    env: TEST_GROUP=2
-  - os: osx
-    env: TEST_GROUP=3
-  - os: osx
-    env: TEST_GROUP=4
-  - os: osx
     env: JOB_NAME=cmake-gcc8
-  - os : osx
+  - os: osx
     env: JOB_NAME=cmake-mingw
-  - os : linux
-    compiler: clang
-  - os : osx
+  - os: osx
+    arch: ppc64le
+  - os: osx
     compiler: gcc
+  - os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    compiler: clang
+  # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
+  # NB: the cmake build is a partial java test
+  - if: type = pull_request
+    os: osx
+    env: TEST_GROUP=1
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=1
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=1
+  - if: type = pull_request
+    os: osx
+    env: TEST_GROUP=2
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=2
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=2
+  - if: type = pull_request
+    os: osx
+    env: TEST_GROUP=3
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=3
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=3
+  - if: type = pull_request
+    os: osx
+    env: TEST_GROUP=4
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: TEST_GROUP=4
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=4
+  - if: type = pull_request
+    os : osx
+    env: JOB_NAME=java_test
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=java_test
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=java_test
+  - if: type = pull_request
+    os : osx
+    env: JOB_NAME=lite_build
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=lite_build
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=lite_build
+  - if: type = pull_request
+    os : osx
+    env: JOB_NAME=examples
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=examples
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=examples
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-gcc8
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-gcc8
 
-# https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      brew install ccache zstd lz4 snappy xz;
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
+      sudo apt-get install -y g++-8;
       CC=gcc-8 && CXX=g++-8;
     fi
-  - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      mkdir cmake-dist && curl -sfSL https://github.com/Kitware/CMake/releases/download/v3.14.5/cmake-3.14.5-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+  - if [ "${JOB_NAME}" == cmake-mingw ]; then
+      sudo apt-get install -y mingw-w64 ;
     fi
-  - if [[ "${JOB_NAME}" == java_test ]]; then
-      java -version && echo "JAVA_HOME=${JAVA_HOME}";
+  - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
+      CMAKE_DIST_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
+      TAR_OPT="--strip-components=1 -xj";
+      if [ "aarch64" == "$(uname -m)" ]; then
+        sudo apt-get install -y libuv1 librhash0;
+        sudo apt-get upgrade -y libstdc++6;
+      fi;
+      mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
+    fi
+  - |
+    if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
+      # Ensure JDK 8
+      if [ "${TRAVIS_OS_NAME}" == osx ]; then
+        brew tap AdoptOpenJDK/openjdk
+        brew cask install adoptopenjdk8
+        export JAVA_HOME=$(/usr/libexec/java_home)
+      else
+        sudo apt-get install -y openjdk-8-jdk
+        export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
+        export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
+      fi
+      echo "JAVA_HOME=${JAVA_HOME}"
+      which java && java -version
+      which javac && javac -version
     fi
 
 before_script:
@@ -82,7 +201,7 @@ before_script:
   - ulimit -n 8192
 
 script:
-  - ${CXX} --version
+  - date; ${CXX} --version
   - if [ `command -v ccache` ]; then ccache -C; fi
   - case $TEST_GROUP in
     platform_dependent)
@@ -92,7 +211,7 @@ script:
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=db_iter_test make -j4 check_some
       ;;
     2)
-      OPT=-DTRAVIS V=1 make -j4 tools && OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_iter_test ROCKSDBTESTS_END=options_file_test make -j4 check_some
+      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_START=db_iter_test ROCKSDBTESTS_END=options_file_test make -j4 check_some
       ;;
     3)
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=options_file_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
@@ -113,7 +232,7 @@ script:
       ;;
     cmake-mingw)
       sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
-      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
+      mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       ;;
     cmake*)
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release && make -j4 rocksdb rocksdbjni

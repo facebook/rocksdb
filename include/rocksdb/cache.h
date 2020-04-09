@@ -30,7 +30,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 
@@ -255,7 +255,7 @@ class Cache {
   // Always delete the DB object before calling this method!
   virtual void DisownData(){
       // default implementation is noop
-  };
+  }
 
   // Apply callback to all entries in the cache
   // If thread_safe is true, it will also lock the accesses. Otherwise, it will
@@ -275,4 +275,4 @@ class Cache {
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

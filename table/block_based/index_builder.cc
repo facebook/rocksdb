@@ -21,7 +21,7 @@
 #include "table/format.h"
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // using namespace rocksdb;
 // Create a index builder based on its type.
 IndexBuilder* IndexBuilder::CreateIndexBuilder(
@@ -39,6 +39,9 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           table_opt.index_shortening, /* include_first_key */ false);
     } break;
     case BlockBasedTableOptions::kHashSearch: {
+      // Currently kHashSearch is incompatible with index_block_restart_interval
+      // > 1
+      assert(table_opt.index_block_restart_interval == 1);
       result = new HashIndexBuilder(
           comparator, int_key_slice_transform,
           table_opt.index_block_restart_interval, table_opt.format_version,
@@ -216,4 +219,4 @@ Status PartitionedIndexBuilder::Finish(
 }
 
 size_t PartitionedIndexBuilder::NumPartitions() const { return partition_cnt_; }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

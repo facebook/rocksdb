@@ -21,7 +21,7 @@ fi
 K=1024
 M=$((1024 * K))
 G=$((1024 * M))
-T=$((1024 * T))
+T=$((1024 * G))
 
 if [ -z $DB_DIR ]; then
   echo "DB_DIR is not defined"

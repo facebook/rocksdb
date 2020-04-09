@@ -35,7 +35,7 @@
 
 #include "logging/logging.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const bool kDefaultToAdaptiveMutex = false;
 
@@ -159,20 +159,19 @@ DIR* opendir(const char* name) {
 
   std::unique_ptr<DIR> dir(new DIR);
 
-  dir->handle_ = RX_FindFirstFileEx(RX_FN(pattern).c_str(), 
-    FindExInfoBasic, // Do not want alternative name
-    &dir->data_,
-    FindExSearchNameMatch,
-    NULL, // lpSearchFilter
-    0);
+  dir->handle_ =
+      RX_FindFirstFileEx(RX_FN(pattern).c_str(),
+                         FindExInfoBasic,  // Do not want alternative name
+                         &dir->data_, FindExSearchNameMatch,
+                         NULL,  // lpSearchFilter
+                         0);
 
   if (dir->handle_ == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
   RX_FILESTRING x(dir->data_.cFileName, RX_FNLEN(dir->data_.cFileName));
-  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), 
-           FN_TO_RX(x).c_str());
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), FN_TO_RX(x).c_str());
 
   return dir.release();
 }
@@ -195,7 +194,7 @@ struct dirent* readdir(DIR* dirp) {
   }
 
   RX_FILESTRING x(dirp->data_.cFileName, RX_FNLEN(dirp->data_.cFileName));
-  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), 
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name),
            FN_TO_RX(x).c_str());
 
   return &dirp->entry_;
@@ -211,7 +210,7 @@ int truncate(const char* path, int64_t length) {
     errno = EFAULT;
     return -1;
   }
-  return rocksdb::port::Truncate(path, length);
+  return ROCKSDB_NAMESPACE::port::Truncate(path, length);
 }
 
 int Truncate(std::string path, int64_t len) {
@@ -262,5 +261,14 @@ void Crash(const std::string& srcfile, int srcline) {
 
 int GetMaxOpenFiles() { return -1; }
 
+// Assume 4KB page size
+const size_t kPageSize = 4U * 1024U;
+
+void SetCpuPriority(ThreadId id, CpuPriority priority) {
+  // Not supported
+  (void)id;
+  (void)priority;
+}
+
 }  // namespace port
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

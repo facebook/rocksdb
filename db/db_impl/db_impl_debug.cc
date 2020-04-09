@@ -15,7 +15,7 @@
 #include "monitoring/thread_status_updater.h"
 #include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   InstrumentedMutexLock l(&mutex_);
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
@@ -24,7 +24,9 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
 void DBImpl::TEST_SwitchWAL() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
+  void* writer = TEST_BeginWrite();
   SwitchWAL(&write_context);
+  TEST_EndWrite(writer);
 }
 
 bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
@@ -105,7 +107,19 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
   if (cfd == nullptr) {
     cfd = default_cf_handle_->cfd();
   }
-  return SwitchMemtable(cfd, &write_context);
+
+  Status s;
+  void* writer = TEST_BeginWrite();
+  if (two_write_queues_) {
+    WriteThread::Writer nonmem_w;
+    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    s = SwitchMemtable(cfd, &write_context);
+    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+  } else {
+    s = SwitchMemtable(cfd, &write_context);
+  }
+  TEST_EndWrite(writer);
+  return s;
 }
 
 Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
@@ -276,5 +290,5 @@ bool DBImpl::TEST_IsPersistentStatsEnabled() const {
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {
   return EstimateInMemoryStatsHistorySize();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // NDEBUG

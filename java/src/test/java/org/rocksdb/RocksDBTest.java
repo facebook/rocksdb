@@ -18,8 +18,8 @@ import static org.junit.Assert.fail;
 public class RocksDBTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -186,7 +186,7 @@ public class RocksDBTest {
   @Test
   public void put() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final WriteOptions opt = new WriteOptions()) {
+         final WriteOptions opt = new WriteOptions(); final ReadOptions optr = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put(opt, "key2".getBytes(), "12345678".getBytes());
       assertThat(db.get("key1".getBytes())).isEqualTo(
@@ -194,6 +194,47 @@ public class RocksDBTest {
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "12345678".getBytes());
 
+      ByteBuffer key = ByteBuffer.allocateDirect(12);
+      ByteBuffer value = ByteBuffer.allocateDirect(12);
+      key.position(4);
+      key.put("key3".getBytes());
+      key.position(4).limit(8);
+      value.position(4);
+      value.put("val3".getBytes());
+      value.position(4).limit(8);
+
+      db.put(opt, key, value);
+
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      assertThat(value.position()).isEqualTo(8);
+      assertThat(value.limit()).isEqualTo(8);
+
+      key.position(4);
+
+      ByteBuffer result = ByteBuffer.allocateDirect(12);
+      assertThat(db.get(optr, key, result)).isEqualTo(4);
+      assertThat(result.position()).isEqualTo(0);
+      assertThat(result.limit()).isEqualTo(4);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+
+      byte[] tmp = new byte[4];
+      result.get(tmp);
+      assertThat(tmp).isEqualTo("val3".getBytes());
+
+      key.position(4);
+
+      result.clear().position(9);
+      assertThat(db.get(optr, key, result)).isEqualTo(4);
+      assertThat(result.position()).isEqualTo(9);
+      assertThat(result.limit()).isEqualTo(12);
+      assertThat(key.position()).isEqualTo(8);
+      assertThat(key.limit()).isEqualTo(8);
+      byte[] tmp2 = new byte[3];
+      result.get(tmp2);
+      assertThat(tmp2).isEqualTo("val".getBytes());
 
       // put
       Segment key3 = sliceSegment("key3");
@@ -352,8 +393,9 @@ public class RocksDBTest {
     }
   }
 
+  @SuppressWarnings("deprecated")
   @Test
-  public void multiGet() throws RocksDBException, InterruptedException {
+  public void multiGet() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ReadOptions rOpt = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
@@ -392,7 +434,7 @@ public class RocksDBTest {
   }
 
   @Test
-  public void multiGetAsList() throws RocksDBException, InterruptedException {
+  public void multiGetAsList() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ReadOptions rOpt = new ReadOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
@@ -472,15 +514,22 @@ public class RocksDBTest {
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
+      db.put("key3".getBytes(), "33".getBytes());
       assertThat(db.get("key1".getBytes())).isEqualTo(
           "value".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "12345678".getBytes());
+      assertThat(db.get("key3".getBytes())).isEqualTo("33".getBytes());
       db.delete("key1".getBytes());
       db.delete(wOpt, "key2".getBytes());
+      ByteBuffer key = ByteBuffer.allocateDirect(16);
+      key.put("key3".getBytes()).flip();
+      db.delete(wOpt, key);
+      assertThat(key.position()).isEqualTo(4);
+      assertThat(key.limit()).isEqualTo(4);
+
       assertThat(db.get("key1".getBytes())).isNull();
       assertThat(db.get("key2".getBytes())).isNull();
-
 
       Segment key3 = sliceSegment("key3");
       Segment key4 = sliceSegment("key4");
@@ -690,8 +739,13 @@ public class RocksDBTest {
         db.put((String.valueOf(i)).getBytes(), b);
       }
       db.flush(new FlushOptions().setWaitForFlush(true));
-      db.compactRange("0".getBytes(), "201".getBytes(),
-          true, -1, 0);
+      try (final CompactRangeOptions compactRangeOpts = new CompactRangeOptions()
+            .setChangeLevel(true)
+            .setTargetLevel(-1)
+            .setTargetPathId(0)) {
+        db.compactRange(null, "0".getBytes(), "201".getBytes(),
+            compactRangeOpts);
+      }
     }
   }
 
@@ -775,7 +829,10 @@ public class RocksDBTest {
           dbFolder.getRoot().getAbsolutePath(),
           columnFamilyDescriptors,
           columnFamilyHandles)) {
-        try {
+        try (final CompactRangeOptions compactRangeOpts = new CompactRangeOptions()
+            .setChangeLevel(true)
+            .setTargetLevel(-1)
+            .setTargetPathId(0)) {
           // fill database with key/value pairs
           byte[] b = new byte[10000];
           for (int i = 0; i < 200; i++) {
@@ -784,7 +841,7 @@ public class RocksDBTest {
                 String.valueOf(i).getBytes(), b);
           }
           db.compactRange(columnFamilyHandles.get(1), "0".getBytes(),
-              "201".getBytes(), true, -1, 0);
+              "201".getBytes(), compactRangeOpts);
         } finally {
           for (final ColumnFamilyHandle handle : columnFamilyHandles) {
             handle.close();
@@ -1028,6 +1085,57 @@ public class RocksDBTest {
   }
 
   @Test
+  public void continueBackgroundWorkAfterCancelAllBackgroundWork() throws RocksDBException {
+    final int KEY_SIZE = 20;
+    final int VALUE_SIZE = 300;
+    try (final DBOptions opt = new DBOptions().
+        setCreateIfMissing(true).
+        setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+    ) {
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts)
+          );
+
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+      // open the database
+      try (final RocksDB db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles)) {
+        try {
+          db.cancelAllBackgroundWork(true);
+          try {
+            db.put(new byte[KEY_SIZE], new byte[VALUE_SIZE]);
+            db.flush(new FlushOptions().setWaitForFlush(true));
+            fail("Expected RocksDBException to be thrown if we attempt to trigger a flush after" +
+                " all background work is cancelled.");
+          } catch (RocksDBException ignored) { }
+        } finally {
+          for (final ColumnFamilyHandle handle : columnFamilyHandles) {
+            handle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void cancelAllBackgroundWorkTwice() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())
+    ) {
+      // Cancel all background work synchronously
+      db.cancelAllBackgroundWork(true);
+      // Cancel all background work asynchronously
+      db.cancelAllBackgroundWork(false);
+    }
+  }
+
+  @Test
   public void pauseContinueBackgroundWork() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
@@ -1094,9 +1202,11 @@ public class RocksDBTest {
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         db.put("key1".getBytes(), "value".getBytes());
       }
-      assertThat(dbFolder.getRoot().exists()).isTrue();
+      assertThat(dbFolder.getRoot().exists() && dbFolder.getRoot().listFiles().length != 0)
+          .isTrue();
       RocksDB.destroyDB(dbPath, options);
-      assertThat(dbFolder.getRoot().exists()).isFalse();
+      assertThat(dbFolder.getRoot().exists() && dbFolder.getRoot().listFiles().length != 0)
+          .isFalse();
     }
   }
 
@@ -1111,7 +1221,6 @@ public class RocksDBTest {
     }
   }
 
-  @Ignore("This test crashes. Re-enable after fixing.")
   @Test
   public void getApproximateSizes() throws RocksDBException {
     final byte key1[] = "key1".getBytes(UTF_8);
@@ -1126,7 +1235,7 @@ public class RocksDBTest {
 
         final long[] sizes = db.getApproximateSizes(
             Arrays.asList(
-                new Range(new Slice(key1), new Slice(key2)),
+                new Range(new Slice(key1), new Slice(key1)),
                 new Range(new Slice(key2), new Slice(key3))
             ),
             SizeApproximationFlag.INCLUDE_FILES,

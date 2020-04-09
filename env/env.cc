@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -19,7 +20,15 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
+
+Env::Env() : thread_status_updater_(nullptr) {
+  file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
+}
+
+Env::Env(std::shared_ptr<FileSystem> fs)
+  : thread_status_updater_(nullptr),
+    file_system_(fs) {}
 
 Env::~Env() {
 }
@@ -360,45 +369,13 @@ void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync) {
-  std::unique_ptr<WritableFile> file;
-  EnvOptions soptions;
-  Status s = env->NewWritableFile(fname, &file, soptions);
-  if (!s.ok()) {
-    return s;
-  }
-  s = file->Append(data);
-  if (s.ok() && should_sync) {
-    s = file->Sync();
-  }
-  if (!s.ok()) {
-    env->DeleteFile(fname);
-  }
-  return s;
+  LegacyFileSystemWrapper lfsw(env);
+  return WriteStringToFile(&lfsw, data, fname, should_sync);
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
-  EnvOptions soptions;
-  data->clear();
-  std::unique_ptr<SequentialFile> file;
-  Status s = env->NewSequentialFile(fname, &file, soptions);
-  if (!s.ok()) {
-    return s;
-  }
-  static const int kBufferSize = 8192;
-  char* space = new char[kBufferSize];
-  while (true) {
-    Slice fragment;
-    s = file->Read(kBufferSize, &fragment, space);
-    if (!s.ok()) {
-      break;
-    }
-    data->append(fragment.data(), fragment.size());
-    if (fragment.empty()) {
-      break;
-    }
-  }
-  delete[] space;
-  return s;
+  LegacyFileSystemWrapper lfsw(env);
+  return ReadFileToString(&lfsw, fname, data);
 }
 
 EnvWrapper::~EnvWrapper() {
@@ -485,9 +462,20 @@ Status NewEnvLogger(const std::string& fname, Env* env,
     return status;
   }
 
-  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
-                                        options, env);
+  *result = std::make_shared<EnvLogger>(
+      NewLegacyWritableFileWrapper(std::move(writable_file)), fname, options,
+      env);
   return Status::OK();
 }
 
-}  // namespace rocksdb
+const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
+  return file_system_;
+}
+
+#ifdef OS_WIN
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
+}
+#endif
+
+}  // namespace ROCKSDB_NAMESPACE

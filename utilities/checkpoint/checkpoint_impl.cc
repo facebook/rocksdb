@@ -27,7 +27,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   *checkpoint_ptr = new CheckpointImpl(db);
@@ -35,7 +35,8 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
 }
 
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
-                                    uint64_t /*log_size_for_flush*/) {
+                                    uint64_t /*log_size_for_flush*/,
+                                    uint64_t* /*sequence_number_ptr*/) {
   return Status::NotSupported("");
 }
 
@@ -69,7 +70,8 @@ Status Checkpoint::ExportColumnFamily(
 
 // Builds an openable snapshot of RocksDB
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
-                                        uint64_t log_size_for_flush) {
+                                        uint64_t log_size_for_flush,
+                                        uint64_t* sequence_number_ptr) {
   DBOptions db_options = db_->GetDBOptions();
 
   Status s = db_->GetEnv()->FileExists(checkpoint_dir);
@@ -111,20 +113,21 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
         [&](const std::string& src_dirname, const std::string& fname,
             FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s", fname.c_str());
-          return db_->GetEnv()->LinkFile(src_dirname + fname,
-                                         full_private_path + fname);
+          return db_->GetFileSystem()->LinkFile(src_dirname + fname,
+                                                full_private_path + fname,
+                                                IOOptions(), nullptr);
         } /* link_file_cb */,
         [&](const std::string& src_dirname, const std::string& fname,
             uint64_t size_limit_bytes, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-          return CopyFile(db_->GetEnv(), src_dirname + fname,
+          return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                           full_private_path + fname, size_limit_bytes,
                           db_options.use_fsync);
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-          return CreateFile(db_->GetEnv(), full_private_path + fname, contents,
-                            db_options.use_fsync);
+          return CreateFile(db_->GetFileSystem(), full_private_path + fname,
+                            contents, db_options.use_fsync);
         } /* create_file_cb */,
         &sequence_number, log_size_for_flush);
     // we copied all the files, enable file deletions
@@ -144,6 +147,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   }
 
   if (s.ok()) {
+    if (sequence_number_ptr != nullptr) {
+      *sequence_number_ptr = sequence_number;
+    }
     // here we know that we succeeded and installed the new snapshot
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot DONE. All is good");
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot sequence number: %" PRIu64,
@@ -362,7 +368,7 @@ Status CheckpointImpl::ExportColumnFamily(
   s = db_->GetEnv()->CreateDir(tmp_export_dir);
 
   if (s.ok()) {
-    s = db_->Flush(rocksdb::FlushOptions(), handle);
+    s = db_->Flush(ROCKSDB_NAMESPACE::FlushOptions(), handle);
   }
 
   ColumnFamilyMetaData db_metadata;
@@ -383,7 +389,7 @@ Status CheckpointImpl::ExportColumnFamily(
           [&](const std::string& src_dirname, const std::string& fname) {
             ROCKS_LOG_INFO(db_options.info_log, "[%s] Copying %s",
                            cf_name.c_str(), fname.c_str());
-            return CopyFile(db_->GetEnv(), src_dirname + fname,
+            return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                             tmp_export_dir + fname, 0, db_options.use_fsync);
           } /*copy_file_cb*/);
 
@@ -510,6 +516,6 @@ Status CheckpointImpl::ExportFilesInMetaData(
 
   return s;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

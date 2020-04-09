@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ColumnFamilyTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -75,6 +75,7 @@ public class ColumnFamilyTest {
 
         assertThat(cfh.getName()).isEqualTo("default".getBytes(UTF_8));
         assertThat(cfh.getID()).isEqualTo(0);
+        assertThat(cfh.getDescriptor().getName()).isEqualTo("default".getBytes(UTF_8));
 
         final byte[] key = "key".getBytes();
         final byte[] value = "value".getBytes();
@@ -154,10 +155,10 @@ public class ColumnFamilyTest {
         assertThat(retVal).isEqualTo("newcfvalue");
         assertThat((db.get(columnFamilyHandleList.get(1),
             "dfkey1".getBytes()))).isNull();
-        db.remove(columnFamilyHandleList.get(1), "newcfkey1".getBytes());
+        db.delete(columnFamilyHandleList.get(1), "newcfkey1".getBytes());
         assertThat((db.get(columnFamilyHandleList.get(1),
             "newcfkey1".getBytes()))).isNull();
-        db.remove(columnFamilyHandleList.get(0), new WriteOptions(),
+        db.delete(columnFamilyHandleList.get(0), new WriteOptions(),
             "dfkey2".getBytes());
         assertThat(db.get(columnFamilyHandleList.get(0), new ReadOptions(),
             "dfkey2".getBytes())).isNull();
@@ -309,8 +310,8 @@ public class ColumnFamilyTest {
               "value".getBytes());
           writeBatch.put(columnFamilyHandleList.get(1), "newcfkey2".getBytes(),
               "value2".getBytes());
-          writeBatch.remove("xyz".getBytes());
-          writeBatch.remove(columnFamilyHandleList.get(1), "xyz".getBytes());
+          writeBatch.delete("xyz".getBytes());
+          writeBatch.delete(columnFamilyHandleList.get(1), "xyz".getBytes());
           db.write(writeOpt, writeBatch);
 
           assertThat(db.get(columnFamilyHandleList.get(1),
@@ -396,19 +397,19 @@ public class ColumnFamilyTest {
         final List<byte[]> keys = Arrays.asList(new byte[][]{
             "key".getBytes(), "newcfkey".getBytes()
         });
-        Map<byte[], byte[]> retValues = db.multiGet(columnFamilyHandleList,
+
+        List<byte[]> retValues = db.multiGetAsList(columnFamilyHandleList, keys);
+        assertThat(retValues.size()).isEqualTo(2);
+        assertThat(new String(retValues.get(0)))
+            .isEqualTo("value");
+        assertThat(new String(retValues.get(1)))
+            .isEqualTo("value");
+        retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList,
             keys);
         assertThat(retValues.size()).isEqualTo(2);
-        assertThat(new String(retValues.get(keys.get(0))))
+        assertThat(new String(retValues.get(0)))
             .isEqualTo("value");
-        assertThat(new String(retValues.get(keys.get(1))))
-            .isEqualTo("value");
-        retValues = db.multiGet(new ReadOptions(), columnFamilyHandleList,
-            keys);
-        assertThat(retValues.size()).isEqualTo(2);
-        assertThat(new String(retValues.get(keys.get(0))))
-            .isEqualTo("value");
-        assertThat(new String(retValues.get(keys.get(1))))
+        assertThat(new String(retValues.get(1)))
             .isEqualTo("value");
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :
@@ -590,7 +591,7 @@ public class ColumnFamilyTest {
              cfDescriptors, columnFamilyHandleList)) {
       try {
         db.dropColumnFamily(columnFamilyHandleList.get(1));
-        db.remove(columnFamilyHandleList.get(1), "key".getBytes());
+        db.delete(columnFamilyHandleList.get(1), "key".getBytes());
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :
             columnFamilyHandleList) {
@@ -639,7 +640,7 @@ public class ColumnFamilyTest {
         keys.add("key".getBytes());
         keys.add("newcfkey".getBytes());
         final List<ColumnFamilyHandle> cfCustomList = new ArrayList<>();
-        db.multiGet(cfCustomList, keys);
+        db.multiGetAsList(cfCustomList, keys);
 
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :

@@ -13,9 +13,14 @@ then
   echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
   echo "You can download clang-format-diff.py by running: "
   echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
-  echo "You can download clang-format by running: "
+  echo "You can download clang-format by running:"
   echo "    brew install clang-format"
+  echo "  Or"
+  echo "    apt install clang-format"
+  echo "  This might work too:"
+  echo "    yum install git-clang-format"
   echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
+  echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
   exit 128
 fi
 

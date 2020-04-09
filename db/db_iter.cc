@@ -31,20 +31,7 @@
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
-
-#if 0
-static void DumpInternalIter(Iterator* iter) {
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey k;
-    if (!ParseInternalKey(iter->key(), &k)) {
-      fprintf(stderr, "Corrupt '%s'\n", EscapeString(iter->key()).c_str());
-    } else {
-      fprintf(stderr, "@ '%s'\n", k.DebugString().c_str());
-    }
-  }
-}
-#endif
+namespace ROCKSDB_NAMESPACE {
 
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableCFOptions& cf_options,
@@ -62,6 +49,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       read_callback_(read_callback),
       sequence_(s),
       statistics_(cf_options.statistics),
+      max_skip_(max_sequential_skip_in_iterations),
+      max_skippable_internal_keys_(read_options.max_skippable_internal_keys),
       num_internal_keys_skipped_(0),
       iterate_lower_bound_(read_options.iterate_lower_bound),
       iterate_upper_bound_(read_options.iterate_upper_bound),
@@ -73,23 +62,26 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                 ? read_options.prefix_same_as_start
                                 : false),
       pin_thru_lifetime_(read_options.pin_data),
-      total_order_seek_(read_options.total_order_seek),
+      expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
+                                     read_options.total_order_seek ||
+                                     read_options.auto_prefix_mode),
       allow_blob_(allow_blob),
       is_blob_(false),
       arena_mode_(arena_mode),
       range_del_agg_(&cf_options.internal_comparator, s),
       db_impl_(db_impl),
       cfd_(cfd),
-      start_seqnum_(read_options.iter_start_seqnum) {
+      start_seqnum_(read_options.iter_start_seqnum),
+      timestamp_ub_(read_options.timestamp),
+      timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
-  max_skip_ = max_sequential_skip_in_iterations;
-  max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
   if (pin_thru_lifetime_) {
     pinned_iters_mgr_.StartPinning();
   }
   if (iter_.iter()) {
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
+  assert(timestamp_size_ == user_comparator_.timestamp_size());
 }
 
 Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
@@ -181,7 +173,7 @@ void DBIter::Next() {
 //       a delete marker or a sequence number higher than sequence_
 //       saved_key_ MUST have a proper user_key before calling this function
 //
-// The prefix parameter, if not null, indicates that we need to iterator
+// The prefix parameter, if not null, indicates that we need to iterate
 // within the prefix, and the iterator needs to be made invalid, if no
 // more entry for the prefix can be found.
 bool DBIter::FindNextUserEntry(bool skipping_saved_key, const Slice* prefix) {
@@ -202,13 +194,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // or equal to saved_key_. We could skip these entries either because
   // sequence numbers were too high or because skipping_saved_key = true.
   // What saved_key_ contains throughout this method:
-  //  - if skipping_saved_key        : saved_key_ contains the key that we need
-  //  to skip,
-  //                         and we haven't seen any keys greater than that,
-  //  - if num_skipped > 0 : saved_key_ contains the key that we have skipped
-  //                         num_skipped times, and we haven't seen any keys
-  //                         greater than that,
-  //  - none of the above  : saved_key_ can contain anything, it doesn't matter.
+  //  - if skipping_saved_key : saved_key_ contains the key that we need
+  //                            to skip, and we haven't seen any keys greater
+  //                            than that,
+  //  - if num_skipped > 0    : saved_key_ contains the key that we have skipped
+  //                            num_skipped times, and we haven't seen any keys
+  //                            greater than that,
+  //  - none of the above     : saved_key_ can contain anything, it doesn't
+  //                            matter.
   uint64_t num_skipped = 0;
   // For write unprepared, the target sequence number in reseek could be larger
   // than the snapshot, and thus needs to be skipped again. This could result in
@@ -230,9 +223,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
     assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
-           user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) < 0);
+           user_comparator_.CompareWithoutTimestamp(
+               ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+               /*b_has_ts=*/false) < 0);
     if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
-        user_comparator_.Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
+        user_comparator_.CompareWithoutTimestamp(
+            ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+            /*b_has_ts=*/false) >= 0) {
       break;
     }
 
@@ -247,20 +244,25 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       return false;
     }
 
-    if (IsVisible(ikey_.sequence)) {
+    assert(ikey_.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+    }
+    if (IsVisible(ikey_.sequence, ts)) {
       // If the previous entry is of seqnum 0, the current entry will not
       // possibly be skipped. This condition can potentially be relaxed to
       // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
       // prone to bugs causing the same user key with the same sequence number.
       if (!is_prev_key_seqnum_zero && skipping_saved_key &&
-          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
-              0) {
+          user_comparator_.CompareWithoutTimestamp(
+              ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         assert(!skipping_saved_key ||
-               user_comparator_.Compare(ikey_.user_key,
-                                        saved_key_.GetUserKey()) > 0);
+               user_comparator_.CompareWithoutTimestamp(
+                   ikey_.user_key, saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -290,9 +292,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             if (start_seqnum_ > 0) {
               // we are taking incremental snapshot here
               // incremental snapshots aren't supported on DB with range deletes
-              assert(!(
-                (ikey_.type == kTypeBlobIndex) && (start_seqnum_ > 0)
-              ));
+              assert(ikey_.type != kTypeBlobIndex);
               if (ikey_.sequence >= start_seqnum_) {
                 saved_key_.SetInternalKey(ikey_);
                 valid_ = true;
@@ -323,7 +323,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
                   status_ = Status::NotSupported(
                       "Encounter unexpected blob index. Please open DB with "
-                      "rocksdb::blob_db::BlobDB instead.");
+                      "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
                   valid_ = false;
                   return false;
                 }
@@ -368,9 +368,9 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       // This key was inserted after our snapshot was taken.
       // If this happens too many times in a row for the same user key, we want
       // to seek to the target sequence number.
-      int cmp =
-          user_comparator_.Compare(ikey_.user_key, saved_key_.GetUserKey());
-      if (cmp == 0 || (skipping_saved_key && cmp <= 0)) {
+      int cmp = user_comparator_.CompareWithoutTimestamp(
+          ikey_.user_key, saved_key_.GetUserKey());
+      if (cmp == 0 || (skipping_saved_key && cmp < 0)) {
         num_skipped++;
       } else {
         saved_key_.SetUserKey(
@@ -389,7 +389,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     // reseek previously.
     //
     // TODO(lth): If we reseek to sequence number greater than ikey_.sequence,
-    // than it does not make sense to reseek as we would actually land further
+    // then it does not make sense to reseek as we would actually land further
     // away from the desired key. There is opportunity for optimization here.
     if (num_skipped > max_skip_ && !reseek_done) {
       is_key_seqnum_zero_ = false;
@@ -400,8 +400,17 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         // We're looking for the next user-key but all we see are the same
         // user-key with decreasing sequence numbers. Fast forward to
         // sequence number 0 and type deletion (the smallest type).
-        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
-                                                       0, kTypeDeletion));
+        if (timestamp_size_ == 0) {
+          AppendInternalKey(
+              &last_key,
+              ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
+        } else {
+          std::string min_ts(timestamp_size_, static_cast<char>(0));
+          AppendInternalKeyWithDifferentTimestamp(
+              &last_key,
+              ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
+              min_ts);
+        }
         // Don't set skipping_saved_key = false because we may still see more
         // user-keys equal to saved_key_.
       } else {
@@ -410,9 +419,17 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         // Note that this only covers a case when a higher key was overwritten
         // many times since our snapshot was taken, not the case when a lot of
         // different keys were inserted after our snapshot was taken.
-        AppendInternalKey(&last_key,
-                          ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
-                                            kValueTypeForSeek));
+        if (timestamp_size_ == 0) {
+          AppendInternalKey(
+              &last_key, ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
+                                           kValueTypeForSeek));
+        } else {
+          AppendInternalKeyWithDifferentTimestamp(
+              &last_key,
+              ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
+                                kValueTypeForSeek),
+              *timestamp_ub_);
+        }
       }
       iter_.Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
@@ -495,7 +512,7 @@ bool DBIter::MergeValuesNewToOld() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
       } else {
         status_ =
             Status::NotSupported("Blob DB does not support merge operator.");
@@ -531,6 +548,13 @@ bool DBIter::MergeValuesNewToOld() {
 }
 
 void DBIter::Prev() {
+  if (timestamp_size_ > 0) {
+    valid_ = false;
+    status_ = Status::NotSupported(
+        "SeekToLast/SeekForPrev/Prev currently not supported with timestamp.");
+    return;
+  }
+
   assert(valid_);
   assert(status_.ok());
 
@@ -567,7 +591,7 @@ bool DBIter::ReverseToForward() {
   // When moving backwards, iter_ is positioned on _previous_ key, which may
   // not exist or may have different prefix than the current key().
   // If that's the case, seek iter_ to current key.
-  if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_.Valid()) {
+  if (!expect_total_order_inner_iter() || !iter_.Valid()) {
     IterKey last_key;
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
@@ -603,15 +627,14 @@ bool DBIter::ReverseToBackward() {
   // key, which may not exist or may have prefix different from current.
   // If that's the case, seek to saved_key_.
   if (current_entry_is_merged_ &&
-      ((prefix_extractor_ != nullptr && !total_order_seek_) ||
-       !iter_.Valid())) {
+      (!expect_total_order_inner_iter() || !iter_.Valid())) {
     IterKey last_key;
     // Using kMaxSequenceNumber and kValueTypeForSeek
     // (not kValueTypeForSeekForPrev) to seek to a key strictly smaller
     // than saved_key_.
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
-    if (prefix_extractor_ != nullptr && !total_order_seek_) {
+    if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key.GetInternalKey());
     } else {
       // Some iterators may not support SeekForPrev(), so we avoid using it
@@ -710,7 +733,13 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     }
 
-    if (!IsVisible(ikey.sequence) ||
+    assert(ikey.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
+                 timestamp_size_);
+    }
+    if (!IsVisible(ikey.sequence, ts) ||
         !user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
@@ -797,7 +826,7 @@ bool DBIter::FindValueForCurrentKey() {
           ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
           status_ = Status::NotSupported(
               "Encounter unexpected blob index. Please open DB with "
-              "rocksdb::blob_db::BlobDB instead.");
+              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         } else {
           status_ =
               Status::NotSupported("Blob DB does not support merge operator.");
@@ -820,7 +849,7 @@ bool DBIter::FindValueForCurrentKey() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         valid_ = false;
         return false;
       }
@@ -856,6 +885,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // In case read_callback presents, the value we seek to may not be visible.
   // Find the next value that's visible.
   ParsedInternalKey ikey;
+  is_blob_ = false;
   while (true) {
     if (!iter_.Valid()) {
       valid_ = false;
@@ -865,6 +895,13 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!ParseKey(&ikey)) {
       return false;
     }
+    assert(ikey.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
+                 timestamp_size_);
+    }
+
     if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // No visible values for this key, even though FindValueForCurrentKey()
       // has seen some. This is possible if we're using a tailing iterator, and
@@ -873,7 +910,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       return true;
     }
 
-    if (IsVisible(ikey.sequence)) {
+    if (IsVisible(ikey.sequence, ts)) {
       break;
     }
 
@@ -890,13 +927,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
     status_ = Status::NotSupported(
         "Encounter unexpected blob index. Please open DB with "
-        "rocksdb::blob_db::BlobDB instead.");
+        "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
     valid_ = false;
     return false;
   }
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
+    is_blob_ = (ikey.type == kTypeBlobIndex);
     valid_ = true;
     return true;
   }
@@ -951,7 +989,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
-            "rocksdb::blob_db::BlobDB instead.");
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
       } else {
         status_ =
             Status::NotSupported("Blob DB does not support merge operator.");
@@ -976,8 +1014,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // Make sure we leave iter_ in a good state. If it's valid and we don't care
   // about prefixes, that's already good enough. Otherwise it needs to be
   // seeked to the current key.
-  if ((prefix_extractor_ != nullptr && !total_order_seek_) || !iter_.Valid()) {
-    if (prefix_extractor_ != nullptr && !total_order_seek_) {
+  if (!expect_total_order_inner_iter() || !iter_.Valid()) {
+    if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key);
     } else {
       iter_.Seek(last_key);
@@ -1012,7 +1050,13 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
     }
 
     assert(ikey.sequence != kMaxSequenceNumber);
-    if (!IsVisible(ikey.sequence)) {
+    assert(ikey.user_key.size() >= timestamp_size_);
+    Slice ts;
+    if (timestamp_size_ > 0) {
+      ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
+                 timestamp_size_);
+    }
+    if (!IsVisible(ikey.sequence, ts)) {
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
     } else {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -1057,10 +1101,18 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   return false;
 }
 
-bool DBIter::IsVisible(SequenceNumber sequence) {
+bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts) {
+  // Remember that comparator orders preceding timestamp as larger.
+  int cmp_ts = timestamp_ub_ != nullptr
+                   ? user_comparator_.CompareTimestamp(ts, *timestamp_ub_)
+                   : 0;
+  if (cmp_ts > 0) {
+    return false;
+  }
   if (read_callback_ == nullptr) {
     return sequence <= sequence_;
   } else {
+    // TODO(yanqin): support timestamp in read_callback_.
     return read_callback_->IsVisible(sequence);
   }
 }
@@ -1069,14 +1121,16 @@ void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {
   is_key_seqnum_zero_ = false;
   SequenceNumber seq = sequence_;
   saved_key_.Clear();
-  saved_key_.SetInternalKey(target, seq);
+  saved_key_.SetInternalKey(target, seq, kValueTypeForSeek, timestamp_ub_);
 
   if (iterate_lower_bound_ != nullptr &&
-      user_comparator_.Compare(saved_key_.GetUserKey(), *iterate_lower_bound_) <
-          0) {
+      user_comparator_.CompareWithoutTimestamp(
+          saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_lower_bound_,
+          /*b_has_ts=*/false) < 0) {
     // Seek key is smaller than the lower bound.
     saved_key_.Clear();
-    saved_key_.SetInternalKey(*iterate_lower_bound_, seq);
+    saved_key_.SetInternalKey(*iterate_lower_bound_, seq, kValueTypeForSeek,
+                              timestamp_ub_);
   }
 }
 
@@ -1127,18 +1181,16 @@ void DBIter::Seek(const Slice& target) {
 
   // Now the inner iterator is placed to the target position. From there,
   // we need to find out the next key that is visible to the user.
-  //
   ClearSavedValue();
   if (prefix_same_as_start_) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
     assert(prefix_extractor_ != nullptr);
-    Slice target_prefix;
-    target_prefix = prefix_extractor_->Transform(target);
+    Slice target_prefix = prefix_extractor_->Transform(target);
     FindNextUserEntry(false /* not skipping saved_key */,
                       &target_prefix /* prefix */);
     if (valid_) {
-      // Remember the prefix of the seek key for the future Prev() call to
+      // Remember the prefix of the seek key for the future Next() call to
       // check.
       prefix_.SetUserKey(target_prefix);
     }
@@ -1168,6 +1220,13 @@ void DBIter::SeekForPrev(const Slice& target) {
   }
 #endif  // ROCKSDB_LITE
 
+  if (timestamp_size_ > 0) {
+    valid_ = false;
+    status_ = Status::NotSupported(
+        "SeekToLast/SeekForPrev/Prev currently not supported with timestamp.");
+    return;
+  }
+
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -1194,8 +1253,7 @@ void DBIter::SeekForPrev(const Slice& target) {
     // The case where the iterator needs to be invalidated if it has exausted
     // keys within the same prefix of the seek key.
     assert(prefix_extractor_ != nullptr);
-    Slice target_prefix;
-    target_prefix = prefix_extractor_->Transform(target);
+    Slice target_prefix = prefix_extractor_->Transform(target);
     PrevInternal(&target_prefix);
     if (valid_) {
       // Remember the prefix of the seek key for the future Prev() call to
@@ -1222,7 +1280,7 @@ void DBIter::SeekToFirst() {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
-  if (prefix_extractor_ != nullptr && !total_order_seek_) {
+  if (!expect_total_order_inner_iter()) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   status_ = Status::OK();
@@ -1262,6 +1320,13 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
+  if (timestamp_size_ > 0) {
+    valid_ = false;
+    status_ = Status::NotSupported(
+        "SeekToLast/SeekForPrev/Prev currently not supported with timestamp.");
+    return;
+  }
+
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
@@ -1275,7 +1340,7 @@ void DBIter::SeekToLast() {
   PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
-  if (prefix_extractor_ != nullptr && !total_order_seek_) {
+  if (!expect_total_order_inner_iter()) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   status_ = Status::OK();
@@ -1321,4 +1386,4 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
   return db_iter;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

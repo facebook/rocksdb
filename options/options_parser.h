@@ -14,7 +14,7 @@
 #include "rocksdb/options.h"
 #include "table/block_based/block_based_table_factory.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -35,7 +35,7 @@ static const std::string opt_section_titles[] = {
 Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
-                             const std::string& file_name, Env* env);
+                             const std::string& file_name, FileSystem* fs);
 
 extern bool AreEqualOptions(
     const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
@@ -48,8 +48,10 @@ class RocksDBOptionsParser {
   ~RocksDBOptionsParser() {}
   void Reset();
 
-  Status Parse(const std::string& file_name, Env* env,
-               bool ignore_unknown_options = false);
+  // `file_readahead_size` is used for readahead for the option file.
+  // If 0 is given, a default value will be used.
+  Status Parse(const std::string& file_name, FileSystem* fs,
+               bool ignore_unknown_options, size_t file_readahead_size);
   static std::string TrimAndRemoveComment(const std::string& line,
                                           const bool trim_only = false);
 
@@ -72,7 +74,7 @@ class RocksDBOptionsParser {
   static Status VerifyRocksDBOptionsFromFile(
       const DBOptions& db_opt, const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
-      const std::string& file_name, Env* env,
+      const std::string& file_name, FileSystem* fs,
       OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch,
       bool ignore_unknown_options = false);
 
@@ -142,4 +144,4 @@ class RocksDBOptionsParser {
 
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

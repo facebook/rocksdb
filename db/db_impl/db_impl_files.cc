@@ -14,10 +14,11 @@
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
 #include "file/file_util.h"
+#include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 uint64_t DBImpl::MinLogNumberToKeep() {
   if (allow_2pc()) {
@@ -385,6 +386,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     w->Close();
   }
 
+  bool own_files = OwnTablesAndLogs();
   std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {
     const std::string& to_delete = candidate_file.file_name;
@@ -484,6 +486,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 #endif  // !ROCKSDB_LITE
 
+    // If I do not own these files, e.g. secondary instance with max_open_files
+    // = -1, then no need to delete or schedule delete these files since they
+    // will be removed by their owner, e.g. the primary instance.
+    if (!own_files) {
+      continue;
+    }
     Status file_deletion_status;
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
@@ -495,7 +503,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   {
     // After purging obsolete files, remove them from files_grabbed_for_purge_.
-    // Use a temporary vector to perform bulk deletion via swap.
     InstrumentedMutexLock guard_lock(&mutex_);
     autovector<uint64_t> to_be_removed;
     for (auto fn : files_grabbed_for_purge_) {
@@ -612,9 +619,9 @@ uint64_t PrecomputeMinLogNumberToKeep(
   // family being flushed (`cfd_to_flush`).
   uint64_t cf_min_log_number_to_keep = 0;
   for (auto& e : edit_list) {
-    if (e->has_log_number()) {
+    if (e->HasLogNumber()) {
       cf_min_log_number_to_keep =
-          std::max(cf_min_log_number_to_keep, e->log_number());
+          std::max(cf_min_log_number_to_keep, e->GetLogNumber());
     }
   }
   if (cf_min_log_number_to_keep == 0) {
@@ -658,4 +665,55 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-}  // namespace rocksdb
+Status DBImpl::CleanupFilesAfterRecovery() {
+  mutex_.AssertHeld();
+  std::vector<std::string> paths;
+  paths.push_back(dbname_);
+  for (const auto& db_path : immutable_db_options_.db_paths) {
+    paths.push_back(db_path.path);
+  }
+  for (const auto* cfd : *versions_->GetColumnFamilySet()) {
+    for (const auto& cf_path : cfd->ioptions()->cf_paths) {
+      paths.push_back(cf_path.path);
+    }
+  }
+  // Dedup paths
+  std::sort(paths.begin(), paths.end());
+  paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+
+  uint64_t next_file_number = versions_->current_next_file_number();
+  uint64_t largest_file_number = next_file_number;
+  std::set<std::string> files_to_delete;
+  for (const auto& path : paths) {
+    std::vector<std::string> files;
+    env_->GetChildren(path, &files);
+    for (const auto& fname : files) {
+      uint64_t number = 0;
+      FileType type;
+      if (!ParseFileName(fname, &number, &type)) {
+        continue;
+      }
+      const std::string normalized_fpath = NormalizePath(path + fname);
+      largest_file_number = std::max(largest_file_number, number);
+      if (type == kTableFile && number >= next_file_number &&
+          files_to_delete.find(normalized_fpath) == files_to_delete.end()) {
+        files_to_delete.insert(normalized_fpath);
+      }
+    }
+  }
+  if (largest_file_number > next_file_number) {
+    versions_->next_file_number_.store(largest_file_number + 1);
+  }
+  mutex_.Unlock();
+  Status s;
+  for (const auto& fname : files_to_delete) {
+    s = env_->DeleteFile(fname);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  mutex_.Lock();
+  return s;
+}
+
+}  // namespace ROCKSDB_NAMESPACE

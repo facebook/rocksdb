@@ -26,16 +26,18 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class OptionsUtilTest : public testing::Test {
  public:
   OptionsUtilTest() : rnd_(0xFB) {
     env_.reset(new test::StringEnv(Env::Default()));
+    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
     dbname_ = test::PerThreadDBPath("options_util_test");
   }
 
  protected:
   std::unique_ptr<test::StringEnv> env_;
+  std::unique_ptr<LegacyFileSystemWrapper> fs_;
   std::string dbname_;
   Random rnd_;
 };
@@ -59,7 +61,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   }
 
   const std::string kFileName = "OPTIONS-123456";
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
 
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
@@ -120,7 +122,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_names.push_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, env_.get());
+  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
@@ -341,7 +343,7 @@ TEST_F(OptionsUtilTest, SanityCheck) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

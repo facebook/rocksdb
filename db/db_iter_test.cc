@@ -22,7 +22,7 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static uint64_t TestGetTickerCount(const Options& options,
                                    Tickers ticker_type) {
@@ -691,7 +691,7 @@ TEST_F(DBIteratorTest, DBIteratorEmpty) {
 TEST_F(DBIteratorTest, DBIteratorUseSkipCountSkips) {
   ReadOptions ro;
   Options options;
-  options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
 
   TestIterator* internal_iter = new TestIterator(BytewiseComparator());
@@ -746,7 +746,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       }
       internal_iter->Finish();
 
-      options.statistics = rocksdb::CreateDBStatistics();
+      options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
           env_, ro, cf_options, mutable_cf_options, BytewiseComparator(),
           internal_iter, i + 2, options.max_sequential_skip_in_iterations,
@@ -2481,7 +2481,7 @@ TEST_F(DBIteratorTest, DBIteratorTestDifferentialSnapshots) {
     ReadOptions ro;
     ro.iter_start_seqnum=5;
     Options options;
-    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     for (size_t i = 0; i < 10; ++i) {
@@ -2516,7 +2516,7 @@ TEST_F(DBIteratorTest, DBIteratorTestDifferentialSnapshots) {
     ReadOptions ro;
     ro.iter_start_seqnum=5;
     Options options;
-    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     for (size_t i = 0; i < 10; ++i) {
@@ -2661,10 +2661,10 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   // Test call back inserts a key in the end of the mem table after
   // MergeIterator::Prev() realized the mem table iterator is at its end
   // and before an SeekToLast() is called.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev",
       [&](void* /*arg*/) { internal_iter2_->Add("z", kTypeValue, "7", 12u); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2683,7 +2683,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
@@ -2697,12 +2697,12 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
   // Test call back inserts entries for update a key in the end of the
   // mem table after MergeIterator::Prev() realized the mem tableiterator is at
   // its end and before an SeekToLast() is called.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* /*arg*/) {
         internal_iter2_->Add("z", kTypeValue, "7", 12u);
         internal_iter2_->Add("z", kTypeValue, "7", 11u);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2721,7 +2721,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
@@ -2735,7 +2735,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
   // Test call back inserts entries for update a key in the end of the
   // mem table after MergeIterator::Prev() realized the mem table iterator is at
   // its end and before an SeekToLast() is called.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* /*arg*/) {
         internal_iter2_->Add("z", kTypeValue, "7", 16u, true);
         internal_iter2_->Add("z", kTypeValue, "7", 15u, true);
@@ -2744,7 +2744,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
         internal_iter2_->Add("z", kTypeValue, "7", 12u, true);
         internal_iter2_->Add("z", kTypeValue, "7", 11u, true);
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2763,7 +2763,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
@@ -2779,7 +2779,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
   // Test call back inserts entries for update a key before "z" in
   // mem table after MergeIterator::Prev() calls mem table iterator's
   // Seek() and before calling Prev()
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
         IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
@@ -2791,7 +2791,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
           internal_iter2_->Add("x", kTypeValue, "7", 11u, true);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2814,7 +2814,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
@@ -2830,7 +2830,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
   // Test call back inserts entries for update a key before "z" in
   // mem table after MergeIterator::Prev() calls mem table iterator's
   // Seek() and before calling Prev()
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
         IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
@@ -2838,7 +2838,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
           internal_iter2_->Add("x", kTypeValue, "7", 15u, true);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2861,7 +2861,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
@@ -2877,14 +2877,14 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
   // Test call back inserts an entry for update a key before "z" in
   // mem table after MergeIterator::Prev() calls mem table iterator's
   // Seek() and before calling Prev()
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
         IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
           internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2907,7 +2907,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
@@ -2926,7 +2926,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
   // Test call back inserts entries for update a key before "z" in
   // mem table after MergeIterator::Prev() calls mem table iterator's
   // Seek() and before calling Prev()
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
         IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
@@ -2938,7 +2938,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
           internal_iter2_->Add("x", kTypeValue, "7", 11u, true);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2961,7 +2961,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
   ASSERT_EQ(db_iter_->key().ToString(), "a");
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
@@ -2979,7 +2979,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
   // Test call back inserts two keys before "z" in mem table after
   // MergeIterator::Prev() calls mem table iterator's Seek() and
   // before calling Prev()
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "MergeIterator::Prev:BeforePrev", [&](void* arg) {
         IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
         if (it->key().starts_with("z")) {
@@ -2987,7 +2987,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
           internal_iter2_->Add("y", kTypeValue, "7", 17u, true);
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   db_iter_->Prev();
   ASSERT_TRUE(db_iter_->Valid());
@@ -2998,7 +2998,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
   ASSERT_EQ(db_iter_->key().ToString(), "d");
   ASSERT_EQ(db_iter_->value().ToString(), "7");
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 
@@ -3167,7 +3167,7 @@ TEST_F(DBIteratorTest, ReverseToForwardWithDisappearingKeys) {
   EXPECT_LT(internal_iter->steps(), 20);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

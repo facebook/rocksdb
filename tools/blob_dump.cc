@@ -11,8 +11,8 @@
 
 #include "utilities/blob_db/blob_dump_tool.h"
 
-using namespace rocksdb;
-using namespace rocksdb::blob_db;
+using namespace ROCKSDB_NAMESPACE;
+using namespace ROCKSDB_NAMESPACE::blob_db;
 
 int main(int argc, char** argv) {
   using DisplayType = BlobDumpTool::DisplayType;

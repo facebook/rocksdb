@@ -39,7 +39,7 @@
 
 using std::unique_ptr;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class PlainTableKeyDecoderTest : public testing::Test {};
 
 TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
@@ -401,19 +401,17 @@ TEST_P(PlainTableDBTest, BadOptions1) {
   // Bad attempt to re-open without a prefix extractor
   Options options = CurrentOptions();
   options.prefix_extractor.reset();
-  Reopen(&options);
   ASSERT_EQ(
       "Invalid argument: Prefix extractor is missing when opening a PlainTable "
       "built using a prefix extractor",
-      Get("1000000000000foo"));
+      TryReopen(&options).ToString());
 
   // Bad attempt to re-open with different prefix extractor
   options.prefix_extractor.reset(NewFixedPrefixTransform(6));
-  Reopen(&options);
   ASSERT_EQ(
       "Invalid argument: Prefix extractor given doesn't match the one used to "
       "build PlainTable",
-      Get("1000000000000foo"));
+      TryReopen(&options).ToString());
 
   // Correct prefix extractor
   options.prefix_extractor.reset(NewFixedPrefixTransform(8));
@@ -655,9 +653,9 @@ TEST_P(PlainTableDBTest, Immortal) {
     dbfull()->TEST_FlushMemTable();
 
     int copied = 0;
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
         "GetContext::SaveValue::PinSelf", [&](void* /*arg*/) { copied++; });
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ASSERT_EQ("b", Get("0000000000000bar"));
     ASSERT_EQ("v1", Get("1000000000000foo"));
     ASSERT_EQ(2, copied);
@@ -674,7 +672,7 @@ TEST_P(PlainTableDBTest, Immortal) {
     } else {
       ASSERT_EQ(2, copied);
     }
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -1277,7 +1275,7 @@ static std::string RandomString(Random* rnd, int len) {
 
 TEST_P(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 120 << 10;  // 100KB
+  options.write_buffer_size = 120 << 10;  // 120KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   Reopen(&options);
@@ -1289,7 +1287,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
     std::vector<std::string> values;
     // Write 120KB (10 values, each 12K)
     for (int i = 0; i < 10; i++) {
-      values.push_back(RandomString(&rnd, 12000));
+      values.push_back(RandomString(&rnd, 12 << 10));
       ASSERT_OK(Put(Key(i), values[i]));
     }
     ASSERT_OK(Put(Key(999), ""));
@@ -1323,11 +1321,13 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
   dbfull()->TEST_FlushMemTable();
 
   options.create_if_missing = false;
-  std::shared_ptr<TableFactory> dummy_factory;
   std::shared_ptr<TableFactory> block_based_factory(
       NewBlockBasedTableFactory());
+  std::shared_ptr<TableFactory> plain_table_factory(
+      NewPlainTableFactory());
+  std::shared_ptr<TableFactory> dummy_factory;
   options.table_factory.reset(NewAdaptiveTableFactory(
-      block_based_factory, dummy_factory, dummy_factory));
+      block_based_factory, block_based_factory, plain_table_factory));
   Reopen(&options);
   ASSERT_EQ("v3", Get("1000000000000foo"));
   ASSERT_EQ("v2", Get("0000000000000bar"));
@@ -1344,10 +1344,12 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
   ASSERT_EQ("v4", Get("2000000000000foo"));
   ASSERT_EQ("v5", Get("3000000000000bar"));
 
+  options.paranoid_checks = false;
   options.table_factory.reset(NewBlockBasedTableFactory());
   Reopen(&options);
   ASSERT_NE("v3", Get("1000000000000foo"));
 
+  options.paranoid_checks = false;
   options.table_factory.reset(NewPlainTableFactory());
   Reopen(&options);
   ASSERT_NE("v5", Get("3000000000000bar"));
@@ -1355,7 +1357,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
 
 INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
