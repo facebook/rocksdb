@@ -511,27 +511,39 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::vector<uint64_t>)},
   };
 
-  // Construct two pieces of memory with controlled base. This is needed as
-  // otherwise padding bytes might not be filled.
+  // For all memory used for options, pre-fill every char. Otherwise, the
+  // padding bytes might be different so that byte-wise comparison doesn't
+  // general equal results even if objects are equal.
+  const char kMySpecialChar = 'x';
   char* mcfo1_ptr = new char[sizeof(MutableCFOptions)];
-  MutableCFOptions* mcfo1 = new (mcfo1_ptr) MutableCFOptions();
   FillWithSpecialChar(mcfo1_ptr, sizeof(MutableCFOptions),
-                      kMutableCFOptionsBlacklist, 'x');
+                      kMutableCFOptionsBlacklist, kMySpecialChar);
   char* mcfo2_ptr = new char[sizeof(MutableCFOptions)];
-  MutableCFOptions* mcfo2 = new (mcfo2_ptr) MutableCFOptions();
   FillWithSpecialChar(mcfo2_ptr, sizeof(MutableCFOptions),
-                      kMutableCFOptionsBlacklist, 'x');
+                      kMutableCFOptionsBlacklist, kMySpecialChar);
 
+  // A clean column family options is constructed after filling the same special
+  // char as the initial one. So that the padding bytes are the same.
+  char* cfo_clean_ptr = new char[sizeof(ColumnFamilyOptions)];
+  FillWithSpecialChar(cfo_clean_ptr, sizeof(ColumnFamilyOptions),
+                      kColumnFamilyOptionsBlacklist);
   rnd_filled_options.num_levels = 66;
-  *mcfo1 = MutableCFOptions(rnd_filled_options);
-  ColumnFamilyOptions cfo_back =
-      BuildColumnFamilyOptions(ColumnFamilyOptions(), *mcfo1);
-  *mcfo2 = MutableCFOptions(cfo_back);
+  ColumnFamilyOptions* cfo_clean = new (cfo_clean_ptr) ColumnFamilyOptions();
+
+  MutableCFOptions* mcfo1 =
+      new (mcfo1_ptr) MutableCFOptions(rnd_filled_options);
+  ColumnFamilyOptions cfo_back = BuildColumnFamilyOptions(*cfo_clean, *mcfo1);
+  MutableCFOptions* mcfo2 = new (mcfo2_ptr) MutableCFOptions(cfo_back);
 
   ASSERT_TRUE(CompareBytes(mcfo1_ptr, mcfo2_ptr, sizeof(MutableCFOptions),
                            kMutableCFOptionsBlacklist));
-  delete[] mcfo1;
-  delete[] mcfo2;
+
+  cfo_clean->~ColumnFamilyOptions();
+  mcfo1->~MutableCFOptions();
+  mcfo2->~MutableCFOptions();
+  delete[] mcfo1_ptr;
+  delete[] mcfo2_ptr;
+  delete[] cfo_clean_ptr;
 }
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN
