@@ -19,6 +19,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -594,6 +595,11 @@ class TestStatistics : public StatisticsImpl {
   const char* Name() const override { return "Test"; }
 };
 
+class MockSkipListFactory : public SkipListFactory {
+ public:
+  const char* Name() const override { return "Test"; }
+};
+
 static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   library.Register<FlushBlockPolicyFactory>(
@@ -607,6 +613,13 @@ static void RegisterLocalObjects(ObjectLibrary& library,
       "Test", [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
                  std::string* /* errmsg */) {
         guard->reset(new TestStatistics());
+        return guard->get();
+      });
+  library.Register<MemTableRepFactory>(
+      "Test",
+      [](const std::string& /*uri*/, std::unique_ptr<MemTableRepFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockSkipListFactory());
         return guard->get();
       });
 }
@@ -766,6 +779,24 @@ TEST_F(LoadCustomizableTest, LoadComparatorTest) {
   ASSERT_EQ(cf_opts_.comparator->Name(),
             std::string("SimpleSuffixReverseComparator"));
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
+  std::shared_ptr<MemTableRepFactory> mtrf;
+  ASSERT_NOK(MemTableRepFactory::CreateFromString("Test", cfg_opts_, &mtrf));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "memtable_factory={id=Test}", cfg_opts_, &cf_opts_));
+  RegisterTests("Test");
+  ASSERT_OK(MemTableRepFactory::CreateFromString("Test", cfg_opts_, &mtrf));
+  ASSERT_NE(mtrf, nullptr);
+  ASSERT_EQ(mtrf->Name(), std::string("Test"));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "memtable_factory={id=Test}", cfg_opts_, &cf_opts_));
+  ASSERT_NE(cf_opts_.memtable_factory, nullptr);
+  ASSERT_EQ(cf_opts_.memtable_factory->Name(), std::string("Test"));
+#endif
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
