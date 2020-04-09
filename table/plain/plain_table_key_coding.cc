@@ -211,7 +211,7 @@ bool PlainTableFileReader::ReadNonMmap(uint32_t file_offset, uint32_t len,
   }
   Slice read_result;
   Status s = file_info_->file->Read(file_offset, size_to_read, &read_result,
-                                    new_buffer->buf.get(), nullptr);
+                                    new_buffer->buf.get());
   if (!s.ok()) {
     status_ = s;
     return false;

@@ -116,13 +116,6 @@ public:
     cursize_ = 0;
   }
 
-  char* Release() {
-    cursize_ = 0;
-    capacity_ = 0;
-    bufstart_ = nullptr;
-    return buf_.release();
-  }
-
   void Alignment(size_t alignment) {
     assert(alignment > 0);
     assert((alignment & (alignment - 1)) == 0);

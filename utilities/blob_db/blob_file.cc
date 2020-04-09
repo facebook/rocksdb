@@ -138,6 +138,7 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   assert(ra_file_reader_);
 
   Slice result;
+<<<<<<< HEAD
   std::string buf;
   AlignedBuf aligned_buf;
   Status s;
@@ -149,6 +150,11 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
     s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
                               &buf[0], nullptr);
   }
+=======
+  char scratch[BlobLogFooter::kSize + 10];
+  Status s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
+                                   scratch);
+>>>>>>> parent of 0a0151fb9... Remove memcpy from RandomAccessFileReader::Read in direct IO mode (#6455)
   if (!s.ok()) return s;
   if (result.size() != BlobLogFooter::kSize) {
     // should not happen
@@ -262,6 +268,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                                  PathName()));
 
   // Read file header.
+<<<<<<< HEAD
   std::string header_buf;
   AlignedBuf aligned_buf;
   Slice header_slice;
@@ -273,6 +280,11 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice,
                           &header_buf[0], nullptr);
   }
+=======
+  char header_buf[BlobLogHeader::kSize];
+  Slice header_slice;
+  s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, header_buf);
+>>>>>>> parent of 0a0151fb9... Remove memcpy from RandomAccessFileReader::Read in direct IO mode (#6455)
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to read header of blob file %" PRIu64
@@ -303,8 +315,9 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
     assert(!footer_valid_);
     return Status::OK();
   }
-  std::string footer_buf;
+  char footer_buf[BlobLogFooter::kSize];
   Slice footer_slice;
+<<<<<<< HEAD
   if (file_reader->use_direct_io()) {
     s = file_reader->Read(file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
@@ -315,6 +328,10 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
                           BlobLogFooter::kSize, &footer_slice, &footer_buf[0],
                           nullptr);
   }
+=======
+  s = file_reader->Read(file_size - BlobLogFooter::kSize, BlobLogFooter::kSize,
+                        &footer_slice, footer_buf);
+>>>>>>> parent of 0a0151fb9... Remove memcpy from RandomAccessFileReader::Read in direct IO mode (#6455)
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to read footer of blob file %" PRIu64

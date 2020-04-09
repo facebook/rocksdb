@@ -104,6 +104,7 @@ class RandomAccessFileReader {
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
+<<<<<<< HEAD
   // In non-direct IO mode,
   // 1. if using mmap, result is stored in a buffer other than scratch;
   // 2. if not using mmap, result is stored in the buffer starting from scratch.
@@ -124,6 +125,12 @@ class RandomAccessFileReader {
   // MultiRead, the result Slices in reqs refer to aligned_buf.
   Status MultiRead(FSReadRequest* reqs, size_t num_reqs,
                    AlignedBuf* aligned_buf) const;
+=======
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
+              bool for_compaction = false) const;
+
+  Status MultiRead(FSReadRequest* reqs, size_t num_reqs) const;
+>>>>>>> parent of 0a0151fb9... Remove memcpy from RandomAccessFileReader::Read in direct IO mode (#6455)
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);
