@@ -293,7 +293,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   }
 
   std::string footer_buf;
-  std::unique_ptr<const char[]> internal_buf;
+  AlignedBuf internal_buf;
   Slice footer_input;
   size_t read_offset =
       (file_size > Footer::kMaxEncodedLength)

@@ -209,14 +209,19 @@ Status BlockFetcher::ReadBlockContents() {
       return status_;
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
-    PrepareBufferForBlockFromFile();
-    Status s;
-
     {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
-      status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                            &slice_, used_buf_, nullptr, for_compaction_);
+      if (file_->use_direct_io()) {
+        AlignedBuf buf;
+        status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
+                              &slice_, nullptr, &buf, for_compaction_);
+        heap_buf_ = CacheAllocationPtr(buf.release());
+      } else {
+        PrepareBufferForBlockFromFile();
+        status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
+                              &slice_, used_buf_, nullptr, for_compaction_);
+      }
     }
     PERF_COUNTER_ADD(block_read_count, 1);
 

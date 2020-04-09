@@ -90,7 +90,7 @@ class BlockFetcher {
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
   bool got_from_prefetch_buffer_ = false;
-  ROCKSDB_NAMESPACE::CompressionType compression_type_;
+  CompressionType compression_type_;
   bool for_compaction_ = false;
 
   // return true if found
