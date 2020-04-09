@@ -47,6 +47,8 @@ struct ConfigOptions {
   bool ignore_unknown_options = false;
   // If the strings are escaped (old-style?)
   bool input_strings_escaped = true;
+  // Whether or not to invoke PrepareOptins after configure is called
+  bool invoke_prepare_options = true;
   // The separator between options when in a string
   std::string delimiter = ";";
   // Controls how to traverse options during print/match stages

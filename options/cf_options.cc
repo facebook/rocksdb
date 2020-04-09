@@ -12,16 +12,17 @@
 
 #include "options/db_options.h"
 #include "options/options_helper.h"
+#include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/concurrent_task_limiter.h"
+#include "rocksdb/configurable.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "table/block_based/block_based_table_factory.h"
-#include "table/plain/plain_table_factory.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -164,8 +165,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
 };
 
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::cf_mutable_options_type_info = {
+static std::unordered_map<std::string, OptionTypeInfo>
+    cf_mutable_options_type_info = {
         {"report_bg_io_stats",
          {offsetof(struct MutableCFOptions, report_bg_io_stats),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -315,15 +316,16 @@ std::unordered_map<std::string, OptionTypeInfo>
             // This is to handle backward compatibility, where
             // compaction_options_fifo could be assigned a single scalar value,
             // say, like "23", which would be assigned to max_table_files_size.
-            if (value.find("=") != std::string::npos) {
-              return OptionTypeInfo::ParseStruct(
-                  "compaction_options_fifo", &fifo_compaction_options_type_info,
-                  name, value, opts, addr);
-            } else {
+            if (name == "compaction_options_fifo" &&
+                value.find("=") == std::string::npos) {
               // Old format. Parse just a single uint64_t value.
               auto options = reinterpret_cast<CompactionOptionsFIFO*>(addr);
               options->max_table_files_size = ParseUint64(value);
               return Status::OK();
+            } else {
+              return OptionTypeInfo::ParseStruct(
+                  "compaction_options_fifo", &fifo_compaction_options_type_info,
+                  name, value, opts, addr);
             }
           },
           [](const std::string& name, const char* addr,
@@ -385,8 +387,8 @@ std::unordered_map<std::string, OptionTypeInfo>
         // End special case properties
 };
 
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::cf_immutable_options_type_info = {
+static std::unordered_map<std::string, OptionTypeInfo>
+    cf_immutable_options_type_info = {
         /* not yet supported
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
@@ -489,49 +491,53 @@ std::unordered_map<std::string, OptionTypeInfo>
           }}},
         {"table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kTableFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kCompareLoose}},
+          OptionType::kConfigurable, OptionVerificationType::kByName,
+          (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
+           OptionTypeFlags::kDontPrepare),
+          [](const std::string& /*name*/, const std::string& value,
+             const ConfigOptions& opts, char* addr) {
+            auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+            return TableFactory::CreateFromString(value, opts, tf);
+          },
+          [](const std::string& /*name*/, const char* addr,
+             const ConfigOptions& /*opts*/, std::string* value) {
+            const auto* tf =
+                reinterpret_cast<const std::shared_ptr<TableFactory>*>(addr);
+            *value = tf->get() ? tf->get()->Name() : kNullptrString;
+            return Status::OK();
+          },
+          nullptr}},
         {"block_based_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kTableFactory, OptionVerificationType::kAlias,
-          OptionTypeFlags::kCompareLoose,
+          OptionType::kConfigurable, OptionVerificationType::kAlias,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& /*opts*/, char* addr) {
+             const ConfigOptions& opts, char* addr) {
             // Nested options
             auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-            BlockBasedTableOptions table_opts, base_opts;
-            BlockBasedTableFactory* bbtf =
-                static_cast_with_check<BlockBasedTableFactory, TableFactory>(
-                    tf->get());
-            if (bbtf != nullptr) {
-              base_opts = bbtf->table_options();
-            }
-            Status s = GetBlockBasedTableOptionsFromString(base_opts, value,
-                                                           &table_opts);
+            Status s = TableFactory::CreateFromString(
+                TableFactory::kBlockBasedTableName, opts, tf);
             if (s.ok()) {
-              tf->reset(NewBlockBasedTableFactory(table_opts));
+              ConfigOptions copy = opts;
+              copy.invoke_prepare_options = true;
+              s = tf->get()->ConfigureFromString(value, copy);
             }
             return s;
           }}},
         {"plain_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kTableFactory, OptionVerificationType::kAlias,
-          OptionTypeFlags::kCompareLoose,
+          OptionType::kConfigurable, OptionVerificationType::kAlias,
+          OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& /*opts*/, char* addr) {
+             const ConfigOptions& opts, char* addr) {
             // Nested options
             auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-            PlainTableOptions table_opts, base_opts;
-            PlainTableFactory* ptf =
-                static_cast_with_check<PlainTableFactory, TableFactory>(
-                    tf->get());
-            if (ptf != nullptr) {
-              base_opts = ptf->table_options();
-            }
-            Status s =
-                GetPlainTableOptionsFromString(base_opts, value, &table_opts);
+            Status s = TableFactory::CreateFromString(
+                TableFactory::kPlainTableName, opts, tf);
             if (s.ok()) {
-              tf->reset(NewPlainTableFactory(table_opts));
+              ConfigOptions copy = opts;
+              copy.invoke_prepare_options = true;
+              s = tf->get()->ConfigureFromString(value, copy);
             }
             return s;
           }}},
@@ -569,6 +575,101 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
 };
+
+const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
+const std::string OptionsHelper::kMutableCFOptionsName = "MutableCFOptions";
+
+class ConfigurableMutableCFOptions : public Configurable {
+ public:
+  ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
+    mutable_ = mcf;
+    RegisterOptions(OptionsHelper::kMutableCFOptionsName, &mutable_,
+                    &cf_mutable_options_type_info);
+  }
+
+ protected:
+  MutableCFOptions mutable_;
+};
+
+class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
+ public:
+  ConfigurableCFOptions(const ColumnFamilyOptions& opts,
+                        const std::unordered_map<std::string, std::string>* map)
+      : ConfigurableMutableCFOptions(MutableCFOptions(opts)),
+        cf_options_(opts),
+        opt_map(map) {
+    RegisterOptions(OptionsHelper::kCFOptionsName, &cf_options_,
+                    &cf_immutable_options_type_info);
+  }
+
+ protected:
+  Status DoConfigureOptions(
+      std::unordered_map<std::string, std::string>* options,
+      const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+      const std::string& type_name, void* opt_ptr,
+      const ConfigOptions& cfg) override {
+    Status s = ConfigurableMutableCFOptions::DoConfigureOptions(
+        options, type_map, type_name, opt_ptr, cfg);
+    if (type_name == OptionsHelper::kMutableCFOptionsName) {
+      cf_options_ = BuildColumnFamilyOptions(cf_options_, mutable_);
+    }
+    return s;
+  }
+
+  bool MatchesOption(const OptionTypeInfo& opt_info,
+                     const std::string& opt_name, const void* const this_ptr,
+                     const void* const that_ptr, const ConfigOptions& options,
+                     std::string* mismatch) const override {
+    bool matches = Configurable::MatchesOption(opt_info, opt_name, this_ptr,
+                                               that_ptr, options, mismatch);
+    if (matches && opt_info.IsConfigurable() && opt_map != nullptr) {
+      const auto* this_config = opt_info.AsRawPointer<Configurable>(this_ptr);
+      if (this_config == nullptr) {
+        const auto iter = opt_map->find(opt_name);
+        // If the name exists in the map and is not empty,
+        // then the this_config should be set.
+        if (iter != opt_map->end() && !iter->second.empty()) {
+          matches = false;
+        }
+      }
+    }
+    return matches;
+  }
+
+  bool CheckByName(const OptionTypeInfo& opt_info, const std::string& opt_name,
+                   const void* const this_ptr, const void* const /*that_ptr*/,
+                   const ConfigOptions& options) const override {
+    std::string this_value;
+    if (!opt_info.IsByName()) {
+      return false;
+    } else if (opt_map == nullptr) {
+      return true;
+    } else {
+      auto iter = opt_map->find(opt_name);
+      if (iter == opt_map->end()) {
+        return true;
+      } else {
+        return opt_info.CheckByName(opt_name, this_ptr, iter->second, options);
+      }
+    }
+  }
+
+ private:
+  ColumnFamilyOptions cf_options_;
+  const std::unordered_map<std::string, std::string>* opt_map;
+};
+
+std::unique_ptr<Configurable> CFOptionsAsConfigurable(
+    const MutableCFOptions& opts) {
+  std::unique_ptr<Configurable> ptr(new ConfigurableMutableCFOptions(opts));
+  return ptr;
+}
+std::unique_ptr<Configurable> CFOptionsAsConfigurable(
+    const ColumnFamilyOptions& opts,
+    const std::unordered_map<std::string, std::string>* opt_map) {
+  std::unique_ptr<Configurable> ptr(new ConfigurableCFOptions(opts, opt_map));
+  return ptr;
+}
 #endif  // ROCKSDB_LITE
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)

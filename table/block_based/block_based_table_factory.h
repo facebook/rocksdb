@@ -46,7 +46,7 @@ class BlockBasedTableFactory : public TableFactory {
 
   ~BlockBasedTableFactory() {}
 
-  const char* Name() const override { return kName.c_str(); }
+  const char* Name() const override { return kBlockBasedTableName.c_str(); }
 
   Status NewTableReader(
       const TableReaderOptions& table_reader_options,
@@ -59,22 +59,21 @@ class BlockBasedTableFactory : public TableFactory {
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeOptions(const DBOptions& db_opts,
+  Status ValidateOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override;
+  Status PrepareOptions(const ConfigOptions& opts) override;
 
-  std::string GetPrintableTableOptions() const override;
+ protected:
+  const void* GetOptionsPtr(const std::string& name) const override;
 
-  Status GetOptionString(const ConfigOptions& options,
-                         std::string* opt_string) const override;
-
-  const BlockBasedTableOptions& table_options() const;
-
-  void* GetOptions() override { return &table_options_; }
+#ifndef ROCKSDB_LITE
+  Status ParseOption(const OptionTypeInfo& opt_info,
+                     const std::string& opt_name, const std::string& opt_value,
+                     const ConfigOptions& options, void* opt_ptr) override;
+#endif
+  std::string GetPrintableOptions() const override;
 
   bool IsDeleteRangeSupported() const override { return true; }
-
-  static const std::string kName;
-
  private:
   BlockBasedTableOptions table_options_;
   mutable TailPrefetchStats tail_prefetch_stats_;
@@ -85,9 +84,4 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 extern const std::string kPropTrue;
 extern const std::string kPropFalse;
 
-#ifndef ROCKSDB_LITE
-extern Status VerifyBlockBasedTableFactory(
-    const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf, const ConfigOptions& options);
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

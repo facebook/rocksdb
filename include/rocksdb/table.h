@@ -22,14 +22,14 @@
 #include <string>
 #include <unordered_map>
 
-#include "rocksdb/cache.h"
+#include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
+class Cache;
 class FilterPolicy;
 class FlushBlockPolicyFactory;
 class PersistentCache;
@@ -495,9 +495,21 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory {
+class TableFactory : public Configurable {
  public:
-  virtual ~TableFactory() {}
+  virtual ~TableFactory() override {}
+
+  static const std::string kBlockBasedTableName;
+  static const std::string kBlockBasedTableOpts;
+  static const std::string kPlainTableName;
+  static const std::string kPlainTableOpts;
+  static const std::string kCuckooTableName;
+  static const std::string kCuckooTableOpts;
+  static const std::string kBlockCacheOpts;
+
+  static Status CreateFromString(const std::string& id,
+                                 const ConfigOptions& opts,
+                                 std::shared_ptr<TableFactory>* factory);
 
   // The type of the table.
   //
@@ -552,39 +564,6 @@ class TableFactory {
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const = 0;
-
-  // Sanitizes the specified DB Options and ColumnFamilyOptions.
-  //
-  // If the function cannot find a way to sanitize the input DB Options,
-  // a non-ok Status will be returned.
-  virtual Status SanitizeOptions(const DBOptions& db_opts,
-                                 const ColumnFamilyOptions& cf_opts) const = 0;
-
-  // Return a string that contains printable format of table configurations.
-  // RocksDB prints configurations at DB Open().
-  virtual std::string GetPrintableTableOptions() const = 0;
-
-  virtual Status GetOptionString(const ConfigOptions& /*options*/,
-                                 std::string* /*opt_string*/) const {
-    return Status::NotSupported(
-        "The table factory doesn't implement GetOptionString().");
-  }
-
-  // Returns the raw pointer of the table options that is used by this
-  // TableFactory, or nullptr if this function is not supported.
-  // Since the return value is a raw pointer, the TableFactory owns the
-  // pointer and the caller should not delete the pointer.
-  //
-  // In certain case, it is desirable to alter the underlying options when the
-  // TableFactory is not used by any open DB by casting the returned pointer
-  // to the right class.   For instance, if BlockBasedTableFactory is used,
-  // then the pointer can be casted to BlockBasedTableOptions.
-  //
-  // Note that changing the underlying TableFactory options while the
-  // TableFactory is currently used by any open DB is undefined behavior.
-  // Developers should use DB::SetOption() instead to dynamically change
-  // options while the DB is open.
-  virtual void* GetOptions() { return nullptr; }
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

@@ -43,10 +43,6 @@ class OptionsUtilTest : public testing::Test {
   Random rnd_;
 };
 
-bool IsBlockBasedTableFactory(TableFactory* tf) {
-  return tf->Name() == BlockBasedTableFactory().Name();
-}
-
 TEST_F(OptionsUtilTest, SaveAndLoad) {
   const size_t kCFCount = 5;
 
@@ -80,11 +76,9 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
     ASSERT_EQ(cf_names[i], loaded_cf_descs[i].name);
     ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
         cf_opts[i], loaded_cf_descs[i].options, exact));
-    if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
-      ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
-          cf_opts[i].table_factory.get(),
-          loaded_cf_descs[i].options.table_factory.get(), exact));
-    }
+    ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
+        cf_opts[i].table_factory.get(),
+        loaded_cf_descs[i].options.table_factory.get(), exact));
     test::RandomInitCFOptions(&cf_opts[i], db_opt, &rnd_);
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
         cf_opts[i], loaded_cf_descs[i].options, exact));
@@ -135,13 +129,13 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), cfg_opts, &loaded_db_opt,
                                 &loaded_cf_descs, &cache));
   for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
-    if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
-      auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
-          loaded_cf_descs[i].options.table_factory->GetOptions());
-      // Expect the same cache will be loaded
-      if (loaded_bbt_opt != nullptr) {
-        ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
-      }
+    auto* loaded_bbt_opt =
+        loaded_cf_descs[i]
+            .options.table_factory->GetOptions<BlockBasedTableOptions>(
+                TableFactory::kBlockBasedTableOpts);
+    // Expect the same cache will be loaded
+    if (loaded_bbt_opt != nullptr) {
+      ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
     }
   }
 }
@@ -169,18 +163,13 @@ class DummyTableFactory : public TableFactory {
     return nullptr;
   }
 
-  Status SanitizeOptions(
+  Status ValidateOptions(
       const DBOptions& /*db_opts*/,
       const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::NotSupported();
   }
 
-  std::string GetPrintableTableOptions() const override { return ""; }
-
-  Status GetOptionString(const ConfigOptions& /*opts*/,
-                         std::string* /*opt_string*/) const override {
-    return Status::OK();
-  }
+  std::string GetPrintableOptions() const override { return ""; }
 };
 
 class DummyMergeOperator : public MergeOperator {

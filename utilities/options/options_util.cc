@@ -45,11 +45,12 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
     cf_descs->push_back({cf_names[i], cf_opts[i]});
     if (cache != nullptr) {
       TableFactory* tf = cf_opts[i].table_factory.get();
-      if (tf != nullptr && tf->GetOptions() != nullptr &&
-          tf->Name() == BlockBasedTableFactory().Name()) {
-        auto* loaded_bbt_opt =
-            reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
-        loaded_bbt_opt->block_cache = *cache;
+      if (tf != nullptr) {
+        auto* opts = tf->GetOptions<BlockBasedTableOptions>(
+            TableFactory::kBlockBasedTableOpts);
+        if (opts != nullptr) {
+          opts->block_cache = *cache;
+        }
       }
     }
   }

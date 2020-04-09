@@ -12,11 +12,11 @@
 
 #include "options/cf_options.h"
 #include "options/db_options.h"
-#include "options/options_type.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
@@ -24,8 +24,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "table/block_based/block_based_table_factory.h"
-#include "table/plain/plain_table_factory.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,6 +32,20 @@ ConfigOptions ConfigOptions::Embedded() const {
   ConfigOptions embedded = *this;
   embedded.delimiter = ";";
   return embedded;
+}
+
+Status ValidateOptions(const DBOptions& db_opts,
+                       const ColumnFamilyOptions& cf_opts) {
+  Status s;
+#ifndef ROCKSDB_LITE
+  auto db_cfg = DBOptionsAsConfigurable(db_opts);
+  auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
+  s = db_cfg->ValidateOptions(db_opts, cf_opts);
+  if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
+#else
+  s = cf_opts.table_factory->ValidateOptions(db_opts, cf_opts);
+#endif
+  return s;
 }
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
@@ -459,14 +472,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
                                           : kNullptrString;
       break;
     }
-    case OptionType::kTableFactory: {
-      const auto* table_factory_ptr =
-          reinterpret_cast<const std::shared_ptr<const TableFactory>*>(
-              opt_address);
-      *value = table_factory_ptr->get() ? table_factory_ptr->get()->Name()
-                                        : kNullptrString;
-      break;
-    }
     case OptionType::kComparator: {
       // it's a const pointer of const Comparator*
       const auto* ptr = reinterpret_cast<const Comparator* const*>(opt_address);
@@ -542,19 +547,14 @@ bool SerializeSingleOptionHelper(const char* opt_address,
   return true;
 }
 
-static Status GetMutableOptionsFromMap(
-    const MutableCFOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    const ConfigOptions& cfg, MutableCFOptions* new_options,
-    std::unordered_map<std::string, std::string>* unused_opts) {
-  assert(new_options);
-  assert(unused_opts);
-  *new_options = base_options;
-
-  Status s = ParseOptionsTypeFromMap(cf_mutable_options_type_info, new_options,
-                                     options_map, cfg, unused_opts);
-  if (!s.ok()) {
-    *new_options = base_options;
+template <typename T>
+Status ConfigureFromMap(
+    Configurable* config,
+    const std::unordered_map<std::string, std::string>& opts,
+    const std::string& name, const ConfigOptions& cfg, T* new_opts) {
+  Status s = config->ConfigureFromMap(opts, cfg);
+  if (s.ok()) {
+    *new_opts = *(config->GetOptions<T>(name));
   }
   return s;
 }
@@ -562,113 +562,15 @@ static Status GetMutableOptionsFromMap(
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
-    Logger* info_log, MutableCFOptions* new_options) {
+    Logger* /*info_log*/, MutableCFOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
   ConfigOptions parse_opts;
-  for (const auto& o : options_map) {
-    auto iter = cf_mutable_options_type_info.find(o.first);
-    if (iter == cf_mutable_options_type_info.end()) {
-      return Status::InvalidArgument("Unrecognized option: " + o.first);
-    }
-    const auto& opt_info = iter->second;
-    if (opt_info.IsDeprecated()) {
-      // log warning when user tries to set a deprecated option but don't fail
-      // the call for compatibility.
-      ROCKS_LOG_WARN(info_log, "%s is a deprecated option and cannot be set",
-                     o.first.c_str());
-      continue;
-    }
-    Status s = opt_info.ParseOption(o.first, o.second, parse_opts, new_options);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  return Status::OK();
-}
 
-Status ParseOptionsTypeFromMap(
-    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
-    void* opt_ptr, const std::unordered_map<std::string, std::string>& options,
-    const ConfigOptions& cfg) {
-  std::unordered_map<std::string, std::string> unused_opts;
-  return ParseOptionsTypeFromMap(opt_map, opt_ptr, options, cfg, &unused_opts);
-}
-
-Status ParseOptionsTypeFromMap(
-    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
-    void* opt_ptr, const std::unordered_map<std::string, std::string>& options,
-    const ConfigOptions& cfg,
-    std::unordered_map<std::string, std::string>* unused_opts) {
-  Status s, result, invalid;
-  bool found_one = false;
-  std::unordered_map<std::string, std::string> invalid_opts;
-  // Go through all of the values in the input map and attempt to configure the
-  // property.
-  for (const auto& o : options) {
-    std::string opt_name;
-    const auto opt_info =
-        OptionTypeInfo::FindOption(o.first, opt_map, &opt_name);
-    if (opt_info == nullptr) {
-      result = Status::NotFound("Could not find option: ", o.first);
-      unused_opts->insert(o);
-    } else {
-      s = opt_info->ParseOption(opt_name, o.second, cfg, opt_ptr);
-      if (s.ok()) {
-        found_one = true;
-      } else if (s.IsNotFound()) {
-        result = s;
-        unused_opts->insert(o);
-      } else if (s.IsNotSupported()) {
-        // Let not supported appear in unused for the first pass
-        unused_opts->insert(o);
-      } else {
-        invalid_opts.insert(o);
-        invalid = s;
-      }
-    }
-  }
-  // While there are unused properties and we processed at least one,
-  // go through the remaining unused properties and attempt to configure them.
-  while (found_one && !unused_opts->empty()) {
-    result = Status::OK();
-    found_one = false;
-    for (auto it = unused_opts->begin(); it != unused_opts->end();) {
-      std::string opt_name;
-      const auto opt_info =
-          OptionTypeInfo::FindOption(it->first, opt_map, &opt_name);
-      if (opt_info != nullptr) {
-        s = opt_info->ParseOption(opt_name, it->second, cfg, opt_ptr);
-        if (s.ok()) {
-          found_one = true;
-          it = unused_opts->erase(it);
-        } else if (s.IsNotFound()) {
-          result = s;
-          ++it;
-        } else if (s.IsNotSupported()) {
-          // Still not supported.  Give up on it
-          it = unused_opts->erase(it);
-        } else {
-          invalid_opts.insert(*it);
-          it = unused_opts->erase(it);
-          invalid = s;
-        }
-      } else {  // We did not find the option, move on to the next one
-        result = Status::NotFound("Could not find option: ", it->first);
-        ++it;
-      }
-    }
-  }
-  if (!invalid_opts.empty()) {
-    unused_opts->insert(invalid_opts.begin(), invalid_opts.end());
-  }
-  if (cfg.ignore_unknown_options || (invalid.ok() && result.ok())) {
-    return Status::OK();
-  } else if (!invalid.ok()) {
-    return invalid;
-  } else {
-    return result;
-  }
+  const auto config = CFOptionsAsConfigurable(base_options);
+  return ConfigureFromMap<MutableCFOptions>(
+      config.get(), options_map, OptionsHelper::kMutableCFOptionsName,
+      parse_opts, new_options);
 }
 
 Status GetMutableDBOptionsFromStrings(
@@ -677,25 +579,11 @@ Status GetMutableDBOptionsFromStrings(
     MutableDBOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
-  ConfigOptions parse_opts;
-  for (const auto& o : options_map) {
-    try {
-      auto iter = db_mutable_options_type_info.find(o.first);
-      if (iter == db_mutable_options_type_info.end()) {
-        return Status::InvalidArgument("Unrecognized option: " + o.first);
-      }
-      const auto& opt_info = iter->second;
-      Status s =
-          opt_info.ParseOption(o.first, o.second, parse_opts, new_options);
-      if (!s.ok()) {
-        return s;
-      }
-    } catch (std::exception& e) {
-      return Status::InvalidArgument("Error parsing " + o.first + ":" +
-                                     std::string(e.what()));
-    }
-  }
-  return Status::OK();
+  ConfigOptions opts;
+  auto config = DBOptionsAsConfigurable(base_options);
+  return ConfigureFromMap<MutableDBOptions>(
+      config.get(), options_map, OptionsHelper::kMutableDBOptionsName, opts,
+      new_options);
 }
 
 Status StringToMap(const std::string& opts_str,
@@ -738,34 +626,11 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-Status GetStringFromStruct(
-    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
-    const void* const opt_ptr, const ConfigOptions& options,
-    std::string* opt_string) {
-  assert(opt_string);
-  opt_string->clear();
-  for (const auto iter : type_info) {
-    const auto& opt_info = iter.second;
-    // If the option is no longer used in rocksdb and marked as deprecated,
-    // we skip it in the serialization.
-    if (opt_info.ShouldSerialize()) {
-      std::string value;
-      Status s = opt_info.SerializeOption(iter.first, opt_ptr, options, &value);
-      if (s.ok()) {
-        opt_string->append(iter.first + "=" + value + options.delimiter);
-      } else {
-        return s;
-      }
-    }
-  }
-  return Status::OK();
-}
-
 Status GetStringFromMutableDBOptions(const MutableDBOptions& mutable_opts,
                                      const ConfigOptions& cfg_opts,
                                      std::string* opt_string) {
-  return GetStringFromStruct(db_mutable_options_type_info, &mutable_opts,
-                             cfg_opts, opt_string);
+  auto config = DBOptionsAsConfigurable(mutable_opts);
+  return config->GetOptionString(cfg_opts, opt_string);
 }
 
 Status GetStringFromDBOptions(std::string* opt_string,
@@ -780,20 +645,9 @@ Status GetStringFromDBOptions(const DBOptions& db_options,
                               const ConfigOptions& options,
                               std::string* opt_string) {
   assert(opt_string);
-  std::string mutable_opts;
-  std::string immutable_opts;
-  MutableDBOptions mdb(db_options);
-  ImmutableDBOptions idb(db_options);
-
-  Status s = GetStringFromMutableDBOptions(mdb, options, &mutable_opts);
-  if (s.ok()) {
-    s = GetStringFromStruct(db_immutable_options_type_info, &idb, options,
-                            &immutable_opts);
-  }
-  if (s.ok()) {
-    *opt_string = mutable_opts + immutable_opts;
-  }
-  return s;
+  opt_string->clear();
+  auto config = DBOptionsAsConfigurable(db_options);
+  return config->GetOptionString(options, opt_string);
 }
 
 Status GetStringFromMutableCFOptions(const MutableCFOptions& mutable_opts,
@@ -801,8 +655,8 @@ Status GetStringFromMutableCFOptions(const MutableCFOptions& mutable_opts,
                                      std::string* opt_string) {
   assert(opt_string);
   opt_string->clear();
-  return GetStringFromStruct(cf_mutable_options_type_info, &mutable_opts,
-                             cfg_opts, opt_string);
+  const auto config = CFOptionsAsConfigurable(mutable_opts);
+  return config->GetOptionString(cfg_opts, opt_string);
 }
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
@@ -816,19 +670,8 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
 Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& cf_options,
                                         const ConfigOptions& options,
                                         std::string* opt_string) {
-  std::string mutable_string;
-  std::string immutable_string;
-
-  Status s = GetStringFromStruct(cf_immutable_options_type_info, &cf_options,
-                                 options, &immutable_string);
-  if (s.ok()) {
-    s = GetStringFromMutableCFOptions(MutableCFOptions(cf_options), options,
-                                      &mutable_string);
-  }
-  if (s.ok()) {
-    *opt_string = mutable_string + immutable_string;
-  }
-  return s;
+  const auto config = CFOptionsAsConfigurable(cf_options);
+  return config->GetOptionString(options, opt_string);
 }
 
 Status GetStringFromCompressionType(std::string* compression_str,
@@ -878,21 +721,10 @@ Status GetColumnFamilyOptionsFromMap(
 
   *new_options = base_options;
 
-  MutableCFOptions mcf;
-  Status s = GetMutableOptionsFromMap(MutableCFOptions(*new_options), opts_map,
-                                      copy, &mcf, &unused);
-  if (s.ok() && !unused.empty()) {
-    copy.ignore_unknown_options = cfg_options.ignore_unknown_options;
-    s = ParseOptionsTypeFromMap(cf_immutable_options_type_info, new_options,
-                                unused, copy);
-  }
-  if (s.ok()) {
-    *new_options = BuildColumnFamilyOptions(*new_options, mcf);
-  } else {
-    // Restore "new_options" to the default "base_options".
-    *new_options = base_options;
-  }
-  return s;
+  const auto config = CFOptionsAsConfigurable(base_options);
+  return ConfigureFromMap<ColumnFamilyOptions>(config.get(), opts_map,
+                                               OptionsHelper::kCFOptionsName,
+                                               cfg_options, new_options);
 }
 
 Status GetColumnFamilyOptionsFromString(
@@ -935,41 +767,13 @@ Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     const ConfigOptions& cfg_options, DBOptions* new_options) {
-  std::unordered_map<std::string, std::string> unused;
-
-  return GetDBOptionsFromMapInternal(base_options, opts_map, cfg_options,
-                                     new_options, &unused);
-}
-
-Status GetDBOptionsFromMapInternal(
-    const DBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    const ConfigOptions& cfg, DBOptions* new_options,
-    std::unordered_map<std::string, std::string>* unused_opts) {
   assert(new_options);
   *new_options = base_options;
-  unused_opts->clear();
-  MutableDBOptions mdb(base_options);
-  ImmutableDBOptions idb(base_options);
 
-  ConfigOptions copy = cfg;
-  copy.ignore_unknown_options = true;
-  std::unordered_map<std::string, std::string> unused_idb;
-
-  Status s = ParseOptionsTypeFromMap(db_immutable_options_type_info, &idb,
-                                     opts_map, copy, &unused_idb);
-  if (s.ok()) {
-    copy.ignore_unknown_options = cfg.ignore_unknown_options;
-    s = ParseOptionsTypeFromMap(db_mutable_options_type_info, &mdb, unused_idb,
-                                copy, unused_opts);
-  }
-  if (!s.ok()) {
-    // Restore "new_options" to the default "base_options".
-    *new_options = base_options;
-  } else {
-    *new_options = BuildDBOptions(idb, mdb);
-  }
-  return s;
+  auto config = DBOptionsAsConfigurable(base_options);
+  return ConfigureFromMap<DBOptions>(config.get(), opts_map,
+                                     OptionsHelper::kDBOptionsName, cfg_options,
+                                     new_options);
 }
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
@@ -1009,7 +813,6 @@ Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str,
                             const ConfigOptions& cfg_options,
                             Options* new_options) {
-  DBOptions new_db_options;
   ColumnFamilyOptions new_cf_options;
   std::unordered_map<std::string, std::string> unused_opts;
   std::unordered_map<std::string, std::string> opts_map;
@@ -1021,57 +824,19 @@ Status GetOptionsFromString(const Options& base_options,
   if (!s.ok()) {
     return s;
   }
-  s = GetDBOptionsFromMapInternal(base_options, opts_map, copy, &new_db_options,
-                                  &unused_opts);
+  auto config = DBOptionsAsConfigurable(base_options);
+  s = config->ConfigureFromMap(opts_map, copy, &unused_opts);
   if (s.ok()) {
     copy.ignore_unknown_options = cfg_options.ignore_unknown_options;
     s = GetColumnFamilyOptionsFromMap(base_options, unused_opts, copy,
                                       &new_cf_options);
     if (s.ok()) {
-      *new_options = Options(new_db_options, new_cf_options);
+      DBOptions* new_db_options =
+          config->GetOptions<DBOptions>(OptionsHelper::kDBOptionsName);
+      *new_options = Options(*new_db_options, new_cf_options);
     }
   }
   return s;
-}
-
-Status GetTableFactoryFromMap(
-    const std::string& factory_name,
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory, bool ignore_unknown_options) {
-  ConfigOptions options;  // Use default for escaped(true) and check (exact)
-  options.ignore_unknown_options = ignore_unknown_options;
-  return GetTableFactoryFromMap(factory_name, opt_map, options, table_factory);
-}
-
-Status GetTableFactoryFromMap(
-    const std::string& factory_name,
-    const std::unordered_map<std::string, std::string>& opt_map,
-    const ConfigOptions& options,
-    std::shared_ptr<TableFactory>* table_factory) {
-  Status s;
-  if (factory_name == BlockBasedTableFactory().Name()) {
-    BlockBasedTableOptions bbt_opt;
-    s = GetBlockBasedTableOptionsFromMap(BlockBasedTableOptions(), opt_map,
-                                         options, &bbt_opt);
-    if (!s.ok()) {
-      return s;
-    }
-    table_factory->reset(new BlockBasedTableFactory(bbt_opt));
-    return Status::OK();
-  } else if (factory_name == PlainTableFactory().Name()) {
-    PlainTableOptions pt_opt;
-    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, options,
-                                    &pt_opt);
-    if (!s.ok()) {
-      return s;
-    }
-    table_factory->reset(new PlainTableFactory(pt_opt));
-    return Status::OK();
-  }
-  // Return OK for not supported table factories as TableFactory
-  // Deserialization is optional.
-  table_factory->reset();
-  return Status::OK();
 }
 
 std::unordered_map<std::string, EncodingType>
@@ -1168,6 +933,18 @@ Status OptionTypeInfo::ParseOption(const std::string& opt_name,
       return parser_func(opt_name, opt_value, options, opt_addr);
     } else if (ParseOptionHelper(opt_addr, type, opt_value)) {
       return Status::OK();
+    } else if (IsConfigurable()) {
+      // The option is <config>.<name>
+      Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+      if (opt_value.empty()) {
+        return Status::OK();
+      } else if (config == nullptr) {
+        return Status::NotFound("Could not find configurable: ", opt_name);
+      } else if (opt_value.find("=") != std::string::npos) {
+        return config->ConfigureFromString(opt_value, options);
+      } else {
+        return config->ConfigureOption(opt_name, opt_value, options);
+      }
     } else if (IsByName()) {
       return Status::NotSupported("Deserializing the option " + opt_name +
                                   " is not supported");
@@ -1237,10 +1014,18 @@ Status OptionTypeInfo::SerializeOption(const std::string& opt_name,
   const char* opt_addr = reinterpret_cast<const char*>(opt_ptr) + offset;
   if (opt_addr == nullptr || IsDeprecated()) {
     return Status::OK();
+  } else if (IsEnabled(OptionTypeFlags::kStringNone)) {
+    s = Status::NotSupported("Cannot serialize option: ", opt_name);
   } else if (string_func != nullptr) {
     return string_func(opt_name, opt_addr, options, opt_value);
   } else if (SerializeSingleOptionHelper(opt_addr, type, opt_value)) {
     s = Status::OK();
+  } else if (IsConfigurable()) {
+    const Configurable* config = AsRawPointer<Configurable>(opt_ptr);
+    if (config != nullptr) {
+      *opt_value = config->ToString(options.Embedded());
+    }
+    return Status::OK();
   } else {
     s = Status::InvalidArgument("Cannot serialize option: ", opt_name);
   }
@@ -1364,7 +1149,8 @@ bool OptionTypeInfo::MatchesOption(const std::string& opt_name,
                                    const void* const that_ptr,
                                    const ConfigOptions& options,
                                    std::string* mismatch) const {
-  if (!options.IsCheckEnabled(GetSanityLevel())) {
+  auto level = GetSanityLevel();
+  if (!options.IsCheckEnabled(level)) {
     return true;  // If the sanity level is not being checked, skip it
   }
   const auto this_addr = reinterpret_cast<const char*>(this_ptr) + offset;
@@ -1379,6 +1165,26 @@ bool OptionTypeInfo::MatchesOption(const std::string& opt_name,
     }
   } else if (AreOptionsEqual(type, this_addr, that_addr)) {
     return true;
+  } else if (IsConfigurable()) {
+    const auto* this_config = AsRawPointer<Configurable>(this_ptr);
+    const auto* that_config = AsRawPointer<Configurable>(that_ptr);
+    if (this_config == that_config) {
+      return true;
+    } else if (this_config != nullptr && that_config != nullptr) {
+      std::string bad_name;
+      bool matches;
+      if (level < options.sanity_level) {
+        ConfigOptions copy = options;
+        copy.sanity_level = level;
+        matches = this_config->Matches(that_config, copy, &bad_name);
+      } else {
+        matches = this_config->Matches(that_config, options, &bad_name);
+      }
+      if (!matches) {
+        *mismatch = opt_name + "." + bad_name;
+      }
+      return matches;
+    }
   }
   if (mismatch->empty()) {
     *mismatch = opt_name;
@@ -1504,7 +1310,8 @@ const OptionTypeInfo* OptionTypeInfo::FindOption(
       auto siter =
           opt_map.find(opt_name.substr(0, idx));  // Look for the short name
       if (siter != opt_map.end()) {               // We found the short name
-        if (siter->second.IsStruct()) {           // If the object is a struct
+        if (siter->second.IsStruct() ||           // If the object is a struct
+            siter->second.IsConfigurable()) {     // or a Configurable
           *elem_name = opt_name.substr(idx + 1);  // Return the rest
           return &(siter->second);  // Return the contents of the iterator
         }

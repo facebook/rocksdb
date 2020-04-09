@@ -2009,7 +2009,6 @@ class EnvFSTestWithParam
     } else {
       env_ = env_ptr_.get();
     }
-
     dbname1_ = test::PerThreadDBPath("env_fs_test1");
     dbname2_ = test::PerThreadDBPath("env_fs_test2");
   }
