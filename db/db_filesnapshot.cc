@@ -130,7 +130,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   ret.clear();
   ret.reserve(live_table_files.size() + live_blob_files.size() +
-              3);  // +3 for CURRENT + MANIFEST + OPTIONS
+              3);  // for CURRENT + MANIFEST + OPTIONS
 
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;

@@ -1050,7 +1050,7 @@ class VersionSet {
       const FileOptions& file_options_compactions);
 
   // Add all files listed in any live version to *live_table_files and
-  // *live_blob_files.
+  // *live_blob_files. Note that these lists may contain duplicates.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
 
