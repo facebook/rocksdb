@@ -96,6 +96,34 @@ class RandomAccessFileReaderTest : public testing::Test {
   }
 };
 
+TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
+  if (!IsDirectIOSupported()) {
+    printf("Direct IO is not supported, skip this test\n");
+    return;
+  }
+
+  std::string fname = "read-direct-io";
+  Random rand(0);
+  std::string content;
+  test::RandomString(&rand, static_cast<int>(alignment()), &content);
+  Write(fname, content);
+
+  FileOptions opts;
+  opts.use_direct_reads = true;
+  std::unique_ptr<RandomAccessFileReader> r;
+  Read(fname, opts, &r);
+  ASSERT_TRUE(r->use_direct_io());
+
+  size_t offset = alignment() / 2;
+  size_t len = alignment() / 3;
+  Slice result;
+  AlignedBuf buf;
+  for (bool for_compaction : {true, false}) {
+    ASSERT_OK(r->Read(offset, len, &result, nullptr, &buf, for_compaction));
+    ASSERT_EQ(result.ToString(), content.substr(offset, len));
+  }
+}
+
 TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   if (!IsDirectIOSupported()) {
     printf("Direct IO is not supported, skip this test\n");
