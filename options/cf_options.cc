@@ -453,17 +453,29 @@ static std::unordered_map<std::string, OptionTypeInfo>
              OptionVerificationType::kNormal, OptionTypeFlags::kNone,
              {0, OptionType::kCompressionType})},
         {"comparator",
-         {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
-          OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
-          [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& opts, char* addr) {
-            auto comp = reinterpret_cast<const Comparator**>(addr);
-            Status status = opts.registry->NewStaticObject(value, comp);
-            if (status.ok()) {
-              return status;
-            }
-            return Status::OK();
-          }}},
+         OptionTypeInfo::AsCustomP<const Comparator>(
+             offset_of(&ColumnFamilyOptions::comparator),
+             OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
+             [](const std::string&, const char* addr,
+                const ConfigOptions& /*opts*/, std::string* value) {
+               // it's a const pointer of const Comparator*
+               const auto* ptr =
+                   reinterpret_cast<const Comparator* const*>(addr);
+               // Since the user-specified comparator will be wrapped by
+               // InternalKeyComparator, we should persist the user-specified
+               // one instead of InternalKeyComparator.
+               if (*ptr == nullptr) {
+                 *value = kNullptrString;
+               } else {
+                 const Comparator* root_comp = (*ptr)->GetRootComparator();
+                 if (root_comp == nullptr) {
+                   root_comp = (*ptr);
+                 }
+                 *value = root_comp->Name();
+               }
+               return Status::OK();
+             },
+             nullptr)},
         {"memtable_insert_with_hint_prefix_extractor",
          {offset_of(
               &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
