@@ -287,6 +287,19 @@ private:
   // Default: -1, means don't use this option.
   int64_t constant_sst_file_size_in_sst_file_manager;
 
+  // Skip listing files in the cloud in GetChildren. That means GetChildren
+  // will only return files in local directory. During DB opening, RocksDB
+  // makes multiple GetChildren calls, which are very expensive if we list
+  // objects in the cloud.
+  //
+  // This option is used in remote compaction where we open the DB in a
+  // temporary folder, and then the folder is deleted after the RPC is done.
+  // This requires opening DB to be really fast, and it's unnecessary to cleanup
+  // various things, which is what RocksDB calls GetChildren for.
+  //
+  // Default: false.
+  bool skip_cloud_files_in_getchildren;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -300,7 +313,8 @@ private:
       bool _skip_dbid_verification = false,
       bool _use_aws_transfer_manager = false,
       int _number_objects_listed_in_one_iteration = 5000,
-      bool _constant_sst_file_size_in_sst_file_manager = -1)
+      bool _constant_sst_file_size_in_sst_file_manager = -1,
+      bool _skip_cloud_files_in_getchildren = false)
       : cloud_type(_cloud_type),
         log_type(_log_type),
         keep_local_sst_files(_keep_local_sst_files),
@@ -319,7 +333,8 @@ private:
         number_objects_listed_in_one_iteration(
             _number_objects_listed_in_one_iteration),
         constant_sst_file_size_in_sst_file_manager(
-            _constant_sst_file_size_in_sst_file_manager) {}
+            _constant_sst_file_size_in_sst_file_manager),
+        skip_cloud_files_in_getchildren(_skip_cloud_files_in_getchildren) {}
 
   // print out all options to the log
   void Dump(Logger* log) const;

@@ -796,7 +796,7 @@ Status AwsEnv::GetChildren(const std::string& path,
 
   // Fetch the list of children from both buckets in S3
   Status st;
-  if (HasSrcBucket()) {
+  if (HasSrcBucket() && !cloud_env_options.skip_cloud_files_in_getchildren) {
     st = cloud_env_options.storage_provider->ListObjects(
         GetSrcBucketName(), GetSrcObjectPath(), result);
     if (!st.ok()) {
@@ -806,7 +806,8 @@ Status AwsEnv::GetChildren(const std::string& path,
       return st;
     }
   }
-  if (HasDestBucket() && !SrcMatchesDest()) {
+  if (HasDestBucket() && !SrcMatchesDest() &&
+      !cloud_env_options.skip_cloud_files_in_getchildren) {
     st = cloud_env_options.storage_provider->ListObjects(
         GetDestBucketName(), GetDestObjectPath(), result);
     if (!st.ok()) {
