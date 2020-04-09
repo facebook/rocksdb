@@ -5040,7 +5040,7 @@ class Benchmark {
     int64_t found = 0;
     int64_t bytes = 0;
     int num_keys = 0;
-    int64_t key_rand = GetRandomKey(&thread->rand);
+    int64_t key_rand = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -5052,7 +5052,6 @@ class Benchmark {
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       if (entries_per_batch_ > 1 && FLAGS_multiread_stride) {
         if (++num_keys == entries_per_batch_) {
           num_keys = 0;
@@ -5067,6 +5066,7 @@ class Benchmark {
       } else {
         key_rand = GetRandomKey(&thread->rand);
       }
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
       Status s;
       if (FLAGS_num_column_families > 1) {
