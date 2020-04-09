@@ -525,6 +525,9 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       key_.SetKey(Slice(p, non_shared), false /* copy */);
       key_pinned_ = true;
     } else {
+      // Restore the sequence stored with the previous key, in case it was
+      // replaced by global seqno. This is necessary since the sequence can be
+      // used as part of shared perfix for the current key.
       if (global_seqno_ != kDisableGlobalSequenceNumber) {
         key_.UpdateInternalKey(stored_seqno_, stored_value_type_);
       }
