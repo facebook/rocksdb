@@ -1482,22 +1482,15 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   const uint64_t record_size = sizeof(uint32_t) + key.size() + size;
 
   // Allocate the buffer. This is safe in C++11
-  std::string buf;
-  AlignedBuf aligned_buf;
+  std::string buffer_str(static_cast<size_t>(record_size), static_cast<char>(0));
+  char* buffer = &buffer_str[0];
 
   // A partial blob record contain checksum, key and value.
   Slice blob_record;
 
   {
     StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-    if (reader->use_direct_io()) {
-      s = reader->Read(record_offset, static_cast<size_t>(record_size),
-                       &blob_record, nullptr, &aligned_buf);
-    } else {
-      buf.reserve(static_cast<size_t>(record_size));
-      s = reader->Read(record_offset, static_cast<size_t>(record_size),
-                       &blob_record, &buf[0], nullptr);
-    }
+    s = reader->Read(record_offset, static_cast<size_t>(record_size), &blob_record, buffer);
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
 
