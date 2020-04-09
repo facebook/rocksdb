@@ -96,6 +96,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   CheckPointCommand::Help(ret);
   WriteExternalSstFilesCommand::Help(ret);
   IngestExternalSstFilesCommand::Help(ret);
+  UnsafeRemoveSstFileCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }

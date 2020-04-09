@@ -3155,7 +3155,7 @@ Status DBImpl::GetUpdatesSince(
   return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get());
 }
 
-Status DBImpl::DeleteFile(std::string name) {
+Status DBImpl::DeleteFile(std::string name, bool force) {
   uint64_t number;
   FileType type;
   WalFileType log_type;
@@ -3200,37 +3200,39 @@ Status DBImpl::DeleteFile(std::string name) {
     }
     assert(level < cfd->NumberLevels());
 
-    // If the file is being compacted no need to delete.
-    if (metadata->being_compacted) {
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "DeleteFile %s Skipped. File about to be compacted\n",
-                     name.c_str());
-      job_context.Clean();
-      return Status::OK();
-    }
-
-    // Only the files in the last level can be deleted externally.
-    // This is to make sure that any deletion tombstones are not
-    // lost. Check that the level passed is the last level.
-    auto* vstoreage = cfd->current()->storage_info();
-    for (int i = level + 1; i < cfd->NumberLevels(); i++) {
-      if (vstoreage->NumLevelFiles(i) != 0) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "DeleteFile %s FAILED. File not in last level\n",
+    if (!force) {
+      // If the file is being compacted no need to delete.
+      if (metadata->being_compacted) {
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "DeleteFile %s Skipped. File about to be compacted\n",
                        name.c_str());
         job_context.Clean();
-        return Status::InvalidArgument("File not in last level");
+        return Status::OK();
       }
-    }
-    // if level == 0, it has to be the oldest file
-    if (level == 0 &&
-        vstoreage->LevelFiles(0).back()->fd.GetNumber() != number) {
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "DeleteFile %s failed ---"
-                     " target file in level 0 must be the oldest.",
-                     name.c_str());
-      job_context.Clean();
-      return Status::InvalidArgument("File in level 0, but not oldest");
+
+      // Only the files in the last level can be deleted externally.
+      // This is to make sure that any deletion tombstones are not
+      // lost. Check that the level passed is the last level.
+      auto* vstoreage = cfd->current()->storage_info();
+      for (int i = level + 1; i < cfd->NumberLevels(); i++) {
+        if (vstoreage->NumLevelFiles(i) != 0) {
+          ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                         "DeleteFile %s FAILED. File not in last level\n",
+                         name.c_str());
+          job_context.Clean();
+          return Status::InvalidArgument("File not in last level");
+        }
+      }
+      // if level == 0, it has to be the oldest file
+      if (level == 0 &&
+          vstoreage->LevelFiles(0).back()->fd.GetNumber() != number) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "DeleteFile %s failed ---"
+                       " target file in level 0 must be the oldest.",
+                       name.c_str());
+        job_context.Clean();
+        return Status::InvalidArgument("File in level 0, but not oldest");
+      }
     }
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, number);

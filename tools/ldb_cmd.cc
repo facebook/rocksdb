@@ -275,6 +275,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == ListFileRangeDeletesCommand::Name()) {
     return new ListFileRangeDeletesCommand(parsed_params.option_map,
                                            parsed_params.flags);
+  } else if (parsed_params.cmd == UnsafeRemoveSstFileCommand::Name()) {
+    return new UnsafeRemoveSstFileCommand(parsed_params.cmd_params,
+                                          parsed_params.option_map,
+                                          parsed_params.flags);
   }
   return nullptr;
 }
@@ -3425,9 +3429,48 @@ void ListFileRangeDeletesCommand::DoCommand() {
     TEST_SYNC_POINT_CALLBACK(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", &out_str);
     fprintf(stdout, "%s\n", out_str.c_str());
+  }
+}
+
+void UnsafeRemoveSstFileCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(UnsafeRemoveSstFileCommand::Name());
+  ret.append(" <sst_file_name> ");
+  ret.append("\n");
+}
+
+UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({})) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed("SST file must be specified");
+  } else {
+    file_ = params.at(0);
+  }
+}
+
+void UnsafeRemoveSstFileCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+
+  Status st = db_->DeleteFile(file_, true);
+  if (st.ok()) {
+    fprintf(stdout, "file is removed successfully\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
   }
+}
+
+Options UnsafeRemoveSstFileCommand::PrepareOptionsForOpenDB() {
+  Options opt = LDBCommand::PrepareOptionsForOpenDB();
+  opt.create_if_missing = create_if_missing_;
+  opt.paranoid_checks = false;
+  return opt;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

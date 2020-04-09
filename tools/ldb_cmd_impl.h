@@ -625,4 +625,22 @@ class ListFileRangeDeletesCommand : public LDBCommand {
   int max_keys_ = 1000;
 };
 
+// Command that remove the SST file forcibly in manifest.
+class UnsafeRemoveSstFileCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "unsafe_remove_sst_file"; }
+  UnsafeRemoveSstFileCommand(const std::vector<std::string>& params,
+                             const std::map<std::string, std::string>& options,
+                             const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  virtual Options PrepareOptionsForOpenDB() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string file_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
