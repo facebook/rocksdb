@@ -87,7 +87,7 @@ class VersionBuilder::Rep {
   };
 
   const FileOptions& file_options_;
-  Logger* info_log_;
+  const ImmutableCFOptions* ioptions_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
   VersionSet* version_set_;
@@ -108,16 +108,18 @@ class VersionBuilder::Rep {
   std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> changed_blob_files_;
 
  public:
-  Rep(const FileOptions& file_options, Logger* info_log,
+  Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
       TableCache* table_cache, VersionStorageInfo* base_vstorage,
       VersionSet* version_set)
       : file_options_(file_options),
-        info_log_(info_log),
+        ioptions_(ioptions),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage),
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
         has_invalid_levels_(false) {
+    assert(ioptions_);
+
     levels_ = new LevelState[num_levels_];
     level_zero_cmp_.sort_method = FileComparator::kLevel0;
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
@@ -752,16 +754,18 @@ class VersionBuilder::Rep {
       // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
-      vstorage->AddFile(level, f, info_log_);
+      assert(ioptions_);
+      vstorage->AddFile(level, f, ioptions_->info_log);
     }
   }
 };
 
 VersionBuilder::VersionBuilder(const FileOptions& file_options,
+                               const ImmutableCFOptions* ioptions,
                                TableCache* table_cache,
                                VersionStorageInfo* base_vstorage,
-                               VersionSet* version_set, Logger* info_log)
-    : rep_(new Rep(file_options, info_log, table_cache, base_vstorage,
+                               VersionSet* version_set)
+    : rep_(new Rep(file_options, ioptions, table_cache, base_vstorage,
                    version_set)) {}
 
 VersionBuilder::~VersionBuilder() = default;
@@ -788,9 +792,9 @@ Status VersionBuilder::LoadTableHandlers(
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd)
     : version_builder_(new VersionBuilder(
-          cfd->current()->version_set()->file_options(), cfd->table_cache(),
-          cfd->current()->storage_info(), cfd->current()->version_set(),
-          cfd->ioptions()->info_log)),
+          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->table_cache(), cfd->current()->storage_info(),
+          cfd->current()->version_set())),
       version_(cfd->current()) {
   version_->Ref();
 }
@@ -798,8 +802,8 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, Version* v)
     : version_builder_(new VersionBuilder(
-          cfd->current()->version_set()->file_options(), cfd->table_cache(),
-          v->storage_info(), v->version_set(), cfd->ioptions()->info_log)),
+          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->table_cache(), v->storage_info(), v->version_set())),
       version_(v) {
   assert(version_ != cfd->current());
 }

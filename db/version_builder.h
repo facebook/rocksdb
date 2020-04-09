@@ -16,6 +16,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+struct ImmutableCFOptions;
 class TableCache;
 class VersionStorageInfo;
 class VersionEdit;
@@ -30,9 +31,9 @@ class ColumnFamilyData;
 // Versions that contain full copies of the intermediate state.
 class VersionBuilder {
  public:
-  VersionBuilder(const FileOptions& file_options, TableCache* table_cache,
-                 VersionStorageInfo* base_vstorage, VersionSet* version_set,
-                 Logger* info_log);
+  VersionBuilder(const FileOptions& file_options,
+                 const ImmutableCFOptions* ioptions, TableCache* table_cache,
+                 VersionStorageInfo* base_vstorage, VersionSet* version_set);
   ~VersionBuilder();
 
   bool CheckConsistencyForNumLevels();
