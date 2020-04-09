@@ -6,7 +6,9 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+
 #include "db/db_test_util.h"
+#include "db/dbformat.h"
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -2797,6 +2799,47 @@ TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
   std::vector<std::pair<std::string, std::string>> data;
   data.push_back(std::make_pair("1001", "v2"));
   GenerateAndAddExternalFile(options, data);
+}
+
+TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresents) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  constexpr size_t kValueSize = 8;
+  Random rnd(301);
+  std::string value(RandomString(&rnd, kValueSize));
+
+  // Write some key to make global seqno larger than zero
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("ab" + Key(i), value));
+  }
+  // Get a Snapshot to make RocksDB assign global seqno to ingested sst files.
+  auto snap = dbfull()->GetSnapshot();
+
+  std::string fname = sst_files_dir_ + "test_file";
+  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(fname));
+  std::string key1 = "ab";
+  std::string key2 = "ab";
+
+  // Make the prefix of key2 is same with key1 add zero seqno. The tail of every
+  // key is composed as (seqno << 8 | value_type), and here `1` represents
+  // ValueType::kTypeValue
+
+  PutFixed64(&key2, PackSequenceAndType(0, kTypeValue));
+  key2 += "cdefghijkl";
+
+  ASSERT_OK(writer.Put(key1, value));
+  ASSERT_OK(writer.Put(key2, value));
+
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer.Finish(&info));
+
+  ASSERT_OK(dbfull()->IngestExternalFile({info.file_path},
+                                         IngestExternalFileOptions()));
+  dbfull()->ReleaseSnapshot(snap);
+  ASSERT_EQ(value, Get(key1));
+  // You will get error here
+  ASSERT_EQ(value, Get(key2));
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,

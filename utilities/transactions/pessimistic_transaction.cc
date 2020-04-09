@@ -95,7 +95,7 @@ PessimisticTransaction::~PessimisticTransaction() {
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
   }
-  if (!name_.empty() && txn_state_ != COMMITED) {
+  if (!name_.empty() && txn_state_ != COMMITTED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
 }
@@ -108,7 +108,7 @@ void PessimisticTransaction::Clear() {
 void PessimisticTransaction::Reinitialize(
     TransactionDB* txn_db, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  if (!name_.empty() && txn_state_ != COMMITED) {
+  if (!name_.empty() && txn_state_ != COMMITTED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
   TransactionBaseImpl::Reinitialize(txn_db->GetRootDB(), write_options);
@@ -156,7 +156,7 @@ Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
     txn_state_.store(AWAITING_COMMIT);
     s = CommitBatchInternal(batch);
     if (s.ok()) {
-      txn_state_.store(COMMITED);
+      txn_state_.store(COMMITTED);
     }
   } else if (txn_state_ == LOCKS_STOLEN) {
     s = Status::Expired();
@@ -209,7 +209,7 @@ Status PessimisticTransaction::Prepare() {
     s = Status::Expired();
   } else if (txn_state_ == PREPARED) {
     s = Status::InvalidArgument("Transaction has already been prepared.");
-  } else if (txn_state_ == COMMITED) {
+  } else if (txn_state_ == COMMITTED) {
     s = Status::InvalidArgument("Transaction has already been committed.");
   } else if (txn_state_ == ROLLEDBACK) {
     s = Status::InvalidArgument("Transaction has already been rolledback.");
@@ -307,7 +307,7 @@ Status PessimisticTransaction::Commit() {
       }
       Clear();
       if (s.ok()) {
-        txn_state_.store(COMMITED);
+        txn_state_.store(COMMITTED);
       }
     }
   } else if (commit_prepared) {
@@ -330,10 +330,10 @@ Status PessimisticTransaction::Commit() {
     txn_db_impl_->UnregisterTransaction(this);
 
     Clear();
-    txn_state_.store(COMMITED);
+    txn_state_.store(COMMITTED);
   } else if (txn_state_ == LOCKS_STOLEN) {
     s = Status::Expired();
-  } else if (txn_state_ == COMMITED) {
+  } else if (txn_state_ == COMMITTED) {
     s = Status::InvalidArgument("Transaction has already been committed.");
   } else if (txn_state_ == ROLLEDBACK) {
     s = Status::InvalidArgument("Transaction has already been rolledback.");
@@ -423,7 +423,7 @@ Status PessimisticTransaction::Rollback() {
     }
     // prepare couldn't have taken place
     Clear();
-  } else if (txn_state_ == COMMITED) {
+  } else if (txn_state_ == COMMITTED) {
     s = Status::InvalidArgument("This transaction has already been committed.");
   } else {
     s = Status::InvalidArgument(

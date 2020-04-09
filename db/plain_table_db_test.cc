@@ -1275,7 +1275,7 @@ static std::string RandomString(Random* rnd, int len) {
 
 TEST_P(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 120 << 10;  // 100KB
+  options.write_buffer_size = 120 << 10;  // 120KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   Reopen(&options);
@@ -1287,7 +1287,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
     std::vector<std::string> values;
     // Write 120KB (10 values, each 12K)
     for (int i = 0; i < 10; i++) {
-      values.push_back(RandomString(&rnd, 12000));
+      values.push_back(RandomString(&rnd, 12 << 10));
       ASSERT_OK(Put(Key(i), values[i]));
     }
     ASSERT_OK(Put(Key(999), ""));

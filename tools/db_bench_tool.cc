@@ -919,6 +919,9 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " not compressed. Otherwise, apply compression_type to "
              "all levels.");
 
+DEFINE_int32(compression_threads, 1,
+             "Number of concurrent compression threads to run.");
+
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
   if (0 >= value || value > 20) {
@@ -1484,9 +1487,8 @@ static enum DistributionType StringToDistributionType(const char* ctype) {
 
 class BaseDistribution {
  public:
-  BaseDistribution(unsigned int min, unsigned int max) :
-    min_value_size_(min),
-    max_value_size_(max) {}
+  BaseDistribution(unsigned int _min, unsigned int _max)
+      : min_value_size_(_min), max_value_size_(_max) {}
   virtual ~BaseDistribution() {}
 
   unsigned int Generate() {
@@ -1525,12 +1527,14 @@ class FixedDistribution : public BaseDistribution
 class NormalDistribution
     : public BaseDistribution, public std::normal_distribution<double> {
  public:
-  NormalDistribution(unsigned int min, unsigned int max) :
-    BaseDistribution(min, max),
-    // 99.7% values within the range [min, max].
-    std::normal_distribution<double>((double)(min + max) / 2.0 /*mean*/,
-                                     (double)(max - min) / 6.0 /*stddev*/),
-    gen_(rd_()) {}
+  NormalDistribution(unsigned int _min, unsigned int _max)
+      : BaseDistribution(_min, _max),
+        // 99.7% values within the range [min, max].
+        std::normal_distribution<double>(
+            (double)(_min + _max) / 2.0 /*mean*/,
+            (double)(_max - _min) / 6.0 /*stddev*/),
+        gen_(rd_()) {}
+
  private:
   virtual unsigned int Get() override {
     return static_cast<unsigned int>((*this)(gen_));
@@ -1543,10 +1547,11 @@ class UniformDistribution
     : public BaseDistribution,
       public std::uniform_int_distribution<unsigned int> {
  public:
-  UniformDistribution(unsigned int min, unsigned int max) :
-    BaseDistribution(min, max),
-    std::uniform_int_distribution<unsigned int>(min, max),
-    gen_(rd_()) {}
+  UniformDistribution(unsigned int _min, unsigned int _max)
+      : BaseDistribution(_min, _max),
+        std::uniform_int_distribution<unsigned int>(_min, _max),
+        gen_(rd_()) {}
+
  private:
   virtual unsigned int Get() override {
     return (*this)(gen_);
@@ -4006,6 +4011,7 @@ class Benchmark {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    options.compression_opts.parallel_threads = FLAGS_compression_threads;
     // If this is a block based table, set some related options
     if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
         options.table_factory->GetOptions() != nullptr) {
@@ -5034,7 +5040,7 @@ class Benchmark {
     int64_t found = 0;
     int64_t bytes = 0;
     int num_keys = 0;
-    int64_t key_rand = GetRandomKey(&thread->rand);
+    int64_t key_rand = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -5046,7 +5052,6 @@ class Benchmark {
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       if (entries_per_batch_ > 1 && FLAGS_multiread_stride) {
         if (++num_keys == entries_per_batch_) {
           num_keys = 0;
@@ -5061,6 +5066,7 @@ class Benchmark {
       } else {
         key_rand = GetRandomKey(&thread->rand);
       }
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
       Status s;
       if (FLAGS_num_column_families > 1) {

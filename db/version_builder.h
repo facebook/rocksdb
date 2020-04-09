@@ -8,6 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 #pragma once
+
+#include <memory>
+
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
 
@@ -18,6 +21,8 @@ class VersionStorageInfo;
 class VersionEdit;
 struct FileMetaData;
 class InternalStats;
+class Version;
+class ColumnFamilyData;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
@@ -27,9 +32,7 @@ class VersionBuilder {
   VersionBuilder(const FileOptions& file_options, TableCache* table_cache,
                  VersionStorageInfo* base_vstorage, Logger* info_log = nullptr);
   ~VersionBuilder();
-  Status CheckConsistency(VersionStorageInfo* vstorage);
-  Status CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
-                                    int level);
+
   bool CheckConsistencyForNumLevels();
   Status Apply(VersionEdit* edit);
   Status SaveTo(VersionStorageInfo* vstorage);
@@ -37,11 +40,25 @@ class VersionBuilder {
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
                            const SliceTransform* prefix_extractor);
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
 
  private:
   class Rep;
-  Rep* rep_;
+  std::unique_ptr<Rep> rep_;
+};
+
+// A wrapper of version builder which references the current version in
+// constructor and unref it in the destructor.
+// Both of the constructor and destructor need to be called inside DB Mutex.
+class BaseReferencedVersionBuilder {
+ public:
+  explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd);
+  BaseReferencedVersionBuilder(ColumnFamilyData* cfd, Version* v);
+  ~BaseReferencedVersionBuilder();
+  VersionBuilder* version_builder() const { return version_builder_.get(); }
+
+ private:
+  std::unique_ptr<VersionBuilder> version_builder_;
+  Version* version_;
 };
 
 extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);

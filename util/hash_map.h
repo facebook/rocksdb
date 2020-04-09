@@ -36,7 +36,7 @@ class HashMap {
     return it != bucket.end();
   }
 
-  void Insert(K key, V value) {
+  void Insert(K key, const V& value) {
     auto& bucket = table_[key % size];
     bucket.push_back({key, value});
   }

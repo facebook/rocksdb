@@ -35,6 +35,8 @@
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "test_util/fault_injection_test_env.h"
+#include "test_util/fault_injection_test_fs.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -1272,7 +1274,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
-  
+
 // Only works in linux platforms
 #ifdef OS_WIN
 TEST_P(EnvPosixTestWithParam, DISABLED_InvalidateCache) {
@@ -1979,6 +1981,114 @@ INSTANTIATE_TEST_CASE_P(
     ChrootEnvWithDirectIO, EnvPosixTestWithParam,
     ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+
+class EnvFSTestWithParam
+    : public ::testing::Test,
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+ public:
+  EnvFSTestWithParam() {
+    bool env_non_null = std::get<0>(GetParam());
+    bool env_default = std::get<1>(GetParam());
+    bool fs_default = std::get<2>(GetParam());
+
+    env_ = env_non_null ? (env_default ? Env::Default() : nullptr) : nullptr;
+    fs_ = fs_default
+              ? FileSystem::Default()
+              : std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+    if (env_non_null && env_default && !fs_default) {
+      env_ptr_ = NewCompositeEnv(fs_);
+    }
+    if (env_non_null && !env_default && fs_default) {
+      env_ptr_ = std::unique_ptr<Env>(new FaultInjectionTestEnv(Env::Default()));
+      fs_.reset();
+    }
+    if (env_non_null && !env_default && !fs_default) {
+      env_ptr_.reset(new FaultInjectionTestEnv(Env::Default()));
+      composite_env_ptr_.reset(new CompositeEnvWrapper(env_ptr_.get(), fs_));
+      env_ = composite_env_ptr_.get();
+    } else {
+      env_ = env_ptr_.get();
+    }
+
+    dbname1_ = test::PerThreadDBPath("env_fs_test1");
+    dbname2_ = test::PerThreadDBPath("env_fs_test2");
+  }
+
+  ~EnvFSTestWithParam() = default;
+
+  Env* env_;
+  std::unique_ptr<Env> env_ptr_;
+  std::unique_ptr<Env> composite_env_ptr_;
+  std::shared_ptr<FileSystem> fs_;
+  std::string dbname1_;
+  std::string dbname2_;
+};
+
+TEST_P(EnvFSTestWithParam, OptionsTest) {
+  Options opts;
+  opts.env = env_;
+  opts.create_if_missing = true;
+  std::string dbname = dbname1_;
+
+  if (env_) {
+    if (fs_) {
+      ASSERT_EQ(fs_.get(), env_->GetFileSystem().get());
+    } else {
+      ASSERT_NE(FileSystem::Default().get(), env_->GetFileSystem().get());
+    }
+  }
+  for (int i = 0; i < 2; ++i) {
+    DB* db;
+    Status s = DB::Open(opts, dbname, &db);
+    ASSERT_OK(s);
+
+    WriteOptions wo;
+    db->Put(wo, "a", "a");
+    db->Flush(FlushOptions());
+    db->Put(wo, "b", "b");
+    db->Flush(FlushOptions());
+    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+    std::string val;
+    ASSERT_OK(db->Get(ReadOptions(), "a", &val));
+    ASSERT_EQ("a", val);
+    ASSERT_OK(db->Get(ReadOptions(), "b", &val));
+    ASSERT_EQ("b", val);
+
+    db->Close();
+    delete db;
+    DestroyDB(dbname, opts);
+
+    dbname = dbname2_;
+  }
+}
+
+// The parameters are as follows -
+// 1. True means Options::env is non-null, false means null
+// 2. True means use Env::Default, false means custom
+// 3. True means use FileSystem::Default, false means custom
+INSTANTIATE_TEST_CASE_P(
+    EnvFSTest, EnvFSTestWithParam,
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool()));
+
+// This test ensures that default Env and those allocated by
+// NewCompositeEnv() all share the same threadpool
+TEST_F(EnvTest, MultipleCompositeEnv) {
+  std::shared_ptr<FaultInjectionTestFS> fs1 =
+    std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::shared_ptr<FaultInjectionTestFS> fs2 =
+    std::make_shared<FaultInjectionTestFS>(FileSystem::Default());
+  std::unique_ptr<Env> env1 = NewCompositeEnv(fs1);
+  std::unique_ptr<Env> env2 = NewCompositeEnv(fs2);
+  Env::Default()->SetBackgroundThreads(8, Env::HIGH);
+  Env::Default()->SetBackgroundThreads(16, Env::LOW);
+
+  ASSERT_EQ(env1->GetBackgroundThreads(Env::LOW), 16);
+  ASSERT_EQ(env1->GetBackgroundThreads(Env::HIGH), 8);
+  ASSERT_EQ(env2->GetBackgroundThreads(Env::LOW), 16);
+  ASSERT_EQ(env2->GetBackgroundThreads(Env::HIGH), 8);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -190,7 +190,6 @@ class CorruptionTest : public testing::Test {
     ASSERT_TRUE(s.ok()) << s.ToString();
     Options options;
     EnvOptions env_options;
-    options.file_system.reset(new LegacyFileSystemWrapper(options.env));
     ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
   }
 

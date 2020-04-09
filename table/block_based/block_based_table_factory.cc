@@ -157,6 +157,126 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
   return std::min(kMaxPrefetchSize, max_qualified_size);
 }
 
+#ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, OptionTypeInfo>
+    block_based_table_type_info = {
+        /* currently not supported
+          std::shared_ptr<Cache> block_cache = nullptr;
+          std::shared_ptr<Cache> block_cache_compressed = nullptr;
+         */
+        {"flush_block_policy_factory",
+         {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
+          OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"cache_index_and_filter_blocks",
+         {offsetof(struct BlockBasedTableOptions,
+                   cache_index_and_filter_blocks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"cache_index_and_filter_blocks_with_high_priority",
+         {offsetof(struct BlockBasedTableOptions,
+                   cache_index_and_filter_blocks_with_high_priority),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"pin_l0_filter_and_index_blocks_in_cache",
+         {offsetof(struct BlockBasedTableOptions,
+                   pin_l0_filter_and_index_blocks_in_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"index_type",
+         {offsetof(struct BlockBasedTableOptions, index_type),
+          OptionType::kBlockBasedTableIndexType,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"hash_index_allow_collision",
+         {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"data_block_index_type",
+         {offsetof(struct BlockBasedTableOptions, data_block_index_type),
+          OptionType::kBlockBasedTableDataBlockIndexType,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"index_shortening",
+         {offsetof(struct BlockBasedTableOptions, index_shortening),
+          OptionType::kBlockBasedTableIndexShorteningMode,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"data_block_hash_table_util_ratio",
+         {offsetof(struct BlockBasedTableOptions,
+                   data_block_hash_table_util_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"checksum",
+         {offsetof(struct BlockBasedTableOptions, checksum),
+          OptionType::kChecksumType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"no_block_cache",
+         {offsetof(struct BlockBasedTableOptions, no_block_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_size",
+         {offsetof(struct BlockBasedTableOptions, block_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_size_deviation",
+         {offsetof(struct BlockBasedTableOptions, block_size_deviation),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_restart_interval",
+         {offsetof(struct BlockBasedTableOptions, block_restart_interval),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"index_block_restart_interval",
+         {offsetof(struct BlockBasedTableOptions, index_block_restart_interval),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"index_per_partition",
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"metadata_block_size",
+         {offsetof(struct BlockBasedTableOptions, metadata_block_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"partition_filters",
+         {offsetof(struct BlockBasedTableOptions, partition_filters),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"filter_policy",
+         {offsetof(struct BlockBasedTableOptions, filter_policy),
+          OptionType::kFilterPolicy, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"whole_key_filtering",
+         {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"skip_table_builder_flush",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"format_version",
+         {offsetof(struct BlockBasedTableOptions, format_version),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"verify_compression",
+         {offsetof(struct BlockBasedTableOptions, verify_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"read_amp_bytes_per_bit",
+         {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"enable_index_compression",
+         {offsetof(struct BlockBasedTableOptions, enable_index_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"block_align",
+         {offsetof(struct BlockBasedTableOptions, block_align),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"pin_top_level_index_and_filter",
+         {offsetof(struct BlockBasedTableOptions,
+                   pin_top_level_index_and_filter),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}}};
+#endif  // ROCKSDB_LITE
+
 // TODO(myabandeh): We should return an error instead of silently changing the
 // options
 BlockBasedTableFactory::BlockBasedTableFactory(
@@ -416,46 +536,13 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
 }
 
 #ifndef ROCKSDB_LITE
-namespace {
-bool SerializeSingleBlockBasedTableOption(
-    std::string* opt_string, const BlockBasedTableOptions& bbt_options,
-    const std::string& name, const std::string& delimiter) {
-  auto iter = block_based_table_type_info.find(name);
-  if (iter == block_based_table_type_info.end()) {
-    return false;
-  }
-  auto& opt_info = iter->second;
-  const char* opt_address =
-      reinterpret_cast<const char*>(&bbt_options) + opt_info.offset;
-  std::string value;
-  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
-  if (result) {
-    *opt_string = name + "=" + value + delimiter;
-  }
-  return result;
-}
-}  // namespace
 
 Status BlockBasedTableFactory::GetOptionString(
     std::string* opt_string, const std::string& delimiter) const {
   assert(opt_string);
   opt_string->clear();
-  for (auto iter = block_based_table_type_info.begin();
-       iter != block_based_table_type_info.end(); ++iter) {
-    if (iter->second.verification == OptionVerificationType::kDeprecated) {
-      // If the option is no longer used in rocksdb and marked as deprecated,
-      // we skip it in the serialization.
-      continue;
-    }
-    std::string single_output;
-    bool result = SerializeSingleBlockBasedTableOption(
-        &single_output, table_options_, iter->first, delimiter);
-    assert(result);
-    if (result) {
-      opt_string->append(single_output);
-    }
-  }
-  return Status::OK();
+  return GetStringFromStruct(opt_string, &table_options_,
+                             block_based_table_type_info, delimiter);
 }
 #else
 Status BlockBasedTableFactory::GetOptionString(
@@ -535,7 +622,7 @@ std::string ParseBlockBasedTableOption(const std::string& name,
     }
   }
   const auto& opt_info = iter->second;
-  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+  if (!opt_info.IsDeprecated() &&
       !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
                          opt_info.type, value)) {
     return "Invalid value";
@@ -574,12 +661,7 @@ Status GetBlockBasedTableOptionsFromMap(
           !input_strings_escaped ||  // !input_strings_escaped indicates
                                      // the old API, where everything is
                                      // parsable.
-          (iter->second.verification != OptionVerificationType::kByName &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowFromNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
+          (!iter->second.IsByName() && !iter->second.IsDeprecated())) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
@@ -595,7 +677,7 @@ Status VerifyBlockBasedTableFactory(
     const BlockBasedTableFactory* file_tf,
     OptionsSanityCheckLevel sanity_check_level) {
   if ((base_tf != nullptr) != (file_tf != nullptr) &&
-      sanity_check_level > kSanityLevelNone) {
+      sanity_check_level > OptionsSanityCheckLevel::kSanityLevelNone) {
     return Status::Corruption(
         "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
   }
@@ -608,7 +690,7 @@ Status VerifyBlockBasedTableFactory(
   const auto& file_opt = file_tf->table_options();
 
   for (auto& pair : block_based_table_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+    if (pair.second.IsDeprecated()) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;

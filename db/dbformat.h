@@ -104,6 +104,7 @@ struct ParsedInternalKey {
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber)  // Make code analyzer happy
   {}  // Intentionally left uninitialized (for speed)
+  // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
   std::string DebugString(bool hex = false) const;
@@ -132,6 +133,12 @@ EntryType GetEntryType(ValueType value_type);
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
                               const ParsedInternalKey& key);
+
+// Append the serialization of "key" to *result, replacing the original
+// timestamp with argument ts.
+extern void AppendInternalKeyWithDifferentTimestamp(
+    std::string* result, const ParsedInternalKey& key, const Slice& ts);
+
 // Serialized internal key consists of user key followed by footer.
 // This function appends the footer to *result, assuming that *result already
 // contains the user key at the end.
@@ -192,7 +199,8 @@ class InternalKeyComparator
 
  public:
   explicit InternalKeyComparator(const Comparator* c)
-      : user_comparator_(c),
+      : Comparator(c->timestamp_size()),
+        user_comparator_(c),
         name_("rocksdb.InternalKeyComparator:" +
               std::string(user_comparator_.Name())) {}
   virtual ~InternalKeyComparator() {}
@@ -439,24 +447,31 @@ class IterKey {
 
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
-                      ValueType value_type = kValueTypeForSeek) {
+                      ValueType value_type = kValueTypeForSeek,
+                      const Slice* ts = nullptr) {
     size_t psize = key_prefix.size();
     size_t usize = user_key.size();
-    EnlargeBufferIfNeeded(psize + usize + sizeof(uint64_t));
+    size_t ts_sz = (ts != nullptr ? ts->size() : 0);
+    EnlargeBufferIfNeeded(psize + usize + sizeof(uint64_t) + ts_sz);
     if (psize > 0) {
       memcpy(buf_, key_prefix.data(), psize);
     }
     memcpy(buf_ + psize, user_key.data(), usize);
-    EncodeFixed64(buf_ + usize + psize, PackSequenceAndType(s, value_type));
+    if (ts) {
+      memcpy(buf_ + psize + usize, ts->data(), ts_sz);
+    }
+    EncodeFixed64(buf_ + usize + psize + ts_sz,
+                  PackSequenceAndType(s, value_type));
 
     key_ = buf_;
-    key_size_ = psize + usize + sizeof(uint64_t);
+    key_size_ = psize + usize + sizeof(uint64_t) + ts_sz;
     is_user_key_ = false;
   }
 
   void SetInternalKey(const Slice& user_key, SequenceNumber s,
-                      ValueType value_type = kValueTypeForSeek) {
-    SetInternalKey(Slice(), user_key, s, value_type);
+                      ValueType value_type = kValueTypeForSeek,
+                      const Slice* ts = nullptr) {
+    SetInternalKey(Slice(), user_key, s, value_type, ts);
   }
 
   void Reserve(size_t size) {

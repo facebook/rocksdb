@@ -1605,7 +1605,7 @@ jbyte Java_org_rocksdb_Transaction_getState(JNIEnv* /*env*/, jobject /*jobj*/,
     case ROCKSDB_NAMESPACE::Transaction::TransactionState::AWAITING_COMMIT:
       return 0x3;
 
-    case ROCKSDB_NAMESPACE::Transaction::TransactionState::COMMITED:
+    case ROCKSDB_NAMESPACE::Transaction::TransactionState::COMMITTED:
       return 0x4;
 
     case ROCKSDB_NAMESPACE::Transaction::TransactionState::AWAITING_ROLLBACK:

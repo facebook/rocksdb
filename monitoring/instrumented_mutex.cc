@@ -10,6 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
+#ifndef NPERF_CONTEXT
 Statistics* stats_for_report(Env* env, Statistics* stats) {
   if (env != nullptr && stats != nullptr &&
       stats->get_stats_level() > kExceptTimeForMutex) {
@@ -18,6 +19,7 @@ Statistics* stats_for_report(Env* env, Statistics* stats) {
     return nullptr;
   }
 }
+#endif  // NPERF_CONTEXT
 }  // namespace
 
 void InstrumentedMutex::Lock() {

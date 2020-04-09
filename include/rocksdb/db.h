@@ -480,6 +480,25 @@ class DB {
         keys, values);
   }
 
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
+      const std::vector<Slice>& keys, std::vector<std::string>* /*values*/,
+      std::vector<std::string>* /*timestamps*/) {
+    return std::vector<Status>(
+        keys.size(), Status::NotSupported(
+                         "MultiGet() returning timestamps not implemented."));
+  }
+  virtual std::vector<Status> MultiGet(const ReadOptions& options,
+                                       const std::vector<Slice>& keys,
+                                       std::vector<std::string>* values,
+                                       std::vector<std::string>* timestamps) {
+    return MultiGet(
+        options,
+        std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
+        keys, values, timestamps);
+  }
+
   // Overloaded MultiGet API that improves performance by batching operations
   // in the read path for greater efficiency. Currently, only the block based
   // table format with full filters are supported. Other table formats such
@@ -521,6 +540,30 @@ class DB {
     }
   }
 
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses, const bool /*sorted_input*/ = false) {
+    std::vector<ColumnFamilyHandle*> cf;
+    std::vector<Slice> user_keys;
+    std::vector<Status> status;
+    std::vector<std::string> vals;
+    std::vector<std::string> tss;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      cf.emplace_back(column_family);
+      user_keys.emplace_back(keys[i]);
+    }
+    status = MultiGet(options, cf, user_keys, &vals, &tss);
+    std::copy(status.begin(), status.end(), statuses);
+    std::copy(tss.begin(), tss.end(), timestamps);
+    for (auto& value : vals) {
+      values->PinSelf(value);
+      values++;
+    }
+  }
+
   // Overloaded MultiGet API that improves performance by batching operations
   // in the read path for greater efficiency. Currently, only the block based
   // table format with full filters are supported. Other table formats such
@@ -555,6 +598,28 @@ class DB {
     }
     status = MultiGet(options, cf, user_keys, &vals);
     std::copy(status.begin(), status.end(), statuses);
+    for (auto& value : vals) {
+      values->PinSelf(value);
+      values++;
+    }
+  }
+  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle** column_families, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses, const bool /*sorted_input*/ = false) {
+    std::vector<ColumnFamilyHandle*> cf;
+    std::vector<Slice> user_keys;
+    std::vector<Status> status;
+    std::vector<std::string> vals;
+    std::vector<std::string> tss;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      cf.emplace_back(column_families[i]);
+      user_keys.emplace_back(keys[i]);
+    }
+    status = MultiGet(options, cf, user_keys, &vals, &tss);
+    std::copy(status.begin(), status.end(), statuses);
+    std::copy(tss.begin(), tss.end(), timestamps);
     for (auto& value : vals) {
       values->PinSelf(value);
       values++;

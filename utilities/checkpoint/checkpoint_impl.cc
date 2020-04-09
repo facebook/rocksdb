@@ -35,7 +35,8 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
 }
 
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
-                                    uint64_t /*log_size_for_flush*/) {
+                                    uint64_t /*log_size_for_flush*/,
+                                    uint64_t* /*sequence_number_ptr*/) {
   return Status::NotSupported("");
 }
 
@@ -69,7 +70,8 @@ Status Checkpoint::ExportColumnFamily(
 
 // Builds an openable snapshot of RocksDB
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
-                                        uint64_t log_size_for_flush) {
+                                        uint64_t log_size_for_flush,
+                                        uint64_t* sequence_number_ptr) {
   DBOptions db_options = db_->GetDBOptions();
 
   Status s = db_->GetEnv()->FileExists(checkpoint_dir);
@@ -145,6 +147,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   }
 
   if (s.ok()) {
+    if (sequence_number_ptr != nullptr) {
+      *sequence_number_ptr = sequence_number;
+    }
     // here we know that we succeeded and installed the new snapshot
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot DONE. All is good");
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot sequence number: %" PRIu64,
