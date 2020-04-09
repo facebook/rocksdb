@@ -13,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
+#include "rocksdb/db_plugin.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
@@ -25,6 +26,31 @@
 
 namespace ROCKSDB_NAMESPACE {
 class ObjectLibrary;
+
+class TtlDBPlugin : public DBPlugin {
+ public:
+  static const std::string kTtlOpts /* = "TtlOptions" */;
+
+  TtlDBPlugin();
+  TtlDBPlugin(const std::vector<int>& ttls);
+  const char* Name() const override;
+  Status SanitizeCB(
+      const std::string& db_name, DBOptions* db_options,
+      std::vector<ColumnFamilyDescriptor>* column_families) override;
+  Status ValidateCB(const std::string& db_name, const DBOptions& db_options,
+                    const std::vector<ColumnFamilyDescriptor>& column_families)
+      const override;
+  Status OpenCB(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
+                DB** wrapped) override;
+  bool SupportsReadOnly() const override { return true; }
+  Status OpenReadOnlyCB(DB* db, const std::vector<ColumnFamilyHandle*>& handles,
+                        DB** wrapped) override;
+  Status PrepareTtlOptions(int ttl, Env* env,
+                           ColumnFamilyOptions* cf_options) const;
+
+ private:
+  std::vector<int> ttls_;
+};
 
 class TtlCompactionFilter : public CompactionFilter {
  public:
@@ -110,9 +136,6 @@ class TtlMergeOperator : public MergeOperator {
 
 class DBWithTTLImpl : public DBWithTTL {
  public:
-  static void SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
-                              Env* env);
-
   explicit DBWithTTLImpl(DB* db);
 
   virtual ~DBWithTTLImpl();

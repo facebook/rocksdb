@@ -13,7 +13,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class CompactedDBImpl : public DBImpl {
  public:
-  CompactedDBImpl(const DBOptions& options, const std::string& dbname);
+  CompactedDBImpl(const DBOptions& options, const std::string& dbname,
+                  bool owns_info_log);
   // No copying allowed
   CompactedDBImpl(const CompactedDBImpl&) = delete;
   void operator=(const CompactedDBImpl&) = delete;

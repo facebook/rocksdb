@@ -6,11 +6,10 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include "db/db_impl/db_impl.h"
-
 #include <cinttypes>
 
 #include "db/builder.h"
+#include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "env/composite_env_wrapper.h"
 #include "file/read_write_util.h"
@@ -18,6 +17,7 @@
 #include "file/writable_file_writer.h"
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
+#include "rocksdb/db_plugin.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
@@ -189,9 +189,15 @@ Status ValidateOptionsByTable(
 }  // namespace
 
 Status DBImpl::ValidateOptions(
-    const DBOptions& db_options,
+    const std::string& db_name, const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
-  Status s;
+  Status s = ValidateOptionsByTable(db_options, column_families);
+  if (s.ok()) {
+    s = DBPlugin::ValidateOptions(db_name, db_options, column_families);
+  }
+  if (!s.ok()) {
+    return s;
+  }
   for (auto& cfd : column_families) {
     s = ColumnFamilyData::ValidateOptions(db_options, cfd.options);
     if (!s.ok()) {
@@ -1363,16 +1369,20 @@ Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
   return s;
 }
 
-Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
-                    const std::vector<ColumnFamilyDescriptor>& column_families,
-                    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-                    const bool seq_per_batch, const bool batch_per_txn) {
-  Status s = ValidateOptionsByTable(db_options, column_families);
+Status DBImpl::Open(
+    const DBOptions& db_options_in, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families_in,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    const bool seq_per_batch, const bool batch_per_txn) {
+  DBOptions db_options = db_options_in;
+  std::vector<ColumnFamilyDescriptor> column_families = column_families_in;
+  bool owns_info_log = (db_options.info_log == nullptr);
+  Status s = DBPlugin::SanitizeOptions(dbname, &db_options, &column_families);
   if (!s.ok()) {
     return s;
   }
 
-  s = ValidateOptions(db_options, column_families);
+  s = ValidateOptions(dbname, db_options, column_families);
   if (!s.ok()) {
     return s;
   }
@@ -1386,7 +1396,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
 
-  DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
+  DBImpl* impl = new DBImpl(db_options, dbname, owns_info_log, seq_per_batch,
+                            batch_per_txn);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
     std::vector<std::string> paths;
@@ -1645,12 +1656,20 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     impl->StartTimedTasks();
   }
+  if (s.ok()) {
+    s = DBPlugin::Open(impl, *handles, dbptr);
+  }
+
   if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;
     }
     handles->clear();
-    delete impl;
+    if (*dbptr != nullptr) {
+      delete *dbptr;
+    } else {
+      delete impl;
+    }
     *dbptr = nullptr;
   }
   return s;

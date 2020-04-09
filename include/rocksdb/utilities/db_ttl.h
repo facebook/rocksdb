@@ -47,6 +47,8 @@ class ObjectLibrary;
 
 class DBWithTTL : public StackableDB {
  public:
+  static const std::string kTtlName;
+
   virtual Status CreateColumnFamilyWithTtl(
       const ColumnFamilyOptions& options, const std::string& column_family_name,
       ColumnFamilyHandle** handle, int ttl) = 0;

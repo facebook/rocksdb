@@ -182,7 +182,7 @@ class Repairer {
         ArchiveFile(dbname_ + "/" + manifests_[i]);
       }
       // Just create a DBImpl temporarily so we can reuse NewDB()
-      DBImpl* db_impl = new DBImpl(db_options_, dbname_);
+      DBImpl* db_impl = new DBImpl(db_options_, dbname_, false);
       status = db_impl->NewDB();
       delete db_impl;
     }

@@ -55,10 +55,10 @@ static bool LoadStaticEnv(const std::string& id, Env** result) {
     *result = Env::Default();
   } else {
     success = false;
-   }
+  }
   return success;
 }
-  
+
 static bool LoadSharedEnv(const std::string& id, std::shared_ptr<Env>* result) {
   bool success = true;
   assert(result);

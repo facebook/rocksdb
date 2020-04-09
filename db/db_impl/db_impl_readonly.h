@@ -15,7 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBImplReadOnly : public DBImpl {
  public:
-  DBImplReadOnly(const DBOptions& options, const std::string& dbname);
+  DBImplReadOnly(const DBOptions& options, const std::string& dbname,
+                 bool owns_info_log);
   // No copying allowed
   DBImplReadOnly(const DBImplReadOnly&) = delete;
   void operator=(const DBImplReadOnly&) = delete;

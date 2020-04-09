@@ -36,6 +36,7 @@ class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
 class ConcurrentTaskLimiter;
+class DBPlugin;
 class Env;
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
@@ -871,6 +872,10 @@ struct DBOptions {
   // A vector of EventListeners whose callback functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
+
+  // A vector of DBPlugins whos functions will be called to setup and tear down
+  // the database
+  std::vector<std::shared_ptr<DBPlugin>> plugins;
 
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.

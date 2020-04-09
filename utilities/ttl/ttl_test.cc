@@ -15,6 +15,8 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
+#include "utilities/ttl/db_ttl_impl.h"
+
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -383,9 +385,9 @@ class TtlTest : public testing::Test {
   std::string dbname_;
   DBWithTTL* db_ttl_;
   std::unique_ptr<SpecialTimeEnv> env_;
+  Options options_;
 
  private:
-  Options options_;
   KVMap kvmap_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
@@ -679,6 +681,24 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   CloseTtl();
 }
 
+// Checks presence during ttl in read_only mode
+TEST_F(TtlTest, OpenWithTtlPlugin) {
+  MakeKVMap(kSampleSize_);
+  Options ttl_options = options_;
+  ttl_options.plugins.push_back(
+      std::make_shared<TtlDBPlugin>(std::vector<int>({1})));
+  DB* db;
+  ASSERT_OK(DB::Open(ttl_options, dbname_, &db));
+  db_ttl_ = static_cast<DBWithTTL*>(db);
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=1
+  CloseTtl();
+
+  ASSERT_OK(DB::OpenForReadOnly(ttl_options, dbname_, &db));
+  db_ttl_ = static_cast<DBWithTTL*>(db);
+  SleepCompactCheck(2, 0, kSampleSize_);  // T=2:Set1 should still be there
+  CloseTtl();
+}
+
 class DummyFilter : public CompactionFilter {
  public:
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
@@ -731,25 +751,27 @@ class TtlOptionsTest : public testing::Test {
 
 TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
   const CompactionFilter* filter = nullptr;
+  std::string kTtlId = "id=" + DBWithTTL::kTtlName;
 
-  ASSERT_OK(CompactionFilter::CreateFromString("Ttl", cfg_, &filter));
+  ASSERT_OK(
+      CompactionFilter::CreateFromString(DBWithTTL::kTtlName, cfg_, &filter));
   ASSERT_NE(filter, nullptr);
-  ASSERT_EQ(filter->Name(), std::string("Ttl"));
-  auto ttl = filter->GetOptions<int32_t>("TTL");
+  ASSERT_EQ(filter->Name(), DBWithTTL::kTtlName);
+  auto ttl = filter->GetOptions<int32_t>(TtlDBPlugin::kTtlOpts);
   ASSERT_NE(ttl, nullptr);
   ASSERT_EQ(*ttl, 0);
   ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 
   ASSERT_OK(
-      CompactionFilter::CreateFromString("id=Ttl; ttl=123", cfg_, &filter));
+      CompactionFilter::CreateFromString(kTtlId + "; ttl=123", cfg_, &filter));
   ASSERT_NE(filter, nullptr);
-  ttl = filter->GetOptions<int32_t>("TTL");
+  ttl = filter->GetOptions<int32_t>(TtlDBPlugin::kTtlOpts);
   ASSERT_NE(ttl, nullptr);
   ASSERT_EQ(*ttl, 123);
   ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 
   ASSERT_OK(CompactionFilter::CreateFromString(
-      "id=Ttl; ttl=456; user_filter=DummyFilter;", cfg_, &filter));
+      kTtlId + "; ttl=456; user_filter=DummyFilter;", cfg_, &filter));
   ASSERT_NE(filter, nullptr);
   auto inner = filter->FindInstance("DummyFilter");
   ASSERT_NE(inner, nullptr);
@@ -764,31 +786,33 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
 TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {
   std::shared_ptr<CompactionFilterFactory> cff;
 
-  ASSERT_OK(CompactionFilterFactory::CreateFromString("Ttl", cfg_, &cff));
+  std::string kTtlId = "id=" + DBWithTTL::kTtlName;
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(DBWithTTL::kTtlName, cfg_,
+                                                      &cff));
   ASSERT_NE(cff.get(), nullptr);
-  ASSERT_EQ(cff->Name(), std::string("Ttl"));
-  auto ttl = cff->GetOptions<int32_t>("TTL");
+  ASSERT_EQ(cff->Name(), DBWithTTL::kTtlName);
+  auto ttl = cff->GetOptions<int32_t>(TtlDBPlugin::kTtlOpts);
   ASSERT_NE(ttl, nullptr);
   ASSERT_EQ(*ttl, 0);
   ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 
-  ASSERT_OK(
-      CompactionFilterFactory::CreateFromString("id=Ttl; ttl=123", cfg_, &cff));
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(kTtlId + "; ttl=123",
+                                                      cfg_, &cff));
   ASSERT_NE(cff.get(), nullptr);
-  ASSERT_EQ(cff->Name(), std::string("Ttl"));
-  ttl = cff->GetOptions<int32_t>("TTL");
+  ASSERT_EQ(cff->Name(), DBWithTTL::kTtlName);
+  ttl = cff->GetOptions<int32_t>(TtlDBPlugin::kTtlOpts);
   ASSERT_NE(ttl, nullptr);
   ASSERT_EQ(*ttl, 123);
   ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
 
   ASSERT_OK(CompactionFilterFactory::CreateFromString(
-      "id=Ttl; ttl=456; "
-      "user_filter_factory=DummyFilterFactory;",
+      kTtlId + "; ttl=456; "
+               "user_filter_factory=DummyFilterFactory;",
       cfg_, &cff));
   ASSERT_NE(cff.get(), nullptr);
   auto filter = cff->CreateCompactionFilter(CompactionFilter::Context());
   ASSERT_NE(filter.get(), nullptr);
-  auto ttlf = filter->FindInstance("Ttl");
+  auto ttlf = filter->FindInstance(DBWithTTL::kTtlName);
   ASSERT_EQ(filter.get(), ttlf);
   auto user = filter->FindInstance("DummyFilter");
   ASSERT_NE(user, nullptr);
@@ -803,14 +827,15 @@ TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {
 TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
   std::shared_ptr<MergeOperator> mo;
 
-  ASSERT_NOK(MergeOperator::CreateFromString("Ttl", cfg_, &mo));
+  std::string kTtlId = "id=" + DBWithTTL::kTtlName;
+  ASSERT_NOK(MergeOperator::CreateFromString(DBWithTTL::kTtlName, cfg_, &mo));
 
-  ASSERT_OK(MergeOperator::CreateFromString("id=Ttl; user_operator=PutOperator",
-                                            cfg_, &mo));
+  ASSERT_OK(MergeOperator::CreateFromString(
+      kTtlId + "; user_operator=PutOperator", cfg_, &mo));
   ASSERT_NE(mo.get(), nullptr);
-  ASSERT_EQ(mo->Name(), std::string("Ttl"));
+  ASSERT_EQ(mo->Name(), DBWithTTL::kTtlName);
   ASSERT_OK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
-  auto ttl_mo = mo->FindInstance("Ttl");
+  auto ttl_mo = mo->FindInstance(DBWithTTL::kTtlName);
   ASSERT_EQ(mo.get(), ttl_mo);
   auto user = ttl_mo->FindInstance("PutOperator");
   ASSERT_NE(user, nullptr);
@@ -819,6 +844,18 @@ TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
   std::shared_ptr<MergeOperator> copy;
   ASSERT_OK(MergeOperator::CreateFromString(opts_str, cfg_, &copy));
   ASSERT_TRUE(mo->Matches(copy.get(), cfg_));
+}
+
+TEST_F(TtlOptionsTest, LoadTtlPlugin) {
+  DBOptions db_opts;
+  std::shared_ptr<DBPlugin> plugin;
+
+  ASSERT_OK(DBPlugin::CreateFromString(DBWithTTL::kTtlName, cfg_, &plugin));
+  ASSERT_NE(plugin.get(), nullptr);
+  ASSERT_EQ(plugin->Name(), DBWithTTL::kTtlName);
+  ASSERT_OK(GetDBOptionsFromString(db_opts, "plugins={Ttl};", cfg_, &db_opts));
+  ASSERT_EQ(db_opts.plugins.size(), 1);
+  ASSERT_EQ(db_opts.plugins[0]->Name(), DBWithTTL::kTtlName);
 }
 }  // namespace ROCKSDB_NAMESPACE
 

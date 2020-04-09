@@ -1903,26 +1903,27 @@ class TestEnv : public EnvWrapper {
                 close_count(0) { }
     const char* Name() const override { return "TestEnv"; }
 
-  class TestLogger : public Logger {
-   public:
-    using Logger::Logv;
-    TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-    ~TestLogger() override {
-      if (!closed_) {
-        CloseHelper();
+    class TestLogger : public Logger {
+     public:
+      using Logger::Logv;
+      TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+      ~TestLogger() override {
+        if (!closed_) {
+          CloseHelper();
+        }
       }
-    }
-    void Logv(const char* /*format*/, va_list /*ap*/) override{};
+      void Logv(const char* /*format*/, va_list /*ap*/) override{};
 
-   protected:
-    Status CloseImpl() override { return CloseHelper(); }
+     protected:
+      Status CloseImpl() override { return CloseHelper(); }
 
-   private:
-    Status CloseHelper() {
-      env->CloseCountInc();;
-      return Status::OK();
-    }
-    TestEnv* env;
+     private:
+      Status CloseHelper() {
+        env->CloseCountInc();
+        ;
+        return Status::OK();
+      }
+      TestEnv* env;
   };
 
   void CloseCountInc() { close_count++; }
