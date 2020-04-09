@@ -71,6 +71,11 @@ matrix:
   - os: linux
     compiler: clang
   # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
+  # Temporarily disable ppc64le unit tests in PRs until Travis gets its act together (#6653)
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=platform_dependent
   # NB: the cmake build is a partial java test
   - if: type = pull_request
     os: osx
