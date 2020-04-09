@@ -127,7 +127,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<DeleteScheduler> delete_scheduler;
           std::shared_ptr<Logger> info_log;
           std::shared_ptr<RateLimiter> rate_limiter;
-          std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           std::vector<std::shared_ptr<EventListener>> listeners;
          */
@@ -398,6 +397,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto env = reinterpret_cast<Env**>(addr);
             return Env::CreateFromString(value, opts, env);
           }}},
+        {"statistics",
+         OptionTypeInfo::AsCustomS<Statistics>(
+             offsetof(struct ImmutableDBOptions, statistics),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
         {"object_registry",
          {offsetof(struct ImmutableDBOptions, object_registry),
           OptionType::kConfigurable, OptionVerificationType::kNormal,

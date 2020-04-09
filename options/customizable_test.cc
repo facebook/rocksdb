@@ -19,6 +19,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/mock_table.h"
@@ -580,6 +581,12 @@ class MockFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
+class TestStatistics : public StatisticsImpl {
+ public:
+  TestStatistics() : StatisticsImpl(nullptr) {}
+  const char* Name() const override { return "Test"; }
+};
+
 static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   library.Register<FlushBlockPolicyFactory>(
@@ -587,6 +594,12 @@ static void RegisterLocalObjects(ObjectLibrary& library,
                  std::unique_ptr<FlushBlockPolicyFactory>* guard,
                  std::string* /* errmsg */) {
         guard->reset(new MockFlushBlockPolicyFactory());
+        return guard->get();
+      });
+  library.Register<Statistics>(
+      "Test", [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
+                 std::string* /* errmsg */) {
+        guard->reset(new TestStatistics());
         return guard->get();
       });
 }
@@ -678,6 +691,44 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyTest) {
     ASSERT_EQ(options->flush_block_policy_factory->Name(), std::string("Test"));
   }
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
+  std::shared_ptr<Statistics> stats;
+  ASSERT_NOK(Statistics::CreateFromString("Test", cfg_opts_, &stats));
+  ASSERT_OK(Statistics::CreateFromString("BasicStatistics", cfg_opts_, &stats));
+  ASSERT_NE(stats, nullptr);
+  ASSERT_EQ(stats->Name(), std::string("BasicStatistics"));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetDBOptionsFromString(db_opts_, "statistics=Test", cfg_opts_,
+                                    &db_opts_));
+  ASSERT_OK(GetDBOptionsFromString(db_opts_, "statistics=BasicStatistics",
+                                   cfg_opts_, &db_opts_));
+  ASSERT_NE(db_opts_.statistics, nullptr);
+  ASSERT_EQ(db_opts_.statistics->Name(), std::string("BasicStatistics"));
+
+  RegisterTests("test");
+
+  ASSERT_OK(Statistics::CreateFromString("Test", cfg_opts_, &stats));
+  ASSERT_NE(stats, nullptr);
+  ASSERT_EQ(stats->Name(), std::string("Test"));
+
+  ASSERT_OK(GetDBOptionsFromString(db_opts_, "statistics=Test", cfg_opts_,
+                                   &db_opts_));
+  ASSERT_NE(db_opts_.statistics, nullptr);
+  ASSERT_EQ(db_opts_.statistics->Name(), std::string("Test"));
+
+  ASSERT_OK(GetDBOptionsFromString(db_opts_,
+                                   "statistics={id=Test;inner=BasicStatistics}",
+                                   cfg_opts_, &db_opts_));
+  ASSERT_NE(db_opts_.statistics, nullptr);
+  ASSERT_EQ(db_opts_.statistics->Name(), std::string("Test"));
+  auto* inner = db_opts_.statistics->GetOptions<std::shared_ptr<Statistics>>(
+      "StatisticsOptions");
+  ASSERT_NE(inner, nullptr);
+  ASSERT_NE(inner->get(), nullptr);
+  ASSERT_EQ(inner->get()->Name(), std::string("BasicStatistics"));
+#endif
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
