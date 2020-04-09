@@ -146,8 +146,8 @@ struct JobContext {
   // a list of sst files that we need to delete
   std::vector<ObsoleteFileInfo> sst_delete_files;
 
-  // list of blob files that we need to delete
-  std::vector<uint64_t> blob_delete_files;
+  // the list of blob files that we need to delete
+  std::vector<ObsoleteBlobFileInfo> blob_delete_files;
 
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;

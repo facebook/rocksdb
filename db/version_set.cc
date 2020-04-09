@@ -5725,7 +5725,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 }
 
 void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
-                                  std::vector<uint64_t>* blob_files,
+                                  std::vector<ObsoleteBlobFileInfo>* blob_files,
                                   std::vector<std::string>* manifest_filenames,
                                   uint64_t min_pending_output) {
   assert(files);
@@ -5745,12 +5745,12 @@ void VersionSet::GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
   }
   obsolete_files_.swap(pending_files);
 
-  std::vector<uint64_t> pending_blob_files;
-  for (const auto& blob_file : obsolete_blob_files_) {
-    if (blob_file < min_pending_output) {
-      blob_files->emplace_back(blob_file);
+  std::vector<ObsoleteBlobFileInfo> pending_blob_files;
+  for (auto& blob_file : obsolete_blob_files_) {
+    if (blob_file.GetBlobFileNumber() < min_pending_output) {
+      blob_files->emplace_back(std::move(blob_file));
     } else {
-      pending_blob_files.emplace_back(blob_file);
+      pending_blob_files.emplace_back(std::move(blob_file));
     }
   }
   obsolete_blob_files_.swap(pending_blob_files);
