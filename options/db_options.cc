@@ -389,14 +389,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           }}},
         {"env",
-         {offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
-          OptionVerificationType::kNormal,
-          (OptionTypeFlags::kStringNone | OptionTypeFlags::kCompareNever),
-          [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& opts, char* addr) {
-            auto env = reinterpret_cast<Env**>(addr);
-            return Env::CreateFromString(value, opts, env);
-          }}},
+         OptionTypeInfo::AsCustomP<Env>(
+             offsetof(struct ImmutableDBOptions, env),
+             OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever)},
         {"statistics",
          OptionTypeInfo::AsCustomS<Statistics>(
              offsetof(struct ImmutableDBOptions, statistics),

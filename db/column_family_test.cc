@@ -47,6 +47,7 @@ class EnvCounter : public EnvWrapper {
  public:
   explicit EnvCounter(Env* base)
       : EnvWrapper(base), num_new_writable_file_(0) {}
+  const char* Name() const override { return "CounterEnv"; }
   int GetNumberOfNewWritableFileCalls() {
     return num_new_writable_file_;
   }

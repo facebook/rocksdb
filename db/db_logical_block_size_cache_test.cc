@@ -15,6 +15,7 @@ class EnvWithCustomLogicalBlockSizeCache : public EnvWrapper {
  public:
   EnvWithCustomLogicalBlockSizeCache(Env* env, LogicalBlockSizeCache* cache)
       : EnvWrapper(env), cache_(cache) {}
+  const char* Name() const override { return "CustomBlockSizeEnv"; }
 
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return cache_->RefAndCacheLogicalBlockSize(paths);

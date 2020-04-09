@@ -602,6 +602,22 @@ static void RegisterTestObjects(ObjectLibrary& library,
          std::string* /* errmsg */) {
         return new test::ChanglingCompactionFilter("Changling");
       });
+  library.Register<Env>(
+      "ErrorEnv",
+      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard*/,
+         std::string* /* errmsg */) { return new test::ErrorEnv(); });
+  library.Register<Env>(
+      "StringEnv", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                      std::string* /* errmsg */) {
+        guard->reset(new test::StringEnv(nullptr));
+        return guard->get();
+      });
+  library.Register<Env>(
+      "StringEnv", [](const std::string& /*uri*/, std::unique_ptr<Env>* guard,
+                      std::string* /* errmsg */) {
+        guard->reset(new test::StringEnv(nullptr));
+        return guard->get();
+      });
 }
 
 class MockFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
@@ -1004,6 +1020,36 @@ TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
   ASSERT_NE(options->filter_policy, nullptr);
   ASSERT_EQ(options->filter_policy->Name(), std::string("Test"));
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadEnvTest) {
+  // The ErrorEnv is registered as static, the StringEnv as shared
+  std::shared_ptr<Env> shared;
+  Env* env = nullptr;
+
+  ASSERT_NOK(Env::CreateFromString("StringEnv", cfg_opts_, &env, &shared));
+  ASSERT_NOK(Env::CreateFromString("ErrorEnv", cfg_opts_, &env));
+  ASSERT_OK(Env::CreateFromString(Env::kPosixEnvName, cfg_opts_, &env));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(
+      GetDBOptionsFromString(db_opts_, "env=StringEnv", cfg_opts_, &db_opts_));
+  ASSERT_NOK(
+      GetDBOptionsFromString(db_opts_, "env=ErrorEnv", cfg_opts_, &db_opts_));
+  ASSERT_OK(GetDBOptionsFromString(db_opts_, "env=" + Env::kPosixEnvName,
+                                   cfg_opts_, &db_opts_));
+  RegisterTests("test");
+  ASSERT_NOK(Env::CreateFromString("StringEnv", cfg_opts_, &env));
+  ASSERT_OK(Env::CreateFromString("StringEnv", cfg_opts_, &env, &shared));
+  ASSERT_OK(Env::CreateFromString("ErrorEnv", cfg_opts_, &env));
+  delete env;  // Not really static
+  ASSERT_NOK(
+      GetDBOptionsFromString(db_opts_, "env=StringEnv", cfg_opts_, &db_opts_));
+  ASSERT_OK(
+      GetDBOptionsFromString(db_opts_, "env=ErrorEnv", cfg_opts_, &db_opts_));
+  ASSERT_NE(db_opts_.env, nullptr);
+  ASSERT_EQ(db_opts_.env->GetId(), "ErrorEnv");
+  delete db_opts_.env;
+#endif
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {

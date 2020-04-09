@@ -34,6 +34,7 @@
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/fault_injection_test_fs.h"
@@ -1900,6 +1901,7 @@ class TestEnv : public EnvWrapper {
   public:
     explicit TestEnv() : EnvWrapper(Env::Default()),
                 close_count(0) { }
+    const char* Name() const override { return "TestEnv"; }
 
   class TestLogger : public Logger {
    public:
@@ -1960,6 +1962,45 @@ TEST_F(EnvTest, Close) {
   ASSERT_EQ(env->GetCloseCount(), 2);
 
   delete env;
+}
+
+TEST_F(EnvTest, CreateFromString) {
+  Env* env = nullptr;
+  std::shared_ptr<Env> shared;
+
+  ConfigOptions opts;
+  opts.ignore_unknown_objects = false;
+  ASSERT_OK(Env::CreateFromString(Env::kPosixEnvName, opts, &env));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_OK(Env::CreateFromString(Env::kDefaultEnvName, opts, &env));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_NOK(Env::CreateFromString(Env::kMemoryEnvName, opts, &env));
+  ASSERT_NOK(Env::CreateFromString(Env::kTimedEnvName, opts, &env));
+
+  ASSERT_OK(Env::CreateFromString(Env::kPosixEnvName, opts, &env, &shared));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(shared.get(), nullptr);
+  ASSERT_OK(Env::CreateFromString(Env::kDefaultEnvName, opts, &env, &shared));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(shared.get(), nullptr);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(Env::CreateFromString(Env::kMemoryEnvName, opts, &env, &shared));
+  ASSERT_EQ(shared.get(), env);
+  ASSERT_NE(env, nullptr);
+  ASSERT_EQ(env->Name(), Env::kMemoryEnvName);
+  ASSERT_OK(Env::CreateFromString(Env::kTimedEnvName, opts, &env, &shared));
+  ASSERT_EQ(shared.get(), env);
+  ASSERT_NE(env, nullptr);
+  ASSERT_EQ(env->Name(), Env::kTimedEnvName);
+  ASSERT_NOK(shared->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_NOK(Env::CreateFromString(
+      "id=" + Env::kTimedEnvName + ";targetXXX=" + Env::kDefaultEnvName, opts,
+      &env, &shared));
+  ASSERT_OK(Env::CreateFromString(
+      "id=" + Env::kTimedEnvName + ";target=" + Env::kDefaultEnvName, opts,
+      &env, &shared));
+  ASSERT_OK(shared->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+#endif  // ROCKSDB_LITE
 }
 
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,

@@ -14,15 +14,22 @@
 #include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
+#include "options/customizable_helper.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+const std::string Env::kPosixEnvName = "Posix";
+const std::string Env::kDefaultEnvName = "Default";
+const std::string Env::kMemoryEnvName = "Memory";
+const std::string Env::kTimedEnvName = "Timed";
+const std::string Env::kEncryptedEnvName = "Encrypted";
 
 Env::Env() : thread_status_updater_(nullptr) {
   file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
@@ -40,60 +47,73 @@ Status Env::NewLogger(const std::string& fname,
   return NewEnvLogger(fname, this, result);
 }
 
-Status Env::LoadEnv(const std::string& value, Env** result) {
-  return CreateFromString(value, ConfigOptions(), result);
+static bool LoadStaticEnv(const std::string& id, Env** result) {
+  bool success = true;
+  if (id.empty() || id == Env::kDefaultEnvName) {
+    *result = Env::Default();
+  } else if (id == Env::kPosixEnvName) {
+    *result = Env::Default();
+  } else {
+    success = false;
+   }
+  return success;
+}
+  
+static bool LoadSharedEnv(const std::string& id, std::shared_ptr<Env>* result) {
+  bool success = true;
+  assert(result);
+  if (id.empty()) {
+    success = false;
+#ifndef ROCKSDB_LITE
+  } else if (id == Env::kMemoryEnvName) {
+    result->reset(NewMemEnv(nullptr));
+  } else if (id == Env::kTimedEnvName) {
+    result->reset(NewTimedEnv(nullptr));
+#endif  // ROCKSDB_LITE
+  } else {
+    success = false;
+  }
+  return success;
 }
 
 Status Env::CreateFromString(const std::string& value,
                              const ConfigOptions& options, Env** result) {
   Env* env = *result;
-  Status s;
-#ifndef ROCKSDB_LITE
-  s = options.registry->NewStaticObject<Env>(value, &env);
-#else
-  (void)options;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
-#endif
+  Status s = LoadStaticObject<Env>(value, LoadStaticEnv, options, &env);
   if (s.ok()) {
     *result = env;
   }
   return s;
 }
 
-Status Env::LoadEnv(const std::string& value, Env** result,
-                    std::shared_ptr<Env>* guard) {
-  return CreateFromString(value, ConfigOptions(), result, guard);
+Status Env::LoadEnv(const std::string& value, Env** result) {
+  return CreateFromString(value, ConfigOptions(), result);
 }
 
 Status Env::CreateFromString(const std::string& value,
                              const ConfigOptions& options, Env** result,
                              std::shared_ptr<Env>* guard) {
   assert(result);
-  Status s;
-#ifndef ROCKSDB_LITE
-  Env* env = nullptr;
-  std::unique_ptr<Env> uniq_guard;
-  std::string err_msg;
-  assert(guard != nullptr);
-  env = options.registry->NewObject<Env>(value, &uniq_guard, &err_msg);
-  if (!env) {
-    s = Status::NotSupported(std::string("Cannot load ") + Env::Type() + ": " +
-                             value);
-    env = Env::Default();
+  assert(guard);
+  if (!value.empty()) {
+    // Since if we fail to load the object shared, we will try statically,
+    // turn off unknown objects
+    ConfigOptions copy = options;
+    copy.ignore_unknown_objects = false;
+    Status s = LoadSharedObject<Env>(value, LoadSharedEnv, copy, guard);
+    if (s.ok()) {
+      *result = guard->get();
+      return s;
+    } else if (!s.IsNotSupported()) {
+      return s;
+    }
   }
-  if (s.ok() && uniq_guard) {
-    guard->reset(uniq_guard.release());
-    *result = guard->get();
-  } else {
-    *result = env;
-  }
-#else
-  (void)options;
-  (void)result;
-  (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
-#endif
-  return s;
+  return CreateFromString(value, options, result);
+}
+
+Status Env::LoadEnv(const std::string& value, Env** result,
+                    std::shared_ptr<Env>* guard) {
+  return CreateFromString(value, ConfigOptions(), result, guard);
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {
@@ -392,7 +412,27 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   return ReadFileToString(&lfsw, fname, data);
 }
 
+static std::unordered_map<std::string, OptionTypeInfo> env_target_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target", OptionTypeInfo::AsCustomP<Env>(
+                   0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+#endif  // !ROCKSDB_LITE
+};
+
+EnvWrapper::EnvWrapper(Env* t) : target_(t) {
+  RegisterOptions("WrappedOptions", &target_, &env_target_type_info);
+}
+
 EnvWrapper::~EnvWrapper() {
+}
+
+Status EnvWrapper::ValidateOptions(const DBOptions& db_opts,
+                                   const ColumnFamilyOptions& cf_opts) const {
+  if (target_ != nullptr) {
+    return Env::ValidateOptions(db_opts, cf_opts);
+  } else {
+    return Status::InvalidArgument("Missing target env:", Name());
+  }
 }
 
 namespace {  // anonymous namespace

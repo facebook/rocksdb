@@ -33,6 +33,8 @@ class SpecialTimeEnv : public EnvWrapper {
   explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
     base->GetCurrentTime(&current_time_);
   }
+  const char* Name() const override { return "SpecialTimeEnv"; }
+
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
   Status GetCurrentTime(int64_t* current_time) override {
     *current_time = current_time_;

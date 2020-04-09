@@ -34,7 +34,6 @@ enum class OptionType {
   kCompactionStopStyle,
   kChecksumType,
   kEncodingType,
-  kEnv,
   kEnum,
   kStruct,
   kVector,

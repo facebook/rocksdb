@@ -817,6 +817,7 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
 class CustomEnv : public EnvWrapper {
  public:
   explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+  const char* Name() const override { return "custom"; }
 };
 
 extern "C" {
