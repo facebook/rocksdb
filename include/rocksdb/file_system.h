@@ -40,6 +40,7 @@ class FSSequentialFile;
 class FSWritableFile;
 class Logger;
 class Slice;
+struct ConfigOptions;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
 class RateLimiter;
@@ -164,8 +165,9 @@ class FileSystem {
   static const char* Type() { return "FileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
-  static Status Load(const std::string& value,
-                     std::shared_ptr<FileSystem>* result);
+  static Status CreateFromString(const std::string& value,
+                                 const ConfigOptions& options,
+                                 std::shared_ptr<FileSystem>* result);
 
   // Return a default fie_system suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env

@@ -557,6 +557,64 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
       TestCustomizable::CreateFromString("option=bad", ignore, &pointer));
 }
 
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+static void RegisterTestObjects(ObjectLibrary& library,
+                                const std::string& /*arg*/) {
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
+}
+
+static void RegisterLocalObjects(ObjectLibrary& /*library*/,
+                                 const std::string& /*arg*/) {}
+#endif  // !ROCKSDB_LITE
+
+class LoadCustomizableTest : public testing::Test {
+ public:
+  LoadCustomizableTest() {
+    cfg_opts_.ignore_unknown_objects = false;
+#ifndef ROCKSDB_LITE
+    cfg_opts_.registry = db_opts_.object_registry;
+#endif  // !ROCKSDB_LITE
+  }
+  bool RegisterTests(const std::string& arg) {
+#ifndef ROCKSDB_LITE
+    cfg_opts_.registry->AddLocalLibrary(RegisterTestObjects,
+                                        "RegisterTestObjects", arg);
+    cfg_opts_.registry->AddLocalLibrary(RegisterLocalObjects,
+                                        "RegisterLocalObjects", arg);
+    return true;
+#else
+    (void)arg;
+    return false;
+#endif  // !ROCKSDB_LITE
+  }
+
+ protected:
+  DBOptions db_opts_;
+  ColumnFamilyOptions cf_opts_;
+  ConfigOptions cfg_opts_;
+};
+
+TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
+  std::shared_ptr<TableFactory> factory;
+  ASSERT_NOK(TableFactory::CreateFromString("MockTable", cfg_opts_, &factory));
+  ASSERT_OK(TableFactory::CreateFromString(TableFactory::kBlockBasedTableName,
+                                           cfg_opts_, &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_EQ(factory->Name(), TableFactory::kBlockBasedTableName);
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(TableFactory::CreateFromString("MockTable", cfg_opts_, &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_EQ(factory->Name(), std::string("MockTable"));
+  }
+}
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

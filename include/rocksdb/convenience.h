@@ -14,6 +14,8 @@
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Logger;
+class ObjectRegistry;
 struct ColumnFamilyOptions;
 struct DBOptions;
 struct Options;
@@ -22,6 +24,14 @@ struct Options;
 // comparing objects and converting to/from strings
 
 struct ConfigOptions {
+  // Constructs a new ConfigOptions with a new object registry.
+  // This method should only be used when a DBOptions is not available,
+  // else registry settings may be lost
+  ConfigOptions();
+  // Constructs a new ConfigOptions using the object registry from
+  // the input options.
+  ConfigOptions(const DBOptions&);
+
   // Returns a ConfigOptions suitable for nested/embedded
   // options.
   ConfigOptions Embedded() const;
@@ -60,6 +70,15 @@ struct ConfigOptions {
   SanityLevel sanity_level = SanityLevel::kSanityLevelExactMatch;
   // `file_readahead_size` is used for readahead for the option file.
   size_t file_readahead_size = 512 * 1024;
+  // The logger for this options
+  std::shared_ptr<Logger> info_log = nullptr;
+
+  Env* env;
+#ifndef ROCKSDB_LITE
+  // The object registry to use for this options
+  std::shared_ptr<ObjectRegistry> registry;
+#endif
+
   bool IsShallow() const { return depth == Depth::kDepthShallow; }
   bool IsDetailed() const { return depth == Depth::kDepthDetailed; }
 

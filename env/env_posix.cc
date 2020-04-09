@@ -207,8 +207,8 @@ class PosixEnv : public CompositeEnvWrapper {
         }
       }
     }
-    return Status::IOError(
-        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
+    return Status::IOError(IOErrorMsg("Failed to open shared library: ", name),
+                           dlerror());
   }
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 

@@ -287,8 +287,8 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-    if (!s.ok() && !s.IsNotFound()) {
+    Status s = Env::CreateFromString(env_uri_, cfg_options_, &env, &env_guard_);
+    if (!s.ok() && !s.IsNotSupported()) {
       fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
@@ -364,6 +364,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
   cfg_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
+  cfg_options_.registry = options_.object_registry;
 }
 
 void LDBCommand::OpenDB() {
@@ -3000,7 +3001,8 @@ void BackupCommand::DoCommand() {
   }
   fprintf(stdout, "open db OK\n");
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+  Env::CreateFromString(backup_env_uri_, cfg_options_, &custom_env,
+                        &backup_env_guard_);
   assert(custom_env != nullptr);
 
   BackupableDBOptions backup_options =
@@ -3037,7 +3039,8 @@ void RestoreCommand::Help(std::string& ret) {
 
 void RestoreCommand::DoCommand() {
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+  Env::CreateFromString(backup_env_uri_, cfg_options_, &custom_env,
+                        &backup_env_guard_);
   assert(custom_env != nullptr);
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;

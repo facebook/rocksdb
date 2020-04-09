@@ -75,12 +75,12 @@ enum class OptionTypeFlags : uint32_t {
   kCompareLoose = ConfigOptions::kSanityLevelLooselyCompatible,
   kCompareExact = ConfigOptions::kSanityLevelExactMatch,
 
-  kMutable = 0x0100,      // Option is mutable
-  kPointer = 0x0200,      // The option is stored as a pointer
-  kShared = 0x0400,       // The option is stored as a shared_ptr
-  kUnique = 0x0800,       // The option is stored as a unique_ptr
-  kAllowNull = 0x1000,    // The option can be null
-  kStringNone = 0x2000,   // Don't serialize the option
+  kMutable = 0x0100,        // Option is mutable
+  kPointer = 0x0200,        // The option is stored as a pointer
+  kShared = 0x0400,         // The option is stored as a shared_ptr
+  kUnique = 0x0800,         // The option is stored as a unique_ptr
+  kAllowNull = 0x1000,      // The option can be null
+  kStringNone = 0x2000,     // Don't serialize the option
   kStringShallow = 0x4000,  // The option serializes to a name only
   kDontPrepare = 0x8000,    // Don't prepare or sanitize this option
 };

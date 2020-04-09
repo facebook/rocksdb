@@ -52,12 +52,12 @@ static Status LoadSharedObject(const std::string& value,
       return Status::NotSupported("Cannot reset object ", id);
     } else {
 #ifndef ROCKSDB_LITE
-      status = ObjectRegistry::NewInstance()->NewSharedObject(id, result);
+      status = cfg_opts.registry->NewSharedObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif
       if (!status.ok()) {
-        if (cfg_opts.ignore_unknown_objects) {
+        if (cfg_opts.ignore_unknown_objects && status.IsNotSupported()) {
           return Status::OK();
         } else {
           return status;
@@ -95,12 +95,12 @@ static Status LoadUniqueObject(const std::string& value,
       return Status::NotSupported("Cannot reset object ", id);
     } else {
 #ifndef ROCKSDB_LITE
-      status = ObjectRegistry::NewInstance()->NewUniqueObject(id, result);
+      status = cfg_opts.registry->NewUniqueObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
       if (!status.ok()) {
-        if (cfg_opts.ignore_unknown_objects) {
+        if (cfg_opts.ignore_unknown_objects && status.IsNotSupported()) {
           return Status::OK();
         } else {
           return status;
@@ -136,12 +136,12 @@ static Status LoadStaticObject(const std::string& value,
       return Status::NotSupported("Cannot reset object ", id);
     } else {
 #ifndef ROCKSDB_LITE
-      status = ObjectRegistry::NewInstance()->NewStaticObject(id, result);
+      status = cfg_opts.registry->NewStaticObject(id, result);
 #else
       status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
       if (!status.ok()) {
-        if (cfg_opts.ignore_unknown_objects) {
+        if (cfg_opts.ignore_unknown_objects && status.IsNotSupported()) {
           return Status::OK();
         } else {
           return status;

@@ -28,6 +28,21 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+ConfigOptions::ConfigOptions()
+#ifndef ROCKSDB_LITE
+    : registry(ObjectRegistry::NewInstance())
+#endif
+{
+  env = Env::Default();
+}
+
+ConfigOptions::ConfigOptions(const DBOptions& db_opts)
+    : info_log(db_opts.info_log), env(db_opts.env) {
+#ifndef ROCKSDB_LITE
+  registry = db_opts.object_registry;
+#endif
+}
+
 ConfigOptions ConfigOptions::Embedded() const {
   ConfigOptions embedded = *this;
   embedded.delimiter = ";";
@@ -38,7 +53,7 @@ Status ValidateOptions(const DBOptions& db_opts,
                        const ColumnFamilyOptions& cf_opts) {
   Status s;
 #ifndef ROCKSDB_LITE
-  auto db_cfg = DBOptionsAsConfigurable(db_opts);
+  auto db_cfg = DBOptionsAsConfigurable(db_opts, ConfigOptions());
   auto cf_cfg = CFOptionsAsConfigurable(cf_opts);
   s = db_cfg->ValidateOptions(db_opts, cf_opts);
   if (s.ok()) s = cf_cfg->ValidateOptions(db_opts, cf_opts);
@@ -145,6 +160,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.row_cache = immutable_db_options.row_cache;
 #ifndef ROCKSDB_LITE
   options.wal_filter = immutable_db_options.wal_filter;
+  options.object_registry = immutable_db_options.object_registry;
 #endif  // ROCKSDB_LITE
   options.fail_if_options_file_error =
       immutable_db_options.fail_if_options_file_error;
@@ -636,7 +652,7 @@ Status GetStringFromMutableDBOptions(const MutableDBOptions& mutable_opts,
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
-  ConfigOptions options;
+  ConfigOptions options(db_options);
   options.delimiter = delimiter;
   return GetStringFromDBOptions(db_options, options, opt_string);
 }
@@ -646,7 +662,7 @@ Status GetStringFromDBOptions(const DBOptions& db_options,
                               std::string* opt_string) {
   assert(opt_string);
   opt_string->clear();
-  auto config = DBOptionsAsConfigurable(db_options);
+  auto config = DBOptionsAsConfigurable(db_options, options);
   return config->GetOptionString(options, opt_string);
 }
 
@@ -757,7 +773,7 @@ Status GetDBOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
     bool ignore_unknown_options) {
-  ConfigOptions cfg_options;
+  ConfigOptions cfg_options(base_options);
   cfg_options.input_strings_escaped = input_strings_escaped;
   cfg_options.ignore_unknown_options = ignore_unknown_options;
   return GetDBOptionsFromMap(base_options, opts_map, cfg_options, new_options);
@@ -770,16 +786,19 @@ Status GetDBOptionsFromMap(
   assert(new_options);
   *new_options = base_options;
 
-  auto config = DBOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<DBOptions>(config.get(), opts_map,
-                                     OptionsHelper::kDBOptionsName, cfg_options,
-                                     new_options);
+  // We need to make a copy of the ConfigOptions as they might
+  // change if we are loading things related to it (registry, env).
+  ConfigOptions copy = cfg_options;
+  copy.registry = cfg_options.registry->Clone();
+  auto config = DBOptionsAsConfigurable(base_options, copy);
+  return ConfigureFromMap<DBOptions>(
+      config.get(), opts_map, OptionsHelper::kDBOptionsName, copy, new_options);
 }
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
                               const std::string& opts_str,
                               DBOptions* new_options) {
-  ConfigOptions cfg_options;
+  ConfigOptions cfg_options(base_options);
   cfg_options.input_strings_escaped = false;
   cfg_options.ignore_unknown_options = false;
 
@@ -802,7 +821,7 @@ Status GetDBOptionsFromString(const DBOptions& base_options,
 
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options) {
-  ConfigOptions cfg_options;
+  ConfigOptions cfg_options(base_options);
   cfg_options.input_strings_escaped = false;
   cfg_options.ignore_unknown_options = false;
 
@@ -813,26 +832,34 @@ Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str,
                             const ConfigOptions& cfg_options,
                             Options* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+
   ColumnFamilyOptions new_cf_options;
   std::unordered_map<std::string, std::string> unused_opts;
   std::unordered_map<std::string, std::string> opts_map;
 
+  // We need to make a copy of the ConfigOptions as they might
+  // change if we are loading things related to it (registry, env).
   ConfigOptions copy = cfg_options;
   copy.ignore_unknown_options = true;
+  copy.registry = cfg_options.registry->Clone();
 
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     return s;
   }
-  auto config = DBOptionsAsConfigurable(base_options);
+  auto config = DBOptionsAsConfigurable(base_options, copy);
   s = config->ConfigureFromMap(opts_map, copy, &unused_opts);
   if (s.ok()) {
+    DBOptions* new_db_options =
+        config->GetOptions<DBOptions>(OptionsHelper::kDBOptionsName);
     copy.ignore_unknown_options = cfg_options.ignore_unknown_options;
+    copy.registry = new_db_options->object_registry;
+
     s = GetColumnFamilyOptionsFromMap(base_options, unused_opts, copy,
                                       &new_cf_options);
     if (s.ok()) {
-      DBOptions* new_db_options =
-          config->GetOptions<DBOptions>(OptionsHelper::kDBOptionsName);
       *new_options = Options(*new_db_options, new_cf_options);
     }
   }
@@ -941,6 +968,9 @@ Status OptionTypeInfo::ParseOption(const std::string& opt_name,
       } else if (config == nullptr) {
         return Status::NotFound("Could not find configurable: ", opt_name);
       } else if (opt_value.find("=") != std::string::npos) {
+        ConfigOptions copy = options;
+        copy.ignore_unknown_options = false;
+        return config->ConfigureFromString(opt_value, copy);
         return config->ConfigureFromString(opt_value, options);
       } else {
         return config->ConfigureOption(opt_name, opt_value, options);

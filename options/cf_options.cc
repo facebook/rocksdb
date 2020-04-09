@@ -456,10 +456,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
           OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
           [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& /*opts*/, char* addr) {
+             const ConfigOptions& opts, char* addr) {
             auto comp = reinterpret_cast<const Comparator**>(addr);
-            Status status =
-                ObjectRegistry::NewInstance()->NewStaticObject(value, comp);
+            Status status = opts.registry->NewStaticObject(value, comp);
             if (status.ok()) {
               return status;
             }
@@ -543,11 +542,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kByNameAllowFromNull,
           OptionTypeFlags::kCompareLoose,
           [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& /*opts*/, char* addr) {
+             const ConfigOptions& opts, char* addr) {
             auto mop = reinterpret_cast<std::shared_ptr<MergeOperator>*>(addr);
             Status status =
-                ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
-                    value, mop);
+                opts.registry->NewSharedObject<MergeOperator>(value, mop);
             // Only support static comparator for now.
             if (status.ok()) {
               return status;

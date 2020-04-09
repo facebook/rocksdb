@@ -40,7 +40,8 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, FileSystem* fs) {
-  ConfigOptions options;  // Use default for escaped(true) and check (exact)
+  // Use default for escaped(true) and check (exact)
+  ConfigOptions options(db_opt);
   options.delimiter = "\n  ";
   // If a readahead size was set in the input options, use it
   if (db_opt.log_readahead_size > 0) {
@@ -237,6 +238,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
                                    const ConfigOptions& cfg_options) {
   Reset();
   ConfigOptions options = cfg_options;
+  options.registry = db_opt_.object_registry;
 
   std::unique_ptr<FSSequentialFile> seq_file;
   Status s = fs->NewSequentialFile(file_name, FileOptions(), &seq_file,
@@ -593,8 +595,8 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const DBOptions& base_opt, const DBOptions& file_opt,
     const ConfigOptions& options,
     const std::unordered_map<std::string, std::string>* /*opt_map*/) {
-  auto base_config = DBOptionsAsConfigurable(base_opt);
-  auto file_config = DBOptionsAsConfigurable(file_opt);
+  auto base_config = DBOptionsAsConfigurable(base_opt, options);
+  auto file_config = DBOptionsAsConfigurable(file_opt, options);
   std::string mismatch;
   if (!base_config->Matches(file_config.get(), options, &mismatch)) {
     const size_t kBufferSize = 2048;

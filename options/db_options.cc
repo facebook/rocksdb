@@ -18,6 +18,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "util/string_util.h"
@@ -393,10 +394,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal,
           (OptionTypeFlags::kStringNone | OptionTypeFlags::kCompareNever),
           [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& /*opts*/, char* addr) {
+             const ConfigOptions& opts, char* addr) {
             auto env = reinterpret_cast<Env**>(addr);
-            return Env::LoadEnv(value, env);
+            return Env::CreateFromString(value, opts, env);
           }}},
+        {"object_registry",
+         {offsetof(struct ImmutableDBOptions, object_registry),
+          OptionType::kConfigurable, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kShared | OptionTypeFlags::kCompareNever)}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -417,7 +422,7 @@ class MutableDBConfigurable : public Configurable {
 
 class DBOptionsConfigurable : public MutableDBConfigurable {
  public:
-  DBOptionsConfigurable(const DBOptions& opts)
+  DBOptionsConfigurable(const DBOptions& opts, const ConfigOptions& cfg)
       : MutableDBConfigurable(MutableDBOptions(opts)) {
     // The ImmutableDBOptions currently requires the env to be non-null.  Make
     // sure it is
@@ -428,6 +433,7 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       copy.env = Env::Default();
       immutable_ = ImmutableDBOptions(copy);
     }
+    immutable_.object_registry = cfg.registry;
     RegisterOptions(OptionsHelper::kImmutableDBOptionsName, &immutable_,
                     &db_immutable_options_type_info);
   }
@@ -462,8 +468,10 @@ std::unique_ptr<Configurable> DBOptionsAsConfigurable(
   std::unique_ptr<Configurable> ptr(new MutableDBConfigurable(opts));
   return ptr;
 }
-std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts) {
-  std::unique_ptr<Configurable> ptr(new DBOptionsConfigurable(opts));
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const DBOptions& db_opts, const ConfigOptions& cfg_opts) {
+  std::unique_ptr<Configurable> ptr(
+      new DBOptionsConfigurable(db_opts, cfg_opts));
   return ptr;
 }
 #endif  // ROCKSDB_LITE
@@ -532,6 +540,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       row_cache(options.row_cache),
 #ifndef ROCKSDB_LITE
       wal_filter(options.wal_filter),
+      object_registry(options.object_registry),
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
@@ -703,6 +712,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                        : kUnknownFileChecksumFuncName.c_str());
   ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
                    static_cast<int>(best_efforts_recovery));
+#ifndef ROCKSDB_LITE
+  ROCKS_LOG_HEADER(log, "                Options.object_registry: %s",
+                   object_registry->GetPrintableOptions().c_str());
+#endif
 }
 
 MutableDBOptions::MutableDBOptions()

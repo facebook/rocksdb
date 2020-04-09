@@ -37,7 +37,8 @@ Status ValidateOptions(const DBOptions& db_opts,
 #ifndef ROCKSDB_LITE
 std::unique_ptr<Configurable> DBOptionsAsConfigurable(
     const MutableDBOptions& opts);
-std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts);
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const DBOptions& db_opts, const ConfigOptions& cfg_opts);
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(
     const MutableCFOptions& opts);
 std::unique_ptr<Configurable> CFOptionsAsConfigurable(

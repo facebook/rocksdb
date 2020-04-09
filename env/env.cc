@@ -10,12 +10,14 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+
 #include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
@@ -39,11 +41,17 @@ Status Env::NewLogger(const std::string& fname,
 }
 
 Status Env::LoadEnv(const std::string& value, Env** result) {
+  return CreateFromString(value, ConfigOptions(), result);
+}
+
+Status Env::CreateFromString(const std::string& value,
+                             const ConfigOptions& options, Env** result) {
   Env* env = *result;
   Status s;
 #ifndef ROCKSDB_LITE
-  s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
+  s = options.registry->NewStaticObject<Env>(value, &env);
 #else
+  (void)options;
   s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
 #endif
   if (s.ok()) {
@@ -54,6 +62,12 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 
 Status Env::LoadEnv(const std::string& value, Env** result,
                     std::shared_ptr<Env>* guard) {
+  return CreateFromString(value, ConfigOptions(), result, guard);
+}
+
+Status Env::CreateFromString(const std::string& value,
+                             const ConfigOptions& options, Env** result,
+                             std::shared_ptr<Env>* guard) {
   assert(result);
   Status s;
 #ifndef ROCKSDB_LITE
@@ -61,11 +75,10 @@ Status Env::LoadEnv(const std::string& value, Env** result,
   std::unique_ptr<Env> uniq_guard;
   std::string err_msg;
   assert(guard != nullptr);
-  env = ObjectRegistry::NewInstance()->NewObject<Env>(value, &uniq_guard,
-                                                      &err_msg);
+  env = options.registry->NewObject<Env>(value, &uniq_guard, &err_msg);
   if (!env) {
-    s = Status::NotFound(std::string("Cannot load ") + Env::Type() + ": " +
-                         value);
+    s = Status::NotSupported(std::string("Cannot load ") + Env::Type() + ": " +
+                             value);
     env = Env::Default();
   }
   if (s.ok() && uniq_guard) {
@@ -75,6 +88,7 @@ Status Env::LoadEnv(const std::string& value, Env** result,
     *result = env;
   }
 #else
+  (void)options;
   (void)result;
   (void)guard;
   s = Status::NotSupported("Cannot load environment in LITE mode: ", value);

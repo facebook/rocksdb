@@ -115,7 +115,7 @@ Status CheckOptionsCompatibility(
     const std::string& dbpath, Env* env, const DBOptions& db_options,
     const std::vector<ColumnFamilyDescriptor>& cf_descs,
     bool ignore_unknown_options) {
-  ConfigOptions options;
+  ConfigOptions options(db_options);
   options.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
   options.ignore_unknown_options = ignore_unknown_options;
   options.input_strings_escaped = true;
