@@ -7,8 +7,12 @@
 
 #include <map>
 #include <memory>
+
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
 #ifndef OS_WIN
@@ -29,7 +33,6 @@ class SpecialTimeEnv : public EnvWrapper {
   explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
     base->GetCurrentTime(&current_time_);
   }
-
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
   Status GetCurrentTime(int64_t* current_time) override {
     *current_time = current_time_;
@@ -674,6 +677,147 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   CloseTtl();
 }
 
+class DummyFilter : public CompactionFilter {
+ public:
+  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+              std::string* /*new_value*/,
+              bool* /*value_changed*/) const override {
+    return false;
+  }
+
+  const char* Name() const override { return "DummyFilter"; }
+};
+
+class DummyFilterFactory : public CompactionFilterFactory {
+ public:
+  const char* Name() const override { return "DummyFilterFactory"; }
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context&) override {
+    std::unique_ptr<CompactionFilter> f(new DummyFilter());
+    return f;
+  }
+};
+
+static void RegisterTestObjects(ObjectLibrary& library,
+                                const std::string& /*arg*/) {
+  library.Register<const CompactionFilter>(
+      "DummyFilter", [](const std::string& /*uri*/,
+                        std::unique_ptr<const CompactionFilter>* /*guard*/,
+                        std::string* /* errmsg */) {
+        static DummyFilter dummy;
+        return &dummy;
+      });
+  library.Register<CompactionFilterFactory>(
+      "DummyFilterFactory", [](const std::string& /*uri*/,
+                               std::unique_ptr<CompactionFilterFactory>* guard,
+                               std::string* /* errmsg */) {
+        guard->reset(new DummyFilterFactory());
+        return guard->get();
+      });
+}
+
+class TtlOptionsTest : public testing::Test {
+ public:
+  TtlOptionsTest() {
+    cfg_.registry->AddLocalLibrary(RegisterTtlObjects, "RegisterTtlObjects",
+                                   "");
+    cfg_.registry->AddLocalLibrary(RegisterTestObjects, "RegisterTestObjects",
+                                   "");
+  }
+  ConfigOptions cfg_;
+};
+
+TEST_F(TtlOptionsTest, LoadTtlCompactionFilter) {
+  const CompactionFilter* filter = nullptr;
+
+  ASSERT_OK(CompactionFilter::CreateFromString("Ttl", cfg_, &filter));
+  ASSERT_NE(filter, nullptr);
+  ASSERT_EQ(filter->Name(), std::string("Ttl"));
+  auto ttl = filter->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 0);
+  ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  ASSERT_OK(
+      CompactionFilter::CreateFromString("id=Ttl; ttl=123", cfg_, &filter));
+  ASSERT_NE(filter, nullptr);
+  ttl = filter->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 123);
+  ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      "id=Ttl; ttl=456; user_filter=DummyFilter;", cfg_, &filter));
+  ASSERT_NE(filter, nullptr);
+  auto inner = filter->FindInstance("DummyFilter");
+  ASSERT_NE(inner, nullptr);
+  ASSERT_OK(filter->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  std::string opts_str = filter->ToString(cfg_);
+  const CompactionFilter* copy = nullptr;
+  ASSERT_OK(CompactionFilter::CreateFromString(opts_str, cfg_, &copy));
+  ASSERT_TRUE(filter->Matches(copy, cfg_));
+}
+
+TEST_F(TtlOptionsTest, LoadTtlCompactionFilterFactory) {
+  std::shared_ptr<CompactionFilterFactory> cff;
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString("Ttl", cfg_, &cff));
+  ASSERT_NE(cff.get(), nullptr);
+  ASSERT_EQ(cff->Name(), std::string("Ttl"));
+  auto ttl = cff->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 0);
+  ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  ASSERT_OK(
+      CompactionFilterFactory::CreateFromString("id=Ttl; ttl=123", cfg_, &cff));
+  ASSERT_NE(cff.get(), nullptr);
+  ASSERT_EQ(cff->Name(), std::string("Ttl"));
+  ttl = cff->GetOptions<int32_t>("TTL");
+  ASSERT_NE(ttl, nullptr);
+  ASSERT_EQ(*ttl, 123);
+  ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      "id=Ttl; ttl=456; "
+      "user_filter_factory=DummyFilterFactory;",
+      cfg_, &cff));
+  ASSERT_NE(cff.get(), nullptr);
+  auto filter = cff->CreateCompactionFilter(CompactionFilter::Context());
+  ASSERT_NE(filter.get(), nullptr);
+  auto ttlf = filter->FindInstance("Ttl");
+  ASSERT_EQ(filter.get(), ttlf);
+  auto user = filter->FindInstance("DummyFilter");
+  ASSERT_NE(user, nullptr);
+  ASSERT_OK(cff->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+
+  std::string opts_str = cff->ToString(cfg_);
+  std::shared_ptr<CompactionFilterFactory> copy;
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(opts_str, cfg_, &copy));
+  ASSERT_TRUE(cff->Matches(copy.get(), cfg_));
+}
+
+TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
+  std::shared_ptr<MergeOperator> mo;
+
+  ASSERT_NOK(MergeOperator::CreateFromString("Ttl", cfg_, &mo));
+
+  ASSERT_OK(MergeOperator::CreateFromString("id=Ttl; user_operator=PutOperator",
+                                            cfg_, &mo));
+  ASSERT_NE(mo.get(), nullptr);
+  ASSERT_EQ(mo->Name(), std::string("Ttl"));
+  ASSERT_OK(mo->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  auto ttl_mo = mo->FindInstance("Ttl");
+  ASSERT_EQ(mo.get(), ttl_mo);
+  auto user = ttl_mo->FindInstance("PutOperator");
+  ASSERT_NE(user, nullptr);
+
+  std::string opts_str = mo->ToString(cfg_);
+  std::shared_ptr<MergeOperator> copy;
+  ASSERT_OK(MergeOperator::CreateFromString(opts_str, cfg_, &copy));
+  ASSERT_TRUE(mo->Matches(copy.get(), cfg_));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the ttl wrapper around rocksdb

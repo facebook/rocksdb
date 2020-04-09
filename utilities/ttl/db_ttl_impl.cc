@@ -8,13 +8,285 @@
 
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
+static const std::string kTtlName = "Ttl";
+static const std::string kTtlOpts = "TTL";
+
+static std::unordered_map<std::string, OptionTypeInfo> ttl_type_info = {
+    {"ttl", {0, OptionType::kInt32T}},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo> ttl_cf_type_info = {
+    {"user_filter", OptionTypeInfo::AsCustomP<const CompactionFilter>(
+                        0, OptionVerificationType::kByNameAllowFromNull,
+                        OptionTypeFlags::kNone)}};
+
+TtlCompactionFilter::TtlCompactionFilter(
+    int32_t ttl, Env* env, const CompactionFilter* user_comp_filter,
+    std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory)
+    : ttl_(ttl),
+      env_(env),
+      user_comp_filter_(user_comp_filter),
+      user_comp_filter_from_factory_(std::move(user_comp_filter_from_factory)) {
+  RegisterOptions("Inner", &user_comp_filter_, &ttl_cf_type_info);
+  RegisterOptions(kTtlOpts, &ttl_, &ttl_type_info);
+  // Unlike the merge operator, compaction filter is necessary for TTL, hence
+  // this would be called even if user doesn't specify any compaction-filter
+  if (!user_comp_filter_) {
+    user_comp_filter_ = user_comp_filter_from_factory_.get();
+  }
+}
+
+bool TtlCompactionFilter::Filter(int level, const Slice& key,
+                                 const Slice& old_val, std::string* new_val,
+                                 bool* value_changed) const {
+  if (DBWithTTLImpl::IsStale(old_val, ttl_, env_)) {
+    return true;
+  }
+  if (user_comp_filter_ == nullptr) {
+    return false;
+  }
+  assert(old_val.size() >= DBWithTTLImpl::kTSLength);
+  Slice old_val_without_ts(old_val.data(),
+                           old_val.size() - DBWithTTLImpl::kTSLength);
+  if (user_comp_filter_->Filter(level, key, old_val_without_ts, new_val,
+                                value_changed)) {
+    return true;
+  }
+  if (*value_changed) {
+    new_val->append(old_val.data() + old_val.size() - DBWithTTLImpl::kTSLength,
+                    DBWithTTLImpl::kTSLength);
+  }
+  return false;
+}
+
+const char* TtlCompactionFilter::Name() const { return kTtlName.c_str(); }
+
+Status TtlCompactionFilter::PrepareOptions(const ConfigOptions& opts) {
+  // Unlike the merge operator, compaction filter is necessary for TTL, hence
+  // this would be called even if user doesn't specify any compaction-filter
+  if (!user_comp_filter_) {
+    user_comp_filter_ = user_comp_filter_from_factory_.get();
+  }
+  if (env_ == nullptr) {
+    env_ = opts.env;
+  }
+  return CompactionFilter::PrepareOptions(opts);
+}
+
+Status TtlCompactionFilter::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  Status s;
+  if (env_ == nullptr) {
+    return Status::InvalidArgument(
+        "Env required by TtlCompactionFilterFactory");
+  } else {
+    return CompactionFilter::ValidateOptions(db_opts, cf_opts);
+  }
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> ttl_cff_type_info = {
+    {"user_filter_factory", OptionTypeInfo::AsCustomS<CompactionFilterFactory>(
+                                0, OptionVerificationType::kByNameAllowFromNull,
+                                OptionTypeFlags::kNone)}};
+
+TtlCompactionFilterFactory::TtlCompactionFilterFactory(
+    int32_t ttl, Env* env,
+    const std::shared_ptr<CompactionFilterFactory>& comp_filter_factory)
+    : ttl_(ttl), env_(env), user_comp_filter_factory_(comp_filter_factory) {
+  RegisterOptions("UserOptions", &user_comp_filter_factory_,
+                  &ttl_cff_type_info);
+  RegisterOptions(kTtlOpts, &ttl_, &ttl_type_info);
+}
+
+std::unique_ptr<CompactionFilter>
+TtlCompactionFilterFactory::CreateCompactionFilter(
+    const CompactionFilter::Context& context) {
+  std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
+      nullptr;
+  if (user_comp_filter_factory_) {
+    user_comp_filter_from_factory =
+        user_comp_filter_factory_->CreateCompactionFilter(context);
+  }
+
+  return std::unique_ptr<TtlCompactionFilter>(new TtlCompactionFilter(
+      ttl_, env_, nullptr, std::move(user_comp_filter_from_factory)));
+}
+
+const char* TtlCompactionFilterFactory::Name() const {
+  return kTtlName.c_str();
+}
+
+Status TtlCompactionFilterFactory::PrepareOptions(const ConfigOptions& opts) {
+  if (env_ == nullptr) {
+    env_ = opts.env;
+  }
+  return CompactionFilterFactory::PrepareOptions(opts);
+}
+
+Status TtlCompactionFilterFactory::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  Status s;
+  if (env_ == nullptr) {
+    return Status::InvalidArgument(
+        "Env required by TtlCompactionFilterFactory");
+  } else {
+    return CompactionFilterFactory::ValidateOptions(db_opts, cf_opts);
+  }
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> ttl_mo_type_info = {
+    {"user_operator",
+     OptionTypeInfo::AsCustomS<MergeOperator>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kNone)}};
+
+TtlMergeOperator::TtlMergeOperator(
+    const std::shared_ptr<MergeOperator>& merge_op, Env* env)
+    : user_merge_op_(merge_op), env_(env) {
+  RegisterOptions("TtlMergeOptions", &user_merge_op_, &ttl_mo_type_info);
+}
+
+bool TtlMergeOperator::FullMergeV2(const MergeOperationInput& merge_in,
+                                   MergeOperationOutput* merge_out) const {
+  const uint32_t ts_len = DBWithTTLImpl::kTSLength;
+  if (merge_in.existing_value && merge_in.existing_value->size() < ts_len) {
+    ROCKS_LOG_ERROR(merge_in.logger,
+                    "Error: Could not remove timestamp from existing value.");
+    return false;
+  }
+
+  // Extract time-stamp from each operand to be passed to user_merge_op_
+  std::vector<Slice> operands_without_ts;
+  for (const auto& operand : merge_in.operand_list) {
+    if (operand.size() < ts_len) {
+      ROCKS_LOG_ERROR(merge_in.logger,
+                      "Error: Could not remove timestamp from operand value.");
+      return false;
+    }
+    operands_without_ts.push_back(operand);
+    operands_without_ts.back().remove_suffix(ts_len);
+  }
+
+  // Apply the user merge operator (store result in *new_value)
+  bool good = true;
+  MergeOperationOutput user_merge_out(merge_out->new_value,
+                                      merge_out->existing_operand);
+  if (merge_in.existing_value) {
+    Slice existing_value_without_ts(merge_in.existing_value->data(),
+                                    merge_in.existing_value->size() - ts_len);
+    good = user_merge_op_->FullMergeV2(
+        MergeOperationInput(merge_in.key, &existing_value_without_ts,
+                            operands_without_ts, merge_in.logger),
+        &user_merge_out);
+  } else {
+    good = user_merge_op_->FullMergeV2(
+        MergeOperationInput(merge_in.key, nullptr, operands_without_ts,
+                            merge_in.logger),
+        &user_merge_out);
+  }
+
+  // Return false if the user merge operator returned false
+  if (!good) {
+    return false;
+  }
+
+  if (merge_out->existing_operand.data()) {
+    merge_out->new_value.assign(merge_out->existing_operand.data(),
+                                merge_out->existing_operand.size());
+    merge_out->existing_operand = Slice(nullptr, 0);
+  }
+
+  // Augment the *new_value with the ttl time-stamp
+  int64_t curtime;
+  if (!env_->GetCurrentTime(&curtime).ok()) {
+    ROCKS_LOG_ERROR(
+        merge_in.logger,
+        "Error: Could not get current time to be attached internally "
+        "to the new value.");
+    return false;
+  } else {
+    char ts_string[ts_len];
+    EncodeFixed32(ts_string, (int32_t)curtime);
+    merge_out->new_value.append(ts_string, ts_len);
+    return true;
+  }
+}
+
+bool TtlMergeOperator::PartialMergeMulti(const Slice& key,
+                                         const std::deque<Slice>& operand_list,
+                                         std::string* new_value,
+                                         Logger* logger) const {
+  const uint32_t ts_len = DBWithTTLImpl::kTSLength;
+  std::deque<Slice> operands_without_ts;
+
+  for (const auto& operand : operand_list) {
+    if (operand.size() < ts_len) {
+      ROCKS_LOG_ERROR(logger, "Error: Could not remove timestamp from value.");
+      return false;
+    }
+
+    operands_without_ts.push_back(
+        Slice(operand.data(), operand.size() - ts_len));
+  }
+
+  // Apply the user partial-merge operator (store result in *new_value)
+  assert(new_value);
+  if (!user_merge_op_->PartialMergeMulti(key, operands_without_ts, new_value,
+                                         logger)) {
+    return false;
+  }
+
+  // Augment the *new_value with the ttl time-stamp
+  int64_t curtime;
+  if (!env_->GetCurrentTime(&curtime).ok()) {
+    ROCKS_LOG_ERROR(
+        logger,
+        "Error: Could not get current time to be attached internally "
+        "to the new value.");
+    return false;
+  } else {
+    char ts_string[ts_len];
+    EncodeFixed32(ts_string, (int32_t)curtime);
+    new_value->append(ts_string, ts_len);
+    return true;
+  }
+}
+
+const char* TtlMergeOperator::Name() const { return kTtlName.c_str(); }
+
+Status TtlMergeOperator::PrepareOptions(const ConfigOptions& opts) {
+  if (env_ == nullptr) {
+    env_ = opts.env;
+  }
+  if (user_merge_op_ == nullptr) {
+    return Status::InvalidArgument(
+        "UserMergeOperator required by TtlMergeOperator");
+  } else {
+    return MergeOperator::PrepareOptions(opts);
+  }
+}
+
+Status TtlMergeOperator::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  if (user_merge_op_ == nullptr) {
+    return Status::InvalidArgument(
+        "UserMergeOperator required by TtlMergeOperator");
+  } else if (env_ == nullptr) {
+    return Status::InvalidArgument("Env required by TtlMergeOperator");
+  } else {
+    return MergeOperator::ValidateOptions(db_opts, cf_opts);
+  }
+}
 
 void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
                                     Env* env) {
@@ -31,6 +303,29 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
     options->merge_operator.reset(
         new TtlMergeOperator(options->merge_operator, env));
   }
+}
+
+void RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
+  library.Register<MergeOperator>(
+      kTtlName,
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TtlMergeOperator(nullptr, nullptr));
+        return guard->get();
+      });
+  library.Register<CompactionFilterFactory>(
+      kTtlName, [](const std::string& /*uri*/,
+                   std::unique_ptr<CompactionFilterFactory>* guard,
+                   std::string* /* errmsg */) {
+        guard->reset(new TtlCompactionFilterFactory(0, nullptr, nullptr));
+        return guard->get();
+      });
+  library.Register<const CompactionFilter>(
+      kTtlName, [](const std::string& /*uri*/,
+                   std::unique_ptr<const CompactionFilter>* /*guard*/,
+                   std::string* /* errmsg */) {
+        return new TtlCompactionFilter(0, nullptr, nullptr);
+      });
 }
 
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
@@ -321,14 +616,19 @@ Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
 }
 
 void DBWithTTLImpl::SetTtl(ColumnFamilyHandle *h, int32_t ttl) {
-  std::shared_ptr<TtlCompactionFilterFactory> filter;
   Options opts;
   opts = GetOptions(h);
-  filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
-                                       opts.compaction_filter_factory);
-  if (!filter)
-    return;
-  filter->SetTtl(ttl);
+  auto factory =
+      opts.compaction_filter_factory->CastAs<TtlCompactionFilterFactory>(
+          kTtlName);
+  if (factory != nullptr) {
+    factory->SetTtl(ttl);
+  } else {
+    auto filter = opts.compaction_filter->CastAs<TtlCompactionFilter>(kTtlName);
+    if (filter != nullptr) {
+      filter->SetTtl(ttl);
+    }
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

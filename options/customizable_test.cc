@@ -580,6 +580,28 @@ static void RegisterTestObjects(ObjectLibrary& library,
          std::string* /* errmsg */) {
         return new test::SimpleSuffixReverseComparator();
       });
+  library.Register<MergeOperator>(
+      "ChanglingMergeOperator",
+      [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingMergeOperator("Changling"));
+        return guard->get();
+      });
+  library.Register<CompactionFilterFactory>(
+      "ChanglingCompactionFilterFactory",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<CompactionFilterFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new test::ChanglingCompactionFilterFactory("Changling"));
+        return guard->get();
+      });
+  library.Register<const CompactionFilter>(
+      "ChanglingCompactionFilter",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const CompactionFilter>* /*guard*/,
+         std::string* /* errmsg */) {
+        return new test::ChanglingCompactionFilter("Changling");
+      });
 }
 
 class MockFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
@@ -839,6 +861,96 @@ TEST_F(LoadCustomizableTest, LoadCacheTest) {
   ASSERT_NE(bbto->block_cache.get(), nullptr);
   ASSERT_EQ(bbto->block_cache->Name(), std::string("Test"));
 #endif
+}
+
+TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
+  std::shared_ptr<MergeOperator> op;
+  ASSERT_NOK(MergeOperator::CreateFromString("ChanglingMergeOperator",
+                                             cfg_opts_, &op));
+  ASSERT_OK(MergeOperator::CreateFromString("max", cfg_opts_, &op));
+  ASSERT_NE(op, nullptr);
+  ASSERT_EQ(op->Name(), std::string("MaxOperator"));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "merge_operator={id=ChanglingMergeOperator}", cfg_opts_,
+      &cf_opts_));
+  ASSERT_EQ(cf_opts_.merge_operator, nullptr);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "merge_operator={id=max}", cfg_opts_, &cf_opts_));
+
+  RegisterTests("test");
+
+  ASSERT_OK(MergeOperator::CreateFromString("ChanglingMergeOperator", cfg_opts_,
+                                            &op));
+  ASSERT_NE(op, nullptr);
+  ASSERT_EQ(op->Name(), std::string("ChanglingMergeOperator"));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "merge_operator={id=ChanglingMergeOperator}", cfg_opts_,
+      &cf_opts_));
+  ASSERT_NE(cf_opts_.merge_operator, nullptr);
+  ASSERT_EQ(cf_opts_.merge_operator->Name(),
+            std::string("ChanglingMergeOperator"));
+#endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterTest) {
+  const CompactionFilter* cf = nullptr;
+  ASSERT_NOK(CompactionFilter::CreateFromString("ChanglingCompactionFilter",
+                                                cfg_opts_, &cf));
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(CompactionFilter::CreateFromString(
+      "RemoveEmptyValueCompactionFilter", cfg_opts_, &cf));
+  ASSERT_NE(cf, nullptr);
+  ASSERT_EQ(cf->Name(), std::string("RemoveEmptyValueCompactionFilter"));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "compaction_filter={id=ChanglingCompactionFilter}", cfg_opts_,
+      &cf_opts_));
+  ASSERT_EQ(cf_opts_.compaction_filter, nullptr);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "compaction_filter={id=RemoveEmptyValueCompactionFilter}",
+      cfg_opts_, &cf_opts_));
+  RegisterTests("test");
+
+  ASSERT_OK(CompactionFilter::CreateFromString("ChanglingCompactionFilter",
+                                               cfg_opts_, &cf));
+  ASSERT_NE(cf, nullptr);
+  ASSERT_EQ(cf->Name(), std::string("ChanglingCompactionFilter"));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "compaction_filter={id=ChanglingCompactionFilter}", cfg_opts_,
+      &cf_opts_));
+  ASSERT_NE(cf_opts_.compaction_filter, nullptr);
+  ASSERT_EQ(cf_opts_.compaction_filter->Name(),
+            std::string("ChanglingCompactionFilter"));
+#endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
+  std::shared_ptr<CompactionFilterFactory> cff;
+  ASSERT_NOK(CompactionFilterFactory::CreateFromString(
+      "ChanglingCompactionFilterFactory", cfg_opts_, &cff));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cf_opts_,
+      "compaction_filter_factory={id=ChanglingCompactionFilterFactory}",
+      cfg_opts_, &cf_opts_));
+  ASSERT_EQ(cf_opts_.compaction_filter_factory, nullptr);
+  RegisterTests("test");
+
+  ASSERT_OK(CompactionFilterFactory::CreateFromString(
+      "ChanglingCompactionFilterFactory", cfg_opts_, &cff));
+  ASSERT_NE(cff, nullptr);
+  ASSERT_EQ(cff->Name(), std::string("ChanglingCompactionFilterFactory"));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_,
+      "compaction_filter_factory={id=ChanglingCompactionFilterFactory}",
+      cfg_opts_, &cf_opts_));
+  ASSERT_NE(cf_opts_.compaction_filter_factory, nullptr);
+  ASSERT_EQ(cf_opts_.compaction_filter_factory->Name(),
+            std::string("ChanglingCompactionFilterFactory"));
+#endif  // ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
