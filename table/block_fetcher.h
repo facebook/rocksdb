@@ -78,6 +78,7 @@ class BlockFetcher {
   bool do_uncompress_;
   bool maybe_compressed_;
   BlockType block_type_;
+  size_t block_size_;
   const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
@@ -85,7 +86,7 @@ class BlockFetcher {
   Status status_;
   Slice slice_;
   char* used_buf_ = nullptr;
-  size_t block_size_;
+  AlignedBuf direct_io_buf_;
   CacheAllocationPtr heap_buf_;
   CacheAllocationPtr compressed_buf_;
   char stack_buf_[kDefaultStackBufferSize];
@@ -99,8 +100,10 @@ class BlockFetcher {
   bool TryGetFromPrefetchBuffer();
   bool TryGetCompressedBlockFromPersistentCache();
   void PrepareBufferForBlockFromFile();
-  // Copy content from used_buf_ to new heap buffer.
-  void CopyBufferToHeap();
+  // Copy content from used_buf_ to new heap_buf_.
+  void CopyBufferToHeapBuf();
+  // Copy content from used_buf_ to new compressed_buf_.
+  void CopyBufferToCompressedBuf();
   void GetBlockContents();
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();

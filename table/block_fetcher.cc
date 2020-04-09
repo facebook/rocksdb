@@ -164,10 +164,18 @@ inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
   }
 }
 
-inline void BlockFetcher::CopyBufferToHeap() {
+inline void BlockFetcher::CopyBufferToHeapBuf() {
   assert(used_buf_ != heap_buf_.get());
-  heap_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
-  memcpy(heap_buf_.get(), used_buf_, block_size_ + kBlockTrailerSize);
+  int size = block_size_ + kBlockTrailerSize;
+  heap_buf_ = AllocateBlock(size, memory_allocator_);
+  memcpy(heap_buf_.get(), used_buf_, size);
+}
+
+inline void BlockFetcher::CopyBufferToCompressedBuf() {
+  assert(used_buf_ != compressed_buf_.get());
+  int size = block_size_ + kBlockTrailerSize;
+  compressed_buf_ = AllocateBlock(size, memory_allocator_compressed_);
+  memcpy(compressed_buf_.get(), used_buf_, size);
 }
 
 inline void BlockFetcher::GetBlockContents() {
@@ -178,12 +186,19 @@ inline void BlockFetcher::GetBlockContents() {
     // page can be either uncompressed or compressed, the buffer either stack
     // or heap provided. Refer to https://github.com/facebook/rocksdb/pull/4096
     if (got_from_prefetch_buffer_ || used_buf_ == &stack_buf_[0]) {
-      CopyBufferToHeap();
+      CopyBufferToHeapBuf();
     } else if (used_buf_ == compressed_buf_.get()) {
       if (compression_type_ == kNoCompression &&
           memory_allocator_ != memory_allocator_compressed_) {
-        CopyBufferToHeap();
+        CopyBufferToHeapBuf();
       } else {
+        heap_buf_ = std::move(compressed_buf_);
+      }
+    } else if (direct_io_buf_.get() != nullptr) {
+      if (compression_type_ == kNoCompression) {
+        CopyBufferToHeapBuf();
+      } else {
+        CopyBufferToCompressedBuf();
         heap_buf_ = std::move(compressed_buf_);
       }
     }
@@ -213,10 +228,9 @@ Status BlockFetcher::ReadBlockContents() {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
       if (file_->use_direct_io()) {
-        AlignedBuf buf;
         status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                              &slice_, nullptr, &buf, for_compaction_);
-        heap_buf_ = CacheAllocationPtr(buf.release());
+                              &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
         status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
