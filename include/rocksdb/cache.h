@@ -88,12 +88,13 @@ struct LRUCacheOptions {
       kDefaultCacheMetadataChargePolicy;
 
   LRUCacheOptions() {}
-  LRUCacheOptions(size_t _capacity, int _num_shard_bits,
-                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
-                  std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
-                  CacheMetadataChargePolicy _metadata_charge_policy =
-                      kDefaultCacheMetadataChargePolicy)
+  LRUCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
@@ -114,7 +115,7 @@ struct LRUCacheOptions {
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
-    std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+    const std::shared_ptr<MemoryAllocator>& memory_allocator = nullptr,
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
@@ -131,14 +132,17 @@ extern std::shared_ptr<Cache> NewClockCache(
     bool strict_capacity_limit = false,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
-class Cache {
+
+class Cache : public Customizable {
  public:
+  static const std::string kLRUCacheName /* = "LRUCache"*/;
+  static const std::string kClockCacheName /*= "ClockCache"*/;
+  static const char* Type() { return "Cache"; }
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
-      : memory_allocator_(std::move(allocator)) {}
+  Cache(const std::shared_ptr<MemoryAllocator>& allocator = nullptr);
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;

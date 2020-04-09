@@ -17,6 +17,7 @@
 #include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct ConfigOptions;
 
 // Single cache shard interface.
 class CacheShard {
@@ -49,15 +50,46 @@ class CacheShard {
   CacheMetadataChargePolicy metadata_charge_policy_ = kDontChargeCacheMetadata;
 };
 
+struct ShardedCacheOptions {
+  // Capacity of the cache.
+  size_t capacity = 0;
+
+  // Cache is sharded into 2^num_shard_bits shards,
+  // by hash of key. Refer to NewLRUCache for further
+  // information.
+  int num_shard_bits = -1;
+
+  // If strict_capacity_limit is set,
+  // insert to the cache will fail when cache is full.
+  bool strict_capacity_limit = false;
+
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
+
+  ShardedCacheOptions() {}
+  ShardedCacheOptions(size_t _capacity, int _num_shard_bits,
+                      bool _strict_capacity_limit,
+                      CacheMetadataChargePolicy _metadata_charge_policy =
+                          kDefaultCacheMetadataChargePolicy)
+      : capacity(_capacity),
+        num_shard_bits(_num_shard_bits),
+        strict_capacity_limit(_strict_capacity_limit),
+        metadata_charge_policy(_metadata_charge_policy) {}
+};
+
 // Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
 // shards will be created, with capacity split evenly to each of the shards.
 // Keys are sharded by the highest num_shard_bits bits of hash value.
 class ShardedCache : public Cache {
+ protected:
+  ShardedCache(
+      size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+      CacheMetadataChargePolicy metadata_charge_policy =
+          kDontChargeCacheMetadata,
+      const std::shared_ptr<MemoryAllocator>& memory_allocator = nullptr);
+
  public:
-  ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-               std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
-  virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;
   virtual const CacheShard* GetShard(int shard) const = 0;
   virtual void* Value(Handle* handle) override = 0;
@@ -87,7 +119,12 @@ class ShardedCache : public Cache {
   virtual void EraseUnRefEntries() override;
   virtual std::string GetPrintableOptions() const override;
 
-  int GetNumShardBits() const { return num_shard_bits_; }
+  int GetNumShardBits() const { return options_.num_shard_bits; }
+  Status PrepareOptions(const ConfigOptions& opts) override;
+
+ protected:
+  int GetNumShards() const { return 1 << options_.num_shard_bits; }
+  ShardedCacheOptions options_;
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {
@@ -96,13 +133,12 @@ class ShardedCache : public Cache {
 
   uint32_t Shard(uint32_t hash) {
     // Note, hash >> 32 yields hash in gcc, not the zero we expect!
-    return (num_shard_bits_ > 0) ? (hash >> (32 - num_shard_bits_)) : 0;
+    return (options_.num_shard_bits > 0)
+               ? (hash >> (32 - options_.num_shard_bits))
+               : 0;
   }
 
-  int num_shard_bits_;
   mutable port::Mutex capacity_mutex_;
-  size_t capacity_;
-  bool strict_capacity_limit_;
   std::atomic<uint64_t> last_id_;
 };
 
