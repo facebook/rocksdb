@@ -82,10 +82,10 @@ class VersionBuilderTest : public testing::Test {
                uint64_t total_blob_bytes, std::string checksum_method,
                std::string checksum_value, uint64_t garbage_blob_count,
                uint64_t garbage_blob_bytes) {
-    auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
+    auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, total_blob_count, total_blob_bytes,
         std::move(checksum_method), std::move(checksum_value));
-    auto meta = std::make_shared<BlobFileMetaData>(
+    auto meta = BlobFileMetaData::Create(
         std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
 
     vstorage_.AddBlobFile(std::move(meta));

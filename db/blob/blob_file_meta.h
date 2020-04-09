@@ -23,15 +23,25 @@ namespace ROCKSDB_NAMESPACE {
 
 class SharedBlobFileMetaData {
  public:
-  SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
-                         uint64_t total_blob_bytes, std::string checksum_method,
-                         std::string checksum_value)
-      : blob_file_number_(blob_file_number),
-        total_blob_count_(total_blob_count),
-        total_blob_bytes_(total_blob_bytes),
-        checksum_method_(std::move(checksum_method)),
-        checksum_value_(std::move(checksum_value)) {
-    assert(checksum_method_.empty() == checksum_value_.empty());
+  static std::shared_ptr<SharedBlobFileMetaData> Create(
+      uint64_t blob_file_number, uint64_t total_blob_count,
+      uint64_t total_blob_bytes, std::string checksum_method,
+      std::string checksum_value) {
+    return std::shared_ptr<SharedBlobFileMetaData>(new SharedBlobFileMetaData(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        std::move(checksum_method), std::move(checksum_value)));
+  }
+
+  template <typename Deleter>
+  static std::shared_ptr<SharedBlobFileMetaData> Create(
+      uint64_t blob_file_number, uint64_t total_blob_count,
+      uint64_t total_blob_bytes, std::string checksum_method,
+      std::string checksum_value, Deleter deleter) {
+    return std::shared_ptr<SharedBlobFileMetaData>(
+        new SharedBlobFileMetaData(blob_file_number, total_blob_count,
+                                   total_blob_bytes, std::move(checksum_method),
+                                   std::move(checksum_value)),
+        deleter);
   }
 
   SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
@@ -49,6 +59,17 @@ class SharedBlobFileMetaData {
   std::string DebugString() const;
 
  private:
+  SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
+                         uint64_t total_blob_bytes, std::string checksum_method,
+                         std::string checksum_value)
+      : blob_file_number_(blob_file_number),
+        total_blob_count_(total_blob_count),
+        total_blob_bytes_(total_blob_bytes),
+        checksum_method_(std::move(checksum_method)),
+        checksum_value_(std::move(checksum_value)) {
+    assert(checksum_method_.empty() == checksum_value_.empty());
+  }
+
   uint64_t blob_file_number_;
   uint64_t total_blob_count_;
   uint64_t total_blob_bytes_;
@@ -69,14 +90,11 @@ std::ostream& operator<<(std::ostream& os,
 
 class BlobFileMetaData {
  public:
-  BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
-                   uint64_t garbage_blob_count, uint64_t garbage_blob_bytes)
-      : shared_meta_(std::move(shared_meta)),
-        garbage_blob_count_(garbage_blob_count),
-        garbage_blob_bytes_(garbage_blob_bytes) {
-    assert(shared_meta_);
-    assert(garbage_blob_count_ <= shared_meta_->GetTotalBlobCount());
-    assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
+  static std::shared_ptr<BlobFileMetaData> Create(
+      std::shared_ptr<SharedBlobFileMetaData> shared_meta,
+      uint64_t garbage_blob_count, uint64_t garbage_blob_bytes) {
+    return std::shared_ptr<BlobFileMetaData>(new BlobFileMetaData(
+        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes));
   }
 
   BlobFileMetaData(const BlobFileMetaData&) = delete;
@@ -116,6 +134,16 @@ class BlobFileMetaData {
   std::string DebugString() const;
 
  private:
+  BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
+                   uint64_t garbage_blob_count, uint64_t garbage_blob_bytes)
+      : shared_meta_(std::move(shared_meta)),
+        garbage_blob_count_(garbage_blob_count),
+        garbage_blob_bytes_(garbage_blob_bytes) {
+    assert(shared_meta_);
+    assert(garbage_blob_count_ <= shared_meta_->GetTotalBlobCount());
+    assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
+  }
+
   std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
   uint64_t garbage_blob_count_;
   uint64_t garbage_blob_bytes_;
