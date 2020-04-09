@@ -32,7 +32,6 @@ enum class OptionType {
   kSliceTransform,
   kCompressionType,
   kCompactionStopStyle,
-  kFilterPolicy,
   kChecksumType,
   kEncodingType,
   kEnv,

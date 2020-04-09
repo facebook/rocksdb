@@ -630,6 +630,14 @@ class MockCache : public LRUCache {
   const char* Name() const override { return "Test"; }
 };
 
+class MockFilterPolicy : public FilterPolicy {
+ public:
+  const char* Name() const override { return "Test"; }
+  void CreateFilter(const Slice*, int, std::string*) const override {}
+
+  bool KeyMayMatch(const Slice&, const Slice&) const override { return false; }
+};
+
 static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   library.Register<FlushBlockPolicyFactory>(
@@ -656,6 +664,13 @@ static void RegisterLocalObjects(ObjectLibrary& library,
       "Test", [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
                  std::string* /* errmsg */) {
         guard->reset(new MockCache());
+        return guard->get();
+      });
+  library.Register<FilterPolicy>(
+      "Test",
+      [](const std::string& /*uri*/, std::unique_ptr<FilterPolicy>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockFilterPolicy());
         return guard->get();
       });
 }
@@ -950,6 +965,44 @@ TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
   ASSERT_NE(cf_opts_.compaction_filter_factory, nullptr);
   ASSERT_EQ(cf_opts_.compaction_filter_factory->Name(),
             std::string("ChanglingCompactionFilterFactory"));
+#endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
+  std::shared_ptr<const FilterPolicy> policy;
+  ASSERT_NOK(FilterPolicy::CreateFromString("Test", cfg_opts_, &policy));
+  ASSERT_OK(FilterPolicy::CreateFromString("rocksdb.BuiltinBloomFilter",
+                                           cfg_opts_, &policy));
+  ASSERT_NE(policy, nullptr);
+  ASSERT_EQ(policy->Name(), std::string("rocksdb.BuiltinBloomFilter"));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "block_based_table_factory={filter_policy=Test}", cfg_opts_,
+      &cf_opts_));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_,
+      "block_based_table_factory={filter_policy=rocksdb.BuiltinBloomFilter}",
+      cfg_opts_, &cf_opts_));
+  auto const* options =
+      cf_opts_.table_factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(options, nullptr);
+  ASSERT_NE(options->filter_policy, nullptr);
+  ASSERT_EQ(options->filter_policy->Name(),
+            std::string("rocksdb.BuiltinBloomFilter"));
+  RegisterTests("test");
+  ASSERT_OK(FilterPolicy::CreateFromString("Test", cfg_opts_, &policy));
+  ASSERT_NE(policy, nullptr);
+  ASSERT_EQ(policy->Name(), std::string("Test"));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts_, "block_based_table_factory={filter_policy=Test}", cfg_opts_,
+      &cf_opts_));
+  options = cf_opts_.table_factory->GetOptions<BlockBasedTableOptions>(
+     TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(options, nullptr);
+  ASSERT_NE(options->filter_policy, nullptr);
+  ASSERT_EQ(options->filter_policy->Name(), std::string("Test"));
 #endif  // ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE

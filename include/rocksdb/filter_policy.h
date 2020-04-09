@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -124,7 +125,7 @@ struct FilterBuildingContext {
 // RocksDB would first try using functions in Set 2. if they return nullptr,
 // it would use Set 1 instead.
 // You can choose filter type in NewBloomFilterPolicy
-class FilterPolicy {
+class FilterPolicy : public Customizable {
  public:
   virtual ~FilterPolicy();
 
@@ -134,11 +135,12 @@ class FilterPolicy {
   static Status CreateFromString(const std::string& value,
                                  const ConfigOptions& options,
                                  std::shared_ptr<const FilterPolicy>* result);
+  static const char* Type() { return "FilterPolicy"; }
   // Return the name of this policy.  Note that if the filter encoding
   // changes in an incompatible way, the name returned by this method
   // must be changed.  Otherwise, old incompatible filters may be
   // passed to methods of this type.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 
   // keys[0,n-1] contains a list of keys (potentially with duplicates)
   // that are ordered according to the user supplied comparator.
