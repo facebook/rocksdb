@@ -1020,6 +1020,17 @@ Status OptionTypeInfo::SerializeOption(const std::string& opt_name,
     return string_func(opt_name, opt_addr, options, opt_value);
   } else if (SerializeSingleOptionHelper(opt_addr, type, opt_value)) {
     s = Status::OK();
+  } else if (IsCustomizable()) {
+    const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
+    if (custom == nullptr) {
+      *opt_value = kNullptrString;
+    } else if (IsEnabled(OptionTypeFlags::kStringShallow) &&
+               !options.IsDetailed()) {
+      *opt_value = custom->GetId();
+    } else {
+      *opt_value = custom->ToString(options.Embedded());
+    }
+    return Status::OK();
   } else if (IsConfigurable()) {
     const Configurable* config = AsRawPointer<Configurable>(opt_ptr);
     if (config != nullptr) {

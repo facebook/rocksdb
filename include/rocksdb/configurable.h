@@ -314,6 +314,9 @@ class Configurable {
     return Status::InvalidArgument("Could not find option: ", opt_name);
   }
 
+  static const std::string kIdPropName /* = "id" */;
+  static const std::string kIdPropSuffix /* = ".id" */;
+
  private:
   std::vector<RegisteredOptions> options_;
 };

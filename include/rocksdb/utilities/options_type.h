@@ -46,6 +46,7 @@ enum class OptionType {
   kStruct,
   kVector,
   kConfigurable,
+  kCustomizable,
   kUnknown,
 };
 
@@ -80,7 +81,8 @@ enum class OptionTypeFlags : uint32_t {
   kUnique = 0x0800,       // The option is stored as a unique_ptr
   kAllowNull = 0x1000,    // The option can be null
   kStringNone = 0x2000,   // Don't serialize the option
-  kDontPrepare = 0x4000,  // Don't prepare or sanitize this option
+  kStringShallow = 0x4000,  // The option serializes to a name only
+  kDontPrepare = 0x8000,    // Don't prepare or sanitize this option
 };
 
 inline OptionTypeFlags operator|(const OptionTypeFlags& a,
@@ -288,6 +290,72 @@ class OptionTypeInfo {
         });
   }
 
+  template <typename T>
+  static OptionTypeInfo AsCustomS(int _offset, OptionVerificationType ovt,
+                                  OptionTypeFlags flags) {
+    return AsCustomS<T>(_offset, ovt, flags, nullptr, nullptr);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomS(int _offset, OptionVerificationType ovt,
+                                  OptionTypeFlags flags,
+                                  const StringFunc& _sfunc,
+                                  const EqualsFunc& _efunc) {
+    return OptionTypeInfo(
+        _offset, OptionType::kCustomizable, ovt,
+        flags | OptionTypeFlags::kShared,
+        [](const std::string&, const std::string& value,
+           const ConfigOptions& opts, char* addr) {
+          auto* shared = reinterpret_cast<std::shared_ptr<T>*>(addr);
+          return T::CreateFromString(value, opts, shared);
+        },
+        _sfunc, _efunc);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomU(int _offset, OptionVerificationType ovt,
+                                  OptionTypeFlags flags) {
+    return AsCustomU<T>(_offset, ovt, flags, nullptr, nullptr);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomU(int _offset, OptionVerificationType ovt,
+                                  OptionTypeFlags flags,
+                                  const StringFunc& _sfunc,
+                                  const EqualsFunc& _efunc) {
+    return OptionTypeInfo(
+        _offset, OptionType::kCustomizable, ovt,
+        flags | OptionTypeFlags::kUnique,
+        [](const std::string&, const std::string& value,
+           const ConfigOptions& opts, char* addr) {
+          auto* unique = reinterpret_cast<std::unique_ptr<T>*>(addr);
+          return T::CreateFromString(value, opts, unique);
+        },
+        _sfunc, _efunc);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomP(int _offset, OptionVerificationType ovt,
+                                  OptionTypeFlags flags) {
+    return AsCustomP<T>(_offset, ovt, flags, nullptr, nullptr);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomP(int _offset, OptionVerificationType ovt,
+                                  OptionTypeFlags flags,
+                                  const StringFunc& _sfunc,
+                                  const EqualsFunc& _efunc) {
+    return OptionTypeInfo(
+        _offset, OptionType::kCustomizable, ovt,
+        flags | OptionTypeFlags::kPointer,
+        [](const std::string&, const std::string& value,
+           const ConfigOptions& opts, char* addr) {
+          auto** pointer = reinterpret_cast<T**>(addr);
+          return T::CreateFromString(value, opts, pointer);
+        },
+        _sfunc, _efunc);
+  }
+
   bool IsEnabled(OptionTypeFlags otf) const { return (flags & otf) == otf; }
 
   bool IsMutable() const { return IsEnabled(OptionTypeFlags::kMutable); }
@@ -351,7 +419,11 @@ class OptionTypeInfo {
 
   bool IsStruct() const { return (type == OptionType::kStruct); }
 
-  bool IsConfigurable() const { return (type == OptionType::kConfigurable); }
+  bool IsConfigurable() const {
+    return (type == OptionType::kConfigurable ||
+            type == OptionType::kCustomizable);
+  }
+  bool IsCustomizable() const { return (type == OptionType::kCustomizable); }
 
   // Returns the underlying pointer for the type at base_addr
   // The value returned is the underlying "raw"pointer, offset from base.
@@ -501,6 +573,10 @@ Status ParseVector(const OptionTypeInfo& elem_info, char separator,
   result->clear();
   Status status;
 
+  // Turn off ignore_unknown_objects so we can tell if the returned
+  // object is valid or not.
+  ConfigOptions copy = opts;
+  copy.ignore_unknown_objects = false;
   for (size_t start = 0, end = 0;
        status.ok() && start < value.size() && end != std::string::npos;
        start = end + 1) {
@@ -508,10 +584,14 @@ Status ParseVector(const OptionTypeInfo& elem_info, char separator,
     status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
     if (status.ok()) {
       T elem;
-      status = elem_info.ParseOption(name, token, opts,
+      status = elem_info.ParseOption(name, token, copy,
                                      reinterpret_cast<char*>(&elem));
       if (status.ok()) {
         result->emplace_back(elem);
+      } else if (opts.ignore_unknown_objects && status.IsNotSupported()) {
+        // If we were ignoring unknown objects and this one should be
+        // ignored, ignore it by setting the status to OK
+        status = Status::OK();
       }
     }
   }

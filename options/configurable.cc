@@ -7,6 +7,7 @@
 
 #include "logging/logging.h"
 #include "options/options_helper.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -14,6 +15,8 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+const std::string Configurable::kIdPropName = "id";
+const std::string Configurable::kIdPropSuffix = "." + kIdPropName;
 
 void Configurable::RegisterOptions(
     const std::string& name, void* opt_ptr,
@@ -111,8 +114,23 @@ Status Configurable::DoConfigureOption(const OptionTypeInfo* opt_info,
     s = Status::NotFound("Could not find option: ", opt_name);
   } else if (opt_name == short_name) {
     s = ParseOption(*opt_info, opt_name, opt_value, cfg, opt_ptr);
+  } else if (opt_info->IsCustomizable() &&
+             EndsWith(short_name, kIdPropSuffix)) {
+    s = ParseOption(*opt_info, opt_name, opt_value, cfg, opt_ptr);
   } else if (opt_info->IsStruct()) {
     s = ParseOption(*opt_info, opt_name, opt_value, cfg, opt_ptr);
+  } else if (opt_info->IsCustomizable()) {
+    Customizable* custom = opt_info->AsRawPointer<Customizable>(opt_ptr);
+    if (opt_value.empty()) {
+      s = Status::OK();
+    } else if (custom == nullptr ||
+               !StartsWith(opt_name, custom->GetId() + ".")) {
+      s = Status::NotFound("Could not find customizable option: ", short_name);
+    } else if (opt_value.find("=") != std::string::npos) {
+      s = custom->ConfigureFromString(opt_value, cfg);
+    } else {
+      s = custom->ConfigureOption(opt_name, opt_value, cfg);
+    }
   } else if (opt_info->IsConfigurable()) {
     s = ParseOption(*opt_info, opt_name, opt_value, cfg, opt_ptr);
   }
@@ -156,6 +174,11 @@ Status Configurable::DoConfigureOptions(
           unsupported.insert(it->first);
           found--;  // Saw this one before, don't count it
           ++it;     // Skip it for now
+          if (!cfg.ignore_unknown_objects && not_found.ok()) {
+            // If we are not ignoring unknown objects and this
+            // is the first error, save the status
+            not_found = s;
+          }
         } else {
           unsupported.insert(it->first);
           it = options->erase(it);

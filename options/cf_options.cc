@@ -490,26 +490,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return s;
           }}},
         {"table_factory",
-         {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kConfigurable, OptionVerificationType::kByName,
-          (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
-           OptionTypeFlags::kDontPrepare),
-          [](const std::string& /*name*/, const std::string& value,
-             const ConfigOptions& opts, char* addr) {
-            auto tf = reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-            return TableFactory::CreateFromString(value, opts, tf);
-          },
-          [](const std::string& /*name*/, const char* addr,
-             const ConfigOptions& /*opts*/, std::string* value) {
-            const auto* tf =
-                reinterpret_cast<const std::shared_ptr<TableFactory>*>(addr);
-            *value = tf->get() ? tf->get()->Name() : kNullptrString;
-            return Status::OK();
-          },
-          nullptr}},
+         OptionTypeInfo::AsCustomS<TableFactory>(
+             offset_of(&ColumnFamilyOptions::table_factory),
+             OptionVerificationType::kByName,
+             OptionTypeFlags::kCompareLoose | OptionTypeFlags::kStringShallow |
+                 OptionTypeFlags::kDontPrepare)},
         {"block_based_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kConfigurable, OptionVerificationType::kAlias,
+          OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           [](const std::string& /*name*/, const std::string& value,
              const ConfigOptions& opts, char* addr) {
@@ -526,7 +514,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           }}},
         {"plain_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kConfigurable, OptionVerificationType::kAlias,
+          OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           [](const std::string& /*name*/, const std::string& value,
              const ConfigOptions& opts, char* addr) {

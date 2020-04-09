@@ -45,6 +45,8 @@ struct ConfigOptions {
 
   // When true, any unused options will be ignored and OK will be returned
   bool ignore_unknown_options = false;
+  // When true, ignore unsupported objects during configure/parse.
+  bool ignore_unknown_objects = true;
   // If the strings are escaped (old-style?)
   bool input_strings_escaped = true;
   // Whether or not to invoke PrepareOptins after configure is called
