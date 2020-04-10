@@ -25,4 +25,3 @@ class MemkindKmemAllocator : public MemoryAllocator {
 
 }  // namespace rocksdb
 #endif  // MEMKIND
-
