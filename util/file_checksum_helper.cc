@@ -77,4 +77,8 @@ FileChecksumList* NewFileChecksumList() {
   return checksum_list;
 }
 
+FileChecksumGenFactory* NewFileChecksumGenCrc32cFactory() {
+  return new FileChecksumGenCrc32cFactory();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

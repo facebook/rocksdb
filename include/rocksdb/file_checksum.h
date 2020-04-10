@@ -97,4 +97,8 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
+// Create a buildin Crc32 based file checksum generatory factory object, which
+// can be shared to create the Crc32c based checksum generator object.
+extern FileChecksumGenFactory* NewFileChecksumGenCrc32cFactory();
+
 }  // namespace ROCKSDB_NAMESPACE
