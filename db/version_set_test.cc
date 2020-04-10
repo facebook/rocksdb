@@ -111,7 +111,7 @@ class VersionStorageInfoTestBase : public testing::Test {
     return InternalKey(ukey, smallest_seq, kTypeValue);
   }
 
-  VersionStorageInfoTestBase(const Comparator* ucmp)
+  explicit VersionStorageInfoTestBase(const Comparator* ucmp)
       : ucmp_(ucmp),
         icmp_(ucmp_),
         logger_(new CountingLogger()),
@@ -441,19 +441,19 @@ class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {
 
 TEST_F(VersionStorageInfoTimestampTest, GetOverlappingInputs) {
   Add(/*level=*/1, /*file_number=*/1, /*smallest=*/
-      {PackUserKeyAndTimestamp("a", /*ts=*/9), /*seq=*/0, kTypeValue},
+      {PackUserKeyAndTimestamp("a", /*ts=*/9), /*s=*/0, kTypeValue},
       /*largest=*/
-      {PackUserKeyAndTimestamp("a", /*ts=*/8), /*seq=*/0, kTypeValue},
+      {PackUserKeyAndTimestamp("a", /*ts=*/8), /*s=*/0, kTypeValue},
       /*file_size=*/100);
   Add(/*level=*/1, /*file_number=*/2, /*smallest=*/
-      {PackUserKeyAndTimestamp("a", /*ts=*/5), /*seq=*/0, kTypeValue},
+      {PackUserKeyAndTimestamp("a", /*ts=*/5), /*s=*/0, kTypeValue},
       /*largest=*/
-      {PackUserKeyAndTimestamp("b", /*ts=*/10), /*seq=*/0, kTypeValue},
+      {PackUserKeyAndTimestamp("b", /*ts=*/10), /*s=*/0, kTypeValue},
       /*file_size=*/100);
   Add(/*level=*/1, /*file_number=*/3, /*smallest=*/
-      {PackUserKeyAndTimestamp("c", /*ts=*/12), /*seq=*/0, kTypeValue},
+      {PackUserKeyAndTimestamp("c", /*ts=*/12), /*s=*/0, kTypeValue},
       /*largest=*/
-      {PackUserKeyAndTimestamp("d", /*ts=*/1), /*seq=*/0, kTypeValue},
+      {PackUserKeyAndTimestamp("d", /*ts=*/1), /*s=*/0, kTypeValue},
       /*file_size=*/100);
   vstorage_.UpdateNumNonEmptyLevels();
   vstorage_.GenerateLevelFilesBrief();
@@ -461,14 +461,13 @@ TEST_F(VersionStorageInfoTimestampTest, GetOverlappingInputs) {
       "1,2",
       GetOverlappingFiles(
           /*level=*/1,
-          {PackUserKeyAndTimestamp("a", /*ts=*/12), /*seq=*/0, kTypeValue},
-          {PackUserKeyAndTimestamp("a", /*ts=*/11), /*seq=*/0, kTypeValue}));
-  ASSERT_EQ(
-      "3",
-      GetOverlappingFiles(
-          /*level=*/1,
-          {PackUserKeyAndTimestamp("c", /*ts=*/15), /*seq=*/0, kTypeValue},
-          {PackUserKeyAndTimestamp("c", /*ts=*/2), /*seq=*/0, kTypeValue}));
+          {PackUserKeyAndTimestamp("a", /*ts=*/12), /*s=*/0, kTypeValue},
+          {PackUserKeyAndTimestamp("a", /*ts=*/11), /*s=*/0, kTypeValue}));
+  ASSERT_EQ("3",
+            GetOverlappingFiles(
+                /*level=*/1,
+                {PackUserKeyAndTimestamp("c", /*ts=*/15), /*s=*/0, kTypeValue},
+                {PackUserKeyAndTimestamp("c", /*ts=*/2), /*s=*/0, kTypeValue}));
 }
 
 class FindLevelFileTest : public testing::Test {
