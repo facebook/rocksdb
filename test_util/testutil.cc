@@ -118,11 +118,71 @@ class Uint64ComparatorImpl : public Comparator {
 
   void FindShortSuccessor(std::string* /*key*/) const override { return; }
 };
+
+// A test implementation of comparator with 64-bit integer timestamp.
+class ComparatorWithU64TsImpl : public Comparator {
+ public:
+  ComparatorWithU64TsImpl()
+      : Comparator(/*ts_sz=*/sizeof(uint64_t)),
+        cmp_without_ts_(BytewiseComparator()) {
+    assert(cmp_without_ts_);
+    assert(cmp_without_ts_->timestamp_size() == 0);
+  }
+  const char* Name() const override { return "ComparatorWithU64Ts"; }
+  void FindShortSuccessor(std::string*) const override {}
+  void FindShortestSeparator(std::string*, const Slice&) const override {}
+  int Compare(const Slice& a, const Slice& b) const override {
+    int ret = CompareWithoutTimestamp(a, b);
+    size_t ts_sz = timestamp_size();
+    if (ret != 0) {
+      return ret;
+    }
+    // Compare timestamp.
+    // For the same user key with different timestamps, larger (newer) timestamp
+    // comes first.
+    return -CompareTimestamp(ExtractTimestampFromUserKey(a, ts_sz),
+                             ExtractTimestampFromUserKey(b, ts_sz));
+  }
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                              bool b_has_ts) const override {
+    const size_t ts_sz = timestamp_size();
+    assert(!a_has_ts || a.size() >= ts_sz);
+    assert(!b_has_ts || b.size() >= ts_sz);
+    Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
+    Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
+    return cmp_without_ts_->Compare(lhs, rhs);
+  }
+  int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
+    size_t ts_sz = timestamp_size();
+    assert(ts1.size() == ts_sz);
+    assert(ts2.size() == ts_sz);
+    assert(ts_sz == sizeof(uint64_t));
+    uint64_t lhs = DecodeFixed64(ts1.data());
+    uint64_t rhs = DecodeFixed64(ts2.data());
+    if (lhs < rhs) {
+      return -1;
+    } else if (lhs > rhs) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+ private:
+  const Comparator* cmp_without_ts_{nullptr};
+};
+
 }  // namespace
 
 const Comparator* Uint64Comparator() {
   static Uint64ComparatorImpl uint64comp;
   return &uint64comp;
+}
+
+const Comparator* ComparatorWithU64Ts() {
+  static ComparatorWithU64TsImpl comp_with_u64_ts;
+  return &comp_with_u64_ts;
 }
 
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf,

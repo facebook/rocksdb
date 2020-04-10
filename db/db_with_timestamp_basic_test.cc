@@ -173,8 +173,6 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
-  // TODO(yanqin) re-enable auto compaction
-  options.disable_auto_compactions = true;
   options.create_if_missing = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -240,7 +238,6 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
-  options.disable_auto_compactions = true;
   options.create_if_missing = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -293,7 +290,9 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  // TODO(yanqin) re-enable auto compaction
+  // Need to disable compaction to bottommost level when sequence number will be
+  // zeroed out, causing the verification of sequence number to fail in this
+  // test.
   options.disable_auto_compactions = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -351,8 +350,6 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
   constexpr size_t kNumKeys = 16;
   options.max_sequential_skip_in_iterations = kNumKeys / 2;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  // TODO(yanqin) re-enable auto compaction
-  options.disable_auto_compactions = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
@@ -388,8 +385,6 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   constexpr size_t kNumKeys = 16;
   options.max_sequential_skip_in_iterations = kNumKeys / 2;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  // TODO(yanqin) re-enable auto compaction
-  options.disable_auto_compactions = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
@@ -821,8 +816,6 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  // TODO(yanqin): re-enable auto compactions
-  options.disable_auto_compactions = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
