@@ -150,6 +150,16 @@ class PosixEnv : public CompositeEnvWrapper {
     }
   }
 
+  const char* Name() const override { return kPosixEnvName.c_str(); }
+  // Finds the named Customizable in the stack, or nullptr if not found
+  const Customizable* FindInstance(const std::string& name) const override {
+    if (name == kDefaultEnvName || name == kPosixEnvName) {
+      return this;
+    } else {
+      return Env::FindInstance(name);
+    }
+  }
+
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
       fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
@@ -207,8 +217,8 @@ class PosixEnv : public CompositeEnvWrapper {
         }
       }
     }
-    return Status::IOError(
-        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
+    return Status::IOError(IOErrorMsg("Failed to open shared library: ", name),
+                           dlerror());
   }
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 

@@ -5,15 +5,16 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
+#include "rocksdb/utilities/options_util.h"
 
 #include <cctype>
+#include <cinttypes>
 #include <unordered_map>
 
 #include "options/options_parser.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/options_util.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -42,10 +43,6 @@ class OptionsUtilTest : public testing::Test {
   Random rnd_;
 };
 
-bool IsBlockBasedTableFactory(TableFactory* tf) {
-  return tf->Name() == BlockBasedTableFactory().Name();
-}
-
 TEST_F(OptionsUtilTest, SaveAndLoad) {
   const size_t kCFCount = 5;
 
@@ -67,23 +64,24 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
   ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
                                 &loaded_cf_descs));
-
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(db_opt, loaded_db_opt));
+  ConfigOptions exact;
+  exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(db_opt, loaded_db_opt, exact));
   test::RandomInitDBOptions(&db_opt, &rnd_);
-  ASSERT_NOK(RocksDBOptionsParser::VerifyDBOptions(db_opt, loaded_db_opt));
+  ASSERT_NOK(
+      RocksDBOptionsParser::VerifyDBOptions(db_opt, loaded_db_opt, exact));
 
   for (size_t i = 0; i < kCFCount; ++i) {
     ASSERT_EQ(cf_names[i], loaded_cf_descs[i].name);
     ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
-        cf_opts[i], loaded_cf_descs[i].options));
-    if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
-      ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
-          cf_opts[i].table_factory.get(),
-          loaded_cf_descs[i].options.table_factory.get()));
-    }
+        cf_opts[i], loaded_cf_descs[i].options, exact));
+    ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
+        cf_opts[i].table_factory.get(),
+        loaded_cf_descs[i].options.table_factory.get(), exact));
     test::RandomInitCFOptions(&cf_opts[i], db_opt, &rnd_);
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-        cf_opts[i], loaded_cf_descs[i].options));
+        cf_opts[i], loaded_cf_descs[i].options, exact));
   }
 
   for (size_t i = 0; i < kCFCount; ++i) {
@@ -125,16 +123,19 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
-  ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), &loaded_db_opt,
-                                &loaded_cf_descs, false, &cache));
+  ConfigOptions cfg_opts;
+  cfg_opts.ignore_unknown_options = false;
+  cfg_opts.input_strings_escaped = true;
+  ASSERT_OK(LoadOptionsFromFile(kFileName, env_.get(), cfg_opts, &loaded_db_opt,
+                                &loaded_cf_descs, &cache));
   for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
-    if (IsBlockBasedTableFactory(cf_opts[i].table_factory.get())) {
-      auto* loaded_bbt_opt = reinterpret_cast<BlockBasedTableOptions*>(
-          loaded_cf_descs[i].options.table_factory->GetOptions());
-      // Expect the same cache will be loaded
-      if (loaded_bbt_opt != nullptr) {
-        ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
-      }
+    auto* loaded_bbt_opt =
+        loaded_cf_descs[i]
+            .options.table_factory->GetOptions<BlockBasedTableOptions>(
+                TableFactory::kBlockBasedTableOpts);
+    // Expect the same cache will be loaded
+    if (loaded_bbt_opt != nullptr) {
+      ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
     }
   }
 }
@@ -162,18 +163,13 @@ class DummyTableFactory : public TableFactory {
     return nullptr;
   }
 
-  Status SanitizeOptions(
+  Status ValidateOptions(
       const DBOptions& /*db_opts*/,
       const ColumnFamilyOptions& /*cf_opts*/) const override {
     return Status::NotSupported();
   }
 
-  std::string GetPrintableTableOptions() const override { return ""; }
-
-  Status GetOptionString(std::string* /*opt_string*/,
-                         const std::string& /*delimiter*/) const override {
-    return Status::OK();
-  }
+  std::string GetPrintableOptions() const override { return ""; }
 };
 
 class DummyMergeOperator : public MergeOperator {
@@ -248,9 +244,13 @@ TEST_F(OptionsUtilTest, SanityCheck) {
   }
   delete db;
 
+  ConfigOptions cfg_opt;
+  cfg_opt.ignore_unknown_options = false;
+  cfg_opt.input_strings_escaped = true;
+  cfg_opt.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
   // perform sanity check
-  ASSERT_OK(
-      CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+  ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs,
+                                      cfg_opt));
 
   ASSERT_GE(kCFCount, 5);
   // merge operator
@@ -260,16 +260,16 @@ TEST_F(OptionsUtilTest, SanityCheck) {
 
     ASSERT_NE(merge_op.get(), nullptr);
     cf_descs[0].options.merge_operator.reset();
-    ASSERT_NOK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_NOK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                         cf_descs, cfg_opt));
 
     cf_descs[0].options.merge_operator.reset(new DummyMergeOperator());
-    ASSERT_NOK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_NOK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                         cf_descs, cfg_opt));
 
     cf_descs[0].options.merge_operator = merge_op;
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
   }
 
   // prefix extractor
@@ -280,16 +280,16 @@ TEST_F(OptionsUtilTest, SanityCheck) {
     // It's okay to set prefix_extractor to nullptr.
     ASSERT_NE(prefix_extractor, nullptr);
     cf_descs[1].options.prefix_extractor.reset();
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
 
     cf_descs[1].options.prefix_extractor.reset(new DummySliceTransform());
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
 
     cf_descs[1].options.prefix_extractor = prefix_extractor;
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
   }
 
   // prefix extractor nullptr case
@@ -300,17 +300,17 @@ TEST_F(OptionsUtilTest, SanityCheck) {
     // It's okay to set prefix_extractor to nullptr.
     ASSERT_EQ(prefix_extractor, nullptr);
     cf_descs[0].options.prefix_extractor.reset();
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
 
     // It's okay to change prefix_extractor from nullptr to non-nullptr
     cf_descs[0].options.prefix_extractor.reset(new DummySliceTransform());
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
 
     cf_descs[0].options.prefix_extractor = prefix_extractor;
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
   }
 
   // comparator
@@ -319,12 +319,12 @@ TEST_F(OptionsUtilTest, SanityCheck) {
 
     auto* prev_comparator = cf_descs[2].options.comparator;
     cf_descs[2].options.comparator = &comparator;
-    ASSERT_NOK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_NOK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                         cf_descs, cfg_opt));
 
     cf_descs[2].options.comparator = prev_comparator;
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
   }
 
   // table factory
@@ -334,12 +334,12 @@ TEST_F(OptionsUtilTest, SanityCheck) {
 
     ASSERT_NE(table_factory, nullptr);
     cf_descs[3].options.table_factory.reset(new DummyTableFactory());
-    ASSERT_NOK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_NOK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                         cf_descs, cfg_opt));
 
     cf_descs[3].options.table_factory = table_factory;
-    ASSERT_OK(
-        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+    ASSERT_OK(CheckOptionsCompatibility(dbname_, Env::Default(), db_opt,
+                                        cf_descs, cfg_opt));
   }
 }
 

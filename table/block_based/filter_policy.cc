@@ -7,15 +7,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/filter_policy.h"
+
 #include <array>
 #include <deque>
 
-#include "rocksdb/filter_policy.h"
-
+#include "options/customizable_helper.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_filter_block.h"
-#include "table/block_based/full_filter_block.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "table/block_based/full_filter_block.h"
 #include "third-party/folly/folly/ConstexprMath.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
@@ -445,35 +447,60 @@ class AlwaysFalseFilter : public FilterBitsReader {
 
 }  // namespace
 
-const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllFixedImpls = {
-    kLegacyBloom,
-    kDeprecatedBlock,
-    kFastLocalBloom,
+const std::vector<BloomFilterOptions::Mode> BloomFilterOptions::kAllFixedImpls =
+    {
+        kLegacyBloom,
+        kDeprecatedBlock,
+        kFastLocalBloom,
+ };
+
+const std::vector<BloomFilterOptions::Mode> BloomFilterOptions::kAllUserModes =
+    {
+        kDeprecatedBlock,
+        kAuto,
 };
 
-const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
-    kDeprecatedBlock,
-    kAuto,
-};
-
-BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
-    : mode_(mode), warned_(false) {
+void BloomFilterOptions::Sanitize() {
   // Sanitize bits_per_key
   if (bits_per_key < 1.0) {
     bits_per_key = 1.0;
   } else if (!(bits_per_key < 100.0)) {  // including NaN
     bits_per_key = 100.0;
   }
+}
 
-  // Includes a nudge toward rounding up, to ensure on all platforms
-  // that doubles specified with three decimal digits after the decimal
-  // point are interpreted accurately.
-  millibits_per_key_ = static_cast<int>(bits_per_key * 1000.0 + 0.500001);
+BloomFilterOptions::BloomFilterOptions(double _bits_per_key,
+                                       BloomFilterOptions::Mode _mode)
+    : bits_per_key(_bits_per_key), mode(_mode) {
+  Sanitize();
+}
 
-  // For better or worse, this is a rounding up of a nudged rounding up,
-  // e.g. 7.4999999999999 will round up to 8, but that provides more
-  // predictability against small arithmetic errors in floating point.
-  whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
+static std::unordered_map<std::string, BloomFilterOptions::Mode>
+    bloom_filter_mode_string_map = {
+        {"auto", BloomFilterOptions::kAuto},
+        {"deprecatedBlock", BloomFilterOptions::kDeprecatedBlock},
+        {"legacy", BloomFilterOptions::kLegacyBloom},
+        {"fast-local", BloomFilterOptions::kFastLocalBloom},
+};
+
+static std::unordered_map<std::string, OptionTypeInfo> bloom_filter_type_info =
+    {
+#ifndef ROCKSDB_LITE
+        {"bits_per_key",
+         {offsetof(struct BloomFilterOptions, bits_per_key),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"mode", OptionTypeInfo::Enum<BloomFilterOptions::Mode>(
+                     offsetof(struct BloomFilterOptions, mode),
+                     &bloom_filter_mode_string_map)},
+
+#endif  // ROCKSDB_LITE
+};
+
+BloomFilterPolicy::BloomFilterPolicy(double bits_per_key,
+                                     BloomFilterOptions::Mode mode)
+    : options(bits_per_key, mode), warned_(false) {
+  RegisterOptions("BloomFilterOptions", &options, &bloom_filter_type_info);
 }
 
 BloomFilterPolicy::~BloomFilterPolicy() {}
@@ -482,14 +509,34 @@ const char* BloomFilterPolicy::Name() const {
   return "rocksdb.BuiltinBloomFilter";
 }
 
+Status BloomFilterPolicy::PrepareOptions(const ConfigOptions& opts) {
+  options.Sanitize();
+  return FilterPolicy::PrepareOptions(opts);
+}
+
+int BloomFilterPolicy::GetMillibitsPerKey() const {
+  // Includes a nudge toward rounding up, to ensure on all platforms
+  // that doubles specified with three decimal digits after the decimal
+  // point are interpreted accurately.
+  return static_cast<int>(options.bits_per_key * 1000.0 + 0.500001);
+}
+
+int BloomFilterPolicy::GetWholeBitsPerKey() const {
+  // For better or worse, this is a rounding up of a nudged rounding up,
+  // e.g. 7.4999999999999 will round up to 8, but that provides more
+  // predictability against small arithmetic errors in floating point.
+  return (GetMillibitsPerKey() + 500) / 1000;
+}
+
 void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
                                      std::string* dst) const {
   // We should ideally only be using this deprecated interface for
   // appropriately constructed BloomFilterPolicy
-  assert(mode_ == kDeprecatedBlock);
+  assert(options.mode == BloomFilterOptions::kDeprecatedBlock);
 
+  int whole_bits_per_key = GetWholeBitsPerKey();
   // Compute bloom filter size (in both bits and bytes)
-  uint32_t bits = static_cast<uint32_t>(n * whole_bits_per_key_);
+  uint32_t bits = static_cast<uint32_t>(n * whole_bits_per_key);
 
   // For small n, we can see a very high false positive rate.  Fix it
   // by enforcing a minimum bloom filter length.
@@ -499,7 +546,7 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
   bits = bytes * 8;
 
   int num_probes =
-      LegacyNoLocalityBloomImpl::ChooseNumProbes(whole_bits_per_key_);
+      LegacyNoLocalityBloomImpl::ChooseNumProbes(whole_bits_per_key);
 
   const size_t init_size = dst->size();
   dst->resize(init_size + bytes, 0);
@@ -548,28 +595,30 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
 
 FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
-  Mode cur = mode_;
+  BloomFilterOptions::Mode cur = options.mode;
+
   // Unusual code construction so that we can have just
   // one exhaustive switch without (risky) recursion
   for (int i = 0; i < 2; ++i) {
     switch (cur) {
-      case kAuto:
+      case BloomFilterOptions::kAuto:
         if (context.table_options.format_version < 5) {
-          cur = kLegacyBloom;
+          cur = BloomFilterOptions::kLegacyBloom;
         } else {
-          cur = kFastLocalBloom;
+          cur = BloomFilterOptions::kFastLocalBloom;
         }
         break;
-      case kDeprecatedBlock:
+      case BloomFilterOptions::kDeprecatedBlock:
         return nullptr;
-      case kFastLocalBloom:
-        return new FastLocalBloomBitsBuilder(millibits_per_key_);
-      case kLegacyBloom:
-        if (whole_bits_per_key_ >= 14 && context.info_log &&
+      case BloomFilterOptions::kFastLocalBloom:
+        return new FastLocalBloomBitsBuilder(GetMillibitsPerKey());
+      case BloomFilterOptions::kLegacyBloom: {
+        int whole_bits_per_key = GetWholeBitsPerKey();
+        if (whole_bits_per_key >= 14 && context.info_log &&
             !warned_.load(std::memory_order_relaxed)) {
           warned_ = true;
           const char* adjective;
-          if (whole_bits_per_key_ >= 20) {
+          if (whole_bits_per_key >= 20) {
             adjective = "Dramatic";
           } else {
             adjective = "Significant";
@@ -581,10 +630,10 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
               "Using legacy Bloom filter with high (%d) bits/key. "
               "%s filter space and/or accuracy improvement is available "
               "with format_version>=5.",
-              whole_bits_per_key_, adjective);
+              whole_bits_per_key, adjective);
         }
-        return new LegacyBloomBitsBuilder(whole_bits_per_key_,
-                                          context.info_log);
+        return new LegacyBloomBitsBuilder(whole_bits_per_key, context.info_log);
+      }
     }
   }
   assert(false);
@@ -738,15 +787,15 @@ FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
 
 const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
                                          bool use_block_based_builder) {
-  BloomFilterPolicy::Mode m;
+  BloomFilterOptions::Mode m;
   if (use_block_based_builder) {
-    m = BloomFilterPolicy::kDeprecatedBlock;
+    m = BloomFilterOptions::kDeprecatedBlock;
   } else {
-    m = BloomFilterPolicy::kAuto;
+    m = BloomFilterOptions::kAuto;
   }
-  assert(std::find(BloomFilterPolicy::kAllUserModes.begin(),
-                   BloomFilterPolicy::kAllUserModes.end(),
-                   m) != BloomFilterPolicy::kAllUserModes.end());
+  assert(std::find(BloomFilterOptions::kAllUserModes.begin(),
+                   BloomFilterOptions::kAllUserModes.end(),
+                   m) != BloomFilterOptions::kAllUserModes.end());
   return new BloomFilterPolicy(bits_per_key, m);
 }
 
@@ -756,4 +805,50 @@ FilterBuildingContext::FilterBuildingContext(
 
 FilterPolicy::~FilterPolicy() { }
 
+static bool LoadFilterPolicy(const std::string& id,
+                             std::shared_ptr<FilterPolicy>* policy) {
+  bool success = true;
+  if (id == "rocksdb.BuiltinBloomFilter") {
+    policy->reset(
+        new BloomFilterPolicy(0, BloomFilterOptions::kDeprecatedBlock));
+  } else {
+    success = false;
+  }
+  return success;
+}
+
+Status FilterPolicy::CreateFromString(
+    const std::string& value, const ConfigOptions& opts,
+    std::shared_ptr<const FilterPolicy>* policy) {
+  const std::string kBloomName = "bloomfilter:";
+  Status s;
+  if (value == kNullptrString) {
+    policy->reset();
+#ifndef ROCKSDB_LITE
+  } else if (value.compare(0, kBloomName.size(), kBloomName) == 0) {
+    size_t pos = value.find(':', kBloomName.size());
+    if (pos == std::string::npos) {
+      s = Status::InvalidArgument(
+          "Invalid filter policy config, missing bits_per_key");
+    } else {
+      double bits_per_key = ParseDouble(
+          trim(value.substr(kBloomName.size(), pos - kBloomName.size())));
+      bool use_block_based_builder =
+          ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
+      policy->reset(
+          NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
+    }
+#endif  // ROCKSDB_LITE
+  } else if (value.find(':') != std::string::npos) {
+    s = Status::NotFound("Invalid filter policy name ", value);
+  } else {
+    auto result = std::const_pointer_cast<FilterPolicy>(*policy);
+    s = LoadSharedObject<FilterPolicy>(value, LoadFilterPolicy, opts, &result);
+    if (s.ok()) {
+      auto tmp = std::const_pointer_cast<const FilterPolicy>(result);
+      policy->swap(tmp);
+    }
+  }
+  return s;
+}
 }  // namespace ROCKSDB_NAMESPACE

@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -38,6 +39,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -1356,6 +1358,7 @@ struct ReportFileOpCounters {
 class ReportFileOpEnv : public EnvWrapper {
  public:
   explicit ReportFileOpEnv(Env* base) : EnvWrapper(base) { reset(); }
+  const char* Name() const override { return "ReportFileOpEnv"; }
 
   void reset() {
     counters_.open_counter_ = 0;
@@ -4033,11 +4036,10 @@ class Benchmark {
         FLAGS_compression_zstd_max_train_bytes;
     options.compression_opts.parallel_threads = FLAGS_compression_threads;
     // If this is a block based table, set some related options
-    if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
-        options.table_factory->GetOptions() != nullptr) {
-      BlockBasedTableOptions* table_options =
-          reinterpret_cast<BlockBasedTableOptions*>(
-              options.table_factory->GetOptions());
+    auto* table_options =
+        options.table_factory->GetOptions<BlockBasedTableOptions>(
+            TableFactory::kBlockBasedTableOpts);
+    if (table_options != nullptr) {
       if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
       }
@@ -7029,7 +7031,9 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
+    ConfigOptions opts;
+    Status s =
+        Env::CreateFromString(FLAGS_env_uri, opts, &FLAGS_env, &env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);

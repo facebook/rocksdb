@@ -47,7 +47,7 @@ class DBBlockCacheTest : public DBTestBase {
     options.avoid_flush_during_recovery = false;
     // options.compression = kNoCompression;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return options;
   }
 
@@ -155,7 +155,7 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -179,7 +179,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -235,7 +235,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
   table_options.block_cache = cache;
   table_options.block_cache_compressed = compressed_cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -296,7 +296,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "key", "val"));
@@ -352,7 +352,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(10, 0, true);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   ASSERT_OK(Put("key1", "val1"));
   ASSERT_OK(Put("key2", "val2"));
@@ -390,7 +390,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "longer_key", "val"));
@@ -458,6 +458,11 @@ class MockCache : public LRUCache {
 uint32_t MockCache::high_pri_insert_count = 0;
 uint32_t MockCache::low_pri_insert_count = 0;
 
+static std::shared_ptr<Cache> NewMockCache() {
+  std::shared_ptr<Cache> mock = std::make_shared<MockCache>();
+  mock->PrepareOptions(ConfigOptions());
+  return mock;
+}
 }  // anonymous namespace
 
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
@@ -467,11 +472,11 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
-    table_options.block_cache.reset(new MockCache());
+    table_options.block_cache = NewMockCache();
     table_options.filter_policy.reset(NewBloomFilterPolicy(20));
     table_options.cache_index_and_filter_blocks_with_high_priority =
         priority == Cache::Priority::HIGH ? true : false;
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     MockCache::high_pri_insert_count = 0;
@@ -526,7 +531,7 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = false;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "1_key", "val"));
@@ -709,8 +714,8 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
-    table_options.block_cache.reset(new MockCache());
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    table_options.block_cache = NewMockCache();
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     RecordCacheCountersForCompressionDict(options);

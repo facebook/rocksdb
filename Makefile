@@ -489,6 +489,7 @@ TESTS = \
 	db_merge_operator_test \
 	db_merge_operand_test \
 	db_options_test \
+	db_plugin_test \
 	db_range_del_test \
 	db_secondary_test \
 	db_sst_test \
@@ -562,6 +563,8 @@ TESTS = \
 	obsolete_files_test \
 	table_test \
 	delete_scheduler_test \
+	configurable_test \
+	customizable_test \
 	options_test \
 	options_settable_test \
 	options_util_test \
@@ -1378,6 +1381,9 @@ db_merge_operand_test: db/db_merge_operand_test.o db/db_test_util.o $(LIBOBJECTS
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_plugin_test: db/db_plugin_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1627,6 +1633,12 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+configurable_test: options/configurable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+customizable_test: options/customizable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)

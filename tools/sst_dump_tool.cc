@@ -6,8 +6,6 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "tools/sst_dump_tool_imp.h"
-
 #include <cinttypes>
 #include <iostream>
 #include <map>
@@ -20,6 +18,8 @@
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
 #include "options/cf_options.h"
+#include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -35,10 +35,9 @@
 #include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/compression.h"
 #include "util/random.h"
-
-#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -133,7 +132,7 @@ Status SstFileDumper::NewTableReader(
     std::unique_ptr<TableReader>* /*table_reader*/) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
-  if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
+  if (TableFactory::kBlockBasedTableName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
                            soptions_, internal_comparator_),
@@ -625,9 +624,11 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   // than Env::Default(), then try to load custom env based on dir_or_file.
   // Otherwise, the caller is responsible for creating custom env.
   if (!options.env || options.env == ROCKSDB_NAMESPACE::Env::Default()) {
+    ConfigOptions cfg;
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
-    if (!s.ok() && !s.IsNotFound()) {
+    Status s =
+        Env::CreateFromString(env_uri ? env_uri : "", cfg, &env, &env_guard);
+    if (!s.ok() && !s.IsNotSupported()) {
       fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
       exit(1);
     }

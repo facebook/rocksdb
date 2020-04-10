@@ -59,8 +59,6 @@
 #include "logging/auto_roll_logger.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
-#include "memtable/hash_skiplist_rep.h"
 #include "monitoring/in_memory_stats_history.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
@@ -145,9 +143,10 @@ void DumpSupportInfo(Logger* logger) {
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
-               const bool seq_per_batch, const bool batch_per_txn)
+               const bool owns_info_log, const bool seq_per_batch,
+               const bool batch_per_txn)
     : dbname_(dbname),
-      own_info_log_(options.info_log == nullptr),
+      own_info_log_(owns_info_log || options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
       fs_(initial_db_options_.env->GetFileSystem()),

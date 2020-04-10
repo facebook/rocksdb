@@ -64,6 +64,8 @@ class ChrootEnv : public EnvWrapper {
     return EnvWrapper::Env::UnregisterDbPaths(encoded_paths);
   }
 
+  const char* Name() const override { return "ChrootEnv"; }
+
   Status NewSequentialFile(const std::string& fname,
                            std::unique_ptr<SequentialFile>* result,
                            const EnvOptions& options) override {

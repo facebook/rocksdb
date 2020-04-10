@@ -7,6 +7,7 @@
 #include "table/cuckoo/cuckoo_table_factory.h"
 
 #include "db/dbformat.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/cuckoo/cuckoo_table_builder.h"
 #include "table/cuckoo/cuckoo_table_reader.h"
 
@@ -43,7 +44,7 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
       column_family_id, table_builder_options.column_family_name);
 }
 
-std::string CuckooTableFactory::GetPrintableTableOptions() const {
+std::string CuckooTableFactory::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(2000);
   const int kBufferSize = 200;
@@ -62,6 +63,37 @@ std::string CuckooTableFactory::GetPrintableTableOptions() const {
            table_options_.identity_as_first_hash);
   ret.append(buffer);
   return ret;
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
+    {
+#ifndef ROCKSDB_LITE
+        {"hash_table_ratio",
+         {offsetof(struct CuckooTableOptions, hash_table_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"max_search_depth",
+         {offsetof(struct CuckooTableOptions, max_search_depth),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"cuckoo_block_size",
+         {offsetof(struct CuckooTableOptions, cuckoo_block_size),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"identity_as_first_hash",
+         {offsetof(struct CuckooTableOptions, identity_as_first_hash),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"use_module_hash",
+         {offsetof(struct CuckooTableOptions, use_module_hash),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+#endif  // ROCKSDB_LITE
+};
+
+CuckooTableFactory::CuckooTableFactory(const CuckooTableOptions& table_options)
+    : table_options_(table_options) {
+  RegisterOptions(kCuckooTableOpts, &table_options_, &cuckoo_table_type_info);
 }
 
 TableFactory* NewCuckooTableFactory(const CuckooTableOptions& table_options) {

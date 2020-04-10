@@ -33,30 +33,26 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
-    GetStringFromDBOptions(&options_str, options);
-    std::unordered_map<std::string, std::string> options_map;
-    StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : db_options_type_info) {
-      if (opt.second.IsMutable() && !opt.second.IsDeprecated()) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
-    }
+    ConfigOptions cfg_opts(options);
+    cfg_opts.delimiter = "; ";
+
+    GetStringFromMutableDBOptions(MutableDBOptions(options), cfg_opts,
+                                  &options_str);
+    StringToMap(options_str, &mutable_map);
     return mutable_map;
   }
 
   std::unordered_map<std::string, std::string> GetMutableCFOptionsMap(
       const ColumnFamilyOptions& options) {
     std::string options_str;
-    GetStringFromColumnFamilyOptions(&options_str, options);
-    std::unordered_map<std::string, std::string> options_map;
-    StringToMap(options_str, &options_map);
+    ConfigOptions cfg_opts;
+    cfg_opts.delimiter = "; ";
+
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : cf_options_type_info) {
-      if (opt.second.IsMutable() && !opt.second.IsDeprecated()) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
-    }
+    GetStringFromMutableCFOptions(MutableCFOptions(options), cfg_opts,
+                                  &options_str);
+    StringToMap(options_str, &mutable_map);
     return mutable_map;
   }
 

@@ -279,6 +279,8 @@ class CompositeEnvWrapper : public Env {
       : Env(fs), env_target_(env) {}
   ~CompositeEnvWrapper() {}
 
+  const char* Name() const override { return env_target_->Name(); }
+
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return env_target_; }
 

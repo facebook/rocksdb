@@ -29,6 +29,7 @@ namespace {
 class NoSleepEnv : public EnvWrapper {
  public:
   NoSleepEnv(Env* base) : EnvWrapper(base) {}
+  const char* Name() const override { return "NoSleepEnv"; }
   void SleepForMicroseconds(int micros) override {
     fake_time_ += static_cast<uint64_t>(micros);
   }

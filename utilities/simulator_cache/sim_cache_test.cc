@@ -35,7 +35,7 @@ class SimCacheTest : public DBTestBase {
     options.create_if_missing = true;
     // options.compression = kNoCompression;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return options;
   }
 
@@ -84,7 +84,7 @@ TEST_F(SimCacheTest, SimCache) {
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   std::shared_ptr<SimCache> simCache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = simCache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 

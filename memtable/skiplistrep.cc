@@ -7,6 +7,7 @@
 #include "memory/arena.h"
 #include "memtable/inlineskiplist.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/utilities/options_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -269,6 +270,18 @@ public:
     }
   }
 };
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> skiplist_factory_info = {
+#ifndef ROCKSDB_LITE
+    {"lookahead",
+     {0, OptionType::kSizeT, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, 0}},
+#endif
+};
+
+SkipListFactory::SkipListFactory(size_t lookahead) : lookahead_(lookahead) {
+  RegisterOptions(Name(), &lookahead_, &skiplist_factory_info);
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(

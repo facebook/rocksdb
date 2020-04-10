@@ -16,13 +16,13 @@
 #include "cache/sharded_cache.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "options/options_sanity_check.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -145,8 +145,16 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
 
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(
-            base_cf_opt, cf_options_map, &new_cf_opt));
+  ConfigOptions exact, loose;
+  exact.input_strings_escaped = false;
+  exact.ignore_unknown_options = false;
+  exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
+  loose.sanity_level = ConfigOptions::kSanityLevelLooselyCompatible;
+
+  loose.input_strings_escaped = false;
+  loose.ignore_unknown_options = true;
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, exact,
+                                          &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 1U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 2);
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
@@ -214,33 +222,33 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
             "rocksdb.FixedPrefix.31");
 
   cf_options_map["write_buffer_size"] = "hello";
-  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-             base_cf_opt, cf_options_map, &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, exact,
+                                           &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, exact));
 
   cf_options_map["write_buffer_size"] = "1";
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(
-            base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, exact,
+                                          &new_cf_opt));
 
   cf_options_map["unknown_option"] = "1";
-  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
-             base_cf_opt, cf_options_map, &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, exact,
+                                           &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, exact));
 
-  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map,
-                                          &new_cf_opt,
-                                          false, /* input_strings_escaped  */
-                                          true /* ignore_unknown_options */));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
-      base_cf_opt, new_cf_opt, nullptr, /* new_opt_map */
-      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility*/));
-  ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-      base_cf_opt, new_cf_opt, nullptr, /* new_opt_map */
-      kSanityLevelExactMatch /* default for VerifyCFOptions */));
+  // ignore_unknown_options=true;input_strings_escaped=false
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map, loose,
+                                          &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, loose));
+  ASSERT_NOK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, exact));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
-  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_OK(
+      GetDBOptionsFromMap(base_db_opt, db_options_map, exact, &new_db_opt));
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
@@ -284,26 +292,26 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
 
   db_options_map["max_open_files"] = "hello";
-  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
-      base_db_opt, new_db_opt, nullptr, /* new_opt_map */
-      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility */));
+  ASSERT_NOK(
+      GetDBOptionsFromMap(base_db_opt, db_options_map, exact, &new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt, exact));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt, loose));
 
   // unknow options should fail parsing without ignore_unknown_options = true
   db_options_map["unknown_db_option"] = "1";
-  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt));
+  ASSERT_NOK(
+      GetDBOptionsFromMap(base_db_opt, db_options_map, exact, &new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt, exact));
 
-  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt,
-                                false, /* input_strings_escaped  */
-                                true /* ignore_unknown_options */));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
-      base_db_opt, new_db_opt, nullptr, /* new_opt_map */
-      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility */));
-  ASSERT_NOK(RocksDBOptionsParser::VerifyDBOptions(
-      base_db_opt, new_db_opt, nullptr, /* new_opt_mat */
-      kSanityLevelExactMatch /* default for VerifyDBOptions */));
+  ASSERT_OK(
+      GetDBOptionsFromMap(base_db_opt, db_options_map, loose, &new_db_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt, loose));
+  ASSERT_NOK(
+      RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt, exact));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -312,35 +320,42 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
 TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
+
   base_cf_opt.table_factory.reset();
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt, "", &new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=5", &new_cf_opt));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(base_cf_opt, "", options, &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt, "write_buffer_size=5",
+                                             options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 5U);
   ASSERT_TRUE(new_cf_opt.table_factory == nullptr);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=6;", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=6;", options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 6U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "  write_buffer_size =  7  ", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "  write_buffer_size =  7  ", options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 7U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "  write_buffer_size =  8 ; ", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "  write_buffer_size =  8 ; ", options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 8U);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=9;max_write_buffer_number=10", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=9;max_write_buffer_number=10", options,
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 9U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 10);
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=11; max_write_buffer_number  =  12 ;",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=11; max_write_buffer_number  =  12 ;",
+      options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 11U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 12);
   // Wrong name "max_write_buffer_number_"
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number_=14;",
-              &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13;max_write_buffer_number_=14;", options,
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   // Comparator from object registry
   std::string kCompName = "reverse_comp";
@@ -351,7 +366,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
          std::string* /* errmsg */) { return ReverseBytewiseComparator(); });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "comparator=" + kCompName + ";", &new_cf_opt));
+      base_cf_opt, "comparator=" + kCompName + ";", options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.comparator, ReverseBytewiseComparator());
 
   // MergeOperator from object registry
@@ -366,23 +381,28 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       });
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "merge_operator=" + kMoName + ";", &new_cf_opt));
+      base_cf_opt, "merge_operator=" + kMoName + ";", options, &new_cf_opt));
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
 
   // Wrong key/value pair
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13;max_write_buffer_number;", options,
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   // Error Paring value
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13;max_write_buffer_number=;", options,
+      &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   // Missing option name
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=13; =100;", &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=13; =100;", options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   const uint64_t kilo = 1024UL;
   const uint64_t mega = 1024 * kilo;
@@ -391,12 +411,12 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Units (k)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "max_write_buffer_number=15K", &new_cf_opt));
+      base_cf_opt, "max_write_buffer_number=15K", options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 15 * kilo);
   // Units (m)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "max_write_buffer_number=16m;inplace_update_num_locks=17M",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "max_write_buffer_number=16m;inplace_update_num_locks=17M",
+      options, &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16 * mega);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17u * mega);
   // Units (g)
@@ -404,7 +424,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       base_cf_opt,
       "write_buffer_size=18g;prefix_extractor=capped:8;"
       "arena_block_size=19G",
-      &new_cf_opt));
+      options, &new_cf_opt));
 
   ASSERT_EQ(new_cf_opt.write_buffer_size, 18 * giga);
   ASSERT_EQ(new_cf_opt.arena_block_size, 19 * giga);
@@ -413,101 +433,116 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
 
   // Units (t)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "write_buffer_size=20t;arena_block_size=21T", options,
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 20 * tera);
   ASSERT_EQ(new_cf_opt.arena_block_size, 21 * tera);
 
   // Nested block based table options
   // Empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={};arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={};arena_block_size=1024",
+      options, &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Non-empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={block_cache=1M;block_size=4;};"
-            "arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;};"
+      "arena_block_size=1024",
+      options, &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Last one
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "block_based_table_factory={block_cache=1M;block_size=4;}",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;}",
+      options, &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   // Mismatch curly braces
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={{{block_size=4;};"
-             "arena_block_size=1024",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={{{block_size=4;};"
+      "arena_block_size=1024",
+      options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   // Unexpected chars after closing curly brace
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}};"
-             "arena_block_size=1024",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}};"
+      "arena_block_size=1024",
+      options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}xdfa;"
-             "arena_block_size=1024",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}xdfa;"
+      "arena_block_size=1024",
+      options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={block_size=4;}xdfa",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_size=4;}xdfa",
+      options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   // Invalid block based table option
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-             "write_buffer_size=10;max_write_buffer_number=16;"
-             "block_based_table_factory={xx_block_size=4;}",
-             &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={xx_block_size=4;}",
+      options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-           "optimize_filters_for_hits=true",
-           &new_cf_opt));
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "optimize_filters_for_hits=false",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "optimize_filters_for_hits=true", options, &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "optimize_filters_for_hits=false", options, &new_cf_opt));
 
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
-              "optimize_filters_for_hits=junk",
-              &new_cf_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "optimize_filters_for_hits=junk", options, &new_cf_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt, options));
 
   // Nested plain table options
   // Empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "plain_table_factory={};arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "plain_table_factory={};arena_block_size=1024",
+      options, &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
   // Non-empty
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
-            "arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
+      "arena_block_size=1024",
+      options, &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
 
   // memtable factory
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=10;max_write_buffer_number=16;"
-            "memtable=skip_list:10;arena_block_size=1024",
-            &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "memtable=skip_list:10;arena_block_size=1024",
+      options, &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
 }
@@ -517,21 +552,24 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
+
   // make sure default values are overwritten by something else
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-      "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
+      "checksum=kxxHash;hash_index_allow_collision=1;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
       "filter_policy=bloomfilter:4.567:false;",
-      &new_opt));
+      options, &new_opt));
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
   ASSERT_TRUE(new_opt.hash_index_allow_collision);
-  ASSERT_TRUE(new_opt.no_block_cache);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
@@ -548,56 +586,60 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp.GetWholeBitsPerKey(), 5);
 
   // unknown option
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
-             "bad_option=1",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
+      "bad_option=1",
+      options, &new_opt));
   ASSERT_EQ(static_cast<bool>(table_opt.cache_index_and_filter_blocks),
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized index type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      table_opt, "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
+      options, &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized checksum type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;checksum=kxxHashXX",
-             &new_opt));
+  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+      table_opt, "cache_index_and_filter_blocks=1;checksum=kxxHashXX", options,
+      &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized filter policy name
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;"
-             "filter_policy=bloomfilterxx:4:true",
-             &new_opt));
+  ASSERT_NOK(
+      GetBlockBasedTableOptionsFromString(table_opt,
+                                          "cache_index_and_filter_blocks=1;"
+                                          "filter_policy=bloomfilterxx:4:true",
+                                          options, &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
   // unrecognized filter policy config
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
-             "cache_index_and_filter_blocks=1;"
-             "filter_policy=bloomfilter:4",
-             &new_opt));
+  ASSERT_NOK(
+      GetBlockBasedTableOptionsFromString(table_opt,
+                                          "cache_index_and_filter_blocks=1;"
+                                          "filter_policy=bloomfilter:4",
+                                          options, &new_opt));
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
-             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};"
+      "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;}",
+      options, &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
@@ -616,10 +658,11 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
 
   // Set only block cache capacity. Check other values are
   // reset to default values.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=2M};"
-             "block_cache_compressed={capacity=2M}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={capacity=2M};"
+      "block_cache_compressed={capacity=2M}",
+      options, &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 2*1024UL*1024UL);
   // Default values
@@ -648,7 +691,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "block_cache={num_shard_bits=5;high_pri_pool_ratio=0.5;};"
       "block_cache_compressed={num_shard_bits=5;"
       "high_pri_pool_ratio=0.0;}",
-      &new_opt));
+      options, &new_opt));
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 0);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
                 new_opt.block_cache)->GetNumShardBits(), 5);
@@ -665,12 +708,13 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             0.0);
 
   // Set couple of block cache options.
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
-             "block_cache={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;};"
-             "block_cache_compressed={capacity=1M;num_shard_bits=4;"
-             "strict_capacity_limit=true;}",
-             &new_opt));
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      table_opt,
+      "block_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;};"
+      "block_cache_compressed={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;}",
+      options, &new_opt));
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
@@ -695,12 +739,16 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
 TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
   PlainTableOptions table_opt;
   PlainTableOptions new_opt;
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
   // make sure default values are overwritten by something else
-  ASSERT_OK(GetPlainTableOptionsFromString(table_opt,
-            "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-            "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
-            "full_scan_mode=true;store_index_in_file=true",
-            &new_opt));
+  ASSERT_OK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
+      "full_scan_mode=true;store_index_in_file=true",
+      options, &new_opt));
   ASSERT_EQ(new_opt.user_key_len, 66u);
   ASSERT_EQ(new_opt.bloom_bits_per_key, 20);
   ASSERT_EQ(new_opt.hash_table_ratio, 0.5);
@@ -711,16 +759,18 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
   ASSERT_TRUE(new_opt.store_index_in_file);
 
   // unknown option
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "bad_option=1",
-             &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "bad_option=1",
+      options, &new_opt));
 
   // unrecognized EncodingType
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "encoding_type=kPrefixXX",
-             &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "encoding_type=kPrefixXX",
+      options, &new_opt));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -764,8 +814,29 @@ TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in RocksDB Lite
+class CustomEnv : public EnvWrapper {
+ public:
+  explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+  const char* Name() const override { return "custom"; }
+};
+
+extern "C" {
+void RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
+  library.Register<Env>(
+      arg, [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+              std::string* /* errmsg */) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
+}
+}  // extern "C"
+
 TEST_F(OptionsTest, GetOptionsFromStringTest) {
   Options base_options, new_options;
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
+
   base_options.write_buffer_size = 20;
   base_options.min_write_buffer_number_to_merge = 15;
   BlockBasedTableOptions block_based_table_options;
@@ -774,19 +845,9 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  const static char* kCustomEnvName = "CustomEnv";
-  class CustomEnv : public EnvWrapper {
-   public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-  };
-
-  ObjectLibrary::Default()->Register<Env>(
-      kCustomEnvName,
-      [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
-         std::string* /* errmsg */) {
-        static CustomEnv env(Env::Default());
-        return &env;
-      });
+  const static std::string kCustomEnvName = "CustomEnv";
+  options.registry->AddLocalLibrary(RegisterCustomEnv, "RegisterCustomEnv",
+                                    kCustomEnvName);
 
   ASSERT_OK(GetOptionsFromString(
       base_options,
@@ -796,7 +857,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
       "1;"
       "rate_limiter_bytes_per_sec=1024;env=CustomEnv",
-      &new_options));
+      options, &new_options));
 
   ASSERT_EQ(new_options.compression_opts.window_bits, 4);
   ASSERT_EQ(new_options.compression_opts.level, 5);
@@ -815,38 +876,44 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.bottommost_compression_opts.enabled, false);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
-  BlockBasedTableOptions new_block_based_table_options =
-      dynamic_cast<BlockBasedTableFactory*>(new_options.table_factory.get())
-          ->table_options();
-  ASSERT_EQ(new_block_based_table_options.block_cache->GetCapacity(), 1U << 20);
-  ASSERT_EQ(new_block_based_table_options.block_size, 4U);
+  const auto new_bbto =
+      new_options.table_factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(new_bbto, nullptr);
+  ASSERT_EQ(new_bbto->block_cache->GetCapacity(), 1U << 20);
+  ASSERT_EQ(new_bbto->block_size, 4U);
   // don't overwrite block based table options
-  ASSERT_TRUE(new_block_based_table_options.cache_index_and_filter_blocks);
+  ASSERT_TRUE(new_bbto->cache_index_and_filter_blocks);
 
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
+  ASSERT_OK(Env::CreateFromString(kCustomEnvName, options, &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 }
 
 TEST_F(OptionsTest, DBOptionsSerialization) {
   Options base_options, new_options;
   Random rnd(301);
+  ConfigOptions options;
+  options.input_strings_escaped = false;
+  options.ignore_unknown_options = false;
 
   // Phase 1: Make big change in base_options
   test::RandomInitDBOptions(&base_options, &rnd);
 
   // Phase 2: obtain a string from base_option
   std::string base_options_file_content;
-  ASSERT_OK(GetStringFromDBOptions(&base_options_file_content, base_options));
+  ASSERT_OK(GetStringFromDBOptions(base_options, options,
+                                   &base_options_file_content));
 
   // Phase 3: Set new_options from the derived string and expect
   //          new_options == base_options
   ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_options_file_content,
-                                   &new_options));
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_options, new_options));
+                                   options, &new_options));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_options, new_options,
+                                                  options));
 }
 
 TEST_F(OptionsTest, OptionsComposeDecompose) {
@@ -854,6 +921,8 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
   // we get same constituent options.
   DBOptions base_db_opts;
   ColumnFamilyOptions base_cf_opts;
+  ConfigOptions options;  // Use default for ignore(false) and check (exact)
+  options.input_strings_escaped = false;
 
   Random rnd(301);
   test::RandomInitDBOptions(&base_db_opts, &rnd);
@@ -863,8 +932,10 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
   DBOptions new_db_opts(base_opts);
   ColumnFamilyOptions new_cf_opts(base_opts);
 
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opts, new_db_opts));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opts, new_cf_opts));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opts, new_db_opts,
+                                                  options));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opts, new_cf_opts,
+                                                  options));
   delete new_cf_opts.compaction_filter;
 }
 
@@ -872,23 +943,60 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Options options;
   ColumnFamilyOptions base_opt, new_opt;
   Random rnd(302);
+  ConfigOptions parse_opts;
+  parse_opts.input_strings_escaped = false;
+
   // Phase 1: randomly assign base_opt
   // custom type options
   test::RandomInitCFOptions(&base_opt, options, &rnd);
 
   // Phase 2: obtain a string from base_opt
   std::string base_options_file_content;
-  ASSERT_OK(
-      GetStringFromColumnFamilyOptions(&base_options_file_content, base_opt));
+  ASSERT_OK(GetStringFromColumnFamilyOptions(base_opt, parse_opts,
+                                             &base_options_file_content));
 
   // Phase 3: Set new_opt from the derived string and expect
   //          new_opt == base_opt
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      ColumnFamilyOptions(), base_options_file_content, &new_opt));
-  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_opt, new_opt));
+      ColumnFamilyOptions(), base_options_file_content, parse_opts, &new_opt));
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyCFOptions(base_opt, new_opt, parse_opts));
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }
+}
+
+TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
+  ColumnFamilyOptions cf_opts;
+  DBOptions db_opts;
+  ConfigOptions opts;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      cf_opts, "prefix_extractor=capped:8", opts, &cf_opts));
+  ASSERT_OK(TableFactory::CreateFromString("BlockBasedTable", opts,
+                                           &cf_opts.table_factory));
+  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
+  ASSERT_EQ(cf_opts.table_factory->Name(), TableFactory::kBlockBasedTableName);
+  auto bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_OK(cf_opts.table_factory->ConfigureFromString(
+      "block_cache={capacity=1M;num_shard_bits=4;};"
+      "block_size_deviation=101;"
+      "block_restart_interval=0;"
+      "index_block_restart_interval=5;"
+      "partition_filters=true;"
+      "index_type=kHashSearch;"
+      "no_block_cache=1;",
+      opts));
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_EQ(bbto->block_cache.get(), nullptr);
+  ASSERT_EQ(bbto->block_size_deviation, 0);
+  ASSERT_EQ(bbto->block_restart_interval, 1);
+  ASSERT_EQ(bbto->index_block_restart_interval, 1);
+  ASSERT_FALSE(bbto->partition_filters);
+  ASSERT_OK(
+      cf_opts.table_factory->ConfigureFromString("no_block_cache=0;", opts));
+  ASSERT_NE(bbto->block_cache.get(), nullptr);
+  ASSERT_OK(cf_opts.table_factory->ValidateOptions(db_opts, cf_opts));
 }
 
 #endif  // !ROCKSDB_LITE
@@ -1098,19 +1206,16 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   ASSERT_EQ(converted_opt.max_open_files, leveldb_opt.max_open_files);
   ASSERT_EQ(converted_opt.compression, leveldb_opt.compression);
 
-  std::shared_ptr<TableFactory> tb_guard = converted_opt.table_factory;
-  BlockBasedTableFactory* table_factory =
-      dynamic_cast<BlockBasedTableFactory*>(converted_opt.table_factory.get());
+  std::shared_ptr<TableFactory> table_factory = converted_opt.table_factory;
+  const auto table_opt = table_factory->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(table_opt, nullptr);
 
-  ASSERT_TRUE(table_factory != nullptr);
-
-  const BlockBasedTableOptions table_opt = table_factory->table_options();
-
-  ASSERT_EQ(table_opt.block_cache->GetCapacity(), 8UL << 20);
-  ASSERT_EQ(table_opt.block_size, leveldb_opt.block_size);
-  ASSERT_EQ(table_opt.block_restart_interval,
+  ASSERT_EQ(table_opt->block_cache->GetCapacity(), 8UL << 20);
+  ASSERT_EQ(table_opt->block_size, leveldb_opt.block_size);
+  ASSERT_EQ(table_opt->block_restart_interval,
             leveldb_opt.block_restart_interval);
-  ASSERT_EQ(table_opt.filter_policy.get(), leveldb_opt.filter_policy);
+  ASSERT_EQ(table_opt->filter_policy.get(), leveldb_opt.filter_policy);
 }
 
 #ifndef ROCKSDB_LITE
@@ -1157,10 +1262,14 @@ TEST_F(OptionsParserTest, Comment) {
   ASSERT_OK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
 
-  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), db_opt));
+  ConfigOptions exact;
+  exact.input_strings_escaped = false;
+  exact.sanity_level = ConfigOptions::kSanityLevelExactMatch;
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), db_opt, exact));
   ASSERT_EQ(parser.NumColumnFamilies(), 1U);
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
-      *parser.GetCFOptions("default"), cf_opt));
+      *parser.GetCFOptions("default"), cf_opt, exact));
 }
 
 TEST_F(OptionsParserTest, ExtraSpace) {
@@ -1201,6 +1310,7 @@ TEST_F(OptionsParserTest, MissingDBOptions) {
   RocksDBOptionsParser parser;
   ASSERT_NOK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
+  ;
 }
 
 TEST_F(OptionsParserTest, DoubleDBOptions) {
@@ -1448,8 +1558,10 @@ void VerifyCFPointerTypedOptions(
     ColumnFamilyOptions* base_cf_opt, const ColumnFamilyOptions* new_cf_opt,
     const std::unordered_map<std::string, std::string>* new_cf_opt_map) {
   std::string name_buffer;
+  ConfigOptions opts;
+  opts.input_strings_escaped = false;
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
-                                                  new_cf_opt_map));
+                                                  opts, new_cf_opt_map));
 
   // change the name of merge operator back-and-forth
   {
@@ -1460,11 +1572,11 @@ void VerifyCFPointerTypedOptions(
       // change the name  and expect non-ok status
       merge_operator->SetName("some-other-name");
       ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+          *base_cf_opt, *new_cf_opt, opts, new_cf_opt_map));
       // change the name back and expect ok status
       merge_operator->SetName(name_buffer);
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
-                                                      new_cf_opt_map));
+                                                      opts, new_cf_opt_map));
     }
   }
 
@@ -1478,11 +1590,11 @@ void VerifyCFPointerTypedOptions(
       // change the name and expect non-ok status
       compaction_filter_factory->SetName("some-other-name");
       ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+          *base_cf_opt, *new_cf_opt, opts, new_cf_opt_map));
       // change the name back and expect ok status
       compaction_filter_factory->SetName(name_buffer);
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
-                                                      new_cf_opt_map));
+                                                      opts, new_cf_opt_map));
     }
   }
 
@@ -1493,11 +1605,11 @@ void VerifyCFPointerTypedOptions(
       base_cf_opt->compaction_filter = nullptr;
       // set compaction_filter to nullptr and expect non-ok status
       ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+          *base_cf_opt, *new_cf_opt, opts, new_cf_opt_map));
       // set the value back and expect ok status
       base_cf_opt->compaction_filter = tmp_compaction_filter;
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
-                                                      new_cf_opt_map));
+                                                      opts, new_cf_opt_map));
     }
   }
 
@@ -1508,11 +1620,11 @@ void VerifyCFPointerTypedOptions(
       base_cf_opt->table_factory.reset();
       // set table_factory to nullptr and expect non-ok status
       ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+          *base_cf_opt, *new_cf_opt, opts, new_cf_opt_map));
       // set the value back and expect ok status
       base_cf_opt->table_factory = tmp_table_factory;
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
-                                                      new_cf_opt_map));
+                                                      opts, new_cf_opt_map));
     }
   }
 
@@ -1523,11 +1635,11 @@ void VerifyCFPointerTypedOptions(
       base_cf_opt->memtable_factory.reset();
       // set memtable_factory to nullptr and expect non-ok status
       ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
-          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+          *base_cf_opt, *new_cf_opt, opts, new_cf_opt_map));
       // set the value back and expect ok status
       base_cf_opt->memtable_factory = tmp_memtable_factory;
       ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
-                                                      new_cf_opt_map));
+                                                      opts, new_cf_opt_map));
     }
   }
 }
@@ -1611,32 +1723,34 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   }
 
   const std::string kOptionsFileName = "test-persisted-options.ini";
+  ConfigOptions
+      opts;  // Use default for escaped(true), unknown(false) and check (exact)
   ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
                                   kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
-  ASSERT_OK(
-      parser.Parse(kOptionsFileName, fs_.get(), false, 0 /* readahead_size */));
+  ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), opts));
 
   // Make sure block-based table factory options was deserialized correctly
   std::shared_ptr<TableFactory> ttf = (*parser.cf_opts())[4].table_factory;
-  ASSERT_EQ(BlockBasedTableFactory::kName, std::string(ttf->Name()));
-  const BlockBasedTableOptions& parsed_bbto =
-      static_cast<BlockBasedTableFactory*>(ttf.get())->table_options();
-  ASSERT_EQ(special_bbto.block_size, parsed_bbto.block_size);
+  ASSERT_EQ(TableFactory::kBlockBasedTableName, std::string(ttf->Name()));
+  const auto parsed_bbto = ttf->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(parsed_bbto, nullptr);
+  ASSERT_EQ(special_bbto.block_size, parsed_bbto->block_size);
   ASSERT_EQ(special_bbto.cache_index_and_filter_blocks,
-            parsed_bbto.cache_index_and_filter_blocks);
+            parsed_bbto->cache_index_and_filter_blocks);
 
   ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, fs_.get()));
+      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, fs_.get(), opts));
 
-  ASSERT_OK(
-      RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), base_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), base_db_opt,
+                                                  opts));
   for (int c = 0; c < num_cf; ++c) {
     const auto* cf_opt = parser.GetCFOptions(cf_names[c]);
     ASSERT_NE(cf_opt, nullptr);
     ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
-        base_cf_opts[c], *cf_opt, &(parser.cf_opt_maps()->at(c))));
+        base_cf_opts[c], *cf_opt, opts, &(parser.cf_opt_maps()->at(c))));
   }
 
   // Further verify pointer-typed options
@@ -1651,7 +1765,7 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   base_db_opt.max_open_files++;
   ASSERT_NOK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, fs_.get()));
+      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, fs_.get(), opts));
 
   for (int c = 0; c < num_cf; ++c) {
     if (base_cf_opts[c].compaction_filter) {
@@ -1675,8 +1789,8 @@ TEST_F(OptionsParserTest, DifferentDefault) {
                                   kOptionsFileName, fs_.get()));
 
   RocksDBOptionsParser parser;
-  ASSERT_OK(
-      parser.Parse(kOptionsFileName, fs_.get(), false, 0 /* readahead_size */));
+  ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false,
+                         4096 /* readahead_size */));
 
   {
     Options old_default_opts;
@@ -1757,10 +1871,16 @@ class OptionsSanityCheckTest : public OptionsParserTest {
 
  protected:
   Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
-                              OptionsSanityCheckLevel level) {
+                              ConfigOptions::SanityLevel level,
+                              bool input_strings_escaped = true) {
+    ConfigOptions options;
+    options.sanity_level = level;
+    options.ignore_unknown_options = false;
+    options.input_strings_escaped = input_strings_escaped;
+
     return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
         DBOptions(), {"default"}, {cf_opts}, kOptionsFileName, fs_.get(),
-        level);
+        options);
   }
 
   Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
@@ -1782,7 +1902,8 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
   // default ColumnFamilyOptions
   {
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
   }
 
   // prefix_extractor
@@ -1790,59 +1911,73 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     // Okay to change prefix_extractor form nullptr to non-nullptr
     ASSERT_EQ(opts.prefix_extractor.get(), nullptr);
     opts.prefix_extractor.reset(NewCappedPrefixTransform(10));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 
     // use same prefix extractor but with different parameter
     opts.prefix_extractor.reset(NewCappedPrefixTransform(15));
-    // expect pass only in kSanityLevelLooselyCompatible
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    // expect pass only in
+    // ConfigOptions::kSanityLevelLooselyCompatible
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
     // repeat the test with FixedPrefixTransform
     opts.prefix_extractor.reset(NewFixedPrefixTransform(10));
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
     // persist the change of prefix_extractor
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 
     // use same prefix extractor but with different parameter
     opts.prefix_extractor.reset(NewFixedPrefixTransform(15));
-    // expect pass only in kSanityLevelLooselyCompatible
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    // expect pass only in
+    // ConfigOptions::kSanityLevelLooselyCompatible
+    ASSERT_NOK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
     // Change prefix extractor from non-nullptr to nullptr
     opts.prefix_extractor.reset();
     // expect pass as it's safe to change prefix_extractor
     // from non-null to null
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
   }
   // persist the change
   ASSERT_OK(PersistCFOptions(opts));
-  ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+  ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 
   // table_factory
   {
     for (int tb = 0; tb <= 2; ++tb) {
       // change the table factory
       opts.table_factory.reset(test::RandomTableFactory(&rnd, tb));
-      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+      ASSERT_NOK(SanityCheckCFOptions(
+          opts, ConfigOptions::kSanityLevelLooselyCompatible));
+      ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      ASSERT_OK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
     }
   }
 
@@ -1850,32 +1985,38 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
   {
     // Test when going from nullptr -> merge operator
     opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    ASSERT_OK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
 
     for (int test = 0; test < 5; ++test) {
       // change the merge operator
       opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
-      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+      ASSERT_NOK(SanityCheckCFOptions(
+          opts, ConfigOptions::kSanityLevelLooselyCompatible));
+      ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      ASSERT_OK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
     }
 
     // Test when going from merge operator -> nullptr
     opts.merge_operator = nullptr;
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+    ASSERT_NOK(SanityCheckCFOptions(
+        opts, ConfigOptions::kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelNone));
 
     // persist the change
     ASSERT_OK(PersistCFOptions(opts));
-    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(
+        SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
   }
 
   // compaction_filter
@@ -1883,12 +2024,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     for (int test = 0; test < 5; ++test) {
       // change the compaction filter
       opts.compaction_filter = test::RandomCompactionFilter(&rnd);
-      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+      ASSERT_NOK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      ASSERT_OK(SanityCheckCFOptions(
+          opts, ConfigOptions::kSanityLevelLooselyCompatible));
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      ASSERT_OK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
       delete opts.compaction_filter;
       opts.compaction_filter = nullptr;
     }
@@ -1900,12 +2044,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
       // change the compaction filter factory
       opts.compaction_filter_factory.reset(
           test::RandomCompactionFilterFactory(&rnd));
-      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+      ASSERT_NOK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
+      ASSERT_OK(SanityCheckCFOptions(
+          opts, ConfigOptions::kSanityLevelLooselyCompatible));
 
       // persist the change
       ASSERT_OK(PersistCFOptions(opts));
-      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      ASSERT_OK(
+          SanityCheckCFOptions(opts, ConfigOptions::kSanityLevelExactMatch));
     }
   }
 }
@@ -1996,6 +2143,554 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
                 "Escape \\# and # comment together   ."),
             "Escape \\# and");
 }
+
+static void TestAndCompareOption(const OptionTypeInfo& opt_info,
+                                 const std::string& opt_name, void* base_ptr,
+                                 void* comp_ptr, const ConfigOptions& opts) {
+  std::string result, mismatch;
+  ASSERT_OK(opt_info.SerializeOption(opt_name, base_ptr, opts, &result));
+  ASSERT_OK(opt_info.ParseOption(opt_name, result, opts, comp_ptr));
+  ASSERT_TRUE(
+      opt_info.MatchesOption(opt_name, base_ptr, comp_ptr, opts, &mismatch));
+}
+
+static void TestAndCompareOption(const OptionTypeInfo& opt_info,
+                                 const std::string& opt_name,
+                                 const std::string& opt_value, void* base_ptr,
+                                 void* comp_ptr, const ConfigOptions& opts) {
+  ASSERT_OK(opt_info.ParseOption(opt_name, opt_value, opts, base_ptr));
+  TestAndCompareOption(opt_info, opt_name, base_ptr, comp_ptr, opts);
+}
+
+template <typename T>
+void TestOptInfo(OptionType opt_type, T* base, T* comp,
+                 const ConfigOptions& options) {
+  std::string result;
+  OptionTypeInfo opt_info(0, opt_type);
+  ASSERT_FALSE(opt_info.MatchesOption("base", base, comp, options, &result));
+  ASSERT_EQ(result, "base");
+  ASSERT_NE(*base, *comp);
+  TestAndCompareOption(opt_info, "base", base, comp, options);
+  ASSERT_EQ(*base, *comp);
+}
+
+class OptionTypeInfoTest : public testing::Test {};
+
+TEST_F(OptionTypeInfoTest, BasicTypes) {
+  ConfigOptions options;
+  {
+    bool a = true, b = false;
+    TestOptInfo(OptionType::kBoolean, &a, &b, options);
+  }
+  {
+    int a = 100, b = 200;
+    TestOptInfo(OptionType::kInt, &a, &b, options);
+  }
+  {
+    int32_t a = 100, b = 200;
+    TestOptInfo(OptionType::kInt32T, &a, &b, options);
+  }
+  {
+    int64_t a = 100, b = 200;
+    TestOptInfo(OptionType::kInt64T, &a, &b, options);
+  }
+  {
+    unsigned int a = 100, b = 200;
+    TestOptInfo(OptionType::kUInt, &a, &b, options);
+  }
+  {
+    uint32_t a = 100, b = 200;
+    TestOptInfo(OptionType::kUInt32T, &a, &b, options);
+  }
+  {
+    uint64_t a = 100, b = 200;
+    TestOptInfo(OptionType::kUInt64T, &a, &b, options);
+  }
+  {
+    size_t a = 100, b = 200;
+    TestOptInfo(OptionType::kSizeT, &a, &b, options);
+  }
+  {
+    std::string a = "100", b = "200";
+    TestOptInfo(OptionType::kString, &a, &b, options);
+  }
+  {
+    double a = 1.0, b = 2.0;
+    TestOptInfo(OptionType::kDouble, &a, &b, options);
+  }
+}
+
+TEST_F(OptionTypeInfoTest, TestInvalidArgs) {
+  ConfigOptions opts;
+  bool b;
+  int i;
+  int32_t i32;
+  int64_t i64;
+  unsigned int u;
+  int32_t u32;
+  int64_t u64;
+  size_t sz;
+  double d;
+
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kBoolean).ParseOption("b", "x", opts, &b));
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kInt).ParseOption("b", "x", opts, &i));
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kInt32T).ParseOption("b", "x", opts, &i32));
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kInt64T).ParseOption("b", "x", opts, &i64));
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kUInt).ParseOption("b", "x", opts, &u));
+  ASSERT_NOK(OptionTypeInfo(0, OptionType::kUInt32T)
+                 .ParseOption("b", "x", opts, &u32));
+  ASSERT_NOK(OptionTypeInfo(0, OptionType::kUInt64T)
+                 .ParseOption("b", "x", opts, &u64));
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kSizeT).ParseOption("b", "x", opts, &sz));
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kDouble).ParseOption("b", "x", opts, &d));
+
+  // Don't know how to convert Unknowns to anything else
+  ASSERT_NOK(
+      OptionTypeInfo(0, OptionType::kUnknown).ParseOption("b", "x", opts, &d));
+
+  // Verify that if the parse function throws an exception, it is also trapped
+  OptionTypeInfo func_info(0, OptionType::kUnknown,
+                           OptionVerificationType::kNormal,
+                           OptionTypeFlags::kNone,
+                           [](const std::string&, const std::string& value,
+                              const ConfigOptions&, char* addr) {
+                             auto ptr = reinterpret_cast<int*>(addr);
+                             *ptr = ParseInt(value);
+                             return Status::OK();
+                           });
+  ASSERT_OK(func_info.ParseOption("b", "1", opts, &i));
+  ASSERT_NOK(func_info.ParseOption("b", "x", opts, &i));
+}
+
+TEST_F(OptionTypeInfoTest, TestParseFunc) {
+  OptionTypeInfo opt_info(0, OptionType::kUnknown,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone,
+                          [](const std::string& name, const std::string& value,
+                             const ConfigOptions& /*opts*/, char* addr) {
+                            auto ptr = reinterpret_cast<std::string*>(addr);
+                            if (name == "Oops") {
+                              return Status::InvalidArgument(value);
+                            } else {
+                              *ptr = value + " " + name;
+                              return Status::OK();
+                            }
+                          });
+  ConfigOptions options;
+  std::string base;
+  ASSERT_OK(opt_info.ParseOption("World", "Hello", options, &base));
+  ASSERT_EQ(base, "Hello World");
+  ASSERT_NOK(opt_info.ParseOption("Oops", "Hello", options, &base));
+}
+
+TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
+  OptionTypeInfo opt_info(
+      0, OptionType::kString, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, nullptr,
+      [](const std::string& name, const char* /*addr*/,
+         const ConfigOptions& /*opts*/, std::string* value) {
+        if (name == "Oops") {
+          return Status::InvalidArgument(name);
+        } else {
+          *value = name;
+          return Status::OK();
+        }
+      },
+      nullptr);
+  ConfigOptions options;
+  std::string base;
+  std::string value;
+  ASSERT_OK(opt_info.SerializeOption("Hello", &base, options, &value));
+  ASSERT_EQ(value, "Hello");
+  ASSERT_NOK(opt_info.SerializeOption("Oops", &base, options, &value));
+}
+
+TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
+  OptionTypeInfo opt_info(
+      0, OptionType::kInt, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, nullptr, nullptr,
+      [](const std::string& name, const char* addr1, const char* addr2,
+         const ConfigOptions& /*opts*/, std::string* mismatch) {
+        auto i1 = *(reinterpret_cast<const int*>(addr1));
+        auto i2 = *(reinterpret_cast<const int*>(addr2));
+        if (name == "LT") {
+          return i1 < i2;
+        } else if (name == "GT") {
+          return i1 > i2;
+        } else if (name == "EQ") {
+          return i1 == i2;
+        } else {
+          *mismatch = name + "???";
+          return false;
+        }
+      });
+
+  ConfigOptions options;
+  int int1 = 100;
+  int int2 = 200;
+  std::string mismatch;
+  ASSERT_TRUE(opt_info.MatchesOption("LT", &int1, &int2, options, &mismatch));
+  ASSERT_EQ(mismatch, "");
+  ASSERT_FALSE(opt_info.MatchesOption("GT", &int1, &int2, options, &mismatch));
+  ASSERT_EQ(mismatch, "GT");
+  ASSERT_FALSE(opt_info.MatchesOption("NO", &int1, &int2, options, &mismatch));
+  ASSERT_EQ(mismatch, "NO???");
+}
+
+TEST_F(OptionTypeInfoTest, TestOptionFlags) {
+  OptionTypeInfo opt_none(0, OptionType::kString,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kStringNone);
+  OptionTypeInfo opt_never(0, OptionType::kString,
+                           OptionVerificationType::kNormal,
+                           OptionTypeFlags::kCompareNever);
+  OptionTypeInfo opt_alias(0, OptionType::kString,
+                           OptionVerificationType::kAlias,
+                           OptionTypeFlags::kNone, 0);
+  OptionTypeInfo opt_deprecated(0, OptionType::kString,
+                                OptionVerificationType::kDeprecated,
+                                OptionTypeFlags::kNone);
+  ConfigOptions options;
+  std::string base = "base";
+  std::string comp = "comp";
+  std::string mismatch;
+  std::string opts_str;
+
+  // If marked string none, the serialization returns not supported
+  ASSERT_NOK(opt_none.SerializeOption("None", &base, options, &opts_str));
+  // If marked never compare, they match even when they do not
+  ASSERT_TRUE(
+      opt_never.MatchesOption("Never", &base, &comp, options, &mismatch));
+  ASSERT_FALSE(
+      opt_none.MatchesOption("Never", &base, &comp, options, &mismatch));
+
+  // An alias can change the value via parse, but does nothing on serialize on
+  // match
+  std::string result;
+  ASSERT_OK(opt_alias.ParseOption("Alias", "Alias", options, &base));
+  ASSERT_OK(opt_alias.SerializeOption("Alias", &base, options, &result));
+  ASSERT_TRUE(opt_alias.MatchesOption("Alias", &base, &comp, options, &result));
+  ASSERT_EQ(base, "Alias");
+  ASSERT_NE(base, comp);
+
+  // Deprecated options do nothing on any of the commands
+  ASSERT_OK(opt_deprecated.ParseOption("Alias", "Deprecated", options, &base));
+  ASSERT_OK(opt_deprecated.SerializeOption("Alias", &base, options, &result));
+  ASSERT_TRUE(
+      opt_deprecated.MatchesOption("Alias", &base, &comp, options, &result));
+  ASSERT_EQ(base, "Alias");
+  ASSERT_NE(base, comp);
+}
+
+TEST_F(OptionTypeInfoTest, TestCustomEnum) {
+  enum TestEnum { kA, kB, kC };
+  std::unordered_map<std::string, TestEnum> enum_map = {
+      {"A", TestEnum::kA},
+      {"B", TestEnum::kB},
+      {"C", TestEnum::kC},
+  };
+  OptionTypeInfo opt_info = OptionTypeInfo::Enum<TestEnum>(0, &enum_map);
+  TestEnum e1, e2;
+  ConfigOptions opts;
+  std::string result, mismatch;
+
+  e2 = TestEnum::kA;
+
+  ASSERT_OK(opt_info.ParseOption("", "B", opts, &e1));
+  ASSERT_OK(opt_info.SerializeOption("", &e1, opts, &result));
+  ASSERT_EQ(e1, TestEnum::kB);
+  ASSERT_EQ(result, "B");
+
+  ASSERT_FALSE(opt_info.MatchesOption("Enum", &e1, &e2, opts, &mismatch));
+  ASSERT_EQ(mismatch, "Enum");
+
+  TestAndCompareOption(opt_info, "", "C", &e1, &e2, opts);
+  ASSERT_EQ(e2, TestEnum::kC);
+
+  ASSERT_NOK(opt_info.ParseOption("", "D", opts, &e1));
+  ASSERT_EQ(e1, TestEnum::kC);
+}
+
+TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
+  ConfigOptions opts;
+  for (auto iter : OptionsHelper::compaction_style_string_map) {
+    CompactionStyle e1, e2;
+    TestAndCompareOption(OptionTypeInfo(0, OptionType::kCompactionStyle),
+                         "CompactionStyle", iter.first, &e1, &e2, opts);
+    ASSERT_EQ(e1, iter.second);
+  }
+  for (auto iter : OptionsHelper::compaction_pri_string_map) {
+    CompactionPri e1, e2;
+    TestAndCompareOption(OptionTypeInfo(0, OptionType::kCompactionPri),
+                         "CompactionPri", iter.first, &e1, &e2, opts);
+    ASSERT_EQ(e1, iter.second);
+  }
+  for (auto iter : OptionsHelper::compression_type_string_map) {
+    CompressionType e1, e2;
+    TestAndCompareOption(OptionTypeInfo(0, OptionType::kCompressionType),
+                         "CompressionType", iter.first, &e1, &e2, opts);
+    ASSERT_EQ(e1, iter.second);
+  }
+  for (auto iter : OptionsHelper::compaction_stop_style_string_map) {
+    CompactionStopStyle e1, e2;
+    TestAndCompareOption(OptionTypeInfo(0, OptionType::kCompactionStopStyle),
+                         "CompactionStopStyle", iter.first, &e1, &e2, opts);
+    ASSERT_EQ(e1, iter.second);
+  }
+  for (auto iter : OptionsHelper::checksum_type_string_map) {
+    ChecksumType e1, e2;
+    TestAndCompareOption(OptionTypeInfo(0, OptionType::kChecksumType),
+                         "CheckSumType", iter.first, &e1, &e2, opts);
+    ASSERT_EQ(e1, iter.second);
+  }
+  for (auto iter : OptionsHelper::encoding_type_string_map) {
+    EncodingType e1, e2;
+    TestAndCompareOption(OptionTypeInfo(0, OptionType::kEncodingType),
+                         "EncodingType", iter.first, &e1, &e2, opts);
+    ASSERT_EQ(e1, iter.second);
+  }
+}
+
+TEST_F(OptionTypeInfoTest, TestStruct) {
+  struct Basic {
+    int i = 42;
+    std::string s = "Hello";
+  };
+
+  struct Extended {
+    int j = 11;
+    Basic b;
+  };
+
+  std::unordered_map<std::string, OptionTypeInfo> basic_type_map = {
+      {"i", {offsetof(struct Basic, i), OptionType::kInt}},
+      {"s", {offsetof(struct Basic, s), OptionType::kString}},
+  };
+  OptionTypeInfo basic_info = OptionTypeInfo::Struct(
+      "b", &basic_type_map, 0, OptionVerificationType::kNormal,
+      OptionTypeFlags::kMutable);
+
+  std::unordered_map<std::string, OptionTypeInfo> extended_type_map = {
+      {"j", {offsetof(struct Extended, j), OptionType::kInt}},
+      {"b", OptionTypeInfo::Struct(
+                "b", &basic_type_map, offsetof(struct Extended, b),
+                OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+      {"m", OptionTypeInfo::Struct(
+                "m", &basic_type_map, offsetof(struct Extended, b),
+                OptionVerificationType::kNormal, OptionTypeFlags::kMutable)},
+  };
+  OptionTypeInfo extended_info = OptionTypeInfo::Struct(
+      "e", &extended_type_map, 0, OptionVerificationType::kNormal,
+      OptionTypeFlags::kMutable);
+  Extended e1, e2;
+  ConfigOptions opts;
+  std::string mismatch;
+  TestAndCompareOption(basic_info, "b", "{i=33;s=33}", &e1.b, &e2.b, opts);
+  ASSERT_EQ(e1.b.i, 33);
+  ASSERT_EQ(e1.b.s, "33");
+
+  TestAndCompareOption(basic_info, "b.i", "44", &e1.b, &e2.b, opts);
+  ASSERT_EQ(e1.b.i, 44);
+
+  TestAndCompareOption(basic_info, "i", "55", &e1.b, &e2.b, opts);
+  ASSERT_EQ(e1.b.i, 55);
+
+  e1.b.i = 0;
+
+  ASSERT_FALSE(basic_info.MatchesOption("b", &e1.b, &e2.b, opts, &mismatch));
+  ASSERT_EQ(mismatch, "b.i");
+  mismatch.clear();
+  ASSERT_FALSE(basic_info.MatchesOption("b.i", &e1.b, &e2.b, opts, &mismatch));
+  ASSERT_EQ(mismatch, "b.i");
+  mismatch.clear();
+  ASSERT_FALSE(basic_info.MatchesOption("i", &e1.b, &e2.b, opts, &mismatch));
+  ASSERT_EQ(mismatch, "b.i");
+  mismatch.clear();
+
+  e1 = e2;
+  ASSERT_NOK(basic_info.ParseOption("b", "{i=33;s=33;j=44}", opts, &e1.b));
+  ASSERT_TRUE(basic_info.MatchesOption("b.i", &e1.b, &e2.b, opts, &mismatch));
+  ASSERT_NOK(basic_info.ParseOption("b.j", "44", opts, &e1.b));
+  ASSERT_TRUE(basic_info.MatchesOption("b.i", &e1.b, &e2.b, opts, &mismatch));
+  ASSERT_NOK(basic_info.ParseOption("j", "44", opts, &e1.b));
+  ASSERT_TRUE(basic_info.MatchesOption("b.i", &e1.b, &e2.b, opts, &mismatch));
+
+  TestAndCompareOption(extended_info, "e", "b={i=55;s=55}; j=22;", &e1, &e2,
+                       opts);
+  ASSERT_EQ(e1.b.i, 55);
+  ASSERT_EQ(e1.j, 22);
+  ASSERT_EQ(e1.b.s, "55");
+  TestAndCompareOption(extended_info, "e.b", "{i=66;s=66;}", &e1, &e2, opts);
+  ASSERT_EQ(e1.b.i, 66);
+  ASSERT_EQ(e1.j, 22);
+  ASSERT_EQ(e1.b.s, "66");
+  TestAndCompareOption(extended_info, "e.b.i", "77", &e1, &e2, opts);
+  ASSERT_EQ(e1.b.i, 77);
+  ASSERT_EQ(e1.j, 22);
+  ASSERT_EQ(e1.b.s, "66");
+}
+
+TEST_F(OptionTypeInfoTest, TestVectorType) {
+  OptionTypeInfo vec_info = OptionTypeInfo::Vector<std::string>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+      {0, OptionType::kString});
+  std::vector<std::string> vec1, vec2;
+  std::string mismatch;
+
+  ConfigOptions opts;
+  TestAndCompareOption(vec_info, "v", "a:b:c:d", &vec1, &vec2, opts);
+  ASSERT_EQ(vec1.size(), 4);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b");
+  ASSERT_EQ(vec1[2], "c");
+  ASSERT_EQ(vec1[3], "d");
+  vec1[3] = "e";
+  ASSERT_FALSE(vec_info.MatchesOption("v", &vec1, &vec2, opts, &mismatch));
+  ASSERT_EQ(mismatch, "v");
+
+  OptionTypeInfo bar_info = OptionTypeInfo::Vector<std::string>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+      {0, OptionType::kString}, '|');
+  TestAndCompareOption(vec_info, "v", "x|y|z", &vec1, &vec2, opts);
+}
+
+class ConfigOptionsTest : public testing::Test {};
+
+TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
+  ConfigOptions cfg_opts;
+  DBOptions db_opts;
+  Options opts;
+  Env* mem_env = NewMemEnv(Env::Default());
+  cfg_opts.registry->AddLocalLibrary(RegisterCustomEnv, "RegisterCustomEnv",
+                                     "custom");
+  cfg_opts.env = mem_env;
+  // First test that we can get the env as expected
+  ASSERT_OK(
+      GetDBOptionsFromString(DBOptions(), "env=custom", cfg_opts, &db_opts));
+  ASSERT_OK(GetOptionsFromString(Options(), "env=custom", cfg_opts, &opts));
+  ASSERT_NE(cfg_opts.env, db_opts.env);
+  ASSERT_EQ(opts.env, db_opts.env);
+  Env* custom_env = db_opts.env;
+
+  // Now try a "bad" env" and check that nothing changed
+  cfg_opts.ignore_unknown_objects = true;
+  ASSERT_OK(GetDBOptionsFromString(db_opts, "env=unknown", cfg_opts, &db_opts));
+  ASSERT_OK(GetOptionsFromString(opts, "env=unknown", cfg_opts, &opts));
+  ASSERT_EQ(cfg_opts.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  // Now try a "bad" env" ignoring unknown objects
+  cfg_opts.ignore_unknown_objects = false;
+  ASSERT_NOK(
+      GetDBOptionsFromString(db_opts, "env=unknown", cfg_opts, &db_opts));
+  ASSERT_EQ(cfg_opts.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  delete mem_env;
+}
+
+TEST_F(ConfigOptionsTest, EnvFromDBOptions) {
+  DBOptions db_opts;
+  ConfigOptions cfg_opts;
+  Env* mem_env = NewMemEnv(Env::Default());
+  db_opts.object_registry->AddLocalLibrary(RegisterCustomEnv,
+                                           "RegisterCustomEnv", "custom");
+  ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+            1);
+  cfg_opts.env = mem_env;
+  cfg_opts.ignore_unknown_objects = false;
+
+  // The library is not registered with the ConfigOptions, so
+  // the Get should fail.
+  ASSERT_NOK(GetDBOptionsFromString(db_opts, "env=custom", cfg_opts, &db_opts));
+  ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+            1);
+  ASSERT_NE(cfg_opts.env, db_opts.env);
+
+  cfg_opts.registry = db_opts.object_registry;
+  ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 1);
+  ASSERT_OK(
+      GetDBOptionsFromString(DBOptions(), "env=custom", cfg_opts, &db_opts));
+  ASSERT_NE(cfg_opts.env, db_opts.env);
+
+  delete mem_env;
+}
+
+TEST_F(ConfigOptionsTest, DBOptionsFromRegistryString) {
+  DBOptions db_opts;
+
+  if (db_opts.object_registry
+          ->AddLocalLibrary(db_opts.env, "RegisterCustomEnv", "custom")
+          .ok()) {
+    std::string opts_str;
+    ConfigOptions cfg_opts(db_opts);
+    cfg_opts.ignore_unknown_objects = false;
+    ASSERT_OK(Env::CreateFromString("custom", cfg_opts, &db_opts.env));
+    ASSERT_OK(GetStringFromDBOptions(db_opts, cfg_opts, &opts_str));
+    ASSERT_OK(
+        GetDBOptionsFromString(DBOptions(), opts_str, cfg_opts, &db_opts));
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 1);
+    ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+              1);
+
+    cfg_opts.registry = db_opts.object_registry;
+    cfg_opts.registry->AddLocalLibrary(RegisterCustomEnv,
+                                       "RegisterCustomEnvXXX", "customXX");
+    ASSERT_OK(GetStringFromDBOptions(db_opts, cfg_opts, &opts_str));
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 2);
+
+    ASSERT_NOK(
+        GetDBOptionsFromString(DBOptions(), opts_str, cfg_opts, &db_opts));
+    ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+              0);
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 2);
+  }
+}
+
+TEST_F(ConfigOptionsTest, OptionsFromRegistryString) {
+  Options opts;
+
+  if (opts.object_registry
+          ->AddLocalLibrary(opts.env, "RegisterCustomEnv", "custom")
+          .ok()) {
+    std::string opts_str;
+    ConfigOptions cfg_opts(opts);
+    cfg_opts.ignore_unknown_objects = false;
+    ASSERT_OK(Env::CreateFromString("custom", cfg_opts, &opts.env));
+    ASSERT_OK(GetStringFromDBOptions(opts, cfg_opts, &opts_str));
+    ASSERT_OK(GetOptionsFromString(Options(), opts_str, cfg_opts, &opts));
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 1);
+    ASSERT_EQ(opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+              1);
+
+    ASSERT_NOK(GetOptionsFromString(opts, "table_factory=UnknownXXX", cfg_opts,
+                                    &opts));
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 1);
+    ASSERT_EQ(opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+              1);
+
+    cfg_opts.registry = opts.object_registry;
+    cfg_opts.registry->AddLocalLibrary(RegisterCustomEnv,
+                                       "RegisterCustomEnvXXX", "customXX");
+    ASSERT_OK(GetStringFromDBOptions(opts, cfg_opts, &opts_str));
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 2);
+
+    ASSERT_NOK(GetOptionsFromString(Options(), opts_str, cfg_opts, &opts));
+    ASSERT_EQ(opts.object_registry->GetRegisteredNames(Env::Type(), nullptr),
+              0);
+    ASSERT_EQ(cfg_opts.registry->GetRegisteredNames(Env::Type(), nullptr), 2);
+  }
+}
+
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 

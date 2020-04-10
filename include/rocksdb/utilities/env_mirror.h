@@ -42,7 +42,7 @@ class EnvMirror : public EnvWrapper {
     if (free_a_) delete a_;
     if (free_b_) delete b_;
   }
-
+  const char* Name() const override { return "EnvMirror"; }
   Status NewSequentialFile(const std::string& f,
                            std::unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override;

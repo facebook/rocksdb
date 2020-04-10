@@ -11,6 +11,7 @@
 #include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
+class ObjectRegistry;
 
 struct ImmutableDBOptions {
   ImmutableDBOptions();
@@ -60,6 +61,7 @@ struct ImmutableDBOptions {
   size_t random_access_max_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
+  std::vector<std::shared_ptr<DBPlugin>> plugins;
   bool enable_thread_tracking;
   bool enable_pipelined_write;
   bool unordered_write;
@@ -74,6 +76,7 @@ struct ImmutableDBOptions {
   std::shared_ptr<Cache> row_cache;
 #ifndef ROCKSDB_LITE
   WalFilter* wal_filter;
+  std::shared_ptr<ObjectRegistry> object_registry;
 #endif  // ROCKSDB_LITE
   bool fail_if_options_file_error;
   bool dump_malloc_stats;

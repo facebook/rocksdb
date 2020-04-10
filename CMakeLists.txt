@@ -506,6 +506,7 @@ find_package(Threads REQUIRED)
 # Main library source code
 
 set(SOURCES
+        cache/cache.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -537,6 +538,7 @@ set(SOURCES
         db/db_impl/db_impl_secondary.cc
         db/db_info_dumper.cc
         db/db_iter.cc
+        db/db_plugin.cc
         db/dbformat.cc
         db/error_handler.cc
         db/event_helpers.cc
@@ -616,11 +618,12 @@ set(SOURCES
         monitoring/thread_status_util.cc
         monitoring/thread_status_util_debug.cc
         options/cf_options.cc
+        options/configurable.cc
+        options/customizable.cc
         options/db_options.cc
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
-        options/options_sanity_check.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
@@ -666,6 +669,7 @@ set(SOURCES
         table/plain/plain_table_reader.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
+        table/table_factory.cc
         table/table_properties.cc
         table/two_level_iterator.cc
         test_util/sync_point.cc
@@ -709,15 +713,18 @@ set(SOURCES
         utilities/blob_db/blob_log_writer.cc
         utilities/blob_db/blob_log_format.cc
         utilities/cassandra/cassandra_compaction_filter.cc
+        utilities/cassandra/cassandra_options.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
+        utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
@@ -976,6 +983,7 @@ if(WITH_TESTS)
         db/db_merge_operator_test.cc
         db/db_merge_operand_test.cc
         db/db_options_test.cc
+        db/db_plugin_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
         db/db_impl/db_secondary_test.cc
@@ -1038,6 +1046,8 @@ if(WITH_TESTS)
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
         monitoring/stats_history_test.cc
+        options/configurable_test.cc
+        options/customizable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc

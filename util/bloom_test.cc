@@ -72,7 +72,7 @@ class BlockBasedBloomTest : public testing::Test {
 
   void ResetPolicy(double bits_per_key) {
     policy_.reset(new BloomFilterPolicy(bits_per_key,
-                                        BloomFilterPolicy::kDeprecatedBlock));
+                                        BloomFilterOptions::kDeprecatedBlock));
     Reset();
   }
 
@@ -251,7 +251,7 @@ TEST_F(BlockBasedBloomTest, Schema) {
 
 // Different bits-per-byte
 
-class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
+class FullBloomTest : public testing::TestWithParam<BloomFilterOptions::Mode> {
  private:
   BlockBasedTableOptions table_options_;
   std::shared_ptr<const FilterPolicy>& policy_;
@@ -374,12 +374,12 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
   uint32_t SelectByImpl(uint32_t for_legacy_bloom,
                         uint32_t for_fast_local_bloom) {
     switch (GetParam()) {
-      case BloomFilterPolicy::kLegacyBloom:
+      case BloomFilterOptions::kLegacyBloom:
         return for_legacy_bloom;
-      case BloomFilterPolicy::kFastLocalBloom:
+      case BloomFilterOptions::kFastLocalBloom:
         return for_fast_local_bloom;
-      case BloomFilterPolicy::kDeprecatedBlock:
-      case BloomFilterPolicy::kAuto:
+      case BloomFilterOptions::kDeprecatedBlock:
+      case BloomFilterOptions::kAuto:
           /* N/A */;
     }
     // otherwise
@@ -538,7 +538,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1567096579, 1964771444, 2659542661U),
                    3817481309U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("11,13,17,25,29,30,35,37,45,53", FirstFPs(10));
   }
 
@@ -552,7 +552,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(2707206547U, 2571983456U, 218344685),
                    2807269961U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("4,15,17,24,27,28,29,53,63,70", FirstFPs(10));
   }
 
@@ -566,7 +566,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(515748486, 94611728, 2436112214U),
                    204628445));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("15,24,29,39,53,87,89,100,103,104", FirstFPs(10));
   }
 
@@ -580,7 +580,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1302145999, 2811644657U, 756553699),
                    355564975));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("16,60,66,126,220,238,244,256,265,287", FirstFPs(10));
   }
 
@@ -594,7 +594,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(2092755149, 661139132, 1182970461),
                    2137566013U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("156,367,791,872,945,1015,1139,1159,1265,1435", FirstFPs(10));
   }
 
@@ -608,7 +608,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(3755609649U, 1812694762, 1449142939),
                    2561502687U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("34,74,130,236,643,882,962,1015,1035,1110", FirstFPs(10));
   }
 
@@ -629,7 +629,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(178861123, 379087593, 2574136516U),
                    3709876890U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("130,240,522,565,989,2002,2526,3147,3543", FirstFPs(9));
   }
 
@@ -649,7 +649,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1129406313, 3049154394U, 1727750964),
                    1087138490));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("3299,3611,3916,6620,7822,8079,8482,8942,10167", FirstFPs(9));
   }
 
@@ -663,7 +663,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(1478976371, 2910591341U, 1182970461),
                    2498541272U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
   }
 
@@ -677,7 +677,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(4205696321U, 1132081253U, 2385981855U),
                    2058382345U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
   }
 
@@ -691,7 +691,7 @@ TEST_P(FullBloomTest, Schema) {
       BloomHash(FilterData()),
       SelectByImpl(SelectByCacheLineSize(2885052954U, 769447944, 4175124908U),
                    23699164));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ("16,126,133,422,466,472,813,1002,1035,1159", FirstFPs(10));
   }
 
@@ -708,7 +708,7 @@ TEST_P(FullBloomTest, Schema) {
             SelectByImpl(/*SAME*/ SelectByCacheLineSize(2885052954U, 769447944,
                                                         4175124908U),
                          /*CHANGED*/ 3166884174U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ(/*CHANGED*/ "126,156,367,444,458,791,813,976,1015,1035",
               FirstFPs(10));
   }
@@ -724,7 +724,7 @@ TEST_P(FullBloomTest, Schema) {
             SelectByImpl(/*SAME*/ SelectByCacheLineSize(2885052954U, 769447944,
                                                         4175124908U),
                          /*CHANGED*/ 4098502778U));
-  if (GetParam() == BloomFilterPolicy::kFastLocalBloom) {
+  if (GetParam() == BloomFilterOptions::kFastLocalBloom) {
     EXPECT_EQ(/*CHANGED*/ "16,236,240,472,1015,1045,1111,1409,1465,1612",
               FirstFPs(10));
   }
@@ -900,8 +900,8 @@ TEST_P(FullBloomTest, CorruptFilters) {
 }
 
 INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
-                        testing::Values(BloomFilterPolicy::kLegacyBloom,
-                                        BloomFilterPolicy::kFastLocalBloom));
+                        testing::Values(BloomFilterOptions::kLegacyBloom,
+                                        BloomFilterOptions::kFastLocalBloom));
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -33,6 +33,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;
+struct ConfigOptions;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -87,12 +88,13 @@ struct LRUCacheOptions {
       kDefaultCacheMetadataChargePolicy;
 
   LRUCacheOptions() {}
-  LRUCacheOptions(size_t _capacity, int _num_shard_bits,
-                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
-                  std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
-                  CacheMetadataChargePolicy _metadata_charge_policy =
-                      kDefaultCacheMetadataChargePolicy)
+  LRUCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
@@ -113,7 +115,7 @@ struct LRUCacheOptions {
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
-    std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+    const std::shared_ptr<MemoryAllocator>& memory_allocator = nullptr,
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
@@ -130,18 +132,27 @@ extern std::shared_ptr<Cache> NewClockCache(
     bool strict_capacity_limit = false,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
-class Cache {
+
+class Cache : public Customizable {
  public:
+  static const std::string kLRUCacheName /* = "LRUCache"*/;
+  static const std::string kClockCacheName /*= "ClockCache"*/;
+  static const char* Type() { return "Cache"; }
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
   enum class Priority { HIGH, LOW };
 
-  Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
-      : memory_allocator_(std::move(allocator)) {}
+  Cache(const std::shared_ptr<MemoryAllocator>& allocator = nullptr);
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
 
+  // Creates a new Cache based on the input value string and returns the result
+  // The value might be an ID, and ID with properties, or an old-style cache
+  // initialization string.
+  static Status CreateFromString(const std::string& value,
+                                 const ConfigOptions& options,
+                                 std::shared_ptr<Cache>* result);
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
   //

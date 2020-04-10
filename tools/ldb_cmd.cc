@@ -287,8 +287,8 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-    if (!s.ok() && !s.IsNotFound()) {
+    Status s = Env::CreateFromString(env_uri_, cfg_options_, &env, &env_guard_);
+    if (!s.ok() && !s.IsNotSupported()) {
       fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
       exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
       return;
@@ -330,7 +330,6 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       is_db_ttl_(false),
       timestamp_(false),
       try_load_options_(false),
-      ignore_unknown_options_(false),
       create_if_missing_(false),
       option_map_(options),
       flags_(flags),
@@ -363,13 +362,15 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
-  ignore_unknown_options_ = IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
+  cfg_options_.ignore_unknown_options =
+      IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
+  cfg_options_.registry = options_.object_registry;
 }
 
 void LDBCommand::OpenDB() {
   if (!create_if_missing_ && try_load_options_) {
-    Status s = LoadLatestOptions(db_path_, options_.env, &options_,
-                                 &column_families_, ignore_unknown_options_);
+    Status s = LoadLatestOptions(db_path_, options_.env, cfg_options_,
+                                 &options_, &column_families_);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
       std::string msg = s.ToString();
@@ -3000,7 +3001,8 @@ void BackupCommand::DoCommand() {
   }
   fprintf(stdout, "open db OK\n");
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+  Env::CreateFromString(backup_env_uri_, cfg_options_, &custom_env,
+                        &backup_env_guard_);
   assert(custom_env != nullptr);
 
   BackupableDBOptions backup_options =
@@ -3037,7 +3039,8 @@ void RestoreCommand::Help(std::string& ret) {
 
 void RestoreCommand::DoCommand() {
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+  Env::CreateFromString(backup_env_uri_, cfg_options_, &custom_env,
+                        &backup_env_guard_);
   assert(custom_env != nullptr);
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;

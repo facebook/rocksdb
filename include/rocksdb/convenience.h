@@ -10,12 +10,88 @@
 #include <vector>
 
 #include "rocksdb/db.h"
-#include "rocksdb/options.h"
+#include "rocksdb/status.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Logger;
+class ObjectRegistry;
+struct ColumnFamilyOptions;
+struct DBOptions;
+struct Options;
+
+// Structure containing options/parameters/controls for
+// comparing objects and converting to/from strings
+
+struct ConfigOptions {
+  // Constructs a new ConfigOptions with a new object registry.
+  // This method should only be used when a DBOptions is not available,
+  // else registry settings may be lost
+  ConfigOptions();
+  // Constructs a new ConfigOptions using the object registry from
+  // the input options.
+  ConfigOptions(const DBOptions&);
+
+  // Returns a ConfigOptions suitable for nested/embedded
+  // options.
+  ConfigOptions Embedded() const;
+
+  // This enum defines the RocksDB options sanity level.
+  enum SanityLevel : unsigned char {
+    kSanityLevelNone = 0x01,  // Performs no sanity check at all.
+    // Performs minimum check to ensure the RocksDB instance can be
+    // opened without corrupting / mis-interpreting the data.
+    kSanityLevelLooselyCompatible = 0x02,
+    // Perform exact match sanity check.
+    kSanityLevelExactMatch = 0xFF,
+  };
+
+  enum Depth {
+    kDepthDefault,  // Traverse nested options that are not flagged as "shallow"
+    kDepthShallow,  // Do not traverse into any nested options
+    kDepthDetailed,  // Traverse nested options, overriding the options shallow
+                     // setting
+  };
+
+  // When true, any unused options will be ignored and OK will be returned
+  bool ignore_unknown_options = false;
+  // When true, ignore unsupported objects during configure/parse.
+  bool ignore_unknown_objects = true;
+  // If the strings are escaped (old-style?)
+  bool input_strings_escaped = true;
+  // Whether or not to invoke PrepareOptins after configure is called
+  bool invoke_prepare_options = true;
+  // The separator between options when in a string
+  std::string delimiter = ";";
+  // Controls how to traverse options during print/match stages
+  Depth depth = Depth::kDepthDefault;
+  // Controls how options are serialized
+  // Controls how pedantic the comparison must be for equivalency
+  SanityLevel sanity_level = SanityLevel::kSanityLevelExactMatch;
+  // `file_readahead_size` is used for readahead for the option file.
+  size_t file_readahead_size = 512 * 1024;
+  // The logger for this options
+  std::shared_ptr<Logger> info_log = nullptr;
+
+  Env* env;
+#ifndef ROCKSDB_LITE
+  // The object registry to use for this options
+  std::shared_ptr<ObjectRegistry> registry;
+#endif
+
+  bool IsShallow() const { return depth == Depth::kDepthShallow; }
+  bool IsDetailed() const { return depth == Depth::kDepthDetailed; }
+
+  bool IsCheckDisabled() const {
+    return sanity_level == SanityLevel::kSanityLevelNone;
+  }
+  bool IsCheckEnabled(SanityLevel level) const {
+    return (level > SanityLevel::kSanityLevelNone && level <= sanity_level);
+  }
+};
 
 #ifndef ROCKSDB_LITE
+
 // The following set of functions provide a way to construct RocksDB Options
 // from a string or a string-to-string map.  Here're the general rule of
 // setting option values from strings by type.  Some RocksDB types are also
@@ -168,9 +244,12 @@ namespace ROCKSDB_NAMESPACE {
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& cfg_opts, ColumnFamilyOptions* new_options);
+Status GetColumnFamilyOptionsFromMap(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped = false,
     bool ignore_unknown_options = false);
-
 // Take a default DBOptions "base_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
 // DBOptions "new_options".
@@ -199,9 +278,13 @@ Status GetColumnFamilyOptionsFromMap(
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& cfg_options, DBOptions* new_options);
+
+Status GetDBOptionsFromMap(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped = false,
     bool ignore_unknown_options = false);
-
 // Take a default BlockBasedTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
 // BlockBasedTableOptions "new_table_options".
@@ -243,9 +326,13 @@ Status GetDBOptionsFromMap(
 Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& options, BlockBasedTableOptions* new_table_options);
+
+Status GetBlockBasedTableOptionsFromMap(
+    const BlockBasedTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
     BlockBasedTableOptions* new_table_options,
     bool input_strings_escaped = false, bool ignore_unknown_options = false);
-
 // Take a default PlainTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
 // PlainTableOptions "new_table_options".
@@ -266,9 +353,12 @@ Status GetBlockBasedTableOptionsFromMap(
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
+    const ConfigOptions& options, PlainTableOptions* new_table_options);
+Status GetPlainTableOptionsFromMap(
+    const PlainTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options, bool input_strings_escaped = false,
     bool ignore_unknown_options = false);
-
 // Take a string representation of option names and  values, apply them into the
 // base_options, and return the new options as a result. The string has the
 // following format:
@@ -279,20 +369,35 @@ Status GetPlainTableOptionsFromMap(
 //   "max_write_buffer_num=2"
 Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
                                         const std::string& opts_str,
+                                        const ConfigOptions& parse_options,
                                         ColumnFamilyOptions* new_options);
+Status GetColumnFamilyOptionsFromString(const ColumnFamilyOptions& base_options,
+                                        const std::string& opts_str,
+                                        ColumnFamilyOptions* new_options);
+
+Status GetDBOptionsFromString(const DBOptions& base_options,
+                              const std::string& opts_str,
+                              const ConfigOptions& parse_options,
+                              DBOptions* new_options);
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
                               const std::string& opts_str,
                               DBOptions* new_options);
 
+Status GetStringFromDBOptions(const DBOptions& db_options,
+                              const ConfigOptions& parse_opts,
+                              std::string* opts_str);
+
 Status GetStringFromDBOptions(std::string* opts_str,
                               const DBOptions& db_options,
                               const std::string& delimiter = ";  ");
 
+Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& cf_options,
+                                        const ConfigOptions& parse_opts,
+                                        std::string* opts_str);
 Status GetStringFromColumnFamilyOptions(std::string* opts_str,
                                         const ColumnFamilyOptions& cf_options,
                                         const std::string& delimiter = ";  ");
-
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
 
@@ -301,9 +406,16 @@ std::vector<CompressionType> GetSupportedCompressions();
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options);
+Status GetBlockBasedTableOptionsFromString(
+    const BlockBasedTableOptions& table_options, const std::string& opts_str,
+    const ConfigOptions& options, BlockBasedTableOptions* new_table_options);
 
 Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
                                       const std::string& opts_str,
+                                      PlainTableOptions* new_table_options);
+Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
+                                      const std::string& opts_str,
+                                      const ConfigOptions& options,
                                       PlainTableOptions* new_table_options);
 
 Status GetMemTableRepFactoryFromString(
@@ -312,6 +424,10 @@ Status GetMemTableRepFactoryFromString(
 
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options);
+Status GetOptionsFromString(const Options& base_options,
+                            const std::string& opts_str,
+                            const ConfigOptions& parse_opts,
+                            Options* new_options);
 
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map);

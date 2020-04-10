@@ -15,6 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 class DbStressEnvWrapper : public EnvWrapper {
  public:
   explicit DbStressEnvWrapper(Env* t) : EnvWrapper(t) {}
+  const char* Name() const override { return "DBStressEnv"; }
 
   Status DeleteFile(const std::string& f) override {
     // We determine whether it is a manifest file by searching a strong,

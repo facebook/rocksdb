@@ -1,5 +1,6 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
+  cache/cache.cc                                                \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
@@ -31,6 +32,7 @@ LIB_SOURCES =                                                   \
   db/db_impl/db_impl_write.cc                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
+  db/db_plugin.cc                                               \
   db/dbformat.cc                                                \
   db/error_handler.cc						                                \
   db/event_helpers.cc                                           \
@@ -114,11 +116,12 @@ LIB_SOURCES =                                                   \
   monitoring/thread_status_util.cc                              \
   monitoring/thread_status_util_debug.cc                        \
   options/cf_options.cc                                         \
+  options/configurable.cc                                       \
+  options/customizable.cc                                       \
   options/db_options.cc                                         \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
-  options/options_sanity_check.cc                               \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
@@ -165,6 +168,7 @@ LIB_SOURCES =                                                   \
   table/plain/plain_table_reader.cc                             \
   table/sst_file_reader.cc                                      \
   table/sst_file_writer.cc                                      \
+  table/table_factory.cc                                        \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
   test_util/sync_point.cc                                       \
@@ -202,9 +206,11 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
   utilities/cassandra/cassandra_compaction_filter.cc            \
+  utilities/cassandra/cassandra_options.cc                      \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
   utilities/checkpoint/checkpoint_impl.cc                       \
+  utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
   utilities/debug.cc                                            \
@@ -212,6 +218,7 @@ LIB_SOURCES =                                                   \
   utilities/env_timed.cc                                        \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
+  utilities/merge_operators.cc                                  \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
   utilities/merge_operators/sortlist.cc                  		    \
@@ -340,6 +347,7 @@ MAIN_SOURCES =                                                          \
   db/db_merge_operator_test.cc                                          \
   db/db_merge_operand_test.cc                                          	\
   db/db_options_test.cc                                                 \
+  db/db_plugin_test.cc                                                  \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
   db/db_impl/db_secondary_test.cc                                       \
@@ -412,6 +420,8 @@ MAIN_SOURCES =                                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
   monitoring/stats_history_test.cc                                      \
+  options/configurable_test.cc                                          \
+  options/customizable_test.cc                                          \
   options/options_test.cc                                               \
   table/block_based/block_based_filter_block_test.cc                    \
   table/block_based/block_test.cc                                       \
@@ -495,6 +505,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/compression_options.cc                        \
+  java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
   java/rocksjni/ingest_external_file_options.cc               \

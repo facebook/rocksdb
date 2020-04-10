@@ -4,12 +4,13 @@
 //
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
-#include <algorithm>
 
 #include "env/mock_env.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
 
@@ -20,6 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 class NormalizingEnvWrapper : public EnvWrapper {
  public:
   explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
+  const char* Name() const override { return "NormalizingEnv"; }
 
   // Removes . and .. from directory listing
   Status GetChildren(const std::string& dir,
@@ -108,7 +110,8 @@ std::vector<Env*> GetCustomEnvs() {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      Env::LoadEnv(uri, &custom_env);
+      ConfigOptions cfg;
+      Env::CreateFromString(uri, cfg, &custom_env);
     }
   }
 

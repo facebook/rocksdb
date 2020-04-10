@@ -9,8 +9,11 @@
 
 #include <cstring>
 
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 
 #ifndef GFLAGS
@@ -216,8 +219,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<WriteBufferManager>)},
       {offsetof(struct DBOptions, listeners),
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
+      {offsetof(struct DBOptions, plugins),
+       sizeof(std::vector<std::shared_ptr<DBPlugin>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
+      {offsetof(struct DBOptions, object_registry),
+       sizeof(std::shared_ptr<ObjectRegistry>)},
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
   };

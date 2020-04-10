@@ -36,6 +36,7 @@ class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
 class ConcurrentTaskLimiter;
+class DBPlugin;
 class Env;
 enum InfoLogLevel : unsigned char;
 class SstFileManager;
@@ -50,6 +51,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+class ObjectRegistry;
 
 enum class CpuPriority {
   kIdle = 0,
@@ -871,6 +873,10 @@ struct DBOptions {
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
+  // A vector of DBPlugins whos functions will be called to setup and tear down
+  // the database
+  std::vector<std::shared_ptr<DBPlugin>> plugins;
+
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
   //
@@ -1018,6 +1024,9 @@ struct DBOptions {
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
   WalFilter* wal_filter = nullptr;
+
+  // The object registry to use to load objects for this database instance
+  std::shared_ptr<ObjectRegistry> object_registry;
 #endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily

@@ -18,6 +18,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
@@ -26,6 +27,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "util/compression.h"
@@ -103,7 +105,12 @@ ColumnFamilyOptions::ColumnFamilyOptions()
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
-DBOptions::DBOptions() {}
+DBOptions::DBOptions() {
+#ifndef ROCKSDB_LITE
+  object_registry = ObjectRegistry::NewInstance();
+#endif  // ROCKSDB_LITE
+}
+
 DBOptions::DBOptions(const Options& options)
     : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
@@ -127,7 +134,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "           Options.table_factory: %s",
                    table_factory->Name());
   ROCKS_LOG_HEADER(log, "           table_factory options: %s",
-                   table_factory->GetPrintableTableOptions().c_str());
+                   table_factory->GetPrintableOptions().c_str());
   ROCKS_LOG_HEADER(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt,
                    write_buffer_size);
   ROCKS_LOG_HEADER(log, " Options.max_write_buffer_number: %d",

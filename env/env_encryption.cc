@@ -403,6 +403,8 @@ class EncryptedEnv : public EnvWrapper {
     provider_ = provider;
   }
 
+  const char* Name() const override { return kEncryptedEnvName.c_str(); }
+
   // NewSequentialFile opens a file for sequential reading.
   Status NewSequentialFile(const std::string& fname,
                            std::unique_ptr<SequentialFile>* result,

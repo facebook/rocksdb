@@ -6,6 +6,8 @@
 #pragma once
 
 #include <string>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -25,10 +27,16 @@ class FlushBlockPolicy {
   virtual ~FlushBlockPolicy() {}
 };
 
-class FlushBlockPolicyFactory {
+class FlushBlockPolicyFactory : public Customizable {
  public:
-  // Return the name of the flush block policy.
-  virtual const char* Name() const = 0;
+  static const std::string kSizePolicyFactory;
+  static const std::string kEveryKeyPolicyFactory;
+
+ public:
+  static const char* Type() { return "FlushBlockPolicyFactory"; }
+  static Status CreateFromString(
+      const std::string& name, const ConfigOptions& opts,
+      std::shared_ptr<FlushBlockPolicyFactory>* result);
 
   // Return a new block flush policy that flushes data blocks by data size.
   // FlushBlockPolicy may need to access the metadata of the data block
@@ -47,7 +55,7 @@ class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
  public:
   FlushBlockBySizePolicyFactory() {}
 
-  const char* Name() const override { return "FlushBlockBySizePolicyFactory"; }
+  const char* Name() const override { return kSizePolicyFactory.c_str(); }
 
   FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& table_options,

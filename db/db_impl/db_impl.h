@@ -127,7 +127,8 @@ class Directories {
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false, const bool batch_per_txn = true);
+         const bool owns_info_log = false, const bool seq_per_batch = false,
+         const bool batch_per_txn = true);
   // No copying allowed
   DBImpl(const DBImpl&) = delete;
   void operator=(const DBImpl&) = delete;
@@ -1691,7 +1692,7 @@ class DBImpl : public DB {
   static Status ValidateOptions(const DBOptions& db_options);
   // Validate self-consistency of DB options and its consistency with cf options
   static Status ValidateOptions(
-      const DBOptions& db_options,
+      const std::string& db_name, const DBOptions& db_options,
       const std::vector<ColumnFamilyDescriptor>& column_families);
 
   // Utility function to do some debug validation and sort the given vector

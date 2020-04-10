@@ -8,10 +8,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_set.h"
+
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "env/mock_env.h"
 #include "logging/logging.h"
+#include "rocksdb/convenience.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -630,7 +632,8 @@ class VersionSetTestBase {
     const char* test_env_uri = getenv("TEST_ENV_URI");
     Env* base_env = nullptr;
     if (test_env_uri) {
-      Status s = Env::LoadEnv(test_env_uri, &base_env, &env_guard_);
+      Status s = Env::CreateFromString(test_env_uri, ConfigOptions(), &base_env,
+                                       &env_guard_);
       EXPECT_OK(s);
       EXPECT_NE(Env::Default(), base_env);
     } else {

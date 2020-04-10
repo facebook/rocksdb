@@ -1422,8 +1422,11 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
     delete iter;
     return data;
   };
-  for (auto& mode : wal_recovery_mode_string_map) {
-    options.wal_recovery_mode = mode.second;
+  for (auto& mode : {WALRecoveryMode::kTolerateCorruptedTailRecords,
+                     WALRecoveryMode::kAbsoluteConsistency,
+                     WALRecoveryMode::kPointInTimeRecovery,
+                     WALRecoveryMode::kSkipAnyCorruptedRecords}) {
+    options.wal_recovery_mode = mode;
     for (auto trunc : {true, false}) {
       for (int i = 0; i < 4; i++) {
         for (int j = jstart; j < jend; j++) {

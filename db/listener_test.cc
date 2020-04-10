@@ -11,7 +11,6 @@
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -24,8 +23,6 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/block_based/block_based_table_factory.h"
-#include "table/plain/plain_table_factory.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -677,6 +674,7 @@ class TableFileCreationListener : public EventListener {
   class TestEnv : public EnvWrapper {
    public:
     TestEnv() : EnvWrapper(Env::Default()) {}
+    const char* Name() const override { return "TestEnv"; }
 
     void SetStatus(Status s) { status_ = s; }
 
