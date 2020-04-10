@@ -398,7 +398,7 @@ if(MSVC)
     else()
       set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm")
     endif()
-     
+
   endif()
   if(WITH_RUNTIME_DEBUG)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}d")
@@ -507,7 +507,7 @@ if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
 
-# Workaround to get c++ std version option coming from CMAKE_CXX_STANDARD for try_compile 
+# Workaround to get c++ std version option coming from CMAKE_CXX_STANDARD for try_compile
 include(CxxFlags)
 get_cxx_std_flags(CMAKE_REQUIRED_FLAGS)
 
@@ -519,7 +519,7 @@ int apply(F f) {
 
 struct test {
   test() : value_(0) {}
-  
+
   int lambda() {
     return apply([=]() {
       return value_;
@@ -992,7 +992,7 @@ if(WITH_TESTS)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
-                            
+
   set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
