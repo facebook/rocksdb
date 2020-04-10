@@ -223,6 +223,7 @@ class BackupStatistics {
 
 // A backup engine for accessing information about backups and restoring from
 // them.
+// BackupEngineReadOnly is not extensible.
 class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
@@ -286,6 +287,7 @@ class BackupEngineReadOnly {
 };
 
 // A backup engine for creating new backups.
+// BackupEngine is not extensible.
 class BackupEngine {
  public:
   virtual ~BackupEngine() {}
