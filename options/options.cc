@@ -607,7 +607,8 @@ ReadOptions::ReadOptions()
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
       iter_start_seqnum(0),
-      timestamp(nullptr) {}
+      timestamp(nullptr),
+      iter_start_ts(nullptr) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -627,6 +628,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
       iter_start_seqnum(0),
-      timestamp(nullptr) {}
+      timestamp(nullptr),
+      iter_start_ts(nullptr) {}
 
 }  // namespace ROCKSDB_NAMESPACE

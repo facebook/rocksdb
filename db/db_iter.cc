@@ -73,6 +73,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       cfd_(cfd),
       start_seqnum_(read_options.iter_start_seqnum),
       timestamp_ub_(read_options.timestamp),
+      timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
   RecordTick(statistics_, NO_ITERATOR_CREATED);
   if (pin_thru_lifetime_) {
@@ -246,23 +247,22 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
     assert(ikey_.user_key.size() >= timestamp_size_);
     Slice ts;
+    bool more_recent = false;
     if (timestamp_size_ > 0) {
       ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
     }
-    if (IsVisible(ikey_.sequence, ts)) {
+    if (IsVisible(ikey_.sequence, ts, &more_recent)) {
       // If the previous entry is of seqnum 0, the current entry will not
       // possibly be skipped. This condition can potentially be relaxed to
       // prev_key.seq <= ikey_.sequence. We are cautious because it will be more
       // prone to bugs causing the same user key with the same sequence number.
       if (!is_prev_key_seqnum_zero && skipping_saved_key &&
-          user_comparator_.CompareWithoutTimestamp(
-              ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
+          CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         assert(!skipping_saved_key ||
-               user_comparator_.CompareWithoutTimestamp(
-                   ikey_.user_key, saved_key_.GetUserKey()) > 0);
+               CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) > 0);
         num_skipped = 0;
         reseek_done = false;
         switch (ikey_.type) {
@@ -363,11 +363,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         }
       }
     } else {
-      PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
+      if (more_recent) {
+        PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
+      }
 
-      // This key was inserted after our snapshot was taken.
-      // If this happens too many times in a row for the same user key, we want
-      // to seek to the target sequence number.
+      // This key was inserted after our snapshot was taken or skipped by
+      // timestamp range. If this happens too many times in a row for the same
+      // user key, we want to seek to the target sequence number.
       int cmp = user_comparator_.CompareWithoutTimestamp(
           ikey_.user_key, saved_key_.GetUserKey());
       if (cmp == 0 || (skipping_saved_key && cmp < 0)) {
@@ -1101,20 +1103,24 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   return false;
 }
 
-bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts) {
+bool DBIter::IsVisible(SequenceNumber sequence, const Slice& ts,
+                       bool* more_recent) {
   // Remember that comparator orders preceding timestamp as larger.
-  int cmp_ts = timestamp_ub_ != nullptr
-                   ? user_comparator_.CompareTimestamp(ts, *timestamp_ub_)
-                   : 0;
-  if (cmp_ts > 0) {
-    return false;
+  // TODO(yanqin): support timestamp in read_callback_.
+  bool visible_by_seq = (read_callback_ == nullptr)
+                            ? sequence <= sequence_
+                            : read_callback_->IsVisible(sequence);
+
+  bool visible_by_ts =
+      (timestamp_ub_ == nullptr ||
+       user_comparator_.CompareTimestamp(ts, *timestamp_ub_) <= 0) &&
+      (timestamp_lb_ == nullptr ||
+       user_comparator_.CompareTimestamp(ts, *timestamp_lb_) >= 0);
+
+  if (more_recent) {
+    *more_recent = !visible_by_seq;
   }
-  if (read_callback_ == nullptr) {
-    return sequence <= sequence_;
-  } else {
-    // TODO(yanqin): support timestamp in read_callback_.
-    return read_callback_->IsVisible(sequence);
-  }
+  return visible_by_seq && visible_by_ts;
 }
 
 void DBIter::SetSavedKeyToSeekTarget(const Slice& target) {

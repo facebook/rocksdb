@@ -235,6 +235,57 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
+                                                     Timestamp(3, 0)};
+  const std::vector<std::string> read_timestamps = {Timestamp(2, 0),
+                                                    Timestamp(4, 0)};
+  const std::vector<std::string> read_timestamps_lb = {Timestamp(1, 0),
+                                                       Timestamp(1, 0)};
+  for (size_t i = 0; i < write_timestamps.size(); ++i) {
+    WriteOptions write_opts;
+    Slice write_ts = write_timestamps[i];
+    write_opts.timestamp = &write_ts;
+    for (uint64_t key = 0; key <= kMaxKey; ++key) {
+      Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  }
+  for (size_t i = 0; i < read_timestamps.size(); ++i) {
+    ReadOptions read_opts;
+    Slice read_ts = read_timestamps[i];
+    Slice read_ts_lb = read_timestamps_lb[i];
+    read_opts.timestamp = &read_ts;
+    read_opts.iter_start_ts = &read_ts_lb;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    int count = 0;
+    uint64_t key = 0;
+    for (it->Seek(Key1(0)), key = 0; it->Valid(); it->Next(), ++count, ++key) {
+      CheckIterUserEntry(it.get(), Key1(key), "value" + std::to_string(i),
+                         write_timestamps[i]);
+      if (i > 0) {
+        it->Next();
+        CheckIterUserEntry(it.get(), Key1(key), "value" + std::to_string(i - 1),
+                           write_timestamps[i - 1]);
+      }
+    }
+    size_t expected_count = kMaxKey + 1;
+    ASSERT_EQ(expected_count, count);
+  }
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 0xffffffffffffffff;
@@ -584,7 +635,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
   std::vector<std::string> read_ts_list;
 
   const auto& verify_records_func = [&](size_t i, size_t begin, size_t end,
-                                       ColumnFamilyHandle* cfh) {
+                                        ColumnFamilyHandle* cfh) {
     std::string value;
     std::string timestamp;
 
@@ -622,9 +673,9 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
           // higherlevel[0].largest.userkey
           ASSERT_OK(Flush(cf));
 
-          // compact files (2 at each level) to a lower level such that all keys
-          // with the same timestamp is at one level, with newer versions at
-          // higher levels.
+          // compact files (2 at each level) to a lower level such that all
+          // keys with the same timestamp is at one level, with newer versions
+          // at higher levels.
           CompactionOptions compact_opt;
           compact_opt.compression = kNoCompression;
           db_->CompactFiles(compact_opt, handles_[cf],
