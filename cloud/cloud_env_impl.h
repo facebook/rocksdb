@@ -105,6 +105,8 @@ class CloudEnvImpl : public CloudEnv {
   }
 
  protected:
+  virtual Status Prepare();
+
   // Does the dir need to be re-initialized?
   Status NeedsReinitialization(const std::string& clone_dir, bool* do_reinit);
 

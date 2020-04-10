@@ -85,6 +85,8 @@ class CloudLogController {
   virtual Status FileExists(const std::string& fname) = 0;
   virtual Status GetFileSize(const std::string& logical_fname,
                              uint64_t* size) = 0;
+  // Prepares/Initializes the log controller for the input cloud environment
+  virtual Status Prepare(CloudEnv* env) = 0;
 };
 
 }  // namespace rocksdb

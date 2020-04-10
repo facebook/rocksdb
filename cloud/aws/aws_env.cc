@@ -76,6 +76,7 @@ Status AwsCloudAccessCredentials::TEST_Initialize() {
 Status AwsCloudAccessCredentials::CheckCredentials(
     const AwsAccessType& aws_type) const {
 #ifndef USE_AWS
+  (void)aws_type;
   return Status::NotSupported("AWS not supported");
 #else
   if (aws_type == AwsAccessType::kSimple) {
@@ -287,139 +288,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
       cloud_env_options.dest_bucket.SetRegion(region);
     }
   }
-
-  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> creds;
-  create_bucket_status_ =
-      cloud_env_options.credentials.GetCredentialsProvider(&creds);
-  if (!create_bucket_status_.ok()) {
-    Log(InfoLogLevel::INFO_LEVEL, info_log,
-        "[aws] NewAwsEnv - Bad AWS credentials");
-  }
-
-  Header(info_log_, "      AwsEnv.src_bucket_name: %s",
-         cloud_env_options.src_bucket.GetBucketName().c_str());
-  Header(info_log_, "      AwsEnv.src_object_path: %s",
-         cloud_env_options.src_bucket.GetObjectPath().c_str());
-  Header(info_log_, "      AwsEnv.src_bucket_region: %s",
-         cloud_env_options.src_bucket.GetRegion().c_str());
-  Header(info_log_, "     AwsEnv.dest_bucket_name: %s",
-         cloud_env_options.dest_bucket.GetBucketName().c_str());
-  Header(info_log_, "     AwsEnv.dest_object_path: %s",
-         cloud_env_options.dest_bucket.GetObjectPath().c_str());
-  Header(info_log_, "     AwsEnv.dest_bucket_region: %s",
-         cloud_env_options.dest_bucket.GetRegion().c_str());
-  Header(info_log_, "            AwsEnv.credentials: %s",
-         creds ? "[given]" : "[not given]");
-
   base_env_ = underlying_env;
-
-  // TODO: support buckets being in different regions
-  if (!SrcMatchesDest() && HasSrcBucket() && HasDestBucket()) {
-    if (cloud_env_options.src_bucket.GetRegion() == cloud_env_options.dest_bucket.GetRegion()) {
-      // alls good
-    } else {
-      create_bucket_status_ =
-          Status::InvalidArgument("Two different regions not supported");
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Buckets %s, %s in two different regions %s, %s "
-          "is not supported",
-          cloud_env_options.src_bucket.GetBucketName().c_str(),
-          cloud_env_options.dest_bucket.GetBucketName().c_str(),
-          cloud_env_options.src_bucket.GetRegion().c_str(),
-          cloud_env_options.dest_bucket.GetRegion().c_str());
-      return;
-    }
-  }
-  // create AWS S3 client with appropriate timeouts
-  Aws::Client::ClientConfiguration config;
-  create_bucket_status_ =
-    AwsCloudOptions::GetClientConfiguration(this,
-                                            cloud_env_options.src_bucket.GetRegion(),
-                                            &config);
-  if (create_bucket_status_.ok()) {
-    create_bucket_status_ = CloudStorageProviderImpl::CreateS3Provider(
-        &cloud_env_options.storage_provider);
-    if (create_bucket_status_.ok()) {
-      create_bucket_status_ = cloud_env_options.storage_provider->Prepare(this);
-    }
-  }
-  if (!create_bucket_status_.ok()) {
-    return;
-  }
-
-  Header(info_log_, "AwsEnv connection to endpoint in region: %s",
-         config.region.c_str());
-
-  // create dest bucket if specified
-  if (HasDestBucket()) {
-    if (cloud_env_options.storage_provider->ExistsBucket(GetDestBucketName())
-            .ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, info_log,
-          "[aws] NewAwsEnv Bucket %s already exists",
-          GetDestBucketName().c_str());
-    } else if (cloud_env_options.create_bucket_if_missing) {
-      Log(InfoLogLevel::INFO_LEVEL, info_log,
-          "[aws] NewAwsEnv Going to create bucket %s",
-          GetDestBucketName().c_str());
-      create_bucket_status_ =
-          cloud_env_options.storage_provider->CreateBucket(GetDestBucketName());
-    } else {
-      create_bucket_status_ = Status::NotFound(
-          "[aws] Bucket not found and create_bucket_if_missing is false");
-    }
-  }
-  if (!create_bucket_status_.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Unable to create bucket %s %s",
-        GetDestBucketName().c_str(),
-        create_bucket_status_.ToString().c_str());
-  }
-
-  // create cloud log client for storing/reading logs
-  if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
-    if (cloud_env_options.log_type == kLogKinesis) {
-      create_bucket_status_ = CloudLogControllerImpl::CreateKinesisController(
-          this, &cloud_env_options.cloud_log_controller);
-    } else if (cloud_env_options.log_type == kLogKafka) {
-#ifdef USE_KAFKA
-      create_bucket_status_ = CloudLogControllerImpl::CreateKafkaController(
-          this, &cloud_env_options.cloud_log_controller);
-#else
-      create_bucket_status_ = Status::NotSupported(
-          "In order to use Kafka, make sure you're compiling with "
-          "USE_KAFKA=1");
-
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Unknown log type %d. %s",
-          cloud_env_options.log_type,
-          create_bucket_status_.ToString().c_str());
-#endif /* USE_KAFKA */
-    } else {
-      create_bucket_status_ =
-          Status::NotSupported("We currently only support Kinesis and Kafka");
-
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Unknown log type %d. %s", cloud_env_options.log_type,
-          create_bucket_status_.ToString().c_str());
-    }
-
-    // Create Kinesis stream and wait for it to be ready
-    if (create_bucket_status_.ok()) {
-      create_bucket_status_ =
-          cloud_env_options.cloud_log_controller->StartTailingStream(
-              GetSrcBucketName());
-      if (!create_bucket_status_.ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL, info_log,
-            "[aws] NewAwsEnv Unable to create stream %s",
-            create_bucket_status_.ToString().c_str());
-      }
-    }
-  }
-  if (!create_bucket_status_.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Unable to create environment %s",
-        create_bucket_status_.ToString().c_str());
-  }
 }
 
 AwsEnv::~AwsEnv() {
@@ -867,11 +736,6 @@ void AwsEnv::RemoveFileFromDeletionQueue(const std::string& filename) {
     GetJobExecutor()->CancelJob(itr->second.get());
     files_to_delete_.erase(itr);
   }
-}
-
-Status AwsEnv::TEST_DeletePathInS3(const std::string& bucket,
-                                   const std::string& fname) {
-  return cloud_env_options.storage_provider->DeleteObject(bucket, fname);
 }
 
 Status AwsEnv::DeleteFile(const std::string& logical_fname) {
@@ -1359,10 +1223,35 @@ Status AwsEnv::NewAwsEnv(Env* base_env,
   if (!base_env) {
     base_env = Env::Default();
   }
-  std::unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, cloud_options, info_log));
-  if (!aenv->status().ok()) {
-    status = aenv->status();
-  } else {
+  // These lines of code are likely temporary until the new configuration stuff
+  // comes into play.
+  CloudEnvOptions options = cloud_options;  // Make a copy
+  status =
+      CloudStorageProviderImpl::CreateS3Provider(&options.storage_provider);
+  if (status.ok() && !cloud_options.keep_local_log_files) {
+    if (cloud_options.log_type == kLogKinesis) {
+      status = CloudLogControllerImpl::CreateKinesisController(
+          &options.cloud_log_controller);
+    } else if (cloud_options.log_type == kLogKafka) {
+      status = CloudLogControllerImpl::CreateKafkaController(
+          &options.cloud_log_controller);
+    } else {
+      status =
+          Status::NotSupported("We currently only support Kinesis and Kafka");
+      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+          "[aws] NewAwsEnv Unknown log type %d. %s", cloud_options.log_type,
+          status.ToString().c_str());
+    }
+  }
+  if (!status.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, info_log,
+        "[aws] NewAwsEnv Unable to create environment %s",
+        status.ToString().c_str());
+    return status;
+  }
+  std::unique_ptr<AwsEnv> aenv(new AwsEnv(base_env, options, info_log));
+  status = aenv->Prepare();
+  if (status.ok()) {
     *cenv = aenv.release();
   }
   return status;

@@ -30,8 +30,22 @@ const std::chrono::microseconds CloudLogControllerImpl::kRetryPeriod =
 
 CloudLogController::~CloudLogController() {}
 
-CloudLogControllerImpl::CloudLogControllerImpl(CloudEnv* env)
-    : env_(env), running_(false) {
+CloudLogControllerImpl::CloudLogControllerImpl() : running_(false) {}
+
+CloudLogControllerImpl::~CloudLogControllerImpl() {
+  if (running_) {
+    // This is probably not a good situation as the derived class is partially
+    // destroyed but the tailer might still be active.
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[%s] CloudLogController closing.  Stopping stream.", Name());
+    StopTailingStream();
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+      "[%s] CloudLogController closed.", Name());
+}
+
+Status CloudLogControllerImpl::Initialize(CloudEnv* env) {
+  env_ = env;
   // Create a random number for the cache directory.
   const std::string uid = trim(env_->GetBaseEnv()->GenerateUniqueId());
 
@@ -40,25 +54,26 @@ CloudLogControllerImpl::CloudLogControllerImpl(CloudEnv* env)
   cache_dir_ = bucket_dir + pathsep + uid;
 
   // Create temporary directories.
-  status_ = env_->GetBaseEnv()->CreateDirIfMissing(kCacheDir);
-  if (status_.ok()) {
-    status_ = env_->GetBaseEnv()->CreateDirIfMissing(bucket_dir);
+  Status st = env_->GetBaseEnv()->CreateDirIfMissing(kCacheDir);
+  if (st.ok()) {
+    st = env_->GetBaseEnv()->CreateDirIfMissing(bucket_dir);
   }
-  if (status_.ok()) {
-    status_ = env_->GetBaseEnv()->CreateDirIfMissing(cache_dir_);
+  if (st.ok()) {
+    st = env_->GetBaseEnv()->CreateDirIfMissing(cache_dir_);
   }
+  return st;
 }
 
-CloudLogControllerImpl::~CloudLogControllerImpl() {
-  if (running_) {
-    // This is probably not a good situation as the derived class is partially destroyed
-    // but the tailer might still be active.
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[%s] CloudLogController closing.  Stopping stream.", Name());
-    StopTailingStream();
+Status CloudLogControllerImpl::Prepare(CloudEnv* env) {
+  if (env != nullptr) {
+    status_ = Initialize(env);
+  } else {
+    status_ = Status::NotSupported("LogController requires a CloudEnv");
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[%s] CloudLogController closed.", Name());
+  if (status_.ok()) {
+    status_ = StartTailingStream(env->GetSrcBucketName());
+  }
+  return status_;
 }
 
 std::string CloudLogControllerImpl::GetCachePath(
@@ -378,4 +393,5 @@ Status CloudLogControllerImpl::GetFileSize(const std::string& fname,
   }
   return st;
 }
+
 }  // namespace rocksdb

@@ -256,7 +256,7 @@ Status CloudStorageWritableFileImpl::Sync() {
 CloudStorageProvider::~CloudStorageProvider() {}
 
 Status CloudStorageProvider::Prepare(CloudEnv* env) {
-  Status status;
+  Status st;
   if (env->HasDestBucket()) {
     // create dest bucket if specified
     if (ExistsBucket(env->GetDestBucketName()).ok()) {
@@ -267,35 +267,24 @@ Status CloudStorageProvider::Prepare(CloudEnv* env) {
       Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
           "[%s] Going to create bucket %s", Name(),
           env->GetDestBucketName().c_str());
-      status = CreateBucket(env->GetDestBucketName());
+      st = CreateBucket(env->GetDestBucketName());
     } else {
-      status = Status::NotFound(
+      st = Status::NotFound(
           "Bucket not found and create_bucket_if_missing is false");
     }
-    if (!status.ok()) {
+    if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
           "[%s] Unable to create bucket %s %s", Name(),
-          env->GetDestBucketName().c_str(), status.ToString().c_str());
-      return status;
+          env->GetDestBucketName().c_str(), st.ToString().c_str());
+      return st;
     }
   }
-  return status;
+  return st;
 }
 
 CloudStorageProviderImpl::CloudStorageProviderImpl() : rng_(time(nullptr)) {}
 
 CloudStorageProviderImpl::~CloudStorageProviderImpl() {}
-
-Status CloudStorageProviderImpl::Verify() const {
-  if (!status_.ok()) {
-    return status_;
-  } else if (!env_) {
-    return Status::InvalidArgument("Storage Provider not initialized: ",
-                                   Name());
-  } else {
-    return Status::OK();
-  }
-}
 
 Status CloudStorageProviderImpl::Prepare(CloudEnv* env) {
   status_ = Initialize(env);

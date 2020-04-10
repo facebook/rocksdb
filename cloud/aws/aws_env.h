@@ -215,9 +215,6 @@ class AwsEnv : public CloudEnvImpl {
     file_deletion_delay_ = delay;
   }
 
-  Status TEST_DeletePathInS3(const std::string& bucket,
-                             const std::string& fname);
-
  private:
   //
   // The AWS credentials are specified to the constructor via
