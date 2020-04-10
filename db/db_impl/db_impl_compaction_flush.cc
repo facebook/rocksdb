@@ -2549,8 +2549,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        "[%s] Manual compaction from level-%d from %s .. "
                        "%s; nothing to do\n",
                        m->cfd->GetName().c_str(), m->input_level,
-                       (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-                       (m->end ? m->end->DebugString().c_str() : "(end)"));
+                       (m->begin ? m->begin->DebugString(true).c_str() : "(begin)"),
+                       (m->end ? m->end->DebugString(true).c_str() : "(end)"));
     } else {
       // First check if we have enough room to do the compaction
       bool enough_room = EnoughRoomForCompaction(
@@ -2569,11 +2569,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             "[%s] Manual compaction from level-%d to level-%d from %s .. "
             "%s; will stop at %s\n",
             m->cfd->GetName().c_str(), m->input_level, c->output_level(),
-            (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-            (m->end ? m->end->DebugString().c_str() : "(end)"),
+            (m->begin ? m->begin->DebugString(true).c_str() : "(begin)"),
+            (m->end ? m->end->DebugString(true).c_str() : "(end)"),
             ((m->done || m->manual_end == nullptr)
                  ? "(end)"
-                 : m->manual_end->DebugString().c_str()));
+                 : m->manual_end->DebugString(true).c_str()));
       }
     }
   } else if (!is_prepicked && !compaction_queue_.empty()) {

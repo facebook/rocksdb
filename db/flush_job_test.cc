@@ -181,8 +181,8 @@ TEST_F(FlushJobTest, NonEmpty) {
   // Note: the first two blob references will not be considered when resolving
   // the oldest blob file referenced (the first one is inlined TTL, while the
   // second one is TTL and thus points to a TTL blob file).
-  constexpr std::array<uint64_t, 6> blob_file_numbers{
-      kInvalidBlobFileNumber, 5, 103, 17, 102, 101};
+  constexpr std::array<uint64_t, 6> blob_file_numbers{{
+      kInvalidBlobFileNumber, 5, 103, 17, 102, 101}};
   for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
     std::string key(ToString(i + 10001));
     std::string blob_index;

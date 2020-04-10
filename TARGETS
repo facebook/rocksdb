@@ -1457,9 +1457,23 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "timer_test",
+        "util/timer_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "trace_analyzer_test",
         "tools/trace_analyzer_test.cc",
         "serial",
+        [],
+        [],
+    ],
+    [
+        "transaction_lock_mgr_test",
+        "utilities/transactions/transaction_lock_mgr_test.cc",
+        "parallel",
         [],
         [],
     ],

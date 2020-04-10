@@ -505,6 +505,7 @@ TESTS = \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
+	memkind_kmem_allocator_test \
 	block_test \
 	data_block_hash_index_test \
 	cache_test \
@@ -584,6 +585,7 @@ TESTS = \
 	compaction_job_stats_test \
 	option_change_migration_test \
 	transaction_test \
+	transaction_lock_mgr_test \
 	ldb_cmd_test \
 	persistent_cache_test \
 	statistics_test \
@@ -606,6 +608,7 @@ TESTS = \
 	defer_test \
 	blob_file_addition_test \
 	blob_file_garbage_test \
+	timer_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -630,6 +633,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
+	transaction_lock_mgr_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -1238,6 +1242,9 @@ db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 
 arena_test: memory/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
+	
+memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)	
 
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -1673,6 +1680,9 @@ write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 heap_test: util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
+transaction_lock_mgr_test: utilities/transactions/transaction_lock_mgr_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1746,6 +1756,9 @@ blob_file_addition_test: db/blob/blob_file_addition_test.o $(LIBOBJECTS) $(TESTH
 	$(AM_LINK)
 
 blob_file_garbage_test: db/blob/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+timer_test: util/timer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

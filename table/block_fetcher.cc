@@ -260,11 +260,10 @@ Status BlockFetcher::ReadBlockContents() {
     }
   }
 
-  PERF_TIMER_GUARD(block_decompress_time);
-
   compression_type_ = get_block_compression_type(slice_.data(), block_size_);
 
   if (do_uncompress_ && compression_type_ != kNoCompression) {
+    PERF_TIMER_GUARD(block_decompress_time);
     // compressed page, uncompress, update cache
     UncompressionContext context(compression_type_);
     UncompressionInfo info(context, uncompression_dict_, compression_type_);
