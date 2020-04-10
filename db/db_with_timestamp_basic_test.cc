@@ -238,7 +238,6 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
-  options.disable_auto_compactions = true;
   options.create_if_missing = true;
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
