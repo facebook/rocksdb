@@ -38,6 +38,8 @@ class CompactOnDeletionCollectorFactory
     return "CompactOnDeletionCollector";
   }
 
+  virtual std::string ToString() const override;
+
  private:
   friend std::shared_ptr<CompactOnDeletionCollectorFactory>
   NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,

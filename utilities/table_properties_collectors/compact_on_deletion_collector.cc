@@ -78,6 +78,12 @@ CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
       sliding_window_size_.load(), deletion_trigger_.load());
 }
 
+std::string CompactOnDeletionCollectorFactory::ToString() const {
+  return "Sliding window size = " +
+         std::to_string(sliding_window_size_.load()) +
+         " Deletion trigger = " + std::to_string(deletion_trigger_.load());
+}
+
 std::shared_ptr<CompactOnDeletionCollectorFactory>
     NewCompactOnDeletionCollectorFactory(
         size_t sliding_window_size,

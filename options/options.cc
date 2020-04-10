@@ -321,7 +321,12 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      compaction_options_fifo.allow_compaction);
     std::string collector_names;
     for (const auto& collector_factory : table_properties_collector_factories) {
+      std::string collector_config;
       collector_names.append(collector_factory->Name());
+      collector_config = collector_factory->ToString();
+      if (!collector_config.empty()) {
+        collector_names.append(" (" + collector_config + ")");
+      }
       collector_names.append("; ");
     }
     ROCKS_LOG_HEADER(
