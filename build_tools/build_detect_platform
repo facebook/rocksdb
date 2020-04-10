@@ -28,6 +28,7 @@
 #       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
 #       -DTBB                       if the TBB library is present
+#       -DMEMKIND                   if the memkind library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -425,7 +426,23 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
         fi
     fi
-
+    
+    if ! test $ROCKSDB_DISABLE_MEMKIND; then
+        # Test whether memkind library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <memkind.h>
+          int main() {
+            memkind_malloc(MEMKIND_DAX_KMEM, 1024);
+            return 0;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DMEMKIND"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lmemkind"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
+        fi
+    fi
+    
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF

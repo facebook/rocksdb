@@ -505,6 +505,7 @@ TESTS = \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
+	memkind_kmem_allocator_test \
 	block_test \
 	data_block_hash_index_test \
 	cache_test \
@@ -1241,6 +1242,9 @@ db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 
 arena_test: memory/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
+	
+memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)	
 
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
