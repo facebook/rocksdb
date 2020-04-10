@@ -36,7 +36,7 @@
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
-#include "util/util.h"
+#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 

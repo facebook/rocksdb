@@ -10,7 +10,7 @@
 #include <string.h>
 #include "util/coding.h"
 #include "util/hash.h"
-#include "util/util.h"
+#include "port/lang.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {

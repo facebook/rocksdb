@@ -16,7 +16,7 @@
 #include <wmmintrin.h>
 #endif
 #include "util/coding.h"
-#include "util/util.h"
+#include "port/lang.h"
 
 #include "util/crc32c_arm64.h"
 

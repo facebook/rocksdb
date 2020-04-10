@@ -21,6 +21,7 @@
 
 #include "db/dbformat.h"
 #include "index_builder.h"
+#include "port/lang.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"

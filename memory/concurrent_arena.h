@@ -13,6 +13,7 @@
 #include <utility>
 #include "memory/allocator.h"
 #include "memory/arena.h"
+#include "port/lang.h"
 #include "port/likely.h"
 #include "util/core_local.h"
 #include "util/mutexlock.h"

@@ -702,12 +702,12 @@ EOF
 fi
 
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -Werror -x c++ - -o /dev/null 2>/dev/null <<EOF
 struct test {
   test() : value_(0) {}
-  
+
   int lambda() {
-    return [=]() { return value_; }();
+    return [=,this]() { return value_; }();
   }
 
   int value_;
@@ -719,9 +719,7 @@ int main() {
 }
 EOF
 if [ "$?" = 0 ]; then
-  COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_THIS_LAMBDA_CAPTURE=\"=\""
-else
-  COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_THIS_LAMBDA_CAPTURE=\"=, this\""
+  COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_EXPLICIT_CAPTURE_THIS"
 fi
 
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then

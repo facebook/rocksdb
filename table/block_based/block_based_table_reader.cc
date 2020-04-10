@@ -58,7 +58,7 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/util.h"
+#include "port/lang.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -512,18 +512,11 @@ include(CxxFlags)
 get_cxx_std_flags(CMAKE_REQUIRED_FLAGS)
 
 CHECK_CXX_SOURCE_COMPILES("
-template< typename F >
-int apply(F f) {
-  return f();
-}
-
 struct test {
   test() : value_(0) {}
 
   int lambda() {
-    return apply([=]() {
-      return value_;
-    });
+    return [=,this]() { return value_; }();
   }
 
   int value_;
@@ -533,17 +526,14 @@ int main() {
   test t;
   return t.lambda();
 }
-" HAVE_IMPLICIT_THIS_LAMBDA_CAPTURE
+" USE_EXPLICIT_CAPTURE_THIS
 )
 
 unset(CMAKE_REQUIRED_FLAGS)
 
-if(HAVE_IMPLICIT_THIS_LAMBDA_CAPTURE)
-  set(ROCKSDB_THIS_LAMBDA_CAPTURE "=")
-else()
-  set(ROCKSDB_THIS_LAMBDA_CAPTURE "=, this")
+if(USE_EXPLICIT_CAPTURE_THIS)
+  add_definitions(-DROCKSDB_EXPLICIT_CAPTURE_THIS)
 endif()
-add_definitions(-DROCKSDB_THIS_LAMBDA_CAPTURE=${ROCKSDB_THIS_LAMBDA_CAPTURE})
 
 
 include_directories(${PROJECT_SOURCE_DIR})

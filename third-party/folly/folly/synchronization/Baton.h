@@ -16,6 +16,12 @@
 #include <folly/synchronization/WaitOptions.h>
 #include <folly/synchronization/detail/Spin.h>
 
+#ifdef ROCKSDB_EXPLICIT_CAPTURE_THIS
+#define ROCKSDB_THIS_LAMBDA_CAPTURE =,this
+#else
+#define ROCKSDB_THIS_LAMBDA_CAPTURE =
+#endif
+
 namespace folly {
 
 /// A Baton allows a thread to block once and be awoken. Captures a

@@ -59,7 +59,7 @@
 #include "util/coding.h"
 #include "util/duplicate_detector.h"
 #include "util/string_util.h"
-#include "util/util.h"
+#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 
