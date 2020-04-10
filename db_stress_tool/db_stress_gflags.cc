@@ -674,4 +674,8 @@ DEFINE_int32(approximate_size_one_in, 64,
 
 DEFINE_int32(read_fault_one_in, 1000,
             "On non-zero, enables fault injection on read");
+
+DEFINE_bool(sync_fault_injection, false,
+            "If true, FaultInjectionTestFS will be used for write operations, "
+            " and unsynced data in DB will lost after crash.");
 #endif  // GFLAGS
