@@ -16,20 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 std::string Key1(uint64_t key) {
   std::string ret;
-  if (port::kLittleEndian) {
-    ret.assign(reinterpret_cast<char*>(&key), sizeof(key));
-  } else {
-    char buf[sizeof(key)];
-    buf[0] = key & 0xff;
-    buf[1] = ((key >> 8) & 0xff);
-    buf[2] = ((key >> 16) & 0xff);
-    buf[3] = ((key >> 24) & 0xff);
-    buf[4] = ((key >> 32) & 0xff);
-    buf[5] = ((key >> 40) & 0xff);
-    buf[6] = ((key >> 48) & 0xff);
-    buf[7] = ((key >> 56) & 0xff);
-    ret.assign(buf, sizeof(buf));
-  }
+  PutFixed64(&ret, key);
   std::reverse(ret.begin(), ret.end());
   return ret;
 }
@@ -106,7 +93,7 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   ASSERT_OK(Flush());
   uint64_t saved_read_ts2 = ts++;
   // Write another L0 with keys 99, 100, 101, ..., 150
-  for (; key < 151; ++key, ++ts) {
+  for (; key <= 150; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
     Slice ts_slice = ts_str;
     write_opts.timestamp = &ts_slice;

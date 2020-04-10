@@ -122,8 +122,9 @@ class Uint64ComparatorImpl : public Comparator {
 // A test implementation of comparator with 64-bit integer timestamp.
 class ComparatorWithU64TsImpl : public Comparator {
  public:
-  ComparatorWithU64TsImpl() : Comparator(/*ts_sz=*/sizeof(uint64_t)) {
-    cmp_without_ts_ = BytewiseComparator();
+  ComparatorWithU64TsImpl()
+      : Comparator(/*ts_sz=*/sizeof(uint64_t)),
+        cmp_without_ts_(BytewiseComparator()) {
     assert(cmp_without_ts_);
     assert(cmp_without_ts_->timestamp_size() == 0);
   }
@@ -136,19 +137,18 @@ class ComparatorWithU64TsImpl : public Comparator {
     if (ret != 0) {
       return ret;
     }
+    // Compare timestamp.
+    // For the same user key with different timestamps, larger (newer) timestamp
+    // comes first.
     return -CompareTimestamp(ExtractTimestampFromUserKey(a, ts_sz),
                              ExtractTimestampFromUserKey(b, ts_sz));
   }
   using Comparator::CompareWithoutTimestamp;
   int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
                               bool b_has_ts) const override {
-    size_t ts_sz = timestamp_size();
-    if (a_has_ts) {
-      assert(a.size() >= ts_sz);
-    }
-    if (b_has_ts) {
-      assert(b.size() >= ts_sz);
-    }
+    const size_t ts_sz = timestamp_size();
+    assert(!a_has_ts || a.size() >= ts_sz);
+    assert(!b_has_ts || b.size() >= ts_sz);
     Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
     Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
     return cmp_without_ts_->Compare(lhs, rhs);
@@ -157,7 +157,7 @@ class ComparatorWithU64TsImpl : public Comparator {
     size_t ts_sz = timestamp_size();
     assert(ts1.size() == ts_sz);
     assert(ts2.size() == ts_sz);
-    assert(ts_sz == 8);
+    assert(ts_sz == sizeof(uint64_t));
     uint64_t lhs = DecodeFixed64(ts1.data());
     uint64_t rhs = DecodeFixed64(ts2.data());
     if (lhs < rhs) {
