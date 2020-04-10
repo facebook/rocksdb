@@ -129,14 +129,14 @@ class TestFSRandomAccessFile : public FSRandomAccessFile {
   explicit TestFSRandomAccessFile(const std::string& fname,
                               std::unique_ptr<FSRandomAccessFile>&& f,
                               FaultInjectionTestFS* fs);
-  ~TestFSRandomAccessFile() {}
+  ~TestFSRandomAccessFile() override {}
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
   size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
   }
-  bool use_direct_io() const override { return target_->use_direct_io(); };
+  bool use_direct_io() const override { return target_->use_direct_io(); }
 
  private:
   std::unique_ptr<FSRandomAccessFile> target_;
@@ -357,7 +357,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     void* callstack;
     int frames;
 
-    ErrorContext(uint32_t seed)
+    explicit ErrorContext(uint32_t seed)
       : rand(seed),
         enable_error_injection(false),
     frames(0) {}
