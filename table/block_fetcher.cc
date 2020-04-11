@@ -169,6 +169,9 @@ inline void BlockFetcher::CopyBufferToHeapBuf() {
   int size = block_size_ + kBlockTrailerSize;
   heap_buf_ = AllocateBlock(size, memory_allocator_);
   memcpy(heap_buf_.get(), used_buf_, size);
+#ifndef NDEBUG
+  num_heap_buf_memcpy_++;
+#endif
 }
 
 inline void BlockFetcher::CopyBufferToCompressedBuf() {
@@ -176,6 +179,9 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
   int size = block_size_ + kBlockTrailerSize;
   compressed_buf_ = AllocateBlock(size, memory_allocator_compressed_);
   memcpy(compressed_buf_.get(), used_buf_, size);
+#ifndef NDEBUG
+  num_compressed_buf_memcpy_++;
+#endif
 }
 
 inline void BlockFetcher::GetBlockContents() {
@@ -235,6 +241,15 @@ Status BlockFetcher::ReadBlockContents() {
         PrepareBufferForBlockFromFile();
         status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
                               &slice_, used_buf_, nullptr, for_compaction_);
+#ifndef NDEBUG
+        if (used_buf_ == &stack_buf_[0]) {
+          num_stack_buf_memcpy_++;
+        } else if (used_buf_ == heap_buf_.get()) {
+          num_heap_buf_memcpy_++;
+        } else if (used_buf_ == compressed_buf_.get()) {
+          num_compressed_buf_memcpy_++;
+        }
+#endif
       }
     }
     PERF_COUNTER_ADD(block_read_count, 1);
@@ -289,6 +304,9 @@ Status BlockFetcher::ReadBlockContents() {
     status_ = UncompressBlockContents(info, slice_.data(), block_size_,
                                       contents_, footer_.version(), ioptions_,
                                       memory_allocator_);
+#ifndef NDEBUG
+    num_heap_buf_memcpy_++;
+#endif
     compression_type_ = kNoCompression;
   } else {
     GetBlockContents();

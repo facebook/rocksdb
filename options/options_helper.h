@@ -20,6 +20,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+std::vector<CompressionType> GetSupportedCompressions();
+
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
 

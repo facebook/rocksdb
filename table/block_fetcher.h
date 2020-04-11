@@ -65,7 +65,19 @@ class BlockFetcher {
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
+#ifndef NDEBUG
+  int num_stack_buf_memcpy() const { return num_stack_buf_memcpy_; }
+  int num_heap_buf_memcpy() const { return num_heap_buf_memcpy_; }
+  int num_compressed_buf_memcpy() const { return num_compressed_buf_memcpy_; }
+
+#endif
  private:
+#ifndef NDEBUG
+  int num_stack_buf_memcpy_ = 0;
+  int num_heap_buf_memcpy_ = 0;
+  int num_compressed_buf_memcpy_ = 0;
+
+#endif
   static const uint32_t kDefaultStackBufferSize = 5000;
 
   RandomAccessFileReader* file_;
