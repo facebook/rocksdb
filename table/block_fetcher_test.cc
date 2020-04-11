@@ -7,7 +7,6 @@
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "table/table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -22,10 +21,6 @@ namespace {
 
 class CountedMemoryAllocator : public MemoryAllocator {
  public:
-  CountedMemoryAllocator()
-      : num_allocations_(0),
-        num_deallocations_(0) {}
-
   const char* Name() const override {
     return "CountedMemoryAllocator";
   }
@@ -40,8 +35,8 @@ class CountedMemoryAllocator : public MemoryAllocator {
     delete[] static_cast<char*>(p);
   }
 
-  int num_allocations() const { return num_allocations_; }
-  int num_deallocations() const { return num_deallocations_; }
+  int GetNumAllocations() const { return num_allocations_; }
+  int GetNumDeallocations() const { return num_deallocations_; }
 
  private:
   int num_allocations_ = 0;
@@ -186,19 +181,19 @@ class BlockFetcherTest : public testing::Test {
         ASSERT_EQ(memcpy_stats[use_direct_io].num_compressed_buf_memcpy,
                   expected_stats.memcpy_stats.num_compressed_buf_memcpy);
 
-        ASSERT_EQ(heap_buf_allocators[use_direct_io].num_allocations(),
+        ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumAllocations(),
                   expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(compressed_buf_allocators[use_direct_io].num_allocations(),
+        ASSERT_EQ(compressed_buf_allocators[use_direct_io].GetNumAllocations(),
                   expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
 
         // The allocated buffers are not deallocated until
         // the block content is deleted.
-        ASSERT_EQ(heap_buf_allocators[use_direct_io].num_deallocations(), 0);
-        ASSERT_EQ(compressed_buf_allocators[use_direct_io].num_deallocations(), 0);
+        ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
+        ASSERT_EQ(compressed_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
         blocks[use_direct_io].allocation.reset();
-        ASSERT_EQ(heap_buf_allocators[use_direct_io].num_deallocations(),
+        ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumDeallocations(),
                   expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(compressed_buf_allocators[use_direct_io].num_deallocations(),
+        ASSERT_EQ(compressed_buf_allocators[use_direct_io].GetNumDeallocations(),
                   expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
       }
     }
@@ -327,9 +322,9 @@ class BlockFetcherTest : public testing::Test {
         compressed_buf_allocator));
     ASSERT_OK(fetcher->ReadBlockContents());
 
-    stats->num_stack_buf_memcpy = fetcher->num_stack_buf_memcpy();
-    stats->num_heap_buf_memcpy = fetcher->num_heap_buf_memcpy();
-    stats->num_compressed_buf_memcpy = fetcher->num_compressed_buf_memcpy();
+    stats->num_stack_buf_memcpy = fetcher->TEST_GetNumStackBufMemcpy();
+    stats->num_heap_buf_memcpy = fetcher->TEST_GetNumHeapBufMemcpy();
+    stats->num_compressed_buf_memcpy = fetcher->TEST_GetNumCompressedBufMemcpy();
 
     *compresstion_type = fetcher->get_compression_type();
   }
