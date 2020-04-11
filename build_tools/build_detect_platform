@@ -246,6 +246,10 @@ JAVAC_ARGS="-source 7"
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
     # Also don't need any compilation tests if compiling on fbcode
+    if [ "$FBCODE_BUILD" = "true" ]; then
+      # Enable backtrace on fbcode since the necessary libraries are present
+      COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+    fi
     true
 else
     if ! test $ROCKSDB_DISABLE_FALLOCATE; then

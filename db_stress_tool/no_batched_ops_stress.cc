@@ -9,6 +9,9 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#ifndef NDEBUG
+#include "test_util/fault_injection_test_fs.h"
+#endif // NDEBUG
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -144,18 +147,52 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string from_db;
+    int error_count = 0;
+
+#ifndef NDEBUG
+    if (fault_fs_guard) {
+      fault_fs_guard->EnableErrorInjection();
+      SharedState::filter_read_error = false;
+    }
+#endif // NDEBUG
     Status s = db_->Get(read_opts, cfh, key, &from_db);
+#ifndef NDEBUG
+    if (fault_fs_guard) {
+      error_count = fault_fs_guard->GetAndResetErrorCount();
+    }
+#endif // NDEBUG
     if (s.ok()) {
+#ifndef NDEBUG
+      if (fault_fs_guard) {
+        if (error_count && !SharedState::filter_read_error) {
+          // Grab mutex so multiple thread don't try to print the
+          // stack trace at the same time
+          MutexLock l(thread->shared->GetMutex());
+          fprintf(stderr, "Didn't get expected error from Get\n");
+          fprintf(stderr, "Callstack that injected the error\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
+        }
+      }
+#endif // NDEBUG
       // found case
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
     } else {
-      // errors case
-      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
-      thread->stats.AddErrors(1);
+      if (error_count == 0) {
+        // errors case
+        thread->stats.AddErrors(1);
+      } else {
+        thread->stats.AddVerifiedErrors(1);
+      }
     }
+#ifndef NDEBUG
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
+#endif // NDEBUG
     return s;
   }
 
@@ -171,6 +208,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    int error_count = 0;
 
     // To appease clang analyzer
     const bool use_txn = FLAGS_use_txn;
@@ -231,8 +269,19 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!use_txn) {
+#ifndef NDEBUG
+      if (fault_fs_guard) {
+        fault_fs_guard->EnableErrorInjection();
+        SharedState::filter_read_error = false;
+      }
+#endif // NDEBUG
       db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
+#ifndef NDEBUG
+      if (fault_fs_guard) {
+        error_count = fault_fs_guard->GetAndResetErrorCount();
+      }
+#endif // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
@@ -243,8 +292,22 @@ class NonBatchedOpsStressTest : public StressTest {
 
     for (const auto& s : statuses) {
       if (s.ok()) {
-        // found case
-        thread->stats.AddGets(1, 1);
+#ifndef NDEBUG
+        if (fault_fs_guard && error_count && !SharedState::filter_read_error) {
+          // Grab mutex so multiple thread don't try to print the
+          // stack trace at the same time
+          MutexLock l(thread->shared->GetMutex());
+          fprintf(stderr, "Didn't get expected error from MultiGet\n");
+          fprintf(stderr, "Callstack that injected the error\n");
+          fault_fs_guard->PrintFaultBacktrace();
+          std::terminate();
+        } else {
+#endif // NDEBUG
+          // found case
+          thread->stats.AddGets(1, 1);
+#ifndef NDEBUG
+        }
+#endif // NDEBUG
       } else if (s.IsNotFound()) {
         // not found case
         thread->stats.AddGets(1, 0);
@@ -252,11 +315,20 @@ class NonBatchedOpsStressTest : public StressTest {
         // With txn this is sometimes expected.
         thread->stats.AddGets(1, 1);
       } else {
-        // errors case
-        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
-        thread->stats.AddErrors(1);
+        if (error_count == 0) {
+          // errors case
+          fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
+          thread->stats.AddErrors(1);
+        } else {
+          thread->stats.AddVerifiedErrors(1);
+        }
       }
     }
+#ifndef NDEBUG
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
+#endif // NDEBUG
     return statuses;
   }
 

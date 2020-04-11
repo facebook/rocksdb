@@ -94,6 +94,9 @@ is_opt_mode = build_mode.startswith("opt")
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
 ROCKSDB_COMPILER_FLAGS += (["-DNDEBUG"] if is_opt_mode else [])
+ROCKSDB_STRESS_DEPS = (
+        [":rocksdb_lib", ":rocksdb_test_lib"] if not is_opt_mode else [":rocksdb_lib"]
+)
 
 sanitizer = read_config("fbcode", "sanitizer")
 
@@ -436,7 +439,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [":rocksdb_lib"],
+    deps = ROCKSDB_STRESS_DEPS,
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 

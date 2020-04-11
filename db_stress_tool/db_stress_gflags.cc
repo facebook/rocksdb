@@ -671,4 +671,7 @@ DEFINE_int32(continuous_verification_interval, 1000,
 DEFINE_int32(approximate_size_one_in, 64,
              "If non-zero, DB::GetApproximateSizes() will be called against"
              " random key ranges.");
+
+DEFINE_int32(read_fault_one_in, 1000,
+            "On non-zero, enables fault injection on read");
 #endif  // GFLAGS
