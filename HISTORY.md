@@ -10,7 +10,7 @@
 * Fix a bug when making options.bottommost_compression, options.compression_opts and options.bottommost_compression_opts dynamically changeable: the modified values are not written to option files or returned back to users when being queried.
 
 ### Performance Improvements
-* Reduced memory copies when fetching compressed blocks from sst files and uncompress them.
+* Reduced memory copies when fetching and uncompressing compressed blocks from sst files.
 
 ## 6.9.0 (03/29/2020)
 ### Behavior changes
