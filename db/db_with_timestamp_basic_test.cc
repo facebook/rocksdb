@@ -536,6 +536,104 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
   Close();
 }
 
+TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  const int kNumKeysPerFile = 1024;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy = std::get<0>(GetParam());
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  const CompressionType comp_type = std::get<1>(GetParam());
+#if LZ4_VERSION_NUMBER < 10400  // r124+
+  if (comp_type == kLZ4Compression || comp_type == kLZ4HCCompression) {
+    return;
+  }
+#endif  // LZ4_VERSION_NUMBER >= 10400
+  if (!ZSTD_Supported() && comp_type == kZSTD) {
+    return;
+  }
+  if (!Zlib_Supported() && comp_type == kZlibCompression) {
+    return;
+  }
+
+  options.compression = comp_type;
+  options.compression_opts.max_dict_bytes = std::get<2>(GetParam());
+  if (comp_type == kZSTD) {
+    options.compression_opts.zstd_max_train_bytes = std::get<2>(GetParam());
+  }
+  options.compression_opts.parallel_threads = std::get<3>(GetParam());
+  options.target_file_size_base = 1 << 26;  // 64MB
+
+  DestroyAndReopen(options);
+
+  const size_t kNumL0Files =
+      static_cast<size_t>(Options().level0_file_num_compaction_trigger);
+  {
+    // Generate an L1 at ts=1
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    WriteOptions wopts;
+    wopts.timestamp = &ts;
+    for (size_t i = 0; i != kNumL0Files; ++i) {
+      for (int j = 0; j != kNumKeysPerFile; ++j) {
+        ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i)));
+      }
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // Generate another L0 at ts=3
+    ts_str = Timestamp(3, 0);
+    ts = ts_str;
+    wopts.timestamp = &ts;
+    for (int i = 0; i != kNumKeysPerFile; ++i) {
+      std::string key_str = Key1(i);
+      Slice key(key_str);
+      if ((i % 3) == 0) {
+        ASSERT_OK(db_->Delete(wopts, key));
+      } else {
+        ASSERT_OK(db_->Put(wopts, key, "new_value"));
+      }
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    // Populate memtable at ts=5
+    ts_str = Timestamp(5, 0);
+    ts = ts_str;
+    wopts.timestamp = &ts;
+    for (int i = 0; i != kNumKeysPerFile; ++i) {
+      std::string key_str = Key1(i);
+      Slice key(key_str);
+      if ((i % 3) == 1) {
+        ASSERT_OK(db_->Delete(wopts, key));
+      } else if ((i % 3) == 2) {
+        ASSERT_OK(db_->Put(wopts, key, "new_value_2"));
+      }
+    }
+  }
+  {
+    std::string ts_str = Timestamp(6, 0);
+    Slice ts = ts_str;
+    ReadOptions ropts;
+    ropts.timestamp = &ts;
+    for (uint64_t i = 0; i != static_cast<uint64_t>(kNumKeysPerFile); ++i) {
+      std::string value;
+      Status s = db_->Get(ropts, Key1(i), &value);
+      if ((i % 3) == 2) {
+        ASSERT_OK(s);
+        ASSERT_EQ("new_value_2", value);
+      } else {
+        ASSERT_TRUE(s.IsNotFound());
+      }
+    }
+  }
+}
+
 #ifndef ROCKSDB_LITE
 // A class which remembers the name of each flushed file.
 class FlushedFileCollector : public EventListener {

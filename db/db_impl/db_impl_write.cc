@@ -1862,26 +1862,8 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
-  if (nullptr == opt.timestamp) {
-    WriteBatch batch;
-    Status s = batch.SingleDelete(column_family, key);
-    if (!s.ok()) {
-      return s;
-    }
-    return Write(opt, &batch);
-  }
-  const Slice* ts = opt.timestamp;
-  assert(ts != nullptr);
-  const size_t ts_sz = ts->size();
-  WriteBatch batch(key.size() + ts_sz + 24, /*max_bytes=*/0, ts_sz);
-  Status s = batch.SingleDelete(column_family, key);
-  if (!s.ok()) {
-    return s;
-  }
-  s = batch.AssignTimestamp(*ts);
-  if (!s.ok()) {
-    return s;
-  }
+  WriteBatch batch;
+  batch.SingleDelete(column_family, key);
   return Write(opt, &batch);
 }
 
