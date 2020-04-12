@@ -166,7 +166,7 @@ inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
 
 inline void BlockFetcher::CopyBufferToHeapBuf() {
   assert(used_buf_ != heap_buf_.get());
-  int size = block_size_ + kBlockTrailerSize;
+  size_t size = block_size_ + kBlockTrailerSize;
   heap_buf_ = AllocateBlock(size, memory_allocator_);
   memcpy(heap_buf_.get(), used_buf_, size);
 #ifndef NDEBUG
@@ -176,7 +176,7 @@ inline void BlockFetcher::CopyBufferToHeapBuf() {
 
 inline void BlockFetcher::CopyBufferToCompressedBuf() {
   assert(used_buf_ != compressed_buf_.get());
-  int size = block_size_ + kBlockTrailerSize;
+  size_t size = block_size_ + kBlockTrailerSize;
   compressed_buf_ = AllocateBlock(size, memory_allocator_compressed_);
   memcpy(compressed_buf_.get(), used_buf_, size);
 #ifndef NDEBUG
