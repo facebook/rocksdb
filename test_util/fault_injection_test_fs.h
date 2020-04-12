@@ -16,10 +16,12 @@
 
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <set>
 #include <string>
 
+#include "db/db_test_util.h"
 #include "db/version_set.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
@@ -80,6 +82,9 @@ class TestFSWritableFile : public FSWritableFile {
                                     IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
   }
+  virtual size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
   virtual bool use_direct_io() const override {
     return target_->use_direct_io();
   };
@@ -119,6 +124,25 @@ class TestFSRandomRWFile : public FSRandomRWFile {
   FaultInjectionTestFS* fs_;
 };
 
+class TestFSRandomAccessFile : public FSRandomAccessFile {
+ public:
+  explicit TestFSRandomAccessFile(const std::string& fname,
+                              std::unique_ptr<FSRandomAccessFile>&& f,
+                              FaultInjectionTestFS* fs);
+  ~TestFSRandomAccessFile() override {}
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+
+ private:
+  std::unique_ptr<FSRandomAccessFile> target_;
+  FaultInjectionTestFS* fs_;
+};
+
 class TestFSDirectory : public FSDirectory {
  public:
   explicit TestFSDirectory(FaultInjectionTestFS* fs, std::string dirname,
@@ -138,7 +162,10 @@ class TestFSDirectory : public FSDirectory {
 class FaultInjectionTestFS : public FileSystemWrapper {
  public:
   explicit FaultInjectionTestFS(std::shared_ptr<FileSystem> base)
-      : FileSystemWrapper(base), filesystem_active_(true) {}
+      : FileSystemWrapper(base),
+        filesystem_active_(true),
+        filesystem_writable_(false),
+        thread_local_error_(new ThreadLocalPtr(nullptr)) {}
   virtual ~FaultInjectionTestFS() {}
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
@@ -217,6 +244,14 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     return filesystem_active_;
   }
+
+  // Setting filesystem_writable_ makes NewWritableFile. ReopenWritableFile,
+  // and NewRandomRWFile bypass FaultInjectionTestFS and go directly to the
+  // target FS
+  bool IsFilesystemDirectWritable() {
+    MutexLock l(&mutex_);
+    return filesystem_writable_;
+  }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
     filesystem_active_ = active;
@@ -229,6 +264,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active, error);
   }
+  void SetFilesystemDirectWritable(
+      bool writable) {
+    MutexLock l(&mutex_);
+    filesystem_writable_ = writable;
+  }
   void AssertNoOpenFile() { assert(open_files_.empty()); }
 
   IOStatus GetError() { return error_; }
@@ -238,6 +278,66 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     error_ = io_error;
   }
 
+  // Specify what the operation, so we can inject the right type of error
+  enum ErrorOperation : char {
+    kRead = 0,
+    kOpen,
+  };
+
+  // Set thread-local parameters for error injection. The first argument,
+  // seed is the seed for the random number generator, and one_in determines
+  // the probability of injecting error (i.e an error is injected with
+  // 1/one_in probability)
+  void SetThreadLocalReadErrorContext(uint32_t seed, int one_in) {
+    struct ErrorContext* ctx =
+          static_cast<struct ErrorContext*>(thread_local_error_->Get());
+    if (ctx == nullptr) {
+      ctx = new ErrorContext(seed);
+      thread_local_error_->Reset(ctx);
+    }
+    ctx->one_in = one_in;
+    ctx->count = 0;
+  }
+
+  // Inject an error. For a READ operation, a status of IOError(), a
+  // corruption in the contents of scratch, or truncation of slice
+  // are the types of error with equal probability. For OPEN,
+  // its always an IOError.
+  IOStatus InjectError(ErrorOperation op, Slice* slice, char* scratch);
+
+  // Get the count of how many times we injected since the previous call
+  int GetAndResetErrorCount() {
+    ErrorContext* ctx =
+          static_cast<ErrorContext*>(thread_local_error_->Get());
+    int count = 0;
+    if (ctx != nullptr) {
+      count = ctx->count;
+      ctx->count = 0;
+    }
+    return count;
+  }
+
+  void EnableErrorInjection() {
+    ErrorContext* ctx =
+          static_cast<ErrorContext*>(thread_local_error_->Get());
+    if (ctx) {
+      ctx->enable_error_injection = true;
+    }
+  }
+
+  void DisableErrorInjection() {
+    ErrorContext* ctx =
+          static_cast<ErrorContext*>(thread_local_error_->Get());
+    if (ctx) {
+      ctx->enable_error_injection = false;
+    }
+  }
+
+  // We capture a backtrace every time a fault is injected, for debugging
+  // purposes. This call prints the backtrace to stderr and frees the
+  // saved callstack
+  void PrintFaultBacktrace();
+
  private:
   port::Mutex mutex_;
   std::map<std::string, FSFileState> db_file_state_;
@@ -245,7 +345,25 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
+  bool filesystem_writable_;  // Bypass FaultInjectionTestFS and go directly
+                              // to underlying FS for writable files
   IOStatus error_;
+
+  struct ErrorContext {
+    Random rand;
+    int one_in;
+    int count;
+    bool enable_error_injection;
+    void* callstack;
+    int frames;
+
+    explicit ErrorContext(uint32_t seed)
+      : rand(seed),
+        enable_error_injection(false),
+    frames(0) {}
+  };
+
+  std::unique_ptr<ThreadLocalPtr> thread_local_error_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -5,12 +5,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "utilities/transactions/transaction_lock_mgr.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "rocksdb/utilities/transaction_db.h"
-#include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -29,9 +29,9 @@ class TransactionLockMgrTest : public testing::Test {
     txn_opt.transaction_lock_timeout = 0;
     ASSERT_OK(TransactionDB::Open(opt, txn_opt, db_dir_, &db_));
 
-    locker_.reset(new TransactionLockMgr(
-        db_, txn_opt.num_stripes, txn_opt.max_num_locks,
-        txn_opt.max_num_deadlocks, mutex_factory_));
+    locker_.reset(
+        new TransactionLockMgr(db_, txn_opt.num_stripes, txn_opt.max_num_locks,
+                               txn_opt.max_num_deadlocks, mutex_factory_));
   }
 
   void TearDown() override {

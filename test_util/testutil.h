@@ -777,6 +777,8 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   std::string name_;
 };
 
+extern const Comparator* ComparatorWithU64Ts();
+
 CompressionType RandomCompressionType(Random* rnd);
 
 void RandomCompressionTypeVector(const size_t count,

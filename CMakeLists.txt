@@ -595,6 +595,7 @@ set(SOURCES
         memory/arena.cc
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
+        memory/memkind_kmem_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -987,6 +988,7 @@ if(WITH_TESTS)
         db/db_logical_block_size_cache_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
+        db/db_with_timestamp_compaction_test.cc
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
@@ -1029,6 +1031,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
+        memory/memkind_kmem_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc

@@ -254,6 +254,7 @@ bool PartitionedFilterBlockReader::MayMatch(
   Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (UNLIKELY(!s.ok())) {
+    TEST_SYNC_POINT("FilterReadError");
     return true;
   }
 
@@ -271,6 +272,7 @@ bool PartitionedFilterBlockReader::MayMatch(
                               no_io, get_context, lookup_context,
                               &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
+    TEST_SYNC_POINT("FilterReadError");
     return true;
   }
 
@@ -310,6 +312,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
                    "Error retrieving top-level filter block while trying to "
                    "cache filter partitions: %s",
                    s.ToString().c_str());
+    TEST_SYNC_POINT("FilterReadError");
     return;
   }
 
@@ -340,6 +343,11 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   prefetch_buffer.reset(new FilePrefetchBuffer());
   s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                 static_cast<size_t>(prefetch_len));
+#ifndef NDEBUG
+  if (!s.ok()) {
+    TEST_SYNC_POINT("FilterReadError");
+  }
+#endif
 
   // After prefetch, read the partitions one by one
   ReadOptions read_options;
@@ -362,6 +370,11 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
         }
       }
     }
+#ifndef NDEBUG
+    if (!s.ok()) {
+      TEST_SYNC_POINT("FilterReadError");
+    }
+#endif
   }
 }
 

@@ -441,7 +441,12 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
 
+ifeq ($(DEBUG_LEVEL),0)
 STRESSTOOLOBJECTS = $(STRESS_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+else
+STRESSTOOLOBJECTS = $(STRESS_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL) \
+	$(TESTHARNESS)
+endif
 
 EXPOBJECTS = $(LIBOBJECTS) $(TESTUTIL)
 
@@ -505,6 +510,7 @@ TESTS = \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
+	memkind_kmem_allocator_test \
 	block_test \
 	data_block_hash_index_test \
 	cache_test \
@@ -609,6 +615,7 @@ TESTS = \
 	blob_file_addition_test \
 	blob_file_garbage_test \
 	timer_test \
+	db_with_timestamp_compaction_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1242,6 +1249,9 @@ db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 
 arena_test: memory/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
+	
+memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)	
 
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -1319,6 +1329,9 @@ db_basic_test: db/db_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_with_timestamp_basic_test: db/db_with_timestamp_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_with_timestamp_compaction_test: db/db_with_timestamp_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_encryption_test: db/db_encryption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
