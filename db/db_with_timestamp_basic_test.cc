@@ -26,22 +26,8 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
 
  protected:
   static std::string Key1(uint64_t k) {
-    uint32_t x = 1;
-    const bool is_little_endian = (*reinterpret_cast<char*>(&x) != 0);
     std::string ret;
-    if (is_little_endian) {
-      ret.assign(reinterpret_cast<char*>(&k), sizeof(k));
-    } else {
-      ret.resize(sizeof(k));
-      ret[0] = k & 0xff;
-      ret[1] = (k >> 8) & 0xff;
-      ret[2] = (k >> 16) & 0xff;
-      ret[3] = (k >> 24) & 0xff;
-      ret[4] = (k >> 32) & 0xff;
-      ret[5] = (k >> 40) & 0xff;
-      ret[6] = (k >> 48) & 0xff;
-      ret[7] = (k >> 56) & 0xff;
-    }
+    PutFixed64(&ret, k);
     std::reverse(ret.begin(), ret.end());
     return ret;
   }

@@ -154,10 +154,8 @@ class ComparatorWithU64TsImpl : public Comparator {
     return cmp_without_ts_->Compare(lhs, rhs);
   }
   int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
-    size_t ts_sz = timestamp_size();
-    assert(ts1.size() == ts_sz);
-    assert(ts2.size() == ts_sz);
-    assert(ts_sz == sizeof(uint64_t));
+    assert(ts1.size() == sizeof(uint64_t));
+    assert(ts2.size() == sizeof(uint64_t));
     uint64_t lhs = DecodeFixed64(ts1.data());
     uint64_t rhs = DecodeFixed64(ts2.data());
     if (lhs < rhs) {
