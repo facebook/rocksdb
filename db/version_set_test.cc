@@ -960,6 +960,84 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(VersionSetTest, AddLiveBlobFiles) {
+  // Initialize the database and add a blob file.
+  NewDB();
+
+  assert(versions_);
+  assert(versions_->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions_->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  VersionEdit first;
+
+  constexpr uint64_t first_blob_file_number = 234;
+  constexpr uint64_t first_total_blob_count = 555;
+  constexpr uint64_t first_total_blob_bytes = 66666;
+  constexpr char first_checksum_method[] = "CRC32";
+  constexpr char first_checksum_value[] = "3d87ff57";
+
+  first.AddBlobFile(first_blob_file_number, first_total_blob_count,
+                    first_total_blob_bytes, first_checksum_method,
+                    first_checksum_value);
+
+  mutex_.Lock();
+  Status s = versions_->LogAndApply(cfd, mutable_cf_options_, &first, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_OK(s);
+
+  // Reference the version so it stays alive even after the following version
+  // edit.
+  Version* const version = cfd->current();
+  assert(version);
+
+  version->Ref();
+
+  // Get live files directly from version.
+  std::vector<uint64_t> version_table_files;
+  std::vector<uint64_t> version_blob_files;
+
+  version->AddLiveFiles(&version_table_files, &version_blob_files);
+
+  ASSERT_EQ(version_blob_files.size(), 1);
+  ASSERT_EQ(version_blob_files[0], first_blob_file_number);
+
+  // Add another blob file.
+  VersionEdit second;
+
+  constexpr uint64_t second_blob_file_number = 456;
+  constexpr uint64_t second_total_blob_count = 100;
+  constexpr uint64_t second_total_blob_bytes = 2000000;
+  constexpr char second_checksum_method[] = "CRC32B";
+  constexpr char second_checksum_value[] = "6dbdf23a";
+  second.AddBlobFile(second_blob_file_number, second_total_blob_count,
+                     second_total_blob_bytes, second_checksum_method,
+                     second_checksum_value);
+
+  mutex_.Lock();
+  s = versions_->LogAndApply(cfd, mutable_cf_options_, &second, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_OK(s);
+
+  // Get all live files from version set. Note that the result contains
+  // duplicates.
+  std::vector<uint64_t> all_table_files;
+  std::vector<uint64_t> all_blob_files;
+
+  versions_->AddLiveFiles(&all_table_files, &all_blob_files);
+
+  ASSERT_EQ(all_blob_files.size(), 3);
+  ASSERT_EQ(all_blob_files[0], first_blob_file_number);
+  ASSERT_EQ(all_blob_files[1], first_blob_file_number);
+  ASSERT_EQ(all_blob_files[2], second_blob_file_number);
+
+  // Clean up previous version.
+  version->Unref();
+}
+
 TEST_F(VersionSetTest, ObsoleteBlobFile) {
   // Initialize the database and add a blob file (with no garbage just yet).
   NewDB();
