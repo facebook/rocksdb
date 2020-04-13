@@ -193,6 +193,68 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
   ASSERT_EQ(2, opts_file_count);
 }
 
+TEST_F(ObsoleteFilesTest, BlobFiles) {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  // Add a blob file that consists of nothing but garbage (and is thus obsolete)
+  // and another one that is live.
+  VersionEdit edit;
+
+  constexpr uint64_t first_blob_file_number = 234;
+  constexpr uint64_t first_total_blob_count = 555;
+  constexpr uint64_t first_total_blob_bytes = 66666;
+  constexpr char first_checksum_method[] = "CRC32";
+  constexpr char first_checksum_value[] = "3d87ff57";
+
+  edit.AddBlobFile(first_blob_file_number, first_total_blob_count,
+                   first_total_blob_bytes, first_checksum_method,
+                   first_checksum_value);
+  edit.AddBlobFileGarbage(first_blob_file_number, first_total_blob_count,
+                          first_total_blob_bytes);
+
+  constexpr uint64_t second_blob_file_number = 456;
+  constexpr uint64_t second_total_blob_count = 100;
+  constexpr uint64_t second_total_blob_bytes = 2000000;
+  constexpr char second_checksum_method[] = "CRC32B";
+  constexpr char second_checksum_value[] = "6dbdf23a";
+  edit.AddBlobFile(second_blob_file_number, second_total_blob_count,
+                   second_total_blob_bytes, second_checksum_method,
+                   second_checksum_value);
+
+  dbfull()->TEST_LockMutex();
+  Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                   &edit, dbfull()->TEST_GetMutex());
+  dbfull()->TEST_UnlockMutex();
+
+  ASSERT_OK(s);
+
+  // Check for obsolete files.
+  constexpr int job_id = 0;
+  JobContext job_context{job_id};
+
+  constexpr bool force_full_scan = false;
+
+  dbfull()->TEST_LockMutex();
+  dbfull()->FindObsoleteFiles(&job_context, force_full_scan);
+  dbfull()->TEST_UnlockMutex();
+
+  ASSERT_TRUE(job_context.HaveSomethingToDelete());
+  ASSERT_FALSE(job_context.blob_delete_files.empty());
+  ASSERT_EQ(job_context.blob_delete_files[0].GetBlobFileNumber(),
+            first_blob_file_number);
+
+  ASSERT_FALSE(job_context.blob_live.empty());
+  ASSERT_EQ(job_context.blob_live[0], second_blob_file_number);
+
+  dbfull()->PurgeObsoleteFiles(job_context);
+  job_context.Clean();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
