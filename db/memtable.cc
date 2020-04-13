@@ -724,6 +724,7 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeDeletion:
+      case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {

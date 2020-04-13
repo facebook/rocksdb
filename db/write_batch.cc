@@ -1557,7 +1557,14 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
 
-    auto ret_status = DeleteImpl(column_family_id, key, Slice(), kTypeDeletion);
+    ColumnFamilyData* cfd = cf_mems_->current();
+    assert(!cfd || cfd->user_comparator());
+    const size_t ts_sz = (cfd && cfd->user_comparator())
+                             ? cfd->user_comparator()->timestamp_size()
+                             : 0;
+    const ValueType delete_type =
+        (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
+    auto ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
