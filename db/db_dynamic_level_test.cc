@@ -50,9 +50,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
       keys[i] = i;
     }
     if (ordered_insert == 0) {
-      std::random_device rng;
-      std::mt19937 urng(rng());
-      std::shuffle(std::begin(keys), std::end(keys), urng);
+      RandomShuffle(std::begin(keys), std::end(keys), rnd.Next());
     }
     for (int max_background_compactions = 1; max_background_compactions < 4;
          max_background_compactions += 2) {

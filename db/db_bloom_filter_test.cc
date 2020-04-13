@@ -1344,9 +1344,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   for (int i = 0; i < numkeys; i += 2) {
     keys.push_back(i);
   }
-  std::random_device rng;
-  std::mt19937 urng(rng());
-  std::shuffle(std::begin(keys), std::end(keys), urng);
+  RandomShuffle(std::begin(keys), std::end(keys));
   int num_inserted = 0;
   for (int key : keys) {
     ASSERT_OK(Put(1, Key(key), "val"));

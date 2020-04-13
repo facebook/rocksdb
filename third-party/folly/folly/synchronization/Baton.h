@@ -17,7 +17,7 @@
 #include <folly/synchronization/detail/Spin.h>
 
 #ifdef ROCKSDB_EXPLICIT_CAPTURE_THIS
-#define ROCKSDB_THIS_LAMBDA_CAPTURE =,this
+#define ROCKSDB_THIS_LAMBDA_CAPTURE =, this
 #else
 #define ROCKSDB_THIS_LAMBDA_CAPTURE =
 #endif
