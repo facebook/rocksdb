@@ -165,7 +165,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
-        thread_local_error_(new ThreadLocalPtr(nullptr)) {}
+        thread_local_error_(
+            new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {}
   virtual ~FaultInjectionTestFS() {}
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
@@ -297,6 +298,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     }
     ctx->one_in = one_in;
     ctx->count = 0;
+  }
+
+  static void DeleteThreadLocalErrorContext(void *p) {
+    ErrorContext* ctx = static_cast<ErrorContext*>(p);
+    delete ctx;
   }
 
   // Inject an error. For a READ operation, a status of IOError(), a

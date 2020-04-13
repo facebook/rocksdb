@@ -453,7 +453,8 @@ def whitebox_crash_main(args, unknown_args):
 
         stdoutdata = stdoutdata.lower()
         errorcount = (stdoutdata.count('error') -
-                      stdoutdata.count('got errors 0 times'))
+                      stdoutdata.count('got errors 0 times') -
+                      stdoutdata.count('got expected errors 0 times'))
         print("#times error occurred in output is " + str(errorcount) + "\n")
 
         if (errorcount > 0):
