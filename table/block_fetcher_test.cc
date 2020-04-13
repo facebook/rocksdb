@@ -89,19 +89,33 @@ class BlockFetcherTest : public testing::Test {
     std::unique_ptr<WritableFileWriter> writer;
     NewFileWriter(table_name, &writer);
 
+    // Create table builder.
+    Options options;
+    ImmutableCFOptions ioptions(options);
+    InternalKeyComparator comparator(options.comparator);
+    ColumnFamilyOptions cf_options;
+    MutableCFOptions moptions(cf_options);
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
+    std::unique_ptr<TableBuilder> table_builder(
+        table_factory_.NewTableBuilder(TableBuilderOptions(
+            ioptions, moptions, comparator, &factories, compression_type,
+            0 /* sample_for_compression */, CompressionOptions(),
+            false /* skip_filters */, kDefaultColumnFamilyName, -1 /* level */),
+        0 /* column_family_id */, writer.get()));
 
-    std::unique_ptr<TableBuilder> builder(NewTableBuilder(
-        table_name, compression_type, writer.get(), &factories));
+    // Build table.
     for (int i = 0; i < 9; i++) {
       std::string key = ToInternalKey(std::to_string(i));
       std::string value = std::to_string(i);
-      builder->Add(key, value);
+      table_builder->Add(key, value);
     }
-    ASSERT_OK(builder->Finish());
+    ASSERT_OK(table_builder->Finish());
   }
 
   void FetchIndexBlock(const std::string& table_name, bool use_direct_io,
+                       CountedMemoryAllocator* heap_buf_allocator,
+                       CountedMemoryAllocator* compressed_buf_allocator,
+                       MemcpyStats* memcpy_stats,
                        BlockContents* index_block) {
     FileOptions fopt;
     fopt.use_direct_reads = use_direct_io;
@@ -111,13 +125,11 @@ class BlockFetcherTest : public testing::Test {
     Footer footer;
     ReadFooter(table_name, file.get(), &footer);
 
-    CountedMemoryAllocator allocator;
-    MemcpyStats memcpy_stats;
     CompressionType compression_type;
     FetchBlock(file.get(), footer, footer.index_handle(), BlockType::kIndex,
                false /* compressed */, false /* do_uncompress */,
-               &allocator, &allocator,
-               index_block, &memcpy_stats, &compression_type);
+               heap_buf_allocator, compressed_buf_allocator,
+               index_block, memcpy_stats, &compression_type);
     ASSERT_EQ(compression_type, CompressionType::kNoCompression);
   }
 
@@ -169,6 +181,7 @@ class BlockFetcherTest : public testing::Test {
 
       AssertSameBlock(blocks[0], blocks[1]);
 
+      // Check memcpy and buffer allocation statistics.
       for (bool use_direct_io : {false, true}) {
         const TestStats& expected_stats = use_direct_io ?
             expected_direct_io_stats :
@@ -244,37 +257,13 @@ class BlockFetcherTest : public testing::Test {
     reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
   }
 
-  TableBuilder* NewTableBuilder(
-      const std::string& table_name, CompressionType compression_type,
-      WritableFileWriter* file_writer,
-      std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-          int_tbl_prop_collector_factories) {
-    std::string path = Path(table_name);
-
-    Options options;
-    ImmutableCFOptions ioptions(options);
-    ColumnFamilyOptions cf_options;
-    MutableCFOptions moptions(cf_options);
-    InternalKeyComparator comparator(options.comparator);
-
-    return table_factory_.NewTableBuilder(TableBuilderOptions(
-        ioptions, moptions, comparator, int_tbl_prop_collector_factories,
-        compression_type, 0 /* sample_for_compression */, CompressionOptions(),
-        false /* skip_filters */, kDefaultColumnFamilyName, -1 /* level */),
-        0 /* column_family_id */, file_writer);
-  }
-
-  void NewTableReader(
-      const std::string& table_name, bool use_direct_io,
-      std::unique_ptr<BlockBasedTable>* reader) {
-    Options options;
-    ImmutableCFOptions ioptions(options);
-    InternalKeyComparator comparator(options.comparator);
-
-    FileOptions fopt;
-    fopt.use_direct_reads = use_direct_io;
+  void NewTableReader(const ImmutableCFOptions& ioptions,
+                      const FileOptions& foptions,
+                      const InternalKeyComparator& comparator,
+                      const std::string& table_name,
+                      std::unique_ptr<BlockBasedTable>* table) {
     std::unique_ptr<RandomAccessFileReader> file;
-    NewFileReader(table_name, fopt, &file);
+    NewFileReader(table_name, foptions, &file);
 
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
@@ -284,7 +273,7 @@ class BlockFetcherTest : public testing::Test {
         ioptions, EnvOptions(), table_factory_.table_options(),
         comparator, std::move(file), file_size, &table_reader));
 
-    reader->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
+    table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
 
   std::string ToInternalKey(const std::string& key) {
@@ -314,12 +303,16 @@ class BlockFetcherTest : public testing::Test {
                   BlockContents* contents,
                   MemcpyStats* stats,
                   CompressionType* compresstion_type) {
+    Options options;
+    ImmutableCFOptions ioptions(options);
+    ReadOptions roptions;
+    PersistentCacheOptions persistent_cache_options;
     std::unique_ptr<BlockFetcher> fetcher(new BlockFetcher(
-        file, nullptr /* prefetch_buffer */, footer, ReadOptions(), block,
-        contents, ImmutableCFOptions(Options()), do_uncompress,
-        compressed, block_type, UncompressionDict::GetEmptyDict(),
-        PersistentCacheOptions(), heap_buf_allocator,
-        compressed_buf_allocator));
+        file, nullptr /* prefetch_buffer */, footer, roptions, block,
+        contents, ioptions, do_uncompress, compressed, block_type,
+        UncompressionDict::GetEmptyDict(), persistent_cache_options,
+        heap_buf_allocator, compressed_buf_allocator));
+
     ASSERT_OK(fetcher->ReadBlockContents());
 
     stats->num_stack_buf_memcpy = fetcher->TEST_GetNumStackBufMemcpy();
@@ -345,8 +338,16 @@ class BlockFetcherTest : public testing::Test {
       return;
     }
 
+    Options options;
+    ImmutableCFOptions ioptions(options);
+    InternalKeyComparator comparator(options.comparator);
+
+    FileOptions foptions;
+    foptions.use_direct_reads = use_direct_io;
+    
+    // Get block handle for the first data block.
     std::unique_ptr<BlockBasedTable> table;
-    NewTableReader(table_name, use_direct_io, &table);
+    NewTableReader(ioptions, foptions, comparator, table_name, &table);
 
     std::unique_ptr<BlockBasedTable::IndexReader> index_reader;
     ASSERT_OK(BinarySearchIndexReader::Create(
@@ -363,14 +364,14 @@ class BlockFetcherTest : public testing::Test {
     iter->SeekToFirst();
     BlockHandle first_block_handle = iter->value().handle;
 
-    FileOptions fopt;
-    fopt.use_direct_reads = use_direct_io;
+    // Get footer.
     std::unique_ptr<RandomAccessFileReader> file;
-    NewFileReader(table_name, fopt, &file);
+    NewFileReader(table_name, foptions, &file);
 
     Footer footer;
     ReadFooter(table_name, file.get(), &footer);
 
+    // Fetch first data block.
     CompressionType compression_type;
     FetchBlock(file.get(), footer, first_block_handle, BlockType::kData,
                compressed, do_uncompress,
@@ -394,9 +395,13 @@ TEST_F(BlockFetcherTest, FetchIndexBlock) {
         CompressionTypeToString(compression);
     CreateTable(table_name, compression);
 
+    CountedMemoryAllocator allocator;
+    MemcpyStats memcpy_stats;
     BlockContents indexes[2];
     for (bool use_direct_io : {false, true}) {
-      FetchIndexBlock(table_name, use_direct_io, &indexes[use_direct_io]);
+      FetchIndexBlock(table_name, use_direct_io,
+                      &allocator, &allocator,
+                      &memcpy_stats, &indexes[use_direct_io]);
     }
     AssertSameBlock(indexes[0], indexes[1]);
   }
