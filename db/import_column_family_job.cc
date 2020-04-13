@@ -2,18 +2,18 @@
 
 #include "db/import_column_family_job.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include <vector>
 
 #include "db/version_edit.h"
 #include "file/file_util.h"
+#include "file/random_access_file_reader.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -64,7 +64,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
 
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
         if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
-                              sorted_files[i + 1]->smallest_internal_key) >= 0) {
+                              sorted_files[i + 1]->smallest_internal_key) >=
+            0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
@@ -76,8 +77,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       return Status::InvalidArgument("File contain no entries");
     }
 
-    if (!f.smallest_internal_key.Valid() ||
-        !f.largest_internal_key.Valid()) {
+    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
       return Status::Corruption("File has corrupted keys");
     }
   }
@@ -92,14 +92,15 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
 
     if (hardlink_files) {
-      status = env_->LinkFile(path_outside_db, path_inside_db);
+      status =
+          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
         hardlink_files = false;
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
     }
     if (!status.ok()) {
@@ -115,7 +116,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       if (f.internal_file_path.empty()) {
         break;
       }
-      const auto s = env_->DeleteFile(f.internal_file_path);
+      const auto s =
+          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -133,13 +135,25 @@ Status ImportColumnFamilyJob::Run() {
   Status status;
   edit_.SetColumnFamily(cfd_->GetID());
 
+  // We use the import time as the ancester time. This is the time the data
+  // is written to the database.
+  int64_t temp_current_time = 0;
+  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+  uint64_t current_time = kUnknownOldestAncesterTime;
+  if (env_->GetCurrentTime(&temp_current_time).ok()) {
+    current_time = oldest_ancester_time =
+        static_cast<uint64_t>(temp_current_time);
+  }
+
   for (size_t i = 0; i < files_to_import_.size(); ++i) {
     const auto& f = files_to_import_[i];
     const auto& file_metadata = metadata_[i];
+
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false);
+                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
+                  oldest_ancester_time, current_time);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -156,7 +170,8 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
   if (!status.ok()) {
     // We failed to add files to the database remove all the files we copied.
     for (const auto& f : files_to_import_) {
-      const auto s = env_->DeleteFile(f.internal_file_path);
+      const auto s =
+          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -166,7 +181,8 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
   } else if (status.ok() && import_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_import_) {
-      const auto s = env_->DeleteFile(f.external_file_path);
+      const auto s =
+          fs_->DeleteFile(f.external_file_path, IOOptions(), nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
@@ -184,22 +200,24 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   file_to_import->external_file_path = external_file;
 
   // Get external file size
-  auto status = env_->GetFileSize(external_file, &file_to_import->file_size);
+  Status status = fs_->GetFileSize(external_file, IOOptions(),
+                                   &file_to_import->file_size, nullptr);
   if (!status.ok()) {
     return status;
   }
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
-  std::unique_ptr<RandomAccessFile> sst_file;
+  std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = env_->NewRandomAccessFile(external_file, &sst_file, env_options_);
+  status = fs_->NewRandomAccessFile(external_file, env_options_,
+                                    &sst_file, nullptr);
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(
+      new RandomAccessFileReader(std::move(sst_file), external_file));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),

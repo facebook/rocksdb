@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public class OptimisticTransactionOptions extends RocksObject
-    implements TransactionalOptions {
+    implements TransactionalOptions<OptimisticTransactionOptions> {
 
   public OptimisticTransactionOptions() {
     super(newOptimisticTransactionOptions());

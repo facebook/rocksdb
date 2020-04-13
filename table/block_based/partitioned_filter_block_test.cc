@@ -9,7 +9,7 @@
 
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
-#include "table/full_filter_bits_builder.h"
+#include "table/block_based/filter_policy_internal.h"
 
 #include "index_builder.h"
 #include "logging/logging.h"
@@ -20,7 +20,7 @@
 
 namespace rocksdb {
 
-std::map<uint64_t, Slice> slices;
+std::map<uint64_t, std::string> blooms;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
@@ -37,13 +37,18 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
                                  CachableEntry<Block>&& filter_block)
       : PartitionedFilterBlockReader(t, std::move(filter_block)) {
-    for (const auto& pair : slices) {
+    for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
-      const Slice& slice = pair.second;
+      const std::string& bloom = pair.second;
 
-      CachableEntry<BlockContents> block(
-          new BlockContents(slice), nullptr /* cache */,
-          nullptr /* cache_handle */, true /* own_value */);
+      assert(t);
+      assert(t->get_rep());
+      CachableEntry<ParsedFullFilterBlock> block(
+          new ParsedFullFilterBlock(
+              t->get_rep()->table_options.filter_policy.get(),
+              BlockContents(Slice(bloom))),
+          nullptr /* cache */, nullptr /* cache_handle */,
+          true /* own_value */);
       filter_map_[offset] = std::move(block);
     }
   }
@@ -60,12 +65,15 @@ class PartitionedFilterBlockTest
   InternalKeyComparator icomp_;
   std::unique_ptr<BlockBasedTable> table_;
   std::shared_ptr<Cache> cache_;
+  int bits_per_key_;
 
   PartitionedFilterBlockTest()
       : ioptions_(options_),
         env_options_(options_),
-        icomp_(options_.comparator) {
-    table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
+        icomp_(options_.comparator),
+        bits_per_key_(10) {
+    table_options_.filter_policy.reset(
+        NewBloomFilterPolicy(bits_per_key_, false));
     table_options_.format_version = GetParam();
     table_options_.index_block_restart_interval = 3;
   }
@@ -86,22 +94,15 @@ class PartitionedFilterBlockTest
   }
 
   uint64_t MaxFilterSize() {
-    uint32_t dont_care1, dont_care2;
     int num_keys = sizeof(keys) / sizeof(*keys);
-    auto filter_bits_reader = dynamic_cast<rocksdb::FullFilterBitsBuilder*>(
-        table_options_.filter_policy->GetFilterBitsBuilder());
-    assert(filter_bits_reader);
-    auto partition_size =
-        filter_bits_reader->CalculateSpace(num_keys, &dont_care1, &dont_care2);
-    delete filter_bits_reader;
-    return partition_size +
-               partition_size * table_options_.block_size_deviation / 100;
+    // General, rough over-approximation
+    return num_keys * bits_per_key_ + (CACHE_LINE_SIZE * 8 + /*metadata*/ 5);
   }
 
   uint64_t last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
-    slices[bh.offset()] = slice;
+    blooms[bh.offset()] = slice.ToString();
     last_offset += bh.size();
     return bh;
   }
@@ -125,7 +126,8 @@ class PartitionedFilterBlockTest
     const bool kValueDeltaEncoded = true;
     return new PartitionedFilterBlockBuilder(
         prefix_extractor, table_options_.whole_key_filtering,
-        table_options_.filter_policy->GetFilterBitsBuilder(),
+        BloomFilterPolicy::GetBuilderFromContext(
+            FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
         p_index_builder, partition_size);
   }
@@ -351,6 +353,44 @@ TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
     const Slice ikey_slice = Slice(*ikey.rep());
     ASSERT_TRUE(reader->PrefixMayMatch(
         prefix_extractor->Transform(key), prefix_extractor.get(), kNotValid,
+        /*no_io=*/false, &ikey_slice, /*get_context=*/nullptr,
+        /*lookup_context=*/nullptr));
+  }
+}
+
+// This reproduces the bug in format_version=3 that the seeking the prefix will
+// lead us to the partition before the one that has filter for the prefix.
+TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
+  // some small number to cause partition cuts
+  table_options_.metadata_block_size = 1;
+  std::unique_ptr<const SliceTransform> prefix_extractor(
+      rocksdb::NewFixedPrefixTransform(2));
+  std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
+  std::unique_ptr<PartitionedFilterBlockBuilder> builder(
+      NewBuilder(pib.get(), prefix_extractor.get()));
+  // In the bug, searching for prefix "p3" on an index with format version 3,
+  // will give the key "p3" and the partition of the keys that are <= p3, i.e.,
+  // p2-keys, where the filter for prefix "p3" does not exist.
+  const std::string pkeys[] = {"p1-key1", "p2-key2", "p3-key3", "p4-key3",
+                               "p5-key3"};
+  builder->Add(pkeys[0]);
+  CutABlock(pib.get(), pkeys[0], pkeys[1]);
+  builder->Add(pkeys[1]);
+  CutABlock(pib.get(), pkeys[1], pkeys[2]);
+  builder->Add(pkeys[2]);
+  CutABlock(pib.get(), pkeys[2], pkeys[3]);
+  builder->Add(pkeys[3]);
+  CutABlock(pib.get(), pkeys[3], pkeys[4]);
+  builder->Add(pkeys[4]);
+  CutABlock(pib.get(), pkeys[4]);
+  std::unique_ptr<PartitionedFilterBlockReader> reader(
+      NewReader(builder.get(), pib.get()));
+  for (auto key : pkeys) {
+    auto prefix = prefix_extractor->Transform(key);
+    auto ikey = InternalKey(prefix, 0, ValueType::kTypeValue);
+    const Slice ikey_slice = Slice(*ikey.rep());
+    ASSERT_TRUE(reader->PrefixMayMatch(
+        prefix, prefix_extractor.get(), kNotValid,
         /*no_io=*/false, &ikey_slice, /*get_context=*/nullptr,
         /*lookup_context=*/nullptr));
   }

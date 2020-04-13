@@ -9,10 +9,10 @@
 
 #include "db/wal_manager.h"
 
-#include <cinttypes>
 #include <algorithm>
-#include <vector>
+#include <cinttypes>
 #include <memory>
+#include <vector>
 
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -20,6 +20,7 @@
 #include "db/write_batch_internal.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/sequence_file_reader.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -28,7 +29,6 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
@@ -120,7 +120,7 @@ Status WalManager::GetUpdatesSince(
     return s;
   }
   iter->reset(new TransactionLogIteratorImpl(
-      db_options_.wal_dir, &db_options_, read_options, env_options_, seq,
+      db_options_.wal_dir, &db_options_, read_options, file_options_, seq,
       std::move(wal_files), version_set, seq_per_batch_));
   return (*iter)->status();
 }
@@ -415,12 +415,13 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   return s;
 }
 
-Status WalManager::GetLiveWalFile(uint64_t number, std::unique_ptr<LogFile>* log_file) {
+Status WalManager::GetLiveWalFile(uint64_t number,
+                                  std::unique_ptr<LogFile>* log_file) {
   if (!log_file) {
     return Status::InvalidArgument("log_file not preallocated.");
   }
 
-  if(!number) {
+  if (!number) {
     return Status::PathNotFound("log file not available");
   }
 
@@ -433,15 +434,12 @@ Status WalManager::GetLiveWalFile(uint64_t number, std::unique_ptr<LogFile>* log
     return s;
   }
 
-  log_file->reset(new LogFileImpl(
-      number,
-      kAliveLogFile,
-      0,      // SequenceNumber
-      size_bytes));
+  log_file->reset(new LogFileImpl(number, kAliveLogFile,
+                                  0,  // SequenceNumber
+                                  size_bytes));
 
   return Status::OK();
 }
-
 
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty
@@ -466,9 +464,10 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     }
   };
 
-  std::unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(
-      fname, &file, env_->OptimizeForLogRead(env_options_));
+  std::unique_ptr<FSSequentialFile> file;
+  Status status = fs_->NewSequentialFile(fname,
+                                         fs_->OptimizeForLogRead(file_options_),
+                                         &file, nullptr);
   std::unique_ptr<SequentialFileReader> file_reader(
       new SequentialFileReader(std::move(file), fname));
 

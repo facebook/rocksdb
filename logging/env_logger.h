@@ -11,23 +11,23 @@
 
 #pragma once
 
+#include <time.h>
 #include <atomic>
 #include <memory>
 #include "port/sys_time.h"
-#include <time.h>
 
+#include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
-#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
 
 class EnvLogger : public Logger {
  public:
-  EnvLogger(std::unique_ptr<WritableFile>&& writable_file,
+  EnvLogger(std::unique_ptr<FSWritableFile>&& writable_file,
             const std::string& fname, const EnvOptions& options, Env* env,
             InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),

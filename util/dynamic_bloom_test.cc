@@ -11,9 +11,9 @@ int main() {
 }
 #else
 
-#include <cinttypes>
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <functional>
 #include <memory>
 #include <thread>
@@ -36,10 +36,25 @@ DEFINE_bool(enable_perf, false, "");
 
 namespace rocksdb {
 
-static Slice Key(uint64_t i, char* buffer) {
-  memcpy(buffer, &i, sizeof(i));
-  return Slice(buffer, sizeof(i));
-}
+struct KeyMaker {
+  uint64_t a;
+  uint64_t b;
+
+  // Sequential, within a hash function block
+  inline Slice Seq(uint64_t i) {
+    a = i;
+    return Slice(reinterpret_cast<char *>(&a), sizeof(a));
+  }
+  // Not quite sequential, varies across hash function blocks
+  inline Slice Nonseq(uint64_t i) {
+    a = i;
+    b = i * 123;
+    return Slice(reinterpret_cast<char *>(this), sizeof(*this));
+  }
+  inline Slice Key(uint64_t i, bool nonseq) {
+    return nonseq ? Nonseq(i) : Seq(i);
+  }
+};
 
 class DynamicBloomTest : public testing::Test {};
 
@@ -100,13 +115,13 @@ static uint32_t NextNum(uint32_t num) {
   } else if (num < 1000) {
     num += 100;
   } else {
-    num += 1000;
+    num = num * 26 / 10;
   }
   return num;
 }
 
 TEST_F(DynamicBloomTest, VaryingLengths) {
-  char buffer[sizeof(uint64_t)];
+  KeyMaker km;
 
   // Count number of filters that significantly exceed the false positive rate
   int mediocre_filters = 0;
@@ -116,47 +131,53 @@ TEST_F(DynamicBloomTest, VaryingLengths) {
   fprintf(stderr, "bits_per_key: %d  num_probes: %d\n", FLAGS_bits_per_key,
           num_probes);
 
-  for (uint32_t num = 1; num <= 10000; num = NextNum(num)) {
-    uint32_t bloom_bits = 0;
-    Arena arena;
-    bloom_bits = num * FLAGS_bits_per_key;
-    DynamicBloom bloom(&arena, bloom_bits, num_probes);
-    for (uint64_t i = 0; i < num; i++) {
-      bloom.Add(Key(i, buffer));
-      ASSERT_TRUE(bloom.MayContain(Key(i, buffer)));
-    }
-
-    // All added keys must match
-    for (uint64_t i = 0; i < num; i++) {
-      ASSERT_TRUE(bloom.MayContain(Key(i, buffer))) << "Num " << num
-                                                    << "; key " << i;
-    }
-
-    // Check false positive rate
-    int result = 0;
-    for (uint64_t i = 0; i < 10000; i++) {
-      if (bloom.MayContain(Key(i + 1000000000, buffer))) {
-        result++;
+  // NB: FP rate impact of 32-bit hash is noticeable starting around 10M keys.
+  // But that effect is hidden if using sequential keys (unique hashes).
+  for (bool nonseq : {false, true}) {
+    const uint32_t max_num = FLAGS_enable_perf ? 40000000 : 400000;
+    for (uint32_t num = 1; num <= max_num; num = NextNum(num)) {
+      uint32_t bloom_bits = 0;
+      Arena arena;
+      bloom_bits = num * FLAGS_bits_per_key;
+      DynamicBloom bloom(&arena, bloom_bits, num_probes);
+      for (uint64_t i = 0; i < num; i++) {
+        bloom.Add(km.Key(i, nonseq));
+        ASSERT_TRUE(bloom.MayContain(km.Key(i, nonseq)));
       }
+
+      // All added keys must match
+      for (uint64_t i = 0; i < num; i++) {
+        ASSERT_TRUE(bloom.MayContain(km.Key(i, nonseq)));
+      }
+
+      // Check false positive rate
+      int result = 0;
+      for (uint64_t i = 0; i < 30000; i++) {
+        if (bloom.MayContain(km.Key(i + 1000000000, nonseq))) {
+          result++;
+        }
+      }
+      double rate = result / 30000.0;
+
+      fprintf(stderr,
+              "False positives (%s keys): "
+              "%5.2f%% @ num = %6u, bloom_bits = %6u\n",
+              nonseq ? "nonseq" : "seq", rate * 100.0, num, bloom_bits);
+
+      if (rate > 0.0125)
+        mediocre_filters++;  // Allowed, but not too often
+      else
+        good_filters++;
     }
-    double rate = result / 10000.0;
-
-    fprintf(stderr,
-            "False positives: %5.2f%% @ num = %6u, bloom_bits = %6u\n",
-            rate * 100.0, num, bloom_bits);
-
-    if (rate > 0.0125)
-      mediocre_filters++;  // Allowed, but not too often
-    else
-      good_filters++;
   }
 
   fprintf(stderr, "Filters: %d good, %d mediocre\n", good_filters,
           mediocre_filters);
-  ASSERT_LE(mediocre_filters, good_filters / 5);
+  ASSERT_LE(mediocre_filters, good_filters / 25);
 }
 
 TEST_F(DynamicBloomTest, perf) {
+  KeyMaker km;
   StopWatchNano timer(Env::Default());
   uint32_t num_probes = static_cast<uint32_t>(FLAGS_num_probes);
 
@@ -173,7 +194,7 @@ TEST_F(DynamicBloomTest, perf) {
 
     timer.Start();
     for (uint64_t i = 1; i <= num_keys; ++i) {
-      std_bloom.Add(Slice(reinterpret_cast<const char*>(&i), 8));
+      std_bloom.Add(km.Seq(i));
     }
 
     uint64_t elapsed = timer.ElapsedNanos();
@@ -183,7 +204,7 @@ TEST_F(DynamicBloomTest, perf) {
     uint32_t count = 0;
     timer.Start();
     for (uint64_t i = 1; i <= num_keys; ++i) {
-      if (std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8))) {
+      if (std_bloom.MayContain(km.Seq(i))) {
         ++count;
       }
     }
@@ -203,6 +224,9 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
   uint32_t num_threads = 4;
   std::vector<port::Thread> threads;
 
+  // NB: Uses sequential keys for speed, but that hides the FP rate
+  // impact of 32-bit hash, which is noticeable starting around 10M keys
+  // when they vary across hashing blocks.
   for (uint32_t m = 1; m <= m_limit; ++m) {
     Arena arena;
     const uint32_t num_keys = m * 8 * 1024 * 1024;
@@ -213,11 +237,11 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
     std::atomic<uint64_t> elapsed(0);
 
     std::function<void(size_t)> adder([&](size_t t) {
+      KeyMaker km;
       StopWatchNano timer(Env::Default());
       timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
-        std_bloom.AddConcurrently(
-            Slice(reinterpret_cast<const char*>(&i), 8));
+        std_bloom.AddConcurrently(km.Seq(i));
       }
       elapsed += timer.ElapsedNanos();
     });
@@ -229,17 +253,18 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    fprintf(stderr, "dynamic bloom, avg parallel add latency %3g"
-                    " nanos/key\n",
+    fprintf(stderr,
+            "dynamic bloom, avg parallel add latency %3g"
+            " nanos/key\n",
             static_cast<double>(elapsed) / num_threads / num_keys);
 
     elapsed = 0;
     std::function<void(size_t)> hitter([&](size_t t) {
+      KeyMaker km;
       StopWatchNano timer(Env::Default());
       timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
-        bool f =
-            std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
+        bool f = std_bloom.MayContain(km.Seq(i));
         ASSERT_TRUE(f);
       }
       elapsed += timer.ElapsedNanos();
@@ -252,19 +277,19 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    fprintf(stderr, "dynamic bloom, avg parallel hit latency %3g"
-                    " nanos/key\n",
+    fprintf(stderr,
+            "dynamic bloom, avg parallel hit latency %3g"
+            " nanos/key\n",
             static_cast<double>(elapsed) / num_threads / num_keys);
 
     elapsed = 0;
     std::atomic<uint32_t> false_positives(0);
     std::function<void(size_t)> misser([&](size_t t) {
+      KeyMaker km;
       StopWatchNano timer(Env::Default());
       timer.Start();
-      for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys;
-           i += num_threads) {
-        bool f =
-            std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
+      for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys; i += num_threads) {
+        bool f = std_bloom.MayContain(km.Seq(i));
         if (f) {
           ++false_positives;
         }
@@ -279,8 +304,9 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       threads.pop_back();
     }
 
-    fprintf(stderr, "dynamic bloom, avg parallel miss latency %3g"
-                    " nanos/key, %f%% false positive rate\n",
+    fprintf(stderr,
+            "dynamic bloom, avg parallel miss latency %3g"
+            " nanos/key, %f%% false positive rate\n",
             static_cast<double>(elapsed) / num_threads / num_keys,
             false_positives.load() * 100.0 / num_keys);
   }

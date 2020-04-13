@@ -30,7 +30,7 @@ template <typename T>
 constexpr T constexpr_square_(T t) {
   return t * t;
 }
-} // namespace detail
+}  // namespace detail
 
 template <typename T>
 constexpr T constexpr_log2(T t) {

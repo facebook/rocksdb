@@ -10,10 +10,11 @@
 #include "db/log_reader.h"
 
 #include <stdio.h>
+#include "file/sequence_file_reader.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/file_reader_writer.h"
 #include "util/util.h"
 
 namespace rocksdb {

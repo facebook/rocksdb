@@ -104,13 +104,13 @@ struct BackupableDBOptions {
   // Default: 4194304
   uint64_t callback_trigger_interval_size;
 
-  // When Open() is called, it will open at most this many of the latest
-  // non-corrupted backups.
+  // For BackupEngineReadOnly, Open() will open at most this many of the
+  // latest non-corrupted backups.
   //
-  // Note setting this to a non-default value prevents old files from being
-  // deleted in the shared directory, as we can't do proper ref-counting. If
-  // using this option, make sure to occasionally disable it (by resetting to
-  // INT_MAX) and run GarbageCollect to clean accumulated stale files.
+  // Note: this setting is ignored (behaves like INT_MAX) for any kind of
+  // writable BackupEngine because it would inhibit accounting for shared
+  // files for proper backup deletion, including purging any incompletely
+  // created backups on creation of a new backup.
   //
   // Default: INT_MAX
   int max_valid_backups_to_open;

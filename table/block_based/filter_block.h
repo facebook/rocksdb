@@ -138,8 +138,8 @@ class FilterBlockReader {
       GetContext* const get_context = iter->get_context;
       if (prefix_extractor->InDomain(ukey) &&
           !PrefixMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
-                       block_offset, no_io, &ikey, get_context,
-                       lookup_context)) {
+                          block_offset, no_io, &ikey, get_context,
+                          lookup_context)) {
         range->SkipKey(iter);
       }
     }

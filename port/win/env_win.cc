@@ -979,7 +979,8 @@ uint64_t WinEnvIO::NowMicros() {
     return li.QuadPart;
   }
   using namespace std::chrono;
-  return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
+  return duration_cast<microseconds>(system_clock::now().time_since_epoch())
+      .count();
 }
 
 uint64_t WinEnvIO::NowNanos() {
@@ -1072,6 +1073,20 @@ std::string WinEnvIO::TimeToString(uint64_t secondsSince1970) {
   }
 
   return result;
+}
+
+Status WinEnvIO::GetFreeSpace(const std::string& path, uint64_t* diskfree) {
+  assert(diskfree != nullptr);
+  ULARGE_INTEGER freeBytes;
+  BOOL f = RX_GetDiskFreeSpaceEx(RX_FN(path).c_str(), &freeBytes, NULL, NULL);
+  if (f) {
+    *diskfree = freeBytes.QuadPart;
+    return Status::OK();
+  } else {
+    DWORD lastError = GetLastError();
+    return IOErrorFromWindowsError("Failed to get free space: " + path,
+                                   lastError);
+  }
 }
 
 EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
@@ -1464,6 +1479,10 @@ unsigned int  WinEnv::GetThreadPoolQueueLen(Env::Priority pri) const {
 
 uint64_t WinEnv::GetThreadID() const {
   return winenv_threads_.GetThreadID();
+}
+
+Status WinEnv::GetFreeSpace(const std::string& path, uint64_t* diskfree) {
+  return winenv_io_.GetFreeSpace(path, diskfree);
 }
 
 void WinEnv::SleepForMicroseconds(int micros) {

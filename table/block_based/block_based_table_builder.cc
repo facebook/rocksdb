@@ -11,7 +11,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-
 #include <list>
 #include <map>
 #include <memory>
@@ -25,7 +24,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
@@ -36,6 +34,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/filter_block.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
@@ -62,13 +61,14 @@ namespace {
 // Create a filter block builder based on its type.
 FilterBlockBuilder* CreateFilterBlockBuilder(
     const ImmutableCFOptions& /*opt*/, const MutableCFOptions& mopt,
-    const BlockBasedTableOptions& table_opt,
+    const FilterBuildingContext& context,
     const bool use_delta_encoding_for_index_values,
     PartitionedIndexBuilder* const p_index_builder) {
+  const BlockBasedTableOptions& table_opt = context.table_options;
   if (table_opt.filter_policy == nullptr) return nullptr;
 
   FilterBitsBuilder* filter_bits_builder =
-      table_opt.filter_policy->GetFilterBitsBuilder();
+      BloomFilterPolicy::GetBuilderFromContext(context);
   if (filter_bits_builder == nullptr) {
     return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
                                             table_opt);
@@ -345,6 +345,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
+  int level_at_creation;
   uint32_t column_family_id;
   const std::string& column_family_name;
   uint64_t creation_time = 0;
@@ -363,9 +364,9 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const uint64_t _sample_for_compression,
       const CompressionOptions& _compression_opts, const bool skip_filters,
-      const std::string& _column_family_name, const uint64_t _creation_time,
-      const uint64_t _oldest_key_time, const uint64_t _target_file_size,
-      const uint64_t _file_creation_time)
+      const int _level_at_creation, const std::string& _column_family_name,
+      const uint64_t _creation_time, const uint64_t _oldest_key_time,
+      const uint64_t _target_file_size, const uint64_t _file_creation_time)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -398,6 +399,7 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
+        level_at_creation(_level_at_creation),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name),
         creation_time(_creation_time),
@@ -419,9 +421,14 @@ struct BlockBasedTableBuilder::Rep {
     if (skip_filters) {
       filter_builder = nullptr;
     } else {
+      FilterBuildingContext context(table_options);
+      context.column_family_name = column_family_name;
+      context.compaction_style = ioptions.compaction_style;
+      context.level_at_creation = level_at_creation;
+      context.info_log = ioptions.info_log;
       filter_builder.reset(CreateFilterBlockBuilder(
-          _ioptions, _moptions, table_options,
-          use_delta_encoding_for_index_values, p_index_builder_));
+          ioptions, moptions, context, use_delta_encoding_for_index_values,
+          p_index_builder_));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -454,9 +461,9 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, const bool skip_filters,
-    const std::string& column_family_name, const uint64_t creation_time,
-    const uint64_t oldest_key_time, const uint64_t target_file_size,
-    const uint64_t file_creation_time) {
+    const std::string& column_family_name, const int level_at_creation,
+    const uint64_t creation_time, const uint64_t oldest_key_time,
+    const uint64_t target_file_size, const uint64_t file_creation_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -469,12 +476,12 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ =
-      new Rep(ioptions, moptions, sanitized_table_options, internal_comparator,
-              int_tbl_prop_collector_factories, column_family_id, file,
-              compression_type, sample_for_compression, compression_opts,
-              skip_filters, column_family_name, creation_time, oldest_key_time,
-              target_file_size, file_creation_time);
+  rep_ = new Rep(ioptions, moptions, sanitized_table_options,
+                 internal_comparator, int_tbl_prop_collector_factories,
+                 column_family_id, file, compression_type,
+                 sample_for_compression, compression_opts, skip_filters,
+                 level_at_creation, column_family_name, creation_time,
+                 oldest_key_time, target_file_size, file_creation_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -733,11 +740,13 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         break;
       }
       case kxxHash: {
-        void* xxh = XXH32_init(0);
-        XXH32_update(xxh, block_contents.data(),
+        XXH32_state_t* const state = XXH32_createState();
+        XXH32_reset(state, 0);
+        XXH32_update(state, block_contents.data(),
                      static_cast<uint32_t>(block_contents.size()));
-        XXH32_update(xxh, trailer, 1);  // Extend  to cover block type
-        EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
+        XXH32_update(state, trailer, 1);  // Extend  to cover block type
+        EncodeFixed32(trailer_without_type, XXH32_digest(state));
+        XXH32_freeState(state);
         break;
       }
       case kxxHash64: {
@@ -1099,7 +1108,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
     for (const auto& key : keys) {
       if (r->filter_builder != nullptr) {
-        r->filter_builder->Add(ExtractUserKey(key));
+        size_t ts_sz =
+            r->internal_comparator.user_comparator()->timestamp_size();
+        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
       }
       r->index_builder->OnKeyAdded(key);
     }

@@ -90,6 +90,9 @@ void BlobDBOptions::Dump(Logger* log) const {
       log, "                 BlobDBOptions.enable_garbage_collection: %d",
       enable_garbage_collection);
   ROCKS_LOG_HEADER(
+      log, "                 BlobDBOptions.garbage_collection_cutoff: %f",
+      garbage_collection_cutoff);
+  ROCKS_LOG_HEADER(
       log, "                  BlobDBOptions.disable_background_tasks: %d",
       disable_background_tasks);
 }

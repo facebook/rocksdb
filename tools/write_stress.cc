@@ -56,8 +56,8 @@ int main() {
 }
 #else
 
-#include <cinttypes>
 #include <atomic>
+#include <cinttypes>
 #include <random>
 #include <set>
 #include <string>

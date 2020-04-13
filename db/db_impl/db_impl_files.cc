@@ -15,6 +15,7 @@
 #include "db/memtable_list.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -378,6 +379,13 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
   }
 
+  // Close WALs before trying to delete them.
+  for (const auto w : state.logs_to_free) {
+    // TODO: maybe check the return value of Close.
+    w->Close();
+  }
+
+  bool own_files = OwnTablesAndLogs();
   std::unordered_set<uint64_t> files_to_del;
   for (const auto& candidate_file : candidate_files) {
     const std::string& to_delete = candidate_file.file_name;
@@ -477,11 +485,12 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 #endif  // !ROCKSDB_LITE
 
-    for (const auto w : state.logs_to_free) {
-      // TODO: maybe check the return value of Close.
-      w->Close();
+    // If I do not own these files, e.g. secondary instance with max_open_files
+    // = -1, then no need to delete or schedule delete these files since they
+    // will be removed by their owner, e.g. the primary instance.
+    if (!own_files) {
+      continue;
     }
-
     Status file_deletion_status;
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
@@ -493,15 +502,16 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   {
     // After purging obsolete files, remove them from files_grabbed_for_purge_.
-    // Use a temporary vector to perform bulk deletion via swap.
     InstrumentedMutexLock guard_lock(&mutex_);
-    std::vector<uint64_t> tmp;
+    autovector<uint64_t> to_be_removed;
     for (auto fn : files_grabbed_for_purge_) {
-      if (files_to_del.count(fn) == 0) {
-        tmp.emplace_back(fn);
+      if (files_to_del.count(fn) != 0) {
+        to_be_removed.emplace_back(fn);
       }
     }
-    files_grabbed_for_purge_.swap(tmp);
+    for (auto fn : to_be_removed) {
+      files_grabbed_for_purge_.erase(fn);
+    }
   }
 
   // Delete old info log files.

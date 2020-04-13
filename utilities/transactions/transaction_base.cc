@@ -170,7 +170,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
         }
         if (tracked_keys_iter->second.num_reads == 0 &&
             tracked_keys_iter->second.num_writes == 0) {
-          tracked_keys_[column_family_id].erase(tracked_keys_iter);
+          cf_tracked_keys.erase(tracked_keys_iter);
         }
       }
     }
@@ -323,7 +323,7 @@ void TransactionBaseImpl::MultiGet(const ReadOptions& read_options,
                                    ColumnFamilyHandle* column_family,
                                    const size_t num_keys, const Slice* keys,
                                    PinnableSlice* values, Status* statuses,
-                                   bool sorted_input) {
+                                   const bool sorted_input) {
   write_batch_.MultiGetFromBatchAndDB(db_, read_options, column_family,
                                       num_keys, keys, values, statuses,
                                       sorted_input);
@@ -369,7 +369,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
   Iterator* db_iter = db_->NewIterator(read_options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(column_family, db_iter);
+  return write_batch_.NewIteratorWithBase(column_family, db_iter,
+                                          &read_options);
 }
 
 Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
@@ -638,8 +639,7 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
   // in case it is not already in the map
   auto result = cf_key_map.try_emplace(key, seq);
   auto iter = result.first;
-  if (!result.second && 
-      seq < iter->second.seq) {
+  if (!result.second && seq < iter->second.seq) {
     // Now tracking this key with an earlier sequence number
     iter->second.seq = seq;
   }

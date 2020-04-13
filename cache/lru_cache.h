@@ -12,6 +12,7 @@
 
 #include "cache/sharded_cache.h"
 
+#include "port/malloc.h"
 #include "port/port.h"
 #include "util/autovector.h"
 
@@ -128,6 +129,21 @@ struct LRUHandle {
     }
     delete[] reinterpret_cast<char*>(this);
   }
+
+  // Caclculate the memory usage by metadata
+  inline size_t CalcTotalCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    size_t meta_charge = 0;
+    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      meta_charge += malloc_usable_size(static_cast<void*>(this));
+#else
+      // This is the size that is used when a new handle is created
+      meta_charge += sizeof(LRUHandle) - 1 + key_length;
+#endif
+    }
+    return charge + meta_charge;
+  }
 };
 
 // We provide our own simple hash table since it removes a whole bunch
@@ -176,7 +192,8 @@ class LRUHandleTable {
 class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
-                double high_pri_pool_ratio, bool use_adaptive_mutex);
+                double high_pri_pool_ratio, bool use_adaptive_mutex,
+                CacheMetadataChargePolicy metadata_charge_policy);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -297,7 +314,9 @@ class LRUCache
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            double high_pri_pool_ratio,
            std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-           bool use_adaptive_mutex = kDefaultToAdaptiveMutex);
+           bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+           CacheMetadataChargePolicy metadata_charge_policy =
+               kDontChargeCacheMetadata);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override;

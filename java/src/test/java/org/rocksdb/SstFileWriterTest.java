@@ -25,8 +25,8 @@ public class SstFileWriterTest {
   private static final String DB_DIRECTORY_NAME = "test_db";
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource
-      = new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE
+      = new RocksNativeLibraryResource();
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
@@ -68,7 +68,7 @@ public class SstFileWriterTest {
       comparatorOptions = new ComparatorOptions();
       comparator = new BytewiseComparator(comparatorOptions);
       options.setComparator(comparator);
-      sstFileWriter = new SstFileWriter(envOptions, options, comparator);
+      sstFileWriter = new SstFileWriter(envOptions, options);
     } else {
       sstFileWriter = new SstFileWriter(envOptions, options);
     }

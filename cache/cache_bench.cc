@@ -11,9 +11,9 @@ int main() {
 }
 #else
 
-#include <cinttypes>
-#include <sys/types.h>
 #include <stdio.h>
+#include <sys/types.h>
+#include <cinttypes>
 
 #include "port/port.h"
 #include "rocksdb/cache.h"

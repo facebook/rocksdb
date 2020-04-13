@@ -6,9 +6,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
 #include <stdint.h>
 #include <algorithm>
+#include <cinttypes>
 #include <string>
 #include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
@@ -102,7 +102,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
         TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
         TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
         mutex_.Lock();
-        cfd->Unref();
+        cfd->UnrefAndTryDelete();
         if (!status.ok()) {
           break;
         }
@@ -172,7 +172,6 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
-
 }
 
 #endif  // ROCKSDB_LITE
