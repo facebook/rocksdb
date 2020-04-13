@@ -1256,13 +1256,12 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath ,
   return s;
 }
 
-static rocksdb::FactoryFunc<rocksdb::Env> s3_reg =
-    rocksdb::ObjectLibrary::Default()->Register<rocksdb::Env>(
-        "s3://.*", [](const std::string& uri,
-                      std::unique_ptr<rocksdb::Env>* env_guard, std::string*) {
+static const auto & s3_reg = rocksdb::ObjectLibrary::Default()->Register<rocksdb::Env>(
+  "s3://.*", [](const std::string& uri,
+                std::unique_ptr<rocksdb::Env>* env_guard, std::string*) {
           CreateAwsEnv(uri, env_guard);
           return env_guard->get();
-        });
+});
 #endif /* USE_AWS */
 
 static enum RepFactory StringToRepFactory(const char* ctype) {

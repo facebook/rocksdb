@@ -116,7 +116,6 @@ class MergingIterator : public InternalIterator {
         PERF_TIMER_GUARD(seek_child_seek_time);
         child.Seek(target);
       }
-      PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
       {

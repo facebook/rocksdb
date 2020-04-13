@@ -38,7 +38,6 @@
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
->>>>>>> upstream/6.7.fb
 #include "util/string_util.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 

@@ -1,10 +1,10 @@
 // Copyright (c) 2017 Rockset
 
 #include "cloud/cloud_manifest.h"
-
+#include "env/composite_env_wrapper.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -52,7 +52,8 @@ TEST_F(CloudManifestTest, BasicTest) {
         std::unique_ptr<WritableFile> file;
         ASSERT_OK(env_->NewWritableFile(tmpfile, &file, EnvOptions()));
         ASSERT_OK(manifest->WriteToLog(std::unique_ptr<WritableFileWriter>(
-            new WritableFileWriter(std::move(file), tmpfile, EnvOptions()))));
+            new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                                   tmpfile, EnvOptions()))));        
       }
 
       manifest.reset();
@@ -61,7 +62,7 @@ TEST_F(CloudManifestTest, BasicTest) {
         ASSERT_OK(env_->NewSequentialFile(tmpfile, &file, EnvOptions()));
         CloudManifest::LoadFromLog(
             std::unique_ptr<SequentialFileReader>(
-                new SequentialFileReader(std::move(file), tmpfile)),
+                new SequentialFileReader(NewLegacySequentialFileWrapper(file), tmpfile)),
             &manifest);
       }
     }

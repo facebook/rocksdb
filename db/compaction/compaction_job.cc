@@ -764,12 +764,12 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   auto stream = event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_id_ << "event"
          << "compaction_finished"
-         << "compaction_time_micros" << stats.micros
-         << "compaction_time_cpu_micros" << stats.cpu_micros << "output_level"
-         << compact_->compaction->output_level() << "num_output_files"
-         << compact_->NumOutputFiles() << "total_output_size"
-         << compact_->total_bytes << "num_input_records"
-         << stats.num_input_records << "num_output_records"
+         << "compaction_time_micros" << compaction_stats_.micros
+         << "compaction_time_cpu_micros" << compaction_stats_.cpu_micros
+         << "output_level" << compact_->compaction->output_level()
+         << "num_output_files" << compact_->NumOutputFiles()
+         << "total_output_size" << compact_->total_bytes << "num_input_records"
+         << compaction_stats_.num_input_records << "num_output_records"
          << compact_->num_output_records << "num_subcompactions"
          << compact_->sub_compact_states.size() << "output_compression"
          << CompressionTypeToString(compact_->compaction->output_compression());
@@ -862,7 +862,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
       snapshot_checker_, compact_->compaction->level(),
-      db_options_.statistics.get());
+      db_options_.statistics.get(), shutting_down_);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
   TEST_SYNC_POINT_CALLBACK(
@@ -1782,7 +1782,7 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
 
   // Install all remotely compacted file into local files.
   auto statuses =
-      service->InstallFiles(sources, destinations, env_options_, env_);
+      service->InstallFiles(sources, destinations, file_options_, env_);
   compaction_stats_.micros = env_->NowMicros() - start_micros;
 
   for (uint32_t i = 0; i < statuses.size(); ++i) {
@@ -1830,7 +1830,6 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
   compact_->compaction->SetOutputTableProperties(std::move(tp));
 
   sub->total_bytes = result.total_bytes;
-  sub->num_input_records = result.num_input_records;
   sub->num_output_records = result.num_output_records;
   sub->status = Status::OK();
 
@@ -1847,7 +1846,6 @@ void CompactionJob::RetrieveResultsAndCleanup(
     PluggableCompactionResult* result) {
   // fill up input statistics for this compaction
   result->total_bytes = compact_->total_bytes;
-  result->num_input_records = compact_->num_input_records;
   result->num_output_records = compact_->num_output_records;
 
   // fill up output file names and their metadata

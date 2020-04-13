@@ -90,8 +90,10 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
   c->SetInputVersion(version);
 
   // do we need to remember the iterator of our insert?
-  auto pending_outputs_inserted_elem =
-      CaptureCurrentFileNumberInPendingOutputs();
+  std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
+      new std::list<uint64_t>::iterator(
+          CaptureCurrentFileNumberInPendingOutputs()));
+
   CompactionJobStats compaction_job_stats;
 
   auto snapshot_checker = snapshot_checker_.get();
@@ -110,7 +112,7 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
   // create compaction job
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
-      env_options_for_compaction_, versions_.get(), &shutting_down_,
+      file_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
       GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
       &error_handler_, existing_snapshots, earliest_write_conflict_snapshot,

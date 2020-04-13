@@ -6,8 +6,8 @@
 #include <vector>
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "file/writable_file_writer.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
