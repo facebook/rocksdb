@@ -924,6 +924,8 @@ class DBImpl : public DB {
   void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
                              std::vector<std::vector<FileMetaData>>* metadata);
 
+  InstrumentedMutex* TEST_GetMutex() const { return &mutex_; }
+
   void TEST_LockMutex();
 
   void TEST_UnlockMutex();
