@@ -77,8 +77,10 @@ FileChecksumList* NewFileChecksumList() {
   return checksum_list;
 }
 
-FileChecksumGenFactory* NewFileChecksumGenCrc32cFactory() {
-  return new FileChecksumGenCrc32cFactory();
+std::shared_ptr<FileChecksumGenFactory> GetFileChecksumGenCrc32cFactory() {
+  static std::shared_ptr<FileChecksumGenFactory> default_crc32c_gen_factory(
+      new FileChecksumGenCrc32cFactory());
+  return default_crc32c_gen_factory;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
