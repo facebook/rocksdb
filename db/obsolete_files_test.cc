@@ -233,13 +233,13 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
 
   ASSERT_OK(s);
 
-  // Check for obsolete files.
+  // Check for obsolete files and make sure the first blob file is picked up
+  // and grabbed for purge. The second blob file should be on the live list.
   constexpr int job_id = 0;
   JobContext job_context{job_id};
 
-  constexpr bool force_full_scan = false;
-
   dbfull()->TEST_LockMutex();
+  constexpr bool force_full_scan = false;
   dbfull()->FindObsoleteFiles(&job_context, force_full_scan);
   dbfull()->TEST_UnlockMutex();
 
@@ -247,6 +247,11 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   ASSERT_FALSE(job_context.blob_delete_files.empty());
   ASSERT_EQ(job_context.blob_delete_files[0].GetBlobFileNumber(),
             first_blob_file_number);
+
+  const auto& files_grabbed_for_purge =
+      dbfull()->TEST_GetFilesGrabbedForPurge();
+  ASSERT_NE(files_grabbed_for_purge.find(first_blob_file_number),
+            files_grabbed_for_purge.end());
 
   ASSERT_FALSE(job_context.blob_live.empty());
   ASSERT_EQ(job_context.blob_live[0], second_blob_file_number);

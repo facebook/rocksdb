@@ -973,6 +973,10 @@ class DBImpl : public DB {
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
+
+  const std::unordered_set<uint64_t>& TEST_GetFilesGrabbedForPurge() const {
+    return files_grabbed_for_purge_;
+  }
 #endif  // NDEBUG
 
  protected:
