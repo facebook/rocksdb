@@ -924,6 +924,8 @@ class DBImpl : public DB {
   void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
                              std::vector<std::vector<FileMetaData>>* metadata);
 
+  InstrumentedMutex* TEST_GetMutex() const { return &mutex_; }
+
   void TEST_LockMutex();
 
   void TEST_UnlockMutex();
@@ -969,6 +971,8 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
+
+  VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
 #endif  // NDEBUG
 
  protected:
