@@ -335,10 +335,6 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
     return GetError();
   }
   IOStatus io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
-  if (!io_s.ok()) {
-    fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
-            io_s.ToString().c_str());
-  }
   if (io_s.ok()) {
     UntrackFile(f);
   }
