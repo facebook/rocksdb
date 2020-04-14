@@ -960,7 +960,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
                          output_level, 1),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level),
-      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ true,
+      /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */,
       CompactionReason::kFilesMarkedForCompaction);
 }

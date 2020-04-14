@@ -13,7 +13,7 @@ namespace rocksdb {
 void* MemkindKmemAllocator::Allocate(size_t size) {
   void* p = memkind_malloc(MEMKIND_DAX_KMEM, size);
   if (p == NULL) {
-	throw std::bad_alloc();
+    throw std::bad_alloc();
   }
   return p;
 }
@@ -23,7 +23,8 @@ void MemkindKmemAllocator::Deallocate(void* p) {
 }
 
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-size_t MemkindKmemAllocator::UsableSize(void* p, size_t /*allocation_size*/) const {
+size_t MemkindKmemAllocator::UsableSize(void* p,
+                                        size_t /*allocation_size*/) const {
   return memkind_malloc_usable_size(MEMKIND_DAX_KMEM, p);
 }
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE

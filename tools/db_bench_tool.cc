@@ -2638,7 +2638,7 @@ class Benchmark {
       }
       return cache;
     } else {
-      if(FLAGS_use_cache_memkind_kmem_allocator) {
+      if (FLAGS_use_cache_memkind_kmem_allocator) {
 #ifdef MEMKIND
         return NewLRUCache(
             static_cast<size_t>(capacity), FLAGS_cache_numshardbits,

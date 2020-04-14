@@ -96,7 +96,7 @@ Options GetOptionsWithNumLevels(int num_levels,
   return opt;
 }
 
-class VersionStorageInfoTest : public testing::Test {
+class VersionStorageInfoTestBase : public testing::Test {
  public:
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
@@ -111,17 +111,19 @@ class VersionStorageInfoTest : public testing::Test {
     return InternalKey(ukey, smallest_seq, kTypeValue);
   }
 
-  VersionStorageInfoTest()
-      : ucmp_(BytewiseComparator()),
+  explicit VersionStorageInfoTestBase(const Comparator* ucmp)
+      : ucmp_(ucmp),
         icmp_(ucmp_),
         logger_(new CountingLogger()),
         options_(GetOptionsWithNumLevels(6, logger_)),
         ioptions_(options_),
         mutable_cf_options_(options_),
-        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr, false) {}
+        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel,
+                  /*src_vstorage=*/nullptr,
+                  /*_force_consistency_checks=*/false) {}
 
-  ~VersionStorageInfoTest() override {
-    for (int i = 0; i < vstorage_.num_levels(); i++) {
+  ~VersionStorageInfoTestBase() override {
+    for (int i = 0; i < vstorage_.num_levels(); ++i) {
       for (auto* f : vstorage_.LevelFiles(i)) {
         if (--f->refs == 0) {
           delete f;
@@ -170,6 +172,13 @@ class VersionStorageInfoTest : public testing::Test {
     }
     return result;
   }
+};
+
+class VersionStorageInfoTest : public VersionStorageInfoTestBase {
+ public:
+  VersionStorageInfoTest() : VersionStorageInfoTestBase(BytewiseComparator()) {}
+
+  ~VersionStorageInfoTest() override {}
 };
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
@@ -412,6 +421,54 @@ TEST_F(VersionStorageInfoTest, GetOverlappingInputs) {
       1, {"i", 0, kTypeValue}, {"j", 0, kTypeValue}));
 }
 
+class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {
+ public:
+  VersionStorageInfoTimestampTest()
+      : VersionStorageInfoTestBase(test::ComparatorWithU64Ts()) {}
+  ~VersionStorageInfoTimestampTest() override {}
+  std::string Timestamp(uint64_t ts) const {
+    std::string ret;
+    PutFixed64(&ret, ts);
+    return ret;
+  }
+  std::string PackUserKeyAndTimestamp(const Slice& ukey, uint64_t ts) const {
+    std::string ret;
+    ret.assign(ukey.data(), ukey.size());
+    PutFixed64(&ret, ts);
+    return ret;
+  }
+};
+
+TEST_F(VersionStorageInfoTimestampTest, GetOverlappingInputs) {
+  Add(/*level=*/1, /*file_number=*/1, /*smallest=*/
+      {PackUserKeyAndTimestamp("a", /*ts=*/9), /*s=*/0, kTypeValue},
+      /*largest=*/
+      {PackUserKeyAndTimestamp("a", /*ts=*/8), /*s=*/0, kTypeValue},
+      /*file_size=*/100);
+  Add(/*level=*/1, /*file_number=*/2, /*smallest=*/
+      {PackUserKeyAndTimestamp("a", /*ts=*/5), /*s=*/0, kTypeValue},
+      /*largest=*/
+      {PackUserKeyAndTimestamp("b", /*ts=*/10), /*s=*/0, kTypeValue},
+      /*file_size=*/100);
+  Add(/*level=*/1, /*file_number=*/3, /*smallest=*/
+      {PackUserKeyAndTimestamp("c", /*ts=*/12), /*s=*/0, kTypeValue},
+      /*largest=*/
+      {PackUserKeyAndTimestamp("d", /*ts=*/1), /*s=*/0, kTypeValue},
+      /*file_size=*/100);
+  vstorage_.UpdateNumNonEmptyLevels();
+  vstorage_.GenerateLevelFilesBrief();
+  ASSERT_EQ(
+      "1,2",
+      GetOverlappingFiles(
+          /*level=*/1,
+          {PackUserKeyAndTimestamp("a", /*ts=*/12), /*s=*/0, kTypeValue},
+          {PackUserKeyAndTimestamp("a", /*ts=*/11), /*s=*/0, kTypeValue}));
+  ASSERT_EQ("3",
+            GetOverlappingFiles(
+                /*level=*/1,
+                {PackUserKeyAndTimestamp("c", /*ts=*/15), /*s=*/0, kTypeValue},
+                {PackUserKeyAndTimestamp("c", /*ts=*/2), /*s=*/0, kTypeValue}));
+}
 
 class FindLevelFileTest : public testing::Test {
  public:

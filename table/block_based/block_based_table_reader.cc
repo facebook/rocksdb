@@ -994,6 +994,11 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     auto filter = new_table->CreateFilterBlockReader(
         prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
+#ifndef NDEBUG
+    if (rep_->filter_type != Rep::FilterType::kNoFilter && !filter) {
+      TEST_SYNC_POINT("FilterReadError");
+    }
+#endif
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {

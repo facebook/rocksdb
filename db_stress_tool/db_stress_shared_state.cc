@@ -14,5 +14,14 @@
 namespace ROCKSDB_NAMESPACE {
 const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
 const uint32_t SharedState::DELETION_SENTINEL = 0xffffffff;
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(OS_SOLARIS)
+__thread bool SharedState::filter_read_error;
+#else
+thread_local bool SharedState::filter_read_error;
+#endif // OS_SOLARIS
+#else
+bool SharedState::filter_read_error;
+#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

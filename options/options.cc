@@ -319,14 +319,13 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "Options.compaction_options_fifo.allow_compaction: %d",
                      compaction_options_fifo.allow_compaction);
-    std::string collector_names;
+    std::ostringstream collector_info;
     for (const auto& collector_factory : table_properties_collector_factories) {
-      collector_names.append(collector_factory->Name());
-      collector_names.append("; ");
+      collector_info << collector_factory->ToString() << ';';
     }
     ROCKS_LOG_HEADER(
         log, "                  Options.table_properties_collectors: %s",
-        collector_names.c_str());
+        collector_info.str().c_str());
     ROCKS_LOG_HEADER(log,
                      "                  Options.inplace_update_support: %d",
                      inplace_update_support);

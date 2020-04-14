@@ -8,11 +8,11 @@
 
 #ifdef MEMKIND
 #include "memkind_kmem_allocator.h"
-#include "test_util/testharness.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "test_util/testharness.h"
 
 namespace rocksdb {
 TEST(MemkindKmemAllocatorTest, Allocate) {
@@ -44,8 +44,8 @@ TEST(MemkindKmemAllocatorTest, DatabaseBlockCache) {
   ASSERT_OK(DestroyDB(dbname, options));
 
   options.create_if_missing = true;
-  std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024, 6, false, false,
-      std::make_shared<MemkindKmemAllocator>());
+  std::shared_ptr<Cache> cache = NewLRUCache(
+      1024 * 1024, 6, false, false, std::make_shared<MemkindKmemAllocator>());
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -65,7 +65,8 @@ TEST(MemkindKmemAllocatorTest, DatabaseBlockCache) {
     s = db->Put(wo, Slice(key), Slice(val));
     ASSERT_OK(s);
   }
-  ASSERT_OK(db->Flush(FlushOptions()));  // Flush all data from memtable so that reads are from block cache
+  ASSERT_OK(db->Flush(FlushOptions()));  // Flush all data from memtable so that
+                                         // reads are from block cache
 
   // Read and check block cache usage
   ReadOptions ro;
@@ -93,7 +94,9 @@ int main(int argc, char** argv) {
 #else
 
 int main(int /*argc*/, char** /*argv*/) {
-  printf("Skip memkind_kmem_allocator_test as the required library memkind is missing.");
+  printf(
+      "Skip memkind_kmem_allocator_test as the required library memkind is "
+      "missing.");
 }
 
 #endif  // MEMKIND

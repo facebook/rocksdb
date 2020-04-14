@@ -7,6 +7,7 @@
 #include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
 
 #include <memory>
+#include <sstream>
 #include "rocksdb/utilities/table_properties_collectors.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -76,6 +77,13 @@ CompactOnDeletionCollectorFactory::CreateTablePropertiesCollector(
     TablePropertiesCollectorFactory::Context /*context*/) {
   return new CompactOnDeletionCollector(
       sliding_window_size_.load(), deletion_trigger_.load());
+}
+
+std::string CompactOnDeletionCollectorFactory::ToString() const {
+  std::ostringstream cfg;
+  cfg << Name() << " (Sliding window size = " << sliding_window_size_.load()
+       << " Deletion trigger = " << deletion_trigger_.load() << ')';
+  return cfg.str();
 }
 
 std::shared_ptr<CompactOnDeletionCollectorFactory>

@@ -990,9 +990,9 @@ class LevelIterator final : public InternalIterator {
     if (read_options_.iterate_lower_bound != nullptr &&
         file_index_ < flevel_->num_files) {
       may_be_out_of_lower_bound_ =
-          user_comparator_.Compare(
-              ExtractUserKey(file_smallest_key(file_index_)),
-              *read_options_.iterate_lower_bound) < 0;
+          user_comparator_.CompareWithoutTimestamp(
+              ExtractUserKey(file_smallest_key(file_index_)), /*a_has_ts=*/true,
+              *read_options_.iterate_lower_bound, /*b_has_ts=*/false) < 0;
     }
   }
 
