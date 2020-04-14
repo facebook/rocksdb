@@ -97,4 +97,10 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
+// Return a shared_ptr of the builtin Crc32 based file checksum generatory
+// factory object, which can be shared to create the Crc32c based checksum
+// generator object.
+extern std::shared_ptr<FileChecksumGenFactory>
+GetFileChecksumGenCrc32cFactory();
+
 }  // namespace ROCKSDB_NAMESPACE
