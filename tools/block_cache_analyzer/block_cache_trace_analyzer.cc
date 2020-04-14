@@ -578,8 +578,8 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
   }
   // Sort in descending order.
   sort(pairs.begin(), pairs.end(),
-       [=](const std::pair<std::string, uint64_t>& a,
-           const std::pair<std::string, uint64_t>& b) {
+       [](const std::pair<std::string, uint64_t>& a,
+          const std::pair<std::string, uint64_t>& b) {
          return b.second < a.second;
        });
 
