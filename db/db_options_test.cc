@@ -402,6 +402,20 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
 
+TEST_F(DBOptionsTest, SetBackgroundFlushThreads) {
+  Options options;
+  options.create_if_missing = true;
+  options.max_background_flushes = 1;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(1, dbfull()->TEST_BGFlushesAllowed());
+  ASSERT_EQ(1, env_->GetBackgroundThreads(Env::Priority::HIGH));
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_background_flushes", "3"}}));
+  ASSERT_EQ(3, env_->GetBackgroundThreads(Env::Priority::HIGH));
+  ASSERT_EQ(3, dbfull()->TEST_BGFlushesAllowed());
+}
+
+
 TEST_F(DBOptionsTest, SetBackgroundJobs) {
   Options options;
   options.create_if_missing = true;
