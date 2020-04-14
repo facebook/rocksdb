@@ -49,9 +49,8 @@ class ConcurrentArena : public Allocator {
                            size_t huge_page_size = 0);
 
   char* Allocate(size_t bytes) override {
-    return AllocateImpl(
-        bytes, false /*force_arena*/,
-        [ROCKSDB_THIS_LAMBDA_CAPTURE]() { return arena_.Allocate(bytes); });
+    return AllocateImpl(bytes, false /*force_arena*/,
+                        [this, bytes]() { return arena_.Allocate(bytes); });
   }
 
   char* AllocateAligned(size_t bytes, size_t huge_page_size = 0,
@@ -61,7 +60,7 @@ class ConcurrentArena : public Allocator {
            (rounded_up % sizeof(void*)) == 0);
 
     return AllocateImpl(rounded_up, huge_page_size != 0 /*force_arena*/,
-                        [ROCKSDB_THIS_LAMBDA_CAPTURE]() {
+                        [this, rounded_up, huge_page_size, logger]() {
                           return arena_.AllocateAligned(rounded_up,
                                                         huge_page_size, logger);
                         });

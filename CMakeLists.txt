@@ -507,35 +507,6 @@ if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
 
-# Workaround to get c++ std version option coming from CMAKE_CXX_STANDARD for try_compile
-include(CxxFlags)
-get_cxx_std_flags(CMAKE_REQUIRED_FLAGS)
-
-CHECK_CXX_SOURCE_COMPILES("
-struct test {
-  test() : value_(0) {}
-
-  int lambda() {
-    return [=,this]() { return value_; }();
-  }
-
-  int value_;
-};
-
-int main() {
-  test t;
-  return t.lambda();
-}
-" USE_EXPLICIT_CAPTURE_THIS
-)
-
-unset(CMAKE_REQUIRED_FLAGS)
-
-if(USE_EXPLICIT_CAPTURE_THIS)
-  add_definitions(-DROCKSDB_EXPLICIT_CAPTURE_THIS)
-endif()
-
-
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)

@@ -662,14 +662,13 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     rep_->pc_rep->compress_thread_pool.reserve(
         rep_->compression_opts.parallel_threads);
     for (uint32_t i = 0; i < rep_->compression_opts.parallel_threads; i++) {
-      rep_->pc_rep->compress_thread_pool.emplace_back(
-          [ROCKSDB_THIS_LAMBDA_CAPTURE] {
-            BGWorkCompression(*(rep_->compression_ctxs[i]),
-                              rep_->verify_ctxs[i].get());
-          });
+      rep_->pc_rep->compress_thread_pool.emplace_back([this, i] {
+        BGWorkCompression(*(rep_->compression_ctxs[i]),
+                          rep_->verify_ctxs[i].get());
+      });
     }
-    rep_->pc_rep->write_thread.reset(new port::Thread(
-        [ROCKSDB_THIS_LAMBDA_CAPTURE] { BGWorkWriteRawBlock(); }));
+    rep_->pc_rep->write_thread.reset(
+        new port::Thread([this] { BGWorkWriteRawBlock(); }));
   }
 }
 
@@ -834,7 +833,7 @@ void BlockBasedTableBuilder::Flush() {
     if (first_block) {
       std::unique_lock<std::mutex> lock(r->pc_rep->first_block_mutex);
       r->pc_rep->first_block_cond.wait(lock,
-                                       [=] { return !r->pc_rep->first_block; });
+                                       [r] { return !r->pc_rep->first_block; });
     }
   } else {
     WriteBlock(&r->data_block, &r->pending_handle, true /* is_data_block */);

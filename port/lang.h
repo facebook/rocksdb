@@ -14,10 +14,3 @@
 #define FALLTHROUGH_INTENDED do {} while (0)
 #endif
 #endif
-
-#if defined(ROCKSDB_EXPLICIT_CAPTURE_THIS) || __cplusplus >= 202002L
-// C++20 deprecates implicit capture of 'this' in [=]
-#define ROCKSDB_THIS_LAMBDA_CAPTURE =, this
-#else
-#define ROCKSDB_THIS_LAMBDA_CAPTURE =
-#endif
