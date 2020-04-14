@@ -48,19 +48,35 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
   ColumnFamilyMetaData cf_meta;
   version->GetColumnFamilyMetaData(&cf_meta);
 
-  // For unit tests, the PluggableService redirects to the compaction
-  // to the same test database.
-  Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
-      &input_set, cf_meta, output_level);
-  if (!s.ok()) {
-    return s;
+  if (output_level >= static_cast<int>(cf_meta.levels.size())) {
+    return Status::InvalidArgument(
+        "Output level for column family " + cf_meta.name +
+        " must between [0, " +
+        ToString(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
+  }
+
+  auto max_output_level = cfd->compaction_picker()->MaxOutputLevel();
+  if (output_level > max_output_level) {
+    return Status::InvalidArgument(
+        "Exceed the maximum output level defined by "
+        "the current compaction algorithm --- " +
+        ToString(max_output_level));
+  }
+
+  if (output_level < 0) {
+    return Status::InvalidArgument("Output level cannot be negative.");
+  }
+
+  if (input_set.empty()) {
+    return Status::InvalidArgument(
+        "A compaction must contain at least one file.");
   }
 
   // Validate that these files actually belong to this database. We do
   // not explicitly need to state the level where these files reside
   // because the DB should auto find the level of the specified file#.
   std::vector<CompactionInputFiles> input_files;
-  s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
+  Status s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, version->storage_info(), compact_options);
   if (!s.ok()) {
     return s;
