@@ -169,7 +169,7 @@ class NonBatchedOpsStressTest : public StressTest {
           // stack trace at the same time
           MutexLock l(thread->shared->GetMutex());
           fprintf(stderr, "Didn't get expected error from Get\n");
-          fprintf(stderr, "Callstack that injected the error\n");
+          fprintf(stderr, "Callstack that injected the fault\n");
           fault_fs_guard->PrintFaultBacktrace();
           std::terminate();
         }
@@ -304,7 +304,7 @@ class NonBatchedOpsStressTest : public StressTest {
         // stack trace at the same time
         MutexLock l(thread->shared->GetMutex());
         fprintf(stderr, "Didn't get expected error from MultiGet\n");
-        fprintf(stderr, "Callstack that injected the error\n");
+        fprintf(stderr, "Callstack that injected the fault\n");
         fault_fs_guard->PrintFaultBacktrace();
         std::terminate();
       }
