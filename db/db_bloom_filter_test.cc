@@ -12,7 +12,6 @@
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
