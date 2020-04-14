@@ -479,6 +479,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       TableCache::Evict(table_cache_.get(), number);
       fname = MakeTableFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
+    } else if (type == kBlobFile) {
+      // TODO: fname ???
+      dir_to_sync = candidate_file.file_path;
     } else {
       dir_to_sync =
           (type == kLogFile) ? immutable_db_options_.wal_dir : dbname_;
