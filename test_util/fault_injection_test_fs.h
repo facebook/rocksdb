@@ -366,7 +366,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     explicit ErrorContext(uint32_t seed)
       : rand(seed),
         enable_error_injection(false),
+        callstack(nullptr),
     frames(0) {}
+    ~ErrorContext() {
+      if (callstack) {
+        free(callstack);
+      }
+    }
   };
 
   std::unique_ptr<ThreadLocalPtr> thread_local_error_;
