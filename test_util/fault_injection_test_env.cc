@@ -305,10 +305,6 @@ Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
     return GetError();
   }
   Status s = EnvWrapper::DeleteFile(f);
-  if (!s.ok()) {
-    fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
-            s.ToString().c_str());
-  }
   if (s.ok()) {
     UntrackFile(f);
   }
