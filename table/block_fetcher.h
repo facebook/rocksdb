@@ -68,7 +68,9 @@ class BlockFetcher {
 #ifndef NDEBUG
   int TEST_GetNumStackBufMemcpy() const { return num_stack_buf_memcpy_; }
   int TEST_GetNumHeapBufMemcpy() const { return num_heap_buf_memcpy_; }
-  int TEST_GetNumCompressedBufMemcpy() const { return num_compressed_buf_memcpy_; }
+  int TEST_GetNumCompressedBufMemcpy() const {
+    return num_compressed_buf_memcpy_;
+  }
 
 #endif
  private:

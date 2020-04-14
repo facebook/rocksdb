@@ -3,27 +3,25 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "port/port.h"
-#include "port/stack_trace.h"
-#include "test_util/testharness.h"
-#include "test_util/testutil.h"
-#include "table/block_based/block_based_table_factory.h"
-#include "table/block_based/block_based_table_builder.h"
-#include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/binary_search_index_reader.h"
 #include "table/block_fetcher.h"
-#include "table/format.h"
 #include "db/table_properties_collector.h"
 #include "options/options_helper.h"
+#include "port/port.h"
+#include "port/stack_trace.h"
+#include "table/block_based/binary_search_index_reader.h"
+#include "table/block_based/block_based_table_builder.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_reader.h"
+#include "table/format.h"
+#include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
 
 class CountedMemoryAllocator : public MemoryAllocator {
  public:
-  const char* Name() const override {
-    return "CountedMemoryAllocator";
-  }
+  const char* Name() const override { return "CountedMemoryAllocator"; }
 
   void* Allocate(size_t size) override {
     num_allocations_++;
@@ -70,13 +68,9 @@ class BlockFetcherTest : public testing::Test {
     is_direct_io_supported_ = DetectDirectIOSupport();
   }
 
-  void TearDown() override {
-    EXPECT_OK(test::DestroyDir(env_, test_dir_));
-  }
+  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
 
-  bool IsDirectIOSupported() const {
-    return is_direct_io_supported_;
-  }
+  bool IsDirectIOSupported() const { return is_direct_io_supported_; }
 
   void AssertSameBlock(const BlockContents& block1,
                        const BlockContents& block2) {
@@ -96,11 +90,11 @@ class BlockFetcherTest : public testing::Test {
     ColumnFamilyOptions cf_options;
     MutableCFOptions moptions(cf_options);
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
-    std::unique_ptr<TableBuilder> table_builder(
-        table_factory_.NewTableBuilder(TableBuilderOptions(
-            ioptions, moptions, comparator, &factories, compression_type,
-            0 /* sample_for_compression */, CompressionOptions(),
-            false /* skip_filters */, kDefaultColumnFamilyName, -1 /* level */),
+    std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
+        TableBuilderOptions(ioptions, moptions, comparator, &factories,
+                            compression_type, 0 /* sample_for_compression */,
+                            CompressionOptions(), false /* skip_filters */,
+                            kDefaultColumnFamilyName, -1 /* level */),
         0 /* column_family_id */, writer.get()));
 
     // Build table.
@@ -115,8 +109,7 @@ class BlockFetcherTest : public testing::Test {
   void FetchIndexBlock(const std::string& table_name, bool use_direct_io,
                        CountedMemoryAllocator* heap_buf_allocator,
                        CountedMemoryAllocator* compressed_buf_allocator,
-                       MemcpyStats* memcpy_stats,
-                       BlockContents* index_block) {
+                       MemcpyStats* memcpy_stats, BlockContents* index_block) {
     FileOptions fopt;
     fopt.use_direct_reads = use_direct_io;
     std::unique_ptr<RandomAccessFileReader> file;
@@ -130,8 +123,8 @@ class BlockFetcherTest : public testing::Test {
     CompressionType compression_type;
     FetchBlock(file.get(), index_handle, BlockType::kIndex,
                false /* compressed */, false /* do_uncompress */,
-               heap_buf_allocator, compressed_buf_allocator,
-               index_block, memcpy_stats, &compression_type);
+               heap_buf_allocator, compressed_buf_allocator, index_block,
+               memcpy_stats, &compression_type);
     ASSERT_EQ(compression_type, CompressionType::kNoCompression);
   }
 
@@ -144,8 +137,8 @@ class BlockFetcherTest : public testing::Test {
   // Expects:
   // Block contents are the same.
   // Bufferr allocation and memory copy statistics are expected.
-  void TestFetchDataBlock(const std::string& table_name_prefix,
-                          bool compressed, bool do_uncompress,
+  void TestFetchDataBlock(const std::string& table_name_prefix, bool compressed,
+                          bool do_uncompress,
                           const TestStats& expected_non_direct_io_stats,
                           const TestStats& expected_direct_io_stats) {
     if (!IsDirectIOSupported()) {
@@ -162,10 +155,8 @@ class BlockFetcherTest : public testing::Test {
       std::string table_name = table_name_prefix + compression_type_str;
       CreateTable(table_name, compression_type);
 
-      CompressionType expected_compression_type_after_fetch
-          = (compressed && !do_uncompress) ?
-            compression_type :
-            kNoCompression;
+      CompressionType expected_compression_type_after_fetch =
+          (compressed && !do_uncompress) ? compression_type : kNoCompression;
 
       BlockContents blocks[2];
       MemcpyStats memcpy_stats[2];
@@ -173,21 +164,20 @@ class BlockFetcherTest : public testing::Test {
       CountedMemoryAllocator compressed_buf_allocators[2];
       for (bool use_direct_io : {false, true}) {
         FetchFirstDataBlock(
-            table_name, use_direct_io,
-            compressed, do_uncompress,
+            table_name, use_direct_io, compressed, do_uncompress,
             expected_compression_type_after_fetch,
             &heap_buf_allocators[use_direct_io],
-            &compressed_buf_allocators[use_direct_io],
-            &blocks[use_direct_io], &memcpy_stats[use_direct_io]);
+            &compressed_buf_allocators[use_direct_io], &blocks[use_direct_io],
+            &memcpy_stats[use_direct_io]);
       }
 
       AssertSameBlock(blocks[0], blocks[1]);
 
       // Check memcpy and buffer allocation statistics.
       for (bool use_direct_io : {false, true}) {
-        const TestStats& expected_stats = use_direct_io ?
-            expected_direct_io_stats :
-            expected_non_direct_io_stats;
+        const TestStats& expected_stats = use_direct_io
+                                              ? expected_direct_io_stats
+                                              : expected_non_direct_io_stats;
 
         ASSERT_EQ(memcpy_stats[use_direct_io].num_stack_buf_memcpy,
                   expected_stats.memcpy_stats.num_stack_buf_memcpy);
@@ -198,18 +188,21 @@ class BlockFetcherTest : public testing::Test {
 
         ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumAllocations(),
                   expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(compressed_buf_allocators[use_direct_io].GetNumAllocations(),
-                  expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
+        ASSERT_EQ(
+            compressed_buf_allocators[use_direct_io].GetNumAllocations(),
+            expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
 
         // The allocated buffers are not deallocated until
         // the block content is deleted.
         ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
-        ASSERT_EQ(compressed_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
+        ASSERT_EQ(
+            compressed_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
         blocks[use_direct_io].allocation.reset();
         ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumDeallocations(),
                   expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(compressed_buf_allocators[use_direct_io].GetNumDeallocations(),
-                  expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
+        ASSERT_EQ(
+            compressed_buf_allocators[use_direct_io].GetNumDeallocations(),
+            expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
       }
     }
   }
@@ -221,9 +214,7 @@ class BlockFetcherTest : public testing::Test {
   BlockBasedTableFactory table_factory_;
   bool is_direct_io_supported_;
 
-  std::string Path(const std::string& fname) {
-    return test_dir_ + "/" + fname;
-  }
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 
   void WriteToFile(const std::string& content, const std::string& filename) {
     std::unique_ptr<FSWritableFile> f;
@@ -252,7 +243,7 @@ class BlockFetcherTest : public testing::Test {
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
-                       std::unique_ptr<RandomAccessFileReader>* reader) {
+                     std::unique_ptr<RandomAccessFileReader>* reader) {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
@@ -271,9 +262,9 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
 
     std::unique_ptr<TableReader> table_reader;
-    ASSERT_OK(BlockBasedTable::Open(
-        ioptions, EnvOptions(), table_factory_.table_options(),
-        comparator, std::move(file), file_size, &table_reader));
+    ASSERT_OK(BlockBasedTable::Open(ioptions, EnvOptions(),
+                                    table_factory_.table_options(), comparator,
+                                    std::move(file), file_size, &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -293,15 +284,11 @@ class BlockFetcherTest : public testing::Test {
   // NOTE: compression_type returns the compression type of the fetched block
   // contents, so if the block is fetched and uncompressed, then it's
   // kNoCompression.
-  void FetchBlock(RandomAccessFileReader* file,
-                  const BlockHandle& block,
-                  BlockType block_type,
-                  bool compressed,
-                  bool do_uncompress,
+  void FetchBlock(RandomAccessFileReader* file, const BlockHandle& block,
+                  BlockType block_type, bool compressed, bool do_uncompress,
                   MemoryAllocator* heap_buf_allocator,
                   MemoryAllocator* compressed_buf_allocator,
-                  BlockContents* contents,
-                  MemcpyStats* stats,
+                  BlockContents* contents, MemcpyStats* stats,
                   CompressionType* compresstion_type) {
     Options options;
     ImmutableCFOptions ioptions(options);
@@ -310,8 +297,8 @@ class BlockFetcherTest : public testing::Test {
     Footer footer;
     ReadFooter(file, &footer);
     std::unique_ptr<BlockFetcher> fetcher(new BlockFetcher(
-        file, nullptr /* prefetch_buffer */, footer, roptions, block,
-        contents, ioptions, do_uncompress, compressed, block_type,
+        file, nullptr /* prefetch_buffer */, footer, roptions, block, contents,
+        ioptions, do_uncompress, compressed, block_type,
         UncompressionDict::GetEmptyDict(), persistent_cache_options,
         heap_buf_allocator, compressed_buf_allocator));
 
@@ -319,7 +306,8 @@ class BlockFetcherTest : public testing::Test {
 
     stats->num_stack_buf_memcpy = fetcher->TEST_GetNumStackBufMemcpy();
     stats->num_heap_buf_memcpy = fetcher->TEST_GetNumHeapBufMemcpy();
-    stats->num_compressed_buf_memcpy = fetcher->TEST_GetNumCompressedBufMemcpy();
+    stats->num_compressed_buf_memcpy =
+        fetcher->TEST_GetNumCompressedBufMemcpy();
 
     *compresstion_type = fetcher->get_compression_type();
   }
@@ -327,14 +315,12 @@ class BlockFetcherTest : public testing::Test {
   // NOTE: expected_compression_type is the expected compression
   // type of the fetched block content, if the block is uncompressed,
   // then the expected compression type is kNoCompression.
-  void FetchFirstDataBlock(
-      const std::string& table_name, bool use_direct_io,
-      bool compressed, bool do_uncompress,
-      CompressionType expected_compression_type,
-      MemoryAllocator* heap_buf_allocator,
-      MemoryAllocator* compressed_buf_allocator,
-      BlockContents* block,
-      MemcpyStats* memcpy_stats) {
+  void FetchFirstDataBlock(const std::string& table_name, bool use_direct_io,
+                           bool compressed, bool do_uncompress,
+                           CompressionType expected_compression_type,
+                           MemoryAllocator* heap_buf_allocator,
+                           MemoryAllocator* compressed_buf_allocator,
+                           BlockContents* block, MemcpyStats* memcpy_stats) {
     if (use_direct_io && !IsDirectIOSupported()) {
       printf("Skip this test since direct IO is not supported\n");
       return;
@@ -346,7 +332,7 @@ class BlockFetcherTest : public testing::Test {
 
     FileOptions foptions;
     foptions.use_direct_reads = use_direct_io;
-    
+
     // Get block handle for the first data block.
     std::unique_ptr<BlockBasedTable> table;
     NewTableReader(ioptions, foptions, comparator, table_name, &table);
@@ -358,10 +344,9 @@ class BlockFetcherTest : public testing::Test {
         &index_reader));
 
     std::unique_ptr<InternalIteratorBase<IndexValue>> iter(
-        index_reader->NewIterator(ReadOptions(),
-                                  false /* disable_prefix_seek */,
-                                  nullptr /* iter */, nullptr /* get_context */,
-                                  nullptr /* lookup_context */));
+        index_reader->NewIterator(
+            ReadOptions(), false /* disable_prefix_seek */, nullptr /* iter */,
+            nullptr /* get_context */, nullptr /* lookup_context */));
     ASSERT_OK(iter->status());
     iter->SeekToFirst();
     BlockHandle first_block_handle = iter->value().handle;
@@ -370,9 +355,8 @@ class BlockFetcherTest : public testing::Test {
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, foptions, &file);
     CompressionType compression_type;
-    FetchBlock(file.get(), first_block_handle, BlockType::kData,
-               compressed, do_uncompress,
-               heap_buf_allocator, compressed_buf_allocator,
+    FetchBlock(file.get(), first_block_handle, BlockType::kData, compressed,
+               do_uncompress, heap_buf_allocator, compressed_buf_allocator,
                block, memcpy_stats, &compression_type);
     ASSERT_EQ(compression_type, expected_compression_type);
   }
@@ -388,16 +372,15 @@ TEST_F(BlockFetcherTest, FetchIndexBlock) {
   }
 
   for (CompressionType compression : GetSupportedCompressions()) {
-    std::string table_name = "FetchIndexBlock" +
-        CompressionTypeToString(compression);
+    std::string table_name =
+        "FetchIndexBlock" + CompressionTypeToString(compression);
     CreateTable(table_name, compression);
 
     CountedMemoryAllocator allocator;
     MemcpyStats memcpy_stats;
     BlockContents indexes[2];
     for (bool use_direct_io : {false, true}) {
-      FetchIndexBlock(table_name, use_direct_io,
-                      &allocator, &allocator,
+      FetchIndexBlock(table_name, use_direct_io, &allocator, &allocator,
                       &memcpy_stats, &indexes[use_direct_io]);
     }
     AssertSameBlock(indexes[0], indexes[1]);
@@ -420,8 +403,8 @@ TEST_F(BlockFetcherTest, FetchUncompressedDataBlock) {
 
   TestStats expected_stats{memcpy_stats, buf_allocation_stats};
 
-  TestFetchDataBlock("FetchUncompressedDataBlock",
-      false, false, expected_stats, expected_stats);
+  TestFetchDataBlock("FetchUncompressedDataBlock", false, false, expected_stats,
+                     expected_stats);
 }
 
 // Data blocks are compressed,
@@ -441,8 +424,8 @@ TEST_F(BlockFetcherTest, FetchCompressedDataBlock) {
 
   TestStats expected_stats{memcpy_stats, buf_allocation_stats};
 
-  TestFetchDataBlock("FetchCompressedDataBlock",
-      true, false, expected_stats, expected_stats);
+  TestFetchDataBlock("FetchCompressedDataBlock", true, false, expected_stats,
+                     expected_stats);
 }
 
 // Data blocks are compressed,
@@ -454,7 +437,6 @@ TEST_F(BlockFetcherTest, FetchCompressedDataBlock) {
 // 2. in direct IO mode mode, allocate a heap buffer, then directly uncompress
 //    and memcpy from the direct IO buffer to the heap buffer.
 TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
-  
   TestStats expected_non_direct_io_stats;
   {
     MemcpyStats memcpy_stats;
@@ -479,12 +461,12 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
     expected_direct_io_stats = {memcpy_stats, buf_allocation_stats};
   }
 
-  TestFetchDataBlock("FetchAndUncompressCompressedDataBlock",
-      true, true, expected_non_direct_io_stats, expected_direct_io_stats);
+  TestFetchDataBlock("FetchAndUncompressCompressedDataBlock", true, true,
+                     expected_non_direct_io_stats, expected_direct_io_stats);
 }
 
-} // namespace
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

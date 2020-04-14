@@ -234,8 +234,9 @@ Status BlockFetcher::ReadBlockContents() {
       PERF_TIMER_GUARD(block_read_time);
       // Actual file read
       if (file_->use_direct_io()) {
-        status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
-                              &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        status_ =
+            file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
+                        &slice_, nullptr, &direct_io_buf_, for_compaction_);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
