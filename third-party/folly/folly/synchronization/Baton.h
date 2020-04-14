@@ -249,10 +249,8 @@ class Baton {
   bool tryWaitSlow(
       const std::chrono::time_point<Clock, Duration>& deadline,
       const WaitOptions& opt) noexcept {
-    // Avoid implicit/explicit capture 'this' because C++ standards change
-    const auto thiz = this;
-    switch (detail::spin_pause_until(deadline, opt,
-                                     [thiz] { return thiz->ready(); })) {
+    switch (
+        detail::spin_pause_until(deadline, opt, [this] { return ready(); })) {
       case detail::spin_result::success:
         return true;
       case detail::spin_result::timeout:
@@ -262,8 +260,7 @@ class Baton {
     }
 
     if (!MayBlock) {
-      switch (detail::spin_yield_until(deadline,
-                                       [thiz] { return thiz->ready(); })) {
+      switch (detail::spin_yield_until(deadline, [this] { return ready(); })) {
         case detail::spin_result::success:
           return true;
         case detail::spin_result::timeout:
