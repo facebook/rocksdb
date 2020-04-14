@@ -17,8 +17,8 @@
 #include "test_util/fault_injection_test_fs.h"
 #include <functional>
 #include <utility>
+#include "port/lang.h"
 #include "port/stack_trace.h"
-#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
