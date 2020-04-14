@@ -473,6 +473,9 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
 
   if (ctx->rand.OneIn(ctx->one_in)) {
     ctx->count++;
+    if (ctx->callstack) {
+      free(ctx->callstack);
+    }
     ctx->callstack = port::SaveStack(&ctx->frames);
     switch (op) {
       case kRead:
@@ -530,6 +533,7 @@ void FaultInjectionTestFS::PrintFaultBacktrace() {
     return;
   }
   port::PrintAndFreeStack(ctx->callstack, ctx->frames);
+  ctx->callstack = nullptr;
 #endif
 }
 
