@@ -136,6 +136,11 @@ class TablePropertiesCollectorFactory {
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
+
+  // Can be overridden by sub-classes to return the Name, followed by
+  // configuration info that will // be logged to the info log when the
+  // DB is opened
+  virtual std::string ToString() const { return Name(); }
 };
 
 // TableProperties contains a bunch of read-only properties of its associated
