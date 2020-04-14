@@ -16,12 +16,6 @@
 #include <folly/synchronization/WaitOptions.h>
 #include <folly/synchronization/detail/Spin.h>
 
-#ifdef ROCKSDB_EXPLICIT_CAPTURE_THIS
-#define ROCKSDB_THIS_LAMBDA_CAPTURE =, this
-#else
-#define ROCKSDB_THIS_LAMBDA_CAPTURE =
-#endif
-
 namespace folly {
 
 /// A Baton allows a thread to block once and be awoken. Captures a
@@ -256,7 +250,9 @@ class Baton {
       const std::chrono::time_point<Clock, Duration>& deadline,
       const WaitOptions& opt) noexcept {
 
-    switch (detail::spin_pause_until(deadline, opt, [ROCKSDB_THIS_LAMBDA_CAPTURE] { return ready(); })) {
+    // Avoid implicit/explicit capture 'this' because C++ standards change
+    const auto thiz = this;
+    switch (detail::spin_pause_until(deadline, opt, [thiz] { return thiz->ready(); })) {
       case detail::spin_result::success:
         return true;
       case detail::spin_result::timeout:
@@ -266,7 +262,7 @@ class Baton {
     }
 
     if (!MayBlock) {
-      switch (detail::spin_yield_until(deadline, [ROCKSDB_THIS_LAMBDA_CAPTURE] { return ready(); })) {
+      switch (detail::spin_yield_until(deadline, [thiz] { return thiz->ready(); })) {
         case detail::spin_result::success:
           return true;
         case detail::spin_result::timeout:
