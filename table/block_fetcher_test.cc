@@ -122,11 +122,13 @@ class BlockFetcherTest : public testing::Test {
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, fopt, &file);
 
+    // Get handle of the index block.
     Footer footer;
-    ReadFooter(table_name, file.get(), &footer);
+    ReadFooter(file.get(), &footer);
+    const BlockHandle& index_handle = footer.index_handle();
 
     CompressionType compression_type;
-    FetchBlock(file.get(), footer, footer.index_handle(), BlockType::kIndex,
+    FetchBlock(file.get(), index_handle, BlockType::kIndex,
                false /* compressed */, false /* do_uncompress */,
                heap_buf_allocator, compressed_buf_allocator,
                index_block, memcpy_stats, &compression_type);
@@ -281,10 +283,9 @@ class BlockFetcherTest : public testing::Test {
     return internal_key.Encode().ToString();
   }
 
-  void ReadFooter(const std::string& filename, RandomAccessFileReader* file,
-                  Footer* footer) {
+  void ReadFooter(RandomAccessFileReader* file, Footer* footer) {
     uint64_t file_size = 0;
-    ASSERT_OK(env_->GetFileSize(Path(filename), &file_size));
+    ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size, footer,
                        kBlockBasedTableMagicNumber);
   }
@@ -293,7 +294,6 @@ class BlockFetcherTest : public testing::Test {
   // contents, so if the block is fetched and uncompressed, then it's
   // kNoCompression.
   void FetchBlock(RandomAccessFileReader* file,
-                  const Footer& footer,
                   const BlockHandle& block,
                   BlockType block_type,
                   bool compressed,
@@ -307,6 +307,8 @@ class BlockFetcherTest : public testing::Test {
     ImmutableCFOptions ioptions(options);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
+    Footer footer;
+    ReadFooter(file, &footer);
     std::unique_ptr<BlockFetcher> fetcher(new BlockFetcher(
         file, nullptr /* prefetch_buffer */, footer, roptions, block,
         contents, ioptions, do_uncompress, compressed, block_type,
@@ -364,16 +366,11 @@ class BlockFetcherTest : public testing::Test {
     iter->SeekToFirst();
     BlockHandle first_block_handle = iter->value().handle;
 
-    // Get footer.
+    // Fetch first data block.
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, foptions, &file);
-
-    Footer footer;
-    ReadFooter(table_name, file.get(), &footer);
-
-    // Fetch first data block.
     CompressionType compression_type;
-    FetchBlock(file.get(), footer, first_block_handle, BlockType::kData,
+    FetchBlock(file.get(), first_block_handle, BlockType::kData,
                compressed, do_uncompress,
                heap_buf_allocator, compressed_buf_allocator,
                block, memcpy_stats, &compression_type);
