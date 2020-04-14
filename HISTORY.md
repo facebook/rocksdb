@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+
+### Public API Change
+* Add NewFileChecksumGenCrc32cFactory to the file checksum public API, such that the builtin Crc32c based file checksum generator factory can be used by applications.
+
 ### New Features
 * Log CompactOnDeletionCollectorFactory window_size and deletion_trigger parameters in the info log file for troubleshooting purposes.
 
