@@ -258,6 +258,9 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
 
   dbfull()->PurgeObsoleteFiles(job_context);
   job_context.Clean();
+
+  ASSERT_EQ(files_grabbed_for_purge.find(first_blob_file_number),
+            files_grabbed_for_purge.end());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
