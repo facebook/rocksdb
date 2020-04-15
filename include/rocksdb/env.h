@@ -540,6 +540,9 @@ class Env {
     return Status::NotSupported();
   }
 
+  // Check whether the specified path is a directory
+  virtual Status IsDirectory(const std::string& path, bool* is_dir) = 0;
+
   virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
 
   // Get the FileSystem implementation this Env was constructed with. It
@@ -1278,6 +1281,10 @@ class EnvWrapper : public Env {
   }
 
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
+
+  Status IsDirectory(const std::string& path, bool* is_dir) override {
+    return target_->IsDirectory(path, is_dir);
+  }
 
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,

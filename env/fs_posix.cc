@@ -877,6 +877,18 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
   }
 
+  IOStatus IsDirectory(const std::string& path, const IOOptions& /*opts*/,
+                       bool* is_dir, IODebugContext* /*dbg*/) override {
+    struct stat sbuf;
+    if (stat(path.c_str(), &sbuf) < 0) {
+      return IOError("While doing stat", path, errno);
+    }
+    if (nullptr != is_dir) {
+      *is_dir = S_ISDIR(sbuf.st_mode);
+    }
+    return IOStatus::OK();
+  }
+
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
                                  const DBOptions& db_options) const override {
     FileOptions optimized = file_options;
