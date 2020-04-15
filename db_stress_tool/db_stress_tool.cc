@@ -23,11 +23,15 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#ifndef NDEBUG
+#include "test_util/fault_injection_test_fs.h"
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
+static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -69,6 +73,17 @@ int db_stress_tool(int argc, char** argv) {
   } else {
     raw_env = Env::Default();
   }
+#ifndef NDEBUG
+  if (FLAGS_read_fault_one_in) {
+    FaultInjectionTestFS* fs =
+        new FaultInjectionTestFS(raw_env->GetFileSystem());
+    fault_fs_guard.reset(fs);
+    fault_fs_guard->SetFilesystemDirectWritable(true);
+    fault_env_guard =
+        std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
+    raw_env = fault_env_guard.get();
+  }
+#endif
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 

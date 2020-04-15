@@ -599,6 +599,7 @@ struct TestArgs {
   bool reverse_compare;
   int restart_interval;
   CompressionType compression;
+  uint32_t compression_parallel_threads;
   uint32_t format_version;
   bool use_mmap;
 };
@@ -616,6 +617,7 @@ static std::vector<TestArgs> GenerateArgList() {
       MEMTABLE_TEST, DB_TEST};
   std::vector<bool> reverse_compare_types = {false, true};
   std::vector<int> restart_intervals = {16, 1, 1024};
+  std::vector<uint32_t> compression_parallel_threads = {1, 4};
 
   // Only add compression if it is supported
   std::vector<std::pair<CompressionType, bool>> compression_types;
@@ -658,6 +660,7 @@ static std::vector<TestArgs> GenerateArgList() {
         one_arg.reverse_compare = reverse_compare;
         one_arg.restart_interval = restart_intervals[0];
         one_arg.compression = compression_types[0].first;
+        one_arg.compression_parallel_threads = 1;
         one_arg.use_mmap = true;
         test_args.push_back(one_arg);
         one_arg.use_mmap = false;
@@ -668,14 +671,17 @@ static std::vector<TestArgs> GenerateArgList() {
 
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : compression_types) {
-          TestArgs one_arg;
-          one_arg.type = test_type;
-          one_arg.reverse_compare = reverse_compare;
-          one_arg.restart_interval = restart_interval;
-          one_arg.compression = compression_type.first;
-          one_arg.format_version = compression_type.second ? 2 : 1;
-          one_arg.use_mmap = false;
-          test_args.push_back(one_arg);
+          for (auto num_threads : compression_parallel_threads) {
+            TestArgs one_arg;
+            one_arg.type = test_type;
+            one_arg.reverse_compare = reverse_compare;
+            one_arg.restart_interval = restart_interval;
+            one_arg.compression = compression_type.first;
+            one_arg.format_version = compression_type.second ? 2 : 1;
+            one_arg.compression_parallel_threads = num_threads;
+            one_arg.use_mmap = false;
+            test_args.push_back(one_arg);
+          }
         }
       }
     }
@@ -727,6 +733,8 @@ class HarnessTest : public testing::Test {
     constructor_ = nullptr;
     options_ = Options();
     options_.compression = args.compression;
+    options_.compression_opts.parallel_threads =
+        args.compression_parallel_threads;
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
     if (args.reverse_compare) {
@@ -1112,51 +1120,53 @@ class BlockBasedTableTest
       const std::vector<BlockCacheTraceRecord>& expected_records) {
     c->block_cache_tracer_.EndTrace();
 
-    std::unique_ptr<TraceReader> trace_reader;
-    Status s =
-        NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
-    EXPECT_OK(s);
-    BlockCacheTraceReader reader(std::move(trace_reader));
-    BlockCacheTraceHeader header;
-    EXPECT_OK(reader.ReadHeader(&header));
-    uint32_t index = 0;
-    while (s.ok()) {
-      BlockCacheTraceRecord access;
-      s = reader.ReadAccess(&access);
-      if (!s.ok()) {
-        break;
-      }
-      ASSERT_LT(index, expected_records.size());
-      EXPECT_NE("", access.block_key);
-      EXPECT_EQ(access.block_type, expected_records[index].block_type);
-      EXPECT_GT(access.block_size, 0);
-      EXPECT_EQ(access.caller, expected_records[index].caller);
-      EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
-      EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
-      // Get
-      if (access.caller == TableReaderCaller::kUserGet) {
-        EXPECT_EQ(access.referenced_key,
-                  expected_records[index].referenced_key);
-        EXPECT_EQ(access.get_id, expected_records[index].get_id);
-        EXPECT_EQ(access.get_from_user_specified_snapshot,
-                  expected_records[index].get_from_user_specified_snapshot);
-        if (access.block_type == TraceType::kBlockTraceDataBlock) {
-          EXPECT_GT(access.referenced_data_size, 0);
-          EXPECT_GT(access.num_keys_in_block, 0);
-          EXPECT_EQ(access.referenced_key_exist_in_block,
-                    expected_records[index].referenced_key_exist_in_block);
+    {
+      std::unique_ptr<TraceReader> trace_reader;
+      Status s =
+          NewFileTraceReader(env_, EnvOptions(), trace_file_path_, &trace_reader);
+      EXPECT_OK(s);
+      BlockCacheTraceReader reader(std::move(trace_reader));
+      BlockCacheTraceHeader header;
+      EXPECT_OK(reader.ReadHeader(&header));
+      uint32_t index = 0;
+      while (s.ok()) {
+        BlockCacheTraceRecord access;
+        s = reader.ReadAccess(&access);
+        if (!s.ok()) {
+          break;
         }
-      } else {
-        EXPECT_EQ(access.referenced_key, "");
-        EXPECT_EQ(access.get_id, 0);
-        EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
-        EXPECT_EQ(access.referenced_data_size, 0);
-        EXPECT_EQ(access.num_keys_in_block, 0);
-        EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+        ASSERT_LT(index, expected_records.size());
+        EXPECT_NE("", access.block_key);
+        EXPECT_EQ(access.block_type, expected_records[index].block_type);
+        EXPECT_GT(access.block_size, 0);
+        EXPECT_EQ(access.caller, expected_records[index].caller);
+        EXPECT_EQ(access.no_insert, expected_records[index].no_insert);
+        EXPECT_EQ(access.is_cache_hit, expected_records[index].is_cache_hit);
+        // Get
+        if (access.caller == TableReaderCaller::kUserGet) {
+          EXPECT_EQ(access.referenced_key,
+                    expected_records[index].referenced_key);
+          EXPECT_EQ(access.get_id, expected_records[index].get_id);
+          EXPECT_EQ(access.get_from_user_specified_snapshot,
+                    expected_records[index].get_from_user_specified_snapshot);
+          if (access.block_type == TraceType::kBlockTraceDataBlock) {
+            EXPECT_GT(access.referenced_data_size, 0);
+            EXPECT_GT(access.num_keys_in_block, 0);
+            EXPECT_EQ(access.referenced_key_exist_in_block,
+                      expected_records[index].referenced_key_exist_in_block);
+          }
+        } else {
+          EXPECT_EQ(access.referenced_key, "");
+          EXPECT_EQ(access.get_id, 0);
+          EXPECT_TRUE(access.get_from_user_specified_snapshot == Boolean::kFalse);
+          EXPECT_EQ(access.referenced_data_size, 0);
+          EXPECT_EQ(access.num_keys_in_block, 0);
+          EXPECT_TRUE(access.referenced_key_exist_in_block == Boolean::kFalse);
+        }
+        index++;
       }
-      index++;
+      EXPECT_EQ(index, expected_records.size());
     }
-    EXPECT_EQ(index, expected_records.size());
     EXPECT_OK(env_->DeleteFile(trace_file_path_));
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
@@ -1187,9 +1197,11 @@ class FileChecksumTestHelper {
     file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
   }
 
-  void SetFileChecksumFunc(FileChecksumFunc* checksum_func) {
+  void SetFileChecksumGenerator(FileChecksumGenerator* checksum_generator) {
     if (file_writer_ != nullptr) {
-      file_writer_->TEST_SetFileChecksumFunc(checksum_func);
+      file_writer_->TEST_SetFileChecksumGenerator(checksum_generator);
+    } else {
+      delete checksum_generator;
     }
   }
 
@@ -1230,15 +1242,18 @@ class FileChecksumTestHelper {
     return s;
   }
 
-  std::string GetFileChecksum() { return table_builder_->GetFileChecksum(); }
+  std::string GetFileChecksum() {
+    file_writer_->Close();
+    return table_builder_->GetFileChecksum();
+  }
 
   const char* GetFileChecksumFuncName() {
     return table_builder_->GetFileChecksumFuncName();
   }
 
-  Status CalculateFileChecksum(FileChecksumFunc* file_checksum_func,
+  Status CalculateFileChecksum(FileChecksumGenerator* file_checksum_generator,
                                std::string* checksum) {
-    assert(file_checksum_func != nullptr);
+    assert(file_checksum_generator != nullptr);
     cur_uniq_id_ = checksum_uniq_id_++;
     test::StringSink* ss_rw =
         ROCKSDB_NAMESPACE::test::GetStringSinkFromLegacyWriter(
@@ -1248,8 +1263,6 @@ class FileChecksumTestHelper {
     std::unique_ptr<char[]> scratch(new char[2048]);
     Slice result;
     uint64_t offset = 0;
-    std::string tmp_checksum;
-    bool first_read = true;
     Status s;
     s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
                            false);
@@ -1257,13 +1270,7 @@ class FileChecksumTestHelper {
       return s;
     }
     while (result.size() != 0) {
-      if (first_read) {
-        first_read = false;
-        tmp_checksum = file_checksum_func->Value(scratch.get(), result.size());
-      } else {
-        tmp_checksum = file_checksum_func->Extend(tmp_checksum, scratch.get(),
-                                                  result.size());
-      }
+      file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
       s = file_reader_->Read(offset, 2048, &result, scratch.get(), nullptr,
                              false);
@@ -1272,7 +1279,8 @@ class FileChecksumTestHelper {
       }
     }
     EXPECT_EQ(offset, static_cast<uint64_t>(table_builder_->FileSize()));
-    *checksum = tmp_checksum;
+    file_checksum_generator->Finalize();
+    *checksum = file_checksum_generator->GetChecksum();
     return Status::OK();
   }
 
@@ -1939,8 +1947,9 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
 
   // -- Find keys do not exist, but have common prefix.
   std::vector<std::string> prefixes = {"001", "003", "005", "007", "009"};
-  std::vector<std::string> lower_bound = {keys[0], keys[1], keys[2],
-                                          keys[7], keys[9], };
+  std::vector<std::string> lower_bound = {
+      keys[0], keys[1], keys[2], keys[7], keys[9],
+  };
 
   // find the lower bound of the prefix
   for (size_t i = 0; i < prefixes.size(); ++i) {
@@ -2017,6 +2026,80 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
       ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) > 0);
     }
   }
+
+  {
+    // Test reseek case. It should impact partitioned index more.
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<InternalIterator> index_iter2(reader->NewIterator(
+        ro, moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+    // Things to cover in partitioned index:
+    // 1. Both of Seek() and SeekToLast() has optimization to prevent
+    //    rereek leaf index block if it remains to the same one, and
+    //    they reuse the same variable.
+    // 2. When Next() or Prev() is called, the block moves, so the
+    //    optimization should kick in only with the current one.
+    index_iter2->Seek(InternalKey("0055", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0055", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0055", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0055", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0095", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0095", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Prev();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Seek(InternalKey("0075", 0, kTypeValue).Encode());
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0075", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->Next();
+    ASSERT_TRUE(index_iter2->Valid());
+    index_iter2->Next();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+
+    index_iter2->SeekToLast();
+    ASSERT_TRUE(index_iter2->Valid());
+    ASSERT_EQ("0095", index_iter2->key().ToString().substr(0, 4));
+  }
+
   c.ResetTableReader();
 }
 
@@ -3204,9 +3287,10 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
 }
 
 TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
+  FileChecksumGenCrc32cFactory* file_checksum_gen_factory =
+      new FileChecksumGenCrc32cFactory();
   Options options;
-  options.sst_file_checksum_func =
-      std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
+  options.file_checksum_gen_factory.reset(file_checksum_gen_factory);
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
@@ -3225,9 +3309,14 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   }
   std::string column_family_name;
 
+  FileChecksumGenContext gen_context;
+  gen_context.file_name = "db/tmp";
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen1 =
+      options.file_checksum_gen_factory->CreateFileChecksumGenerator(
+          gen_context);
   FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
-  f.SetFileChecksumFunc(options.sst_file_checksum_func.get());
+  f.SetFileChecksumGenerator(checksum_crc32_gen1.release());
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
@@ -3241,9 +3330,12 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
+
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen2 =
+      options.file_checksum_gen_factory->CreateFileChecksumGenerator(
+          gen_context);
   std::string checksum;
-  ASSERT_OK(
-      f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
+  ASSERT_OK(f.CalculateFileChecksum(checksum_crc32_gen2.get(), &checksum));
   ASSERT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
 }
 
@@ -3345,9 +3437,10 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   plain_table_options.hash_table_ratio = 0;
   PlainTableFactory factory(plain_table_options);
 
+  FileChecksumGenCrc32cFactory* file_checksum_gen_factory =
+      new FileChecksumGenCrc32cFactory();
   Options options;
-  options.sst_file_checksum_func =
-      std::shared_ptr<FileChecksumFunc>(CreateFileChecksumFuncCrc32c());
+  options.file_checksum_gen_factory.reset(file_checksum_gen_factory);
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -3355,9 +3448,15 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
       int_tbl_prop_collector_factories;
   std::string column_family_name;
   int unknown_level = -1;
+
+  FileChecksumGenContext gen_context;
+  gen_context.file_name = "db/tmp";
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen1 =
+      options.file_checksum_gen_factory->CreateFileChecksumGenerator(
+          gen_context);
   FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
-  f.SetFileChecksumFunc(options.sst_file_checksum_func.get());
+  f.SetFileChecksumGenerator(checksum_crc32_gen1.release());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(
@@ -3370,9 +3469,12 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
+
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen2 =
+      options.file_checksum_gen_factory->CreateFileChecksumGenerator(
+          gen_context);
   std::string checksum;
-  ASSERT_OK(
-      f.CalculateFileChecksum(options.sst_file_checksum_func.get(), &checksum));
+  ASSERT_OK(f.CalculateFileChecksum(checksum_crc32_gen2.get(), &checksum));
   EXPECT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
 }
 

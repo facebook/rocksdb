@@ -58,6 +58,9 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#ifndef NDEBUG
+#include "test_util/fault_injection_test_fs.h"
+#endif
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -66,10 +69,6 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
-// SyncPoint is not supported in Released Windows Mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
-#include "test_util/sync_point.h"
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "test_util/testutil.h"
 
 #include "utilities/merge_operators.h"
@@ -128,7 +127,9 @@ DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(clear_column_family_one_in);
-DECLARE_int32(get_live_files_and_wal_files_one_in);
+DECLARE_int32(get_live_files_one_in);
+DECLARE_int32(get_sorted_wal_files_one_in);
+DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
@@ -235,6 +236,9 @@ const int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
 extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
+#ifndef NDEBUG
+extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+#endif
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;

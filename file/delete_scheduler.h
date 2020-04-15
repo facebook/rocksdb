@@ -45,6 +45,7 @@ class DeleteScheduler {
   // Set delete rate limit in bytes per second
   void SetRateBytesPerSecond(int64_t bytes_per_sec) {
     rate_bytes_per_sec_.store(bytes_per_sec);
+    MaybeCreateBackgroundThread();
   }
 
   // Mark file as trash directory and schedule it's deletion. If force_bg is
@@ -90,6 +91,8 @@ class DeleteScheduler {
                          uint64_t* deleted_bytes, bool* is_complete);
 
   void BackgroundEmptyTrash();
+
+  void MaybeCreateBackgroundThread();
 
   Env* env_;
   FileSystem* fs_;

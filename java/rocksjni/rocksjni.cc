@@ -2277,10 +2277,11 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
 
   auto ranges = std::unique_ptr<ROCKSDB_NAMESPACE::Range[]>(
       new ROCKSDB_NAMESPACE::Range[range_count]);
+  size_t range_offset = 0;
   for (jsize i = 0; i < jlen; ++i) {
     auto* start = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jranges[i]);
     auto* limit = reinterpret_cast<ROCKSDB_NAMESPACE::Slice*>(jranges[++i]);
-    ranges.get()[i] = ROCKSDB_NAMESPACE::Range(*start, *limit);
+    ranges.get()[range_offset++] = ROCKSDB_NAMESPACE::Range(*start, *limit);
   }
 
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
@@ -2608,6 +2609,17 @@ jobjectArray Java_org_rocksdb_RocksDB_compactFiles(
   }
 
   return ROCKSDB_NAMESPACE::JniUtil::toJavaStrings(env, &output_file_names);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    cancelAllBackgroundWork
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_RocksDB_cancelAllBackgroundWork(
+        JNIEnv*, jobject, jlong jdb_handle, jboolean jwait) {
+    auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+    rocksdb::CancelAllBackgroundWork(db, jwait);
 }
 
 /*

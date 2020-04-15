@@ -100,6 +100,9 @@ class CompactionJob {
   // Add compaction input/output to the current version
   Status Install(const MutableCFOptions& mutable_cf_options);
 
+  // Return the IO status
+  IOStatus io_status() const { return io_status_; }
+
  private:
   struct SubcompactionState;
 
@@ -193,6 +196,7 @@ class CompactionJob {
   std::vector<uint64_t> sizes_;
   Env::WriteLifeTimeHint write_hint_;
   Env::Priority thread_pri_;
+  IOStatus io_status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -12,7 +12,7 @@
 #include <string>
 #include <tuple>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
@@ -281,7 +281,7 @@ class CompactionJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
@@ -314,11 +314,11 @@ class CompactionJobTest : public testing::Test {
       num_input_files += level_files.size();
     }
 
-    Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
-                          *cfd->GetLatestMutableCFOptions(),
-                          compaction_input_files, output_level, 1024 * 1024,
-                          10 * 1024 * 1024, 0, kNoCompression,
-                          cfd->ioptions()->compression_opts, 0, {}, true);
+    Compaction compaction(
+        cfd->current()->storage_info(), *cfd->ioptions(),
+        *cfd->GetLatestMutableCFOptions(), compaction_input_files, output_level,
+        1024 * 1024, 10 * 1024 * 1024, 0, kNoCompression,
+        cfd->GetLatestMutableCFOptions()->compression_opts, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());

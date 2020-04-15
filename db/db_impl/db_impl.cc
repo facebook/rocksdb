@@ -21,7 +21,6 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -151,7 +150,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
-      fs_(initial_db_options_.file_system),
+      fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
@@ -310,6 +309,11 @@ Status DBImpl::ResumeImpl() {
         immutable_db_options_.info_log,
         "DB resume requested but failed due to Fatal/Unrecoverable error");
     s = bg_error;
+  }
+
+  // Make sure the IO Status stored in version set is set to OK.
+  if (s.ok()) {
+    versions_->SetIOStatusOK();
   }
 
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
@@ -1147,25 +1151,25 @@ int DBImpl::FindMinimumEmptyLevelFitting(
 
 Status DBImpl::FlushWAL(bool sync) {
   if (manual_wal_flush_) {
-    Status s;
+    IOStatus io_s;
     {
       // We need to lock log_write_mutex_ since logs_ might change concurrently
       InstrumentedMutexLock wl(&log_write_mutex_);
       log::Writer* cur_log_writer = logs_.back().writer;
-      s = cur_log_writer->WriteBuffer();
+      io_s = cur_log_writer->WriteBuffer();
     }
-    if (!s.ok()) {
+    if (!io_s.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
-                      s.ToString().c_str());
+                      io_s.ToString().c_str());
       // In case there is a fs error we should set it globally to prevent the
       // future writes
-      WriteStatusCheck(s);
+      IOStatusCheck(io_s);
       // whether sync or not, we should abort the rest of function upon error
-      return s;
+      return std::move(io_s);
     }
     if (!sync) {
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
-      return s;
+      return std::move(io_s);
     }
   }
   if (!sync) {
@@ -1217,11 +1221,20 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
   RecordTick(stats_, WAL_FILE_SYNCED);
   Status status;
+  IOStatus io_s;
   for (log::Writer* log : logs_to_sync) {
-    status = log->file()->SyncWithoutFlush(immutable_db_options_.use_fsync);
-    if (!status.ok()) {
+    io_s = log->file()->SyncWithoutFlush(immutable_db_options_.use_fsync);
+    if (!io_s.ok()) {
+      status = io_s;
       break;
     }
+  }
+  if (!io_s.ok()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL Sync error %s",
+                    io_s.ToString().c_str());
+    // In case there is a fs error we should set it globally to prevent the
+    // future writes
+    IOStatusCheck(io_s);
   }
   if (status.ok() && need_log_dir_sync) {
     status = directories_.GetWalDir()->Fsync(IOOptions(), nullptr);
@@ -1249,7 +1262,7 @@ Status DBImpl::LockWAL() {
     // future writes
     WriteStatusCheck(status);
   }
-  return status;
+  return std::move(status);
 }
 
 Status DBImpl::UnlockWAL() {
@@ -1688,12 +1701,20 @@ std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  return MultiGet(read_options, column_family, keys, values,
+                  /*timestamps*/ nullptr);
+}
+
+std::vector<Status> DBImpl::MultiGet(
+    const ReadOptions& read_options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values,
+    std::vector<std::string>* timestamps) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   SequenceNumber consistent_seqnum;
-  ;
 
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
@@ -1724,6 +1745,9 @@ std::vector<Status> DBImpl::MultiGet(
   size_t num_keys = keys.size();
   std::vector<Status> stat_list(num_keys);
   values->resize(num_keys);
+  if (timestamps) {
+    timestamps->resize(num_keys);
+  }
 
   // Keep track of bytes that we read for statistics-recording later
   uint64_t bytes_read = 0;
@@ -1738,8 +1762,9 @@ std::vector<Status> DBImpl::MultiGet(
     merge_context.Clear();
     Status& s = stat_list[i];
     std::string* value = &(*values)[i];
+    std::string* timestamp = timestamps ? &(*timestamps)[i] : nullptr;
 
-    LookupKey lkey(keys[i], consistent_seqnum);
+    LookupKey lkey(keys[i], consistent_seqnum, read_options.timestamp);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
@@ -1751,13 +1776,12 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, /*timestamp=*/nullptr, &s,
-                                  &merge_context, &max_covering_tombstone_seq,
-                                  read_options)) {
+      if (super_version->mem->Get(lkey, value, timestamp, &s, &merge_context,
+                                  &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(
-                     lkey, value, nullptr, &s, &merge_context,
+                     lkey, value, timestamp, &s, &merge_context,
                      &max_covering_tombstone_seq, read_options)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
@@ -1766,8 +1790,8 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, &pinnable_val,
-                                  /*timestamp=*/nullptr, &s, &merge_context,
+      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
+                                  &s, &merge_context,
                                   &max_covering_tombstone_seq);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
@@ -1930,6 +1954,14 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       ColumnFamilyHandle** column_families, const Slice* keys,
                       PinnableSlice* values, Status* statuses,
                       const bool sorted_input) {
+  return MultiGet(read_options, num_keys, column_families, keys, values,
+                  /*timestamps*/ nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
+                      ColumnFamilyHandle** column_families, const Slice* keys,
+                      PinnableSlice* values, std::string* timestamps,
+                      Status* statuses, const bool sorted_input) {
   if (num_keys == 0) {
     return;
   }
@@ -1938,7 +1970,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(column_families[i], keys[i], &values[i],
-                             &statuses[i]);
+                             &timestamps[i], &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
@@ -2058,11 +2090,22 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
                       ColumnFamilyHandle* column_family, const size_t num_keys,
                       const Slice* keys, PinnableSlice* values,
                       Status* statuses, const bool sorted_input) {
+  return MultiGet(read_options, column_family, num_keys, keys, values,
+                  /*timestamp=*/nullptr, statuses, sorted_input);
+}
+
+void DBImpl::MultiGet(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const size_t num_keys,
+                      const Slice* keys, PinnableSlice* values,
+                      std::string* timestamps, Status* statuses,
+                      const bool sorted_input) {
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
+    key_context.emplace_back(column_family, keys[i], &values[i],
+                             timestamps ? &timestamps[i] : nullptr,
+                             &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
@@ -3479,12 +3522,8 @@ Status DBImpl::Close() {
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  FileSystem* fs = db_options.file_system.get();
-  LegacyFileSystemWrapper legacy_fs(db_options.env);
-  if (!fs) {
-    fs = &legacy_fs;
-  }
-  return VersionSet::ListColumnFamilies(column_families, name, fs);
+  const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
+  return VersionSet::ListColumnFamilies(column_families, name, fs.get());
 }
 
 Snapshot::~Snapshot() {}
@@ -3528,24 +3567,15 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       }
     }
 
-    std::vector<std::string> paths;
-
-    for (const auto& path : options.db_paths) {
-      paths.emplace_back(path.path);
+    std::set<std::string> paths;
+    for (const DbPath& db_path : options.db_paths) {
+      paths.insert(db_path.path);
     }
-    for (const auto& cf : column_families) {
-      for (const auto& path : cf.options.cf_paths) {
-        paths.emplace_back(path.path);
+    for (const ColumnFamilyDescriptor& cf : column_families) {
+      for (const DbPath& cf_path : cf.options.cf_paths) {
+        paths.insert(cf_path.path);
       }
     }
-
-    // Remove duplicate paths.
-    // Note that we compare only the actual paths but not path ids.
-    // This reason is that same path can appear at different path_ids
-    // for different column families.
-    std::sort(paths.begin(), paths.end());
-    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
-
     for (const auto& path : paths) {
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {

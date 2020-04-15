@@ -23,7 +23,7 @@ const uint64_t kRangeTombstoneSentinel =
 
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey& b) {
-  auto c = user_cmp->Compare(a.user_key(), b.user_key());
+  auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());
   if (c != 0) {
     return c;
   }

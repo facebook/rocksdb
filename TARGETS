@@ -94,6 +94,9 @@ is_opt_mode = build_mode.startswith("opt")
 # -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
 # doesn't harm and avoid forgetting to add it.
 ROCKSDB_COMPILER_FLAGS += (["-DNDEBUG"] if is_opt_mode else [])
+ROCKSDB_STRESS_DEPS = (
+        [":rocksdb_lib", ":rocksdb_test_lib"] if not is_opt_mode else [":rocksdb_lib"]
+)
 
 sanitizer = read_config("fbcode", "sanitizer")
 
@@ -116,7 +119,9 @@ cpp_library(
         "cache/lru_cache.cc",
         "cache/sharded_cache.cc",
         "db/arena_wrapped_db_iter.cc",
-        "db/blob_file_state.cc",
+        "db/blob/blob_file_addition.cc",
+        "db/blob/blob_file_garbage.cc",
+        "db/blob/blob_file_meta.cc",
         "db/builder.cc",
         "db/c.cc",
         "db/column_family.cc",
@@ -170,6 +175,7 @@ cpp_library(
         "db/trim_history_scheduler.cc",
         "db/version_builder.cc",
         "db/version_edit.cc",
+        "db/version_edit_handler.cc",
         "db/version_set.cc",
         "db/wal_manager.cc",
         "db/write_batch.cc",
@@ -230,12 +236,15 @@ cpp_library(
         "port/port_posix.cc",
         "port/stack_trace.cc",
         "table/adaptive/adaptive_table_factory.cc",
+        "table/block_based/binary_search_index_reader.cc",
         "table/block_based/block.cc",
         "table/block_based/block_based_filter_block.cc",
         "table/block_based/block_based_table_builder.cc",
         "table/block_based/block_based_table_factory.cc",
+        "table/block_based/block_based_table_iterator.cc",
         "table/block_based/block_based_table_reader.cc",
         "table/block_based/block_builder.cc",
+        "table/block_based/block_prefetcher.cc",
         "table/block_based/block_prefix_index.cc",
         "table/block_based/data_block_footer.cc",
         "table/block_based/data_block_hash_index.cc",
@@ -243,9 +252,14 @@ cpp_library(
         "table/block_based/filter_policy.cc",
         "table/block_based/flush_block_policy.cc",
         "table/block_based/full_filter_block.cc",
+        "table/block_based/hash_index_reader.cc",
         "table/block_based/index_builder.cc",
+        "table/block_based/index_reader_common.cc",
         "table/block_based/parsed_full_filter_block.cc",
         "table/block_based/partitioned_filter_block.cc",
+        "table/block_based/partitioned_index_iterator.cc",
+        "table/block_based/partitioned_index_reader.cc",
+        "table/block_based/reader_common.cc",
         "table/block_based/uncompression_dict_reader.cc",
         "table/block_fetcher.cc",
         "table/cuckoo/cuckoo_table_builder.cc",
@@ -425,7 +439,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [":rocksdb_lib"],
+    deps = ROCKSDB_STRESS_DEPS,
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
@@ -480,8 +494,15 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "blob_file_state_test",
-        "db/blob_file_state_test.cc",
+        "blob_file_addition_test",
+        "db/blob/blob_file_addition_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "blob_file_garbage_test",
+        "db/blob/blob_file_garbage_test.cc",
         "serial",
         [],
         [],
@@ -698,7 +719,7 @@ ROCKS_TESTS = [
     ],
     [
         "db_blob_index_test",
-        "db/db_blob_index_test.cc",
+        "db/blob/db_blob_index_test.cc",
         "serial",
         [],
         [],
@@ -790,6 +811,13 @@ ROCKS_TESTS = [
     [
         "db_log_iter_test",
         "db/db_log_iter_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "db_logical_block_size_cache_test",
+        "db/db_logical_block_size_cache_test.cc",
         "serial",
         [],
         [],
@@ -896,6 +924,20 @@ ROCKS_TESTS = [
         "db_wal_test",
         "db/db_wal_test.cc",
         "parallel",
+        [],
+        [],
+    ],
+    [
+        "db_with_timestamp_basic_test",
+        "db/db_with_timestamp_basic_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "db_with_timestamp_compaction_test",
+        "db/db_with_timestamp_compaction_test.cc",
+        "serial",
         [],
         [],
     ],
@@ -1089,6 +1131,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "io_posix_test",
+        "env/io_posix_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "iostats_context_test",
         "monitoring/iostats_context_test.cc",
         "serial",
@@ -1264,6 +1313,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "random_access_file_reader_test",
+        "file/random_access_file_reader_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "random_test",
         "util/random_test.cc",
         "serial",
@@ -1411,9 +1467,23 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "timer_test",
+        "util/timer_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "trace_analyzer_test",
         "tools/trace_analyzer_test.cc",
         "serial",
+        [],
+        [],
+    ],
+    [
+        "transaction_lock_mgr_test",
+        "utilities/transactions/transaction_lock_mgr_test.cc",
+        "parallel",
         [],
         [],
     ],
@@ -1462,6 +1532,13 @@ ROCKS_TESTS = [
     [
         "wal_manager_test",
         "db/wal_manager_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "work_queue_test",
+        "util/work_queue_test.cc",
         "serial",
         [],
         [],

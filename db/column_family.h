@@ -508,6 +508,7 @@ class ColumnFamilyData {
 
  private:
   friend class ColumnFamilySet;
+  static const uint32_t kDummyColumnFamilyDataId;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
@@ -516,6 +517,8 @@ class ColumnFamilyData {
                    const FileOptions& file_options,
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer);
+
+  std::vector<std::string> GetDbPaths() const;
 
   uint32_t id_;
   const std::string name_;
@@ -593,6 +596,8 @@ class ColumnFamilyData {
 
   // Directories corresponding to cf_paths.
   std::vector<std::shared_ptr<FSDirectory>> data_dirs_;
+
+  bool db_paths_registered_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -642,8 +647,8 @@ class ColumnFamilySet {
   ColumnFamilySet(const std::string& dbname,
                   const ImmutableDBOptions* db_options,
                   const FileOptions& file_options, Cache* table_cache,
-                  WriteBufferManager* write_buffer_manager,
-                  WriteController* write_controller,
+                  WriteBufferManager* _write_buffer_manager,
+                  WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer);
   ~ColumnFamilySet();
 
@@ -672,6 +677,10 @@ class ColumnFamilySet {
   void FreeDeadColumnFamilies();
 
   Cache* get_table_cache() { return table_cache_; }
+
+  WriteBufferManager* write_buffer_manager() { return write_buffer_manager_; }
+
+  WriteController* write_controller() { return write_controller_; }
 
  private:
   friend class ColumnFamilyData;

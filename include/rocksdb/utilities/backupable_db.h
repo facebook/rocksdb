@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/stackable_db.h"
 
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -142,6 +143,24 @@ struct BackupableDBOptions {
   }
 };
 
+struct CreateBackupOptions {
+  // Flush will always trigger if 2PC is enabled.
+  // If write-ahead logs are disabled, set flush_before_backup=true to
+  // avoid losing unflushed key/value pairs from the memtable.
+  bool flush_before_backup = false;
+
+  // Callback for reporting progress.
+  std::function<void()> progress_callback = []() {};
+
+  // If false, background_thread_cpu_priority is ignored.
+  // Otherwise, the cpu priority can be decreased,
+  // if you try to increase the priority, the priority will not change.
+  // The initial priority of the threads is CpuPriority::kNormal,
+  // so you can decrease to priorities lower than kNormal.
+  bool decrease_background_thread_cpu_priority = false;
+  CpuPriority background_thread_cpu_priority = CpuPriority::kNormal;
+};
+
 struct RestoreOptions {
   // If true, restore won't overwrite the existing log files in wal_dir. It will
   // also move all log files from archive directory to wal_dir. Use this option
@@ -204,12 +223,18 @@ class BackupStatistics {
 
 // A backup engine for accessing information about backups and restoring from
 // them.
+// BackupEngineReadOnly is not extensible.
 class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
                      BackupEngineReadOnly** backup_engine_ptr);
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngineReadOnly** backup_engine_ptr) {
+    return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
+  }
 
   // Returns info about backups in backup_info
   // You can GetBackupInfo safely, even with other BackupEngine performing
@@ -225,14 +250,29 @@ class BackupEngineReadOnly {
   // responsibility to synchronize the operation, i.e. don't delete the backup
   // when you're restoring from it
   // See also the corresponding doc in BackupEngine
+  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
+                                     BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  }
 
   // See the corresponding doc in BackupEngine
+  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
+                                           const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
+  }
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
@@ -247,33 +287,51 @@ class BackupEngineReadOnly {
 };
 
 // A backup engine for creating new backups.
+// BackupEngine is not extensible.
 class BackupEngine {
  public:
   virtual ~BackupEngine() {}
 
   // BackupableDBOptions have to be the same as the ones used in previous
   // BackupEngines for the same backup directory.
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
                      BackupEngine** backup_engine_ptr);
 
-  // same as CreateNewBackup, but stores extra application metadata
-  // Flush will always trigger if 2PC is enabled.
-  // If write-ahead logs are disabled, set flush_before_backup=true to
-  // avoid losing unflushed key/value pairs from the memtable.
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngine** backup_engine_ptr) {
+    return BackupEngine::Open(options, db_env, backup_engine_ptr);
+  }
+
+  // same as CreateNewBackup, but stores extra application metadata.
+  virtual Status CreateNewBackupWithMetadata(
+      const CreateBackupOptions& options, DB* db,
+      const std::string& app_metadata) = 0;
+
+  // keep here for backward compatibility.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
-      std::function<void()> progress_callback = []() {}) = 0;
+      std::function<void()> progress_callback = []() {}) {
+    CreateBackupOptions options;
+    options.flush_before_backup = flush_before_backup;
+    options.progress_callback = progress_callback;
+    return CreateNewBackupWithMetadata(options, db, app_metadata);
+  }
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
-  // Flush will always trigger if 2PC is enabled.
-  // If write-ahead logs are disabled, set flush_before_backup=true to
-  // avoid losing unflushed key/value pairs from the memtable.
+  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db) {
+    return CreateNewBackupWithMetadata(options, db, "");
+  }
+
+  // keep here for backward compatibility.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {
-    return CreateNewBackupWithMetadata(db, "", flush_before_backup,
-                                       progress_callback);
+    CreateBackupOptions options;
+    options.flush_before_backup = flush_before_backup;
+    options.progress_callback = progress_callback;
+    return CreateNewBackup(options, db);
   }
 
   // Deletes old backups, keeping latest num_backups_to_keep alive.
@@ -313,14 +371,29 @@ class BackupEngine {
   // database will diverge from backups 4 and 5 and the new backup will fail.
   // If you want to create new backup, you will first have to delete backups 4
   // and 5.
+  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
+                                     BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  }
 
   // restore from the latest backup
+  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
+                                           const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
+
+  // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+      const RestoreOptions& options = RestoreOptions()) {
+    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
+  }
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.

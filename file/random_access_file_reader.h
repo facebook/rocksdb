@@ -22,6 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
 
+using AlignedBuf = std::unique_ptr<const char[]>;
+
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:
 // - Handling Buffered and Direct reads appropriately.
@@ -59,7 +61,7 @@ class RandomAccessFileReader {
 
  public:
   explicit RandomAccessFileReader(
-      std::unique_ptr<FSRandomAccessFile>&& raf, std::string _file_name,
+      std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
       Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
@@ -106,17 +108,22 @@ class RandomAccessFileReader {
   // 1. if using mmap, result is stored in a buffer other than scratch;
   // 2. if not using mmap, result is stored in the buffer starting from scratch.
   //
-  // In direct IO mode, an internal aligned buffer is allocated.
-  // 1. If internal_buf is null, then results are copied to the buffer
+  // In direct IO mode, an aligned buffer is allocated internally.
+  // 1. If aligned_buf is null, then results are copied to the buffer
   // starting from scratch;
-  // 2. Otherwise, scratch is not used and can be null, the internal_buf owns
+  // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
-  // region in internal_buf.
+  // region in aligned_buf.
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch,
-              std::unique_ptr<const char[]>* internal_buf,
-              bool for_compaction = false) const;
+              AlignedBuf* aligned_buf, bool for_compaction = false) const;
 
-  Status MultiRead(FSReadRequest* reqs, size_t num_reqs) const;
+  // REQUIRES:
+  // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
+  // In non-direct IO mode, aligned_buf should be null;
+  // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
+  // MultiRead, the result Slices in reqs refer to aligned_buf.
+  Status MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                   AlignedBuf* aligned_buf) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);

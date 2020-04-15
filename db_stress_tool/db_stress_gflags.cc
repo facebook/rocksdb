@@ -256,10 +256,21 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
-DEFINE_int32(get_live_files_and_wal_files_one_in, 1000000,
-             "With a chance of 1/N, call GetLiveFiles, GetSortedWalFiles "
-             "and GetCurrentWalFile to verify if it returns correctly. If "
-             "N == 0, never call the three interfaces.");
+DEFINE_int32(get_live_files_one_in, 1000000,
+             "With a chance of 1/N, call GetLiveFiles to verify if it returns "
+             "correctly. If N == 0, do not call the interface.");
+
+DEFINE_int32(
+    get_sorted_wal_files_one_in, 1000000,
+    "With a chance of 1/N, call GetSortedWalFiles to verify if it returns "
+    "correctly. (Note that this API may legitimately return an error.) If N == "
+    "0, do not call the interface.");
+
+DEFINE_int32(
+    get_current_wal_file_one_in, 1000000,
+    "With a chance of 1/N, call GetCurrentWalFile to verify if it returns "
+    "correctly. (Note that this API may legitimately return an error.) If N == "
+    "0, do not call the interface.");
 
 DEFINE_int32(set_options_one_in, 0,
              "With a chance of 1/N, change some random options");
@@ -660,4 +671,7 @@ DEFINE_int32(continuous_verification_interval, 1000,
 DEFINE_int32(approximate_size_one_in, 64,
              "If non-zero, DB::GetApproximateSizes() will be called against"
              " random key ranges.");
+
+DEFINE_int32(read_fault_one_in, 1000,
+            "On non-zero, enables fault injection on read");
 #endif  // GFLAGS

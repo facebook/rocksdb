@@ -1424,7 +1424,7 @@ Status WinEnv::UnlockFile(FileLock* lock) {
   return winenv_io_.UnlockFile(lock);
 }
 
-Status  WinEnv::GetTestDirectory(std::string* result) {
+Status WinEnv::GetTestDirectory(std::string* result) {
   return winenv_io_.GetTestDirectory(result);
 }
 
