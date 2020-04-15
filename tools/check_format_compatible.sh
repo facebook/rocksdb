@@ -108,15 +108,15 @@ ingest_external_sst()
 # Remote add may fail if added previously (we don't cleanup).
 git remote add github_origin "https://github.com/facebook/rocksdb.git"
 set -e
-https_proxy="fwdproxy:8080" git fetch github_origin
+git fetch github_origin
 
 # Compatibility test for external SST file ingestion
 for checkout_obj in "${extern_sst_ingestion_compatible_checkout_objs[@]}"
 do
   echo == Generating DB with extern SST file in "$checkout_obj" ...
-  https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_obj -b $checkout_obj
+  git checkout github_origin/$checkout_obj -b $checkout_obj
   make clean
-  make ldb -j32
+  DISABLE_WARNING_AS_ERROR=1 make ldb -j32
   write_external_sst $input_data_path $test_dir/$checkout_obj $test_dir/$checkout_obj
   ingest_external_sst $test_dir/$checkout_obj $test_dir/$checkout_obj
 done
@@ -124,9 +124,9 @@ done
 checkout_flag=${1:-"master"}
 
 echo == Building $checkout_flag debug
-https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_flag -b tmp-$checkout_flag
+git checkout github_origin/$checkout_flag -b tmp-$checkout_flag
 make clean
-make ldb -j32
+DISABLE_WARNING_AS_ERROR=1 make ldb -j32
 compare_base_db_dir=$test_dir"/base_db_dir"
 write_external_sst $input_data_path $compare_base_db_dir $compare_base_db_dir
 ingest_external_sst $compare_base_db_dir $compare_base_db_dir
@@ -136,7 +136,7 @@ do
   echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag
   git checkout $checkout_obj
   make clean
-  make ldb -j32
+  DISABLE_WARNING_AS_ERROR=1 make ldb -j32
   compare_db $test_dir/$checkout_obj $compare_base_db_dir db_dump.txt 1 1
   git checkout tmp-$checkout_flag
   # Clean up
@@ -148,9 +148,9 @@ echo == Finish compatibility test for SST ingestion.
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Generating DB from "$checkout_obj" ...
-   https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_obj -b $checkout_obj
+   git checkout github_origin/$checkout_obj -b $checkout_obj
    make clean
-   make ldb -j32
+   DISABLE_WARNING_AS_ERROR=1 make ldb -j32
    generate_db $input_data_path $test_dir/$checkout_obj
 done
 
@@ -159,7 +159,7 @@ checkout_flag=${1:-"master"}
 echo == Building $checkout_flag debug
 git checkout tmp-$checkout_flag
 make clean
-make ldb -j32
+DISABLE_WARNING_AS_ERROR=1 make ldb -j32
 compare_base_db_dir=$test_dir"/base_db_dir"
 echo == Generate compare base DB to $compare_base_db_dir
 generate_db $input_data_path $compare_base_db_dir
@@ -175,7 +175,7 @@ do
    echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag...
    git checkout $checkout_obj
    make clean
-   make ldb -j32
+   DISABLE_WARNING_AS_ERROR=1 make ldb -j32
    compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt 0
 done
 
@@ -184,7 +184,7 @@ do
    echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag with its options...
    git checkout $checkout_obj
    make clean
-   make ldb -j32
+   DISABLE_WARNING_AS_ERROR=1 make ldb -j32
    compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt 1 1
 done
 
