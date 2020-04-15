@@ -6,6 +6,7 @@
 
 ### New Features
 * Log CompactOnDeletionCollectorFactory window_size and deletion_trigger parameters in the info log file for troubleshooting purposes.
+* Report kFilesMarkedForCompaction for delete triggered compactions in case of Universal and Levelled Compactions.
 
 ## 6.9.1 (04/09/2020)
 ### Bug Fixes
