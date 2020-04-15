@@ -53,7 +53,11 @@ typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 // memory, and finally search that record within the block. Of course, to avoid
 // frequent reads of the same block, we introduced the block cache to keep the
 // loaded blocks in the memory.
-class BlockBasedTable : public TableReader {
+class BlockBasedTable
+#ifdef NDEBUG
+    final
+#endif  // NDEBUG
+    : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
   static const std::string kFullFilterBlockPrefix;

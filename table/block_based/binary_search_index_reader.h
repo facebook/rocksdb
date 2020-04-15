@@ -13,7 +13,8 @@ namespace ROCKSDB_NAMESPACE {
 // Index that allows binary search lookup for the first key of each block.
 // This class can be viewed as a thin wrapper for `Block` class which already
 // supports binary search.
-class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
+class BinarySearchIndexReader final
+    : public BlockBasedTable::IndexReaderCommon {
  public:
   // Read index from the file and create an intance for
   // `BinarySearchIndexReader`.

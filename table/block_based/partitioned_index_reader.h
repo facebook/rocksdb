@@ -11,7 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 // Index that allows binary search lookup in a two-level index structure.
-class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
+class PartitionIndexReader final : public BlockBasedTable::IndexReaderCommon {
  public:
   // Read the partition index from the file and create an instance for
   // `PartitionIndexReader`.

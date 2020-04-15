@@ -18,7 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-class BytewiseComparatorImpl : public Comparator {
+class BytewiseComparatorImpl final : public Comparator {
  public:
   BytewiseComparatorImpl() { }
 
@@ -132,7 +132,7 @@ class BytewiseComparatorImpl : public Comparator {
   }
 };
 
-class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
+class ReverseBytewiseComparatorImpl final : public Comparator {
  public:
   ReverseBytewiseComparatorImpl() { }
 
@@ -143,6 +143,8 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   int Compare(const Slice& a, const Slice& b) const override {
     return -a.compare(b);
   }
+
+  bool Equal(const Slice& a, const Slice& b) const override { return a == b; }
 
   void FindShortestSeparator(std::string* start,
                              const Slice& limit) const override {

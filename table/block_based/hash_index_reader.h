@@ -13,7 +13,7 @@
 namespace ROCKSDB_NAMESPACE {
 // Index that leverages an internal hash table to quicken the lookup for a given
 // key.
-class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
+class HashIndexReader final : public BlockBasedTable::IndexReaderCommon {
  public:
   static Status Create(const BlockBasedTable* table,
                        FilePrefetchBuffer* prefetch_buffer,
