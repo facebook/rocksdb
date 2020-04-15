@@ -204,8 +204,6 @@ class Stats {
             covered_by_range_deletions_);
 
     fprintf(stdout, "%-12s: Got errors %ld times\n", "", errors_);
-    fprintf(stdout, "%-12s: Got expected errors %ld times\n", "",
-            verified_errors_);
     fprintf(stdout, "%-12s: %ld CompactFiles() succeed\n", "",
             num_compact_files_succeed_);
     fprintf(stdout, "%-12s: %ld CompactFiles() did not succeed\n", "",
