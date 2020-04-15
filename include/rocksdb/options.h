@@ -1346,6 +1346,12 @@ struct ReadOptions {
   const Slice* timestamp;
   const Slice* iter_start_ts;
 
+  // Deadline for completing the read request (only MultiGet for now) in us.
+  // It should be set to some number of milliseconds since a fixed point in
+  // time, identical to that used by system time. The best way is to use
+  // env->NowMicros() + some timeout
+  std::chrono::microseconds deadline;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
