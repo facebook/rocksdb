@@ -121,14 +121,14 @@ matrix:
     os: linux
     arch: ppc64le
     env: TEST_GROUP=4
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /java/
     os : osx
     env: JOB_NAME=java_test
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /java/
     os : linux
     arch: arm64
     env: JOB_NAME=java_test
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /java/
     os: linux
     arch: ppc64le
     env: JOB_NAME=java_test
