@@ -881,7 +881,7 @@ class PosixFileSystem : public FileSystem {
                        bool* is_dir, IODebugContext* /*dbg*/) override {
     struct stat sbuf;
     if (stat(path.c_str(), &sbuf) < 0) {
-      return IOError("While doing stat", path, errno);
+      return IOError("While doing stat for IsDirectory()", path, errno);
     }
     if (nullptr != is_dir) {
       *is_dir = S_ISDIR(sbuf.st_mode);

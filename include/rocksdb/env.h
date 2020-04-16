@@ -541,7 +541,9 @@ class Env {
   }
 
   // Check whether the specified path is a directory
-  virtual Status IsDirectory(const std::string& path, bool* is_dir) = 0;
+  virtual Status IsDirectory(const std::string& /*path*/, bool* /*is_dir*/) {
+    return Status::NotSupported();
+  }
 
   virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
 
