@@ -241,15 +241,8 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
   if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
-  // Not allow overwriting files
-  IOStatus io_s = target()->FileExists(fname, IOOptions(), dbg);
-  if (io_s.ok()) {
-    return IOStatus::Corruption("File already exists.");
-  } else if (!io_s.IsNotFound()) {
-    assert(io_s.IsIOError());
-    return io_s;
-  }
-  io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
+
+  IOStatus io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSWritableFile(fname, std::move(*result), this));
     // WritableFileWriter* file is opened

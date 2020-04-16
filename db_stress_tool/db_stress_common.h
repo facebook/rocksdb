@@ -70,6 +70,7 @@
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
 #include "test_util/testutil.h"
+#include "test_util/fault_injection_test_env.h"
 
 #include "utilities/merge_operators.h"
 
@@ -229,6 +230,7 @@ DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
 DECLARE_int32(approximate_size_one_in);
+DECLARE_bool(sync_fault_injection);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
