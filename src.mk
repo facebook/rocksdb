@@ -255,14 +255,9 @@ LIB_SOURCES +=\
   util/crc32c_arm64.cc
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
-LIB_SOURCES_ASM =\
-  util/crc32c_ppc_asm.S
-LIB_SOURCES_C = \
-  util/crc32c_ppc.c
-else
-LIB_SOURCES_ASM =
-LIB_SOURCES_C =
+ifeq ($(HAVE_POWER_CRC32_FLAGS),1)
+LIB_SOURCES += \
+  util/crc32c_ppc.cc
 endif
 
 TOOL_LIB_SOURCES =                                              \

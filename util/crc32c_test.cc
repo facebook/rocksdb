@@ -108,6 +108,9 @@ TEST(CRC, StandardResults) {
     EXPECT_EQ(~expected.crc32c, result);
   }
 
+  // NULL buffer
+  EXPECT_EQ((uint32_t)0, Value(NULL, 0));
+
   // Test 2: stitching two computations
   for (auto expected : expectedResults) {
     size_t partialLength = expected.length / 2;

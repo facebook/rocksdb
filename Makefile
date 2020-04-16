@@ -144,16 +144,9 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
-CXXFLAGS += -DHAS_ALTIVEC
-CFLAGS += -DHAS_ALTIVEC
-HAS_ALTIVEC=1
-endif
-
-ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
-CXXFLAGS += -DHAVE_POWER8
-CFLAGS +=  -DHAVE_POWER8
-HAVE_POWER8=1
+ifeq (,$(shell $(CXX) -fsyntax-only  -mcrypto -mpower8-vector -maltivec -mvsx -xc /dev/null 2>&1))
+POWER_CRC32_FLAGS=-mcrypto -mpower8-vector -maltivec -mvsx
+HAVE_POWER_CRC32_FLAGS=1
 endif
 
 ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
@@ -461,10 +454,6 @@ endif
 
 OBJ_DIR?=.
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
-ifeq ($(HAVE_POWER8),1)
-LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
-LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
-endif
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
@@ -2049,12 +2038,11 @@ rocksdbjavastaticpublishcentral:
 jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-jl/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+ifeq ($(HAVE_POWER_CRC32_FLAGS),1)
+jl/crc32c_ppc.o: util/crc32c_ppc.cc
+	$(AM_V_CC)$(CC) $(CFLAGS) $(POWER_CRC32_FLAGS) -c $< -o $@
 
-jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
+endif
 
 rocksdbjava: $(LIB_OBJECTS)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
@@ -2113,13 +2101,12 @@ IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBu
 	lipo ios-x86/$@ ios-arm/$@ -create -output $@
 
 else
-ifeq ($(HAVE_POWER8),1)
-$(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+ifeq ($(HAVE_POWER_CRC32_FLAGS),1)
+$(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.cc
+	$(AM_V_CC)$(CC) $(CFLAGS) $(POWER_CRC32_FLAGS) -c $< -o $@
 
-+$(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
+
 $(OBJ_DIR)/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 

@@ -39,7 +39,7 @@ include(ReadVersion)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
-  LANGUAGES CXX C ASM)
+  LANGUAGES CXX C)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
@@ -223,26 +223,6 @@ else()
 endif()
 
 include(CheckCCompilerFlag)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
-  CHECK_C_COMPILER_FLAG("-mcpu=power9" HAS_POWER9)
-  if(HAS_POWER9)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=power9 -mtune=power9")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power9 -mtune=power9")
-  else()
-    CHECK_C_COMPILER_FLAG("-mcpu=power8" HAS_POWER8)
-    if(HAS_POWER8)
-      set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=power8 -mtune=power8")
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power8 -mtune=power8")
-    endif(HAS_POWER8)
-  endif(HAS_POWER9)
-  CHECK_C_COMPILER_FLAG("-maltivec" HAS_ALTIVEC)
-  if(HAS_ALTIVEC)
-    message(STATUS " HAS_ALTIVEC yes")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -maltivec")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maltivec")
-  endif(HAS_ALTIVEC)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
-
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
         CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" HAS_ARMV8_CRC)
   if(HAS_ARMV8_CRC)
@@ -260,21 +240,40 @@ if(PORTABLE)
   if(FORCE_SSE42 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
   endif()
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64le")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power8")
+    else()
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power7")
+    endif()
+  endif()
 else()
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
-    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    if(NOT CMAKE_CXX_FLAGS MATCHES "m(cpu|tune|arch)")
+      if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+        # Power doesn't have a march option - https://gcc.gnu.org/onlinedocs/gcc/RS_002f6000-and-PowerPC-Options.html
+        # -mcpu activates all available options
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=native")
+      else()
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+      endif()
     endif()
   endif()
 endif()
 
-include(CheckCXXSourceCompiles)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+  include(CheckCXXCompilerFlag)
+  SET(POWER_CRC32_FLAGS "-mcrypto -mpower8-vector -maltivec -mvsx")
+  CHECK_CXX_COMPILER_FLAG("${POWER_CRC32_FLAGS}" HAS_POWER_CRC32_FLAGS)
+endif()
+
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
+include(CheckCXXSourceCompiles)
 CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
@@ -525,7 +524,7 @@ if(HAVE_SCHED_GETCPU)
   add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
-check_cxx_symbol_exists(getauxval auvx.h HAVE_AUXV_GETAUXVAL)
+check_cxx_symbol_exists(getauxval sys/auxv.h HAVE_AUXV_GETAUXVAL)
 if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
@@ -796,11 +795,13 @@ if(HAVE_SSE42 AND NOT MSVC)
     PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+if(HAS_POWER_CRC32_FLAGS)
   list(APPEND SOURCES
-    util/crc32c_ppc.c
-    util/crc32c_ppc_asm.S)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+    util/crc32c_ppc.cc)
+  set_source_files_properties(
+    util/crc32c_ppc.cc
+    PROPERTIES COMPILE_FLAGS "${POWER_CRC32_FLAGS}")
+endif()
 
 if(HAS_ARMV8_CRC)
   list(APPEND SOURCES
