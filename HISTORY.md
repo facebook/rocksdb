@@ -1,6 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
-
+## 6.9.2 (04/16/2020)
 ### Public API Change
 * Add NewFileChecksumGenCrc32cFactory to the file checksum public API, such that the builtin Crc32c based file checksum generator factory can be used by applications.
 
