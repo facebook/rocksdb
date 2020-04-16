@@ -529,7 +529,8 @@ class Repairer {
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr);
+          /*largest_compaction_key=*/nullptr,
+          /*allow_unprepared_value=*/false);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();

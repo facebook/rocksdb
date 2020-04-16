@@ -655,7 +655,8 @@ Status CompactionJob::Run() {
             TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
             /*skip_filters=*/false, compact_->compaction->output_level(),
             /*smallest_compaction_key=*/nullptr,
-            /*largest_compaction_key=*/nullptr);
+            /*largest_compaction_key=*/nullptr,
+            /*allow_unprepared_value=*/false);
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {

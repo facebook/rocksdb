@@ -1313,7 +1313,7 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
 
 InternalIterator* DBImpl::NewInternalIterator(
     Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
-    ColumnFamilyHandle* column_family) {
+    ColumnFamilyHandle* column_family, bool allow_unprepared_value) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
@@ -1327,7 +1327,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   mutex_.Unlock();
   ReadOptions roptions;
   return NewInternalIterator(roptions, cfd, super_version, arena, range_del_agg,
-                             sequence);
+                             sequence, allow_unprepared_value);
 }
 
 void DBImpl::SchedulePurge() {
@@ -1450,7 +1450,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                               SuperVersion* super_version,
                                               Arena* arena,
                                               RangeDelAggregator* range_del_agg,
-                                              SequenceNumber sequence) {
+                                              SequenceNumber sequence,
+                                              bool allow_unprepared_value) {
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   assert(range_del_agg != nullptr);
@@ -1482,7 +1483,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
       super_version->current->AddIterators(read_options, file_options_,
-                                           &merge_iter_builder, range_del_agg);
+                                           &merge_iter_builder, range_del_agg,
+                                           allow_unprepared_value);
     }
     internal_iter = merge_iter_builder.Finish();
     IterState* cleanup =
@@ -2548,7 +2550,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 
 #else
     SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-    auto iter = new ForwardIterator(this, read_options, cfd, sv);
+    auto iter = new ForwardIterator(this, read_options, cfd, sv,
+                                    /* allow_unprepared_value */ true);
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
         cfd->user_comparator(), iter, kMaxSequenceNumber,
@@ -2625,7 +2628,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot);
+                          db_iter->GetRangeDelAggregator(), snapshot,
+                          /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
 
   return db_iter;
@@ -2653,7 +2657,8 @@ Status DBImpl::NewIterators(
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
-      auto iter = new ForwardIterator(this, read_options, cfd, sv);
+      auto iter = new ForwardIterator(this, read_options, cfd, sv,
+                                      /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
           cfd->user_comparator(), iter, kMaxSequenceNumber,

@@ -417,7 +417,8 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       super_version->version_number, read_callback);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot);
+                          db_iter->GetRangeDelAggregator(), snapshot,
+                          /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }

@@ -240,7 +240,8 @@ Status BuildTable(
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
           /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key*/ nullptr));
+          /*largest_compaction_key*/ nullptr,
+          /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
