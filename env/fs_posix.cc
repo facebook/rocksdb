@@ -879,8 +879,18 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus IsDirectory(const std::string& path, const IOOptions& /*opts*/,
                        bool* is_dir, IODebugContext* /*dbg*/) override {
+    // First open
+    int fd = -1;
+    int flags = cloexec_flags(O_RDONLY, nullptr);
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(path.c_str(), flags);
+    }
+    if (fd < 0) {
+      return IOError("While open for IsDirectory()", path, errno);
+    }
     struct stat sbuf;
-    if (stat(path.c_str(), &sbuf) < 0) {
+    if (fstat(fd, &sbuf) < 0) {
       return IOError("While doing stat for IsDirectory()", path, errno);
     }
     if (nullptr != is_dir) {
