@@ -1803,6 +1803,8 @@ void StressTest::Open() {
     options_.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options_.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    options_.compression_opts.parallel_threads =
+        FLAGS_compression_parallel_threads;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options_.inplace_update_support = FLAGS_in_place_update;
