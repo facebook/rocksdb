@@ -1347,9 +1347,12 @@ struct ReadOptions {
   const Slice* iter_start_ts;
 
   // Deadline for completing the read request (only MultiGet for now) in us.
-  // It should be set to some number of milliseconds since a fixed point in
+  // It should be set to some number of microseconds since a fixed point in
   // time, identical to that used by system time. The best way is to use
-  // env->NowMicros() + some timeout
+  // env->NowMicros() + some timeout. This is best efforts. The call may
+  // exceed the deadline if there is IO involved and the file system doesn't
+  // support deadlines, or due to checking for deadline periodically rather
+  // than for every key if processing a batch
   std::chrono::microseconds deadline;
 
   ReadOptions();

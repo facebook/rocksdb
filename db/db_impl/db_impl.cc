@@ -1765,7 +1765,6 @@ std::vector<Status> DBImpl::MultiGet(
   // merge_operands will contain the sequence of merges in the latter case.
   size_t num_found = 0;
   size_t keys_read;
-  bool timedout = false;
   for (keys_read = 0; keys_read < num_keys; ++keys_read) {
     merge_context.Clear();
     Status& s = stat_list[keys_read];
@@ -1814,12 +1813,15 @@ std::vector<Status> DBImpl::MultiGet(
     if (read_options.deadline.count() &&
         env_->NowMicros() >
             static_cast<uint64_t>(read_options.deadline.count())) {
-      timedout = true;
       break;
     }
   }
 
-  if (timedout) {
+  if (keys_read < num_keys) {
+    // The only reason to break out of the loop is when the deadline is
+    // exceeded
+    assert(env_->NowMicros() >
+        static_cast<uint64_t>(read_options.deadline.count()));
     for (++keys_read; keys_read < num_keys; ++keys_read) {
       stat_list[keys_read] = Status::TimedOut();
     }
@@ -2205,6 +2207,15 @@ void DBImpl::MultiGetWithCallback(
                                multiget_cf_data[0].super_version);
 }
 
+// The actual implementation of batched MultiGet. Parameters -
+// start_key - Index in the sorted_keys vector to start processing from
+// num_keys - Number of keys to lookup, starting with sorted_keys[start_key]
+// sorted_keys - The entire batch of sorted keys for this CF
+//
+// The per key status is returned in the KeyContext structures pointed to by
+// sorted_keys. An overall Status is also returned, with the only possible
+// values being Status::OK() and Status::TimedOut(). The latter indicates
+// that the call exceeded read_options.deadline
 Status DBImpl::MultiGetImpl(
     const ReadOptions& read_options, size_t start_key, size_t num_keys,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,

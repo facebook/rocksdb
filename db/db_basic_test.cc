@@ -2401,8 +2401,13 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
 class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
  public:
   DBBasicTestMultiGetDeadline()
-      : DBBasicTestMultiGet("db_basic_test_multiget_deadline", 10, false, true,
-                            true, true, 1) {}
+      : DBBasicTestMultiGet("db_basic_test_multiget_deadline" /*Test dir*/,
+                             10 /*# of column families*/,
+                             false /*compressed cache enabled*/,
+                             true /*uncompressed cache enabled*/,
+                             true /*compression enabled*/,
+                             true /*ReadOptions.fill_cache*/,
+                             1 /*# of parallel compression threads*/) {}
 
   // Forward declaration
   class DeadlineFS;
@@ -2458,7 +2463,16 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 
     // Set a vector of {IO counter, delay in microseconds} pairs that control
     // when to inject a delay and duration of the delay
-    void SetDelaySequence(std::vector<std::pair<int, int>> seq) {
+    void SetDelaySequence(const std::vector<std::pair<int, int>>&& seq) {
+      int total_delay = 0;
+      for (auto& seq_iter : seq) {
+        // Ensure no individual delay is > 500ms
+        ASSERT_LT(seq_iter.second, 500000);
+        total_delay += seq_iter.second;
+      }
+      // ASSERT total delay is < 1s. This is mainly to keep the test from
+      // timing out in CI test frameworks
+      ASSERT_LT(total_delay, 1000000);
       delay_seq_ = seq;
       delay_idx_ = 0;
       io_count_ = 0;
