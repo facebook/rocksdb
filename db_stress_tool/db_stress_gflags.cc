@@ -646,6 +646,10 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(avoid_flush_during_recovery,
+            ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
+            "Avoid flush during recovery");
+
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,
               "Max write batch group size");
@@ -671,4 +675,11 @@ DEFINE_int32(continuous_verification_interval, 1000,
 DEFINE_int32(approximate_size_one_in, 64,
              "If non-zero, DB::GetApproximateSizes() will be called against"
              " random key ranges.");
+
+DEFINE_int32(read_fault_one_in, 1000,
+            "On non-zero, enables fault injection on read");
+
+DEFINE_bool(sync_fault_injection, false,
+            "If true, FaultInjectionTestFS will be used for write operations, "
+            " and unsynced data in DB will lost after crash.");
 #endif  // GFLAGS

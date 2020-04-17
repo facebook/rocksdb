@@ -44,7 +44,8 @@ class MockTableReader : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,

@@ -84,7 +84,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
         if (aligned_buf == nullptr) {
           buf.Read(scratch, offset_advance, res_len);
         } else {
-          scratch = buf.BufferStart();
+          scratch = buf.BufferStart() + offset_advance;
           aligned_buf->reset(buf.Release());
         }
       }

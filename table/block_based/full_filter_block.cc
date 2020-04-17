@@ -164,6 +164,7 @@ bool FullFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
+    TEST_SYNC_POINT("FilterReadError");
     return true;
   }
 
@@ -221,6 +222,7 @@ void FullFilterBlockReader::MayMatch(
   const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                         lookup_context, &filter_block);
   if (!s.ok()) {
+    TEST_SYNC_POINT("FilterReadError");
     return;
   }
 

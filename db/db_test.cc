@@ -5503,7 +5503,7 @@ TEST_F(DBTest, EmptyCompactedDB) {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, SuggestCompactRangeTest) {
+TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
@@ -5610,6 +5610,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
 }
+
 
 TEST_F(DBTest, PromoteL0) {
   Options options = CurrentOptions();

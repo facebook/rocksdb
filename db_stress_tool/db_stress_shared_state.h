@@ -11,6 +11,10 @@
 #pragma once
 
 #include "db_stress_tool/db_stress_stat.h"
+// SyncPoint is not supported in Released Windows Mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
+#include "test_util/sync_point.h"
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/gflags_compat.h"
 
 DECLARE_uint64(seed);
@@ -24,6 +28,7 @@ DECLARE_int32(clear_column_family_one_in);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(continuous_verification_interval);
+DECLARE_int32(read_fault_one_in);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;
@@ -36,6 +41,20 @@ class SharedState {
   static const uint32_t UNKNOWN_SENTINEL;
   // indicates a key should definitely be deleted
   static const uint32_t DELETION_SENTINEL;
+
+  // Errors when reading filter blocks are ignored, so we use a thread
+  // local variable updated via sync points to keep track of errors injected
+  // while reading filter blocks in order to ignore the Get/MultiGet result
+  // for those calls
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(OS_SOLARIS)
+  static __thread bool filter_read_error;
+#else
+  static thread_local bool filter_read_error;
+#endif // OS_SOLARIS
+#else
+  static bool filter_read_error;
+#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* env, StressTest* stress_test)
       : cv_(&mu_),
@@ -171,9 +190,23 @@ class SharedState {
       ++num_bg_threads_;
       fprintf(stdout, "Starting continuous_verification_thread\n");
     }
+#ifndef NDEBUG
+    if (FLAGS_read_fault_one_in) {
+      SyncPoint::GetInstance()->SetCallBack("FilterReadError",
+                                            FilterReadErrorCallback);
+      SyncPoint::GetInstance()->EnableProcessing();
+    }
+#endif // NDEBUG
   }
 
-  ~SharedState() {}
+  ~SharedState() {
+#ifndef NDEBUG
+    if (FLAGS_read_fault_one_in) {
+      SyncPoint::GetInstance()->ClearAllCallBacks();
+      SyncPoint::GetInstance()->DisableProcessing();
+    }
+#endif
+  }
 
   port::Mutex* GetMutex() { return &mu_; }
 
@@ -329,6 +362,10 @@ class SharedState {
   }
 
  private:
+  static void FilterReadErrorCallback(void*) {
+    filter_read_error = true;
+  }
+
   port::Mutex mu_;
   port::CondVar cv_;
   const uint32_t seed_;

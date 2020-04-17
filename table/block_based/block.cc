@@ -525,6 +525,9 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       key_.SetKey(Slice(p, non_shared), false /* copy */);
       key_pinned_ = true;
     } else {
+      if (global_seqno_ != kDisableGlobalSequenceNumber) {
+        key_.UpdateInternalKey(stored_seqno_, stored_value_type_);
+      }
       // This key share `shared` bytes with prev key, we need to decode it
       key_.TrimAppend(shared, p, non_shared);
       key_pinned_ = false;
@@ -536,11 +539,12 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       // type is kTypeValue, kTypeMerge, kTypeDeletion, or kTypeRangeDeletion.
       assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
 
-      ValueType value_type = ExtractValueType(key_.GetKey());
-      assert(value_type == ValueType::kTypeValue ||
-             value_type == ValueType::kTypeMerge ||
-             value_type == ValueType::kTypeDeletion ||
-             value_type == ValueType::kTypeRangeDeletion);
+      uint64_t packed = ExtractInternalKeyFooter(key_.GetKey());
+      UnPackSequenceAndType(packed, &stored_seqno_, &stored_value_type_);
+      assert(stored_value_type_ == ValueType::kTypeValue ||
+             stored_value_type_ == ValueType::kTypeMerge ||
+             stored_value_type_ == ValueType::kTypeDeletion ||
+             stored_value_type_ == ValueType::kTypeRangeDeletion);
 
       if (key_pinned_) {
         // TODO(tec): Investigate updating the seqno in the loaded block
@@ -552,7 +556,7 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
         key_pinned_ = false;
       }
 
-      key_.UpdateInternalKey(global_seqno_, value_type);
+      key_.UpdateInternalKey(global_seqno_, stored_value_type_);
     }
 
     value_ = Slice(p + non_shared, value_length);

@@ -208,6 +208,10 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
   cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
   cf_opts.compression = mutable_cf_options.compression;
+  cf_opts.compression_opts = mutable_cf_options.compression_opts;
+  cf_opts.bottommost_compression = mutable_cf_options.bottommost_compression;
+  cf_opts.bottommost_compression_opts =
+      mutable_cf_options.bottommost_compression_opts;
   cf_opts.sample_for_compression = mutable_cf_options.sample_for_compression;
 
   cf_opts.table_factory = options.table_factory;

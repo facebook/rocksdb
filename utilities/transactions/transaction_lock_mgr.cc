@@ -8,13 +8,8 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 
 #include <cinttypes>
-
 #include <algorithm>
-#include <condition_variable>
-#include <functional>
 #include <mutex>
-#include <string>
-#include <vector>
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
@@ -202,7 +197,9 @@ void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
     InstrumentedMutexLock l(&lock_map_mutex_);
 
     auto lock_maps_iter = lock_maps_.find(column_family_id);
-    assert(lock_maps_iter != lock_maps_.end());
+    if (lock_maps_iter == lock_maps_.end()) {
+      return;
+    }
 
     lock_maps_.erase(lock_maps_iter);
   }  // lock_map_mutex_

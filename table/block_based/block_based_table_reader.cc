@@ -1021,6 +1021,11 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     auto filter = new_table->CreateFilterBlockReader(
         prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
+#ifndef NDEBUG
+    if (rep_->filter_type != Rep::FilterType::kNoFilter && !filter) {
+      TEST_SYNC_POINT("FilterReadError");
+    }
+#endif
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {
@@ -2051,7 +2056,7 @@ bool BlockBasedTable::PrefixMayMatch(
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
     Arena* arena, bool skip_filters, TableReaderCaller caller,
-    size_t compaction_readahead_size) {
+    size_t compaction_readahead_size, bool allow_unprepared_value) {
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
       read_options.auto_prefix_mode ||
@@ -2067,7 +2072,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size);
+        compaction_readahead_size, allow_unprepared_value);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
     return new (mem) BlockBasedTableIterator(
@@ -2075,7 +2080,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
         need_upper_bound_check, prefix_extractor, caller,
-        compaction_readahead_size);
+        compaction_readahead_size, allow_unprepared_value);
   }
 }
 

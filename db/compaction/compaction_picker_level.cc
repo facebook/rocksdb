@@ -250,7 +250,6 @@ void LevelCompactionBuilder::SetupInitialFiles() {
         cf_name_, vstorage_, &start_level_, &output_level_,
         &start_level_inputs_);
     if (!start_level_inputs_.empty()) {
-      is_manual_ = true;
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
       return;
     }

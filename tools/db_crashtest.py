@@ -106,6 +106,8 @@ default_params = {
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
     "avoid_unnecessary_blocking_io" : random.randint(0, 1),
     "write_dbid_to_manifest" : random.randint(0, 1),
+    "avoid_flush_during_recovery" : random.choice(
+        [1 if t == 0 else 0 for t in range(0, 8)]),
     "max_write_batch_group_size_bytes" : lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
     "level_compaction_dynamic_level_bytes" : True,
@@ -113,7 +115,9 @@ default_params = {
     "verify_db_one_in": 100000,
     "continuous_verification_interval" : 0,
     "max_key_len": 3,
-    "key_len_percent_dist": "1,30,69"
+    "key_len_percent_dist": "1,30,69",
+    "read_fault_one_in": lambda: random.choice([0, 1000]),
+    "sync_fault_injection": False
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'

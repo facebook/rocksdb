@@ -581,9 +581,14 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
+  // If allow_unprepared_value is true, the returned iterator may defer reading
+  // the value and so will require PrepareValue() to be called before value();
+  // allow_unprepared_value = false is convenient when this optimization is not
+  // useful, e.g. when reading the whole column family.
   InternalIterator* NewInternalIterator(
       Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
-      ColumnFamilyHandle* column_family = nullptr);
+      ColumnFamilyHandle* column_family = nullptr,
+      bool allow_unprepared_value = false);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -709,7 +714,8 @@ class DBImpl : public DB {
 
   InternalIterator* NewInternalIterator(
       const ReadOptions&, ColumnFamilyData* cfd, SuperVersion* super_version,
-      Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence);
+      Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
+      bool allow_unprepared_value);
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that

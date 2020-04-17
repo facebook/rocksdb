@@ -131,20 +131,22 @@ Status SstFileDumper::NewTableReader(
     const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
+  auto t_opt = TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
+                                  soptions_, internal_comparator_);
+  // Allow open file with global sequence number for backward compatibility.
+  t_opt.largest_seqno = kMaxSequenceNumber;
+
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
-    return options_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
-                           soptions_, internal_comparator_),
-        std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
+    return options_.table_factory->NewTableReader(t_opt, std::move(file_),
+                                                  file_size, &table_reader_,
+                                                  /*enable_prefetch=*/false);
   }
 
   // For all other factory implementation
-  return options_.table_factory->NewTableReader(
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
-                         internal_comparator_),
-      std::move(file_), file_size, &table_reader_);
+  return options_.table_factory->NewTableReader(t_opt, std::move(file_),
+                                                file_size, &table_reader_);
 }
 
 Status SstFileDumper::VerifyChecksum() {
@@ -184,11 +186,11 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
       ReadOptions(), moptions_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    if (!iter->status().ok()) {
-      fputs(iter->status().ToString().c_str(), stderr);
-      exit(1);
-    }
     table_builder->Add(iter->key(), iter->value());
+  }
+  if (!iter->status().ok()) {
+    fputs(iter->status().ToString().c_str(), stderr);
+    exit(1);
   }
   Status s = table_builder->Finish();
   if (!s.ok()) {

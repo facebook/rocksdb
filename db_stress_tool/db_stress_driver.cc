@@ -61,6 +61,12 @@ bool RunStressTest(StressTest* stress) {
     stress->InitReadonlyDb(&shared);
   }
 
+#ifndef NDEBUG
+  if (FLAGS_sync_fault_injection) {
+    fault_fs_guard->SetFilesystemDirectWritable(false);
+  }
+#endif
+
   uint32_t n = shared.GetNumThreads();
 
   uint64_t now = db_stress_env->NowMicros();

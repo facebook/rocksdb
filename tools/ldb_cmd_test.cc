@@ -344,9 +344,7 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   Options opts;
   opts.env = env.get();
   opts.create_if_missing = true;
-  FileChecksumGenCrc32cFactory* file_checksum_gen_factory =
-      new FileChecksumGenCrc32cFactory();
-  opts.file_checksum_gen_factory.reset(file_checksum_gen_factory);
+  opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
 
   DB* db = nullptr;
   std::string dbname = test::TmpDir();

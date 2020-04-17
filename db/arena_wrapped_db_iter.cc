@@ -75,7 +75,7 @@ Status ArenaWrappedDBIter::Refresh() {
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
         read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator(),
-        latest_seq);
+        latest_seq, /* allow_unprepared_value */ true);
     SetIterUnderDBIter(internal_iter);
   } else {
     db_iter_->set_sequence(latest_seq);

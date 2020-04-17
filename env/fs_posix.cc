@@ -122,6 +122,8 @@ int cloexec_flags(int flags, const EnvOptions* options) {
   if (options == nullptr || options->set_fd_cloexec) {
     flags |= O_CLOEXEC;
   }
+#else
+  (void)options;
 #endif
   return flags;
 }
