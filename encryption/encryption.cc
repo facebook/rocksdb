@@ -358,7 +358,10 @@ Status KeyManagedEncryptedEnv::ReuseWritableFile(
     const std::string& fname, const std::string& old_fname,
     std::unique_ptr<WritableFile>* result, const EnvOptions& options) {
   FileEncryptionInfo file_info;
-  Status s = key_manager_->GetFile(fname, &file_info);
+  // ReuseWritableFile is only used in the context of rotating WAL file and
+  // reuse them. Old content is discardable and new WAL records are to
+  // overwrite the file. So NewFile() should be called.
+  Status s = key_manager_->NewFile(fname, &file_info);
   if (!s.ok()) {
     return s;
   }
@@ -386,7 +389,10 @@ Status KeyManagedEncryptedEnv::NewRandomRWFile(
     const std::string& fname, std::unique_ptr<RandomRWFile>* result,
     const EnvOptions& options) {
   FileEncryptionInfo file_info;
-  Status s = key_manager_->NewFile(fname, &file_info);
+  // NewRandomRWFile is only used in the context of external file ingestion,
+  // for rewriting global seqno. So it should call GetFile() instead of
+  // NewFile().
+  Status s = key_manager_->GetFile(fname, &file_info);
   if (!s.ok()) {
     return s;
   }
