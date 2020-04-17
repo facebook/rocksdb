@@ -59,7 +59,7 @@ default_params = {
     "get_sorted_wal_files_one_in": 0,
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
-    "index_type": lambda: random.choice([0,2]),
+    "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
