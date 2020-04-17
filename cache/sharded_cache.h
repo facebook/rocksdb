@@ -91,9 +91,9 @@ class ShardedCache : public Cache {
 
   // A special status for returning an alternate but compatible OK status
   // from Insert without updating the Cache API. This status indicates
-  // an existing cache entry was replaced.
-  static const Status kInsertStatusOkReplaced;
-  static bool IsInsertStatusOkReplaced(const Status& s);
+  // an existing cache entry was overwritten, possibly with the same data.
+  static const Status kInsertStatusOkOverwritten;
+  static bool IsInsertStatusOkOverwritten(const Status& s);
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {

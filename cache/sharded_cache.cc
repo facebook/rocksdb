@@ -161,9 +161,9 @@ int GetDefaultCacheShardBits(size_t capacity) {
 
 namespace {
 // To access protected Status API
-class InsertStatusOkReplaced : public Status {
+class InsertStatusOkOverwritten : public Status {
 public:
-  InsertStatusOkReplaced() : Status(Status::kOk, static_cast<Status::SubCode>(1)) {
+  InsertStatusOkOverwritten() : Status(Status::kOk, static_cast<Status::SubCode>(1)) {
     // Confirm compatible with normal OK checks
     assert(ok());
     assert(*this == Status::OK());
@@ -171,10 +171,10 @@ public:
 };
 }  // anonymous namespace
 
-const Status ShardedCache::kInsertStatusOkReplaced = InsertStatusOkReplaced();
+const Status ShardedCache::kInsertStatusOkOverwritten = InsertStatusOkOverwritten();
 
-bool ShardedCache::IsInsertStatusOkReplaced(const Status& s) {
-  return s.code() == kInsertStatusOkReplaced.code() && s.subcode() == kInsertStatusOkReplaced.subcode();
+bool ShardedCache::IsInsertStatusOkOverwritten(const Status& s) {
+  return s.code() == kInsertStatusOkOverwritten.code() && s.subcode() == kInsertStatusOkOverwritten.subcode();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

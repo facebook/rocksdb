@@ -386,7 +386,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       LRUHandle* old = table_.Insert(e);
       usage_ += total_charge;
       if (old != nullptr) {
-        s = ShardedCache::kInsertStatusOkReplaced;
+        s = ShardedCache::kInsertStatusOkOverwritten;
         assert(old->InCache());
         old->SetInCache(false);
         if (!old->HasRefs()) {
