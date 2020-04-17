@@ -132,16 +132,9 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
-ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
-CXXFLAGS += -DHAS_ALTIVEC
-CFLAGS += -DHAS_ALTIVEC
-HAS_ALTIVEC=1
-endif
-
 ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
-CXXFLAGS += -DHAVE_POWER8
-CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
+POWER8_CFLAGS=-maltivec -DCRC32_CONSTANTS_HEADER='"crc32c_ppc_constants.h"' -DCRC32_FUNCTION=crc32c_ppc
 endif
 
 ifeq (,$(shell $(CXX) -fsyntax-only -march=armv8-a+crc+crypto -xc /dev/null 2>&1))
@@ -418,7 +411,6 @@ LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 ifeq ($(HAVE_POWER8),1)
 LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(LIB_SOURCES_C:.c=.o)
-LIBOBJECTS += $(LIB_SOURCES_ASM:.S=.o)
 else
 LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
 endif
@@ -730,9 +722,7 @@ $(SHARED3): $(SHARED4)
 endif
 ifeq ($(HAVE_POWER8),1)
 SHARED_C_OBJECTS = $(LIB_SOURCES_C:.c=.o)
-SHARED_ASM_OBJECTS = $(LIB_SOURCES_ASM:.S=.o)
 SHARED_C_LIBOBJECTS = $(patsubst %.o,shared-objects/%.o,$(SHARED_C_OBJECTS))
-SHARED_ASM_LIBOBJECTS = $(patsubst %.o,shared-objects/%.o,$(SHARED_ASM_OBJECTS))
 shared_libobjects = $(patsubst %,shared-objects/%,$(LIB_CC_OBJECTS))
 else
 shared_libobjects = $(patsubst %,shared-objects/%,$(LIBOBJECTS))
@@ -742,13 +732,10 @@ CLEAN_FILES += shared-objects
 shared_all_libobjects = $(shared_libobjects)
 
 ifeq ($(HAVE_POWER8),1)
-shared-ppc-objects = $(SHARED_C_LIBOBJECTS) $(SHARED_ASM_LIBOBJECTS)
+shared-ppc-objects = $(SHARED_C_LIBOBJECTS)
 
 shared-objects/util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
-shared-objects/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CFLAGS) $(POWER8_CFLAGS) -c $< -o $@
 endif
 $(shared_libobjects): shared-objects/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@
@@ -1981,15 +1968,11 @@ JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(
 
 ifeq ($(HAVE_POWER8),1)
 JAVA_STATIC_C_LIBOBJECTS = $(patsubst %.c.o,jls/%.c.o,$(LIB_SOURCES_C:.c=.o))
-JAVA_STATIC_ASM_LIBOBJECTS = $(patsubst %.S.o,jls/%.S.o,$(LIB_SOURCES_ASM:.S=.o))
 
-java_static_ppc_libobjects = $(JAVA_STATIC_C_LIBOBJECTS) $(JAVA_STATIC_ASM_LIBOBJECTS)
+java_static_ppc_libobjects = $(JAVA_STATIC_C_LIBOBJECTS)
 
 jls/util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
-
-jls/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CFLAGS) $(POWER8_CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
 
 java_static_all_libobjects += $(java_static_ppc_libobjects)
 endif
@@ -2075,10 +2058,8 @@ rocksdbjavastaticpublishcentral:
 ifeq ($(HAVE_POWER8),1)
 JAVA_CC_OBJECTS = $(SHARED_CC_OBJECTS)
 JAVA_C_OBJECTS = $(SHARED_C_OBJECTS)
-JAVA_ASM_OBJECTS = $(SHARED_ASM_OBJECTS)
 
 JAVA_C_LIBOBJECTS = $(patsubst %.c.o,jl/%.c.o,$(JAVA_C_OBJECTS))
-JAVA_ASM_LIBOBJECTS = $(patsubst %.S.o,jl/%.S.o,$(JAVA_ASM_OBJECTS))
 endif
 
 java_libobjects = $(patsubst %,jl/%,$(LIB_CC_OBJECTS))
@@ -2086,13 +2067,11 @@ CLEAN_FILES += jl
 java_all_libobjects = $(java_libobjects)
 
 ifeq ($(HAVE_POWER8),1)
-java_ppc_libobjects = $(JAVA_C_LIBOBJECTS) $(JAVA_ASM_LIBOBJECTS)
+java_ppc_libobjects = $(JAVA_C_LIBOBJECTS)
 
 jl/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CFLAGS) $(POWER8_CFLAGS) -c $< -o $@
 
-jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 java_all_libobjects += $(java_ppc_libobjects)
 endif
 
@@ -2160,10 +2139,7 @@ IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBu
 else
 ifeq ($(HAVE_POWER8),1)
 util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
-util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+	$(AM_V_CC)$(CC) $(CFLAGS) $(POWER8_CFLAGS) -c $< -o $@
 endif
 .cc.o:
 	$(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
@@ -2200,7 +2176,6 @@ endif
 
 ifeq ($(HAVE_POWER8),1)
 DEPFILES_C = $(LIB_SOURCES_C:.c=.c.d)
-DEPFILES_ASM = $(LIB_SOURCES_ASM:.S=.S.d)
 
 %.c.d: %.c
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
@@ -2212,8 +2187,7 @@ DEPFILES_ASM = $(LIB_SOURCES_ASM:.S=.S.d)
 
 $(DEPFILES_C): %.c.d
 
-$(DEPFILES_ASM): %.S.d
-depend: $(DEPFILES) $(DEPFILES_C) $(DEPFILES_ASM)
+depend: $(DEPFILES) $(DEPFILES_C)
 else
 depend: $(DEPFILES)
 endif

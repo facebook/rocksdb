@@ -39,7 +39,7 @@ include(ReadVersion)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
-  LANGUAGES CXX C ASM)
+  LANGUAGES CXX C)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
@@ -215,12 +215,6 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power8 -mtune=power8")
     endif(HAS_POWER8)
   endif(HAS_POWER9)
-  CHECK_C_COMPILER_FLAG("-maltivec" HAS_ALTIVEC)
-  if(HAS_ALTIVEC)
-    message(STATUS " HAS_ALTIVEC yes")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -maltivec")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maltivec")
-  endif(HAS_ALTIVEC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
@@ -490,7 +484,7 @@ if(HAVE_SCHED_GETCPU)
   add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
-check_cxx_symbol_exists(getauxval auvx.h HAVE_AUXV_GETAUXVAL)
+check_cxx_symbol_exists(getauxval sys/auxv.h HAVE_AUXV_GETAUXVAL)
 if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
@@ -761,11 +755,14 @@ if(HAVE_SSE42 AND NOT MSVC)
     PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+if(HAS_POWER8)
   list(APPEND SOURCES
+    util/crc32c_ppc.c)
+  set_source_files_properties(
     util/crc32c_ppc.c
-    util/crc32c_ppc_asm.S)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+    PROPERTIES COMPILE_FLAGS "-maltivec"
+      COMPILE_DEFINITIONS "CRC32_FUNCTION=crc32c_ppc;CRC32_CONSTANTS_HEADER=\"crc32c_ppc_constants.h\"")
+endif(HAS_POWER8)
 
 if(HAS_ARMV8_CRC)
   list(APPEND SOURCES

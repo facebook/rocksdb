@@ -20,15 +20,12 @@
 
 #include "util/crc32c_arm64.h"
 
-#ifdef __powerpc64__
-#include "util/crc32c_ppc.h"
-#include "util/crc32c_ppc_constants.h"
-
-#if __linux__
 #ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
 #include <sys/auxv.h>
 #endif
 
+#ifdef __powerpc64__
+#include "util/crc32c_ppc.h"
 #ifndef PPC_FEATURE2_VEC_CRYPTO
 #define PPC_FEATURE2_VEC_CRYPTO 0x02000000
 #endif
@@ -37,18 +34,10 @@
 #define AT_HWCAP2 26
 #endif
 
-#endif /* __linux__ */
-
 #endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
-
-#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
-#ifdef __powerpc64__
-static int arch_ppc_crc32 = 0;
-#endif /* __powerpc64__ */
-#endif
 
 static const uint32_t table0_[256] = {
   0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4,
@@ -342,6 +331,7 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+#ifndef _ARCH_PWR8
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifndef HAVE_SSE42
   Slow_CRC32(l, p);
@@ -355,6 +345,7 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
 #endif
 }
+#endif
 
 template<void (*CRC32)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
@@ -403,7 +394,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 // Detect if ARM64 CRC or not.
 #ifndef HAVE_ARM64_CRC
 // Detect if SS42 or not.
-#ifndef HAVE_POWER8
+#ifndef _ARCH_PWR8
 
 static bool isSSE42() {
 #ifndef HAVE_SSE42
@@ -439,36 +430,23 @@ static bool isPCLMULQDQ() {
 #endif
 }
 
-#endif  // HAVE_POWER8
+#endif  // _ARCH_PWR8
 #endif  // HAVE_ARM64_CRC
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
-#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
+#if defined(__powerpc64__)
 uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
   return crc32c_ppc(crc, (const unsigned char *)buf, size);
 }
 
-#if __linux__
-static int arch_ppc_probe(void) {
-  arch_ppc_crc32 = 0;
-
-#if defined(__powerpc64__) && defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
-  if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
-#endif /* __powerpc64__ */
-
-  return arch_ppc_crc32;
-}
-#endif  // __linux__
-
 static bool isAltiVec() {
-  if (arch_ppc_probe()) {
-    return true;
-  } else {
-    return false;
-  }
-}
+#if defined(__linux__) && defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
+  if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) return true;
 #endif
+  return false;
+}
+#endif  // __power64__
 
 #if defined(__linux__) && defined(HAVE_ARM64_CRC)
 uint32_t ExtendARMImpl(uint32_t crc, const char *buf, size_t size) {
@@ -480,16 +458,9 @@ std::string IsFastCrc32Supported() {
   bool has_fast_crc = false;
   std::string fast_zero_msg;
   std::string arch;
-#ifdef HAVE_POWER8
-#ifdef HAS_ALTIVEC
-  if (arch_ppc_probe()) {
-    has_fast_crc = true;
-    arch = "PPC";
-  }
-#else
-  has_fast_crc = false;
+#ifdef __powerpc64__
+  has_fast_crc = isAltiVec();
   arch = "PPC";
-#endif
 #elif defined(__linux__) && defined(HAVE_ARM64_CRC)
   if (crc32c_runtime_check()) {
     has_fast_crc = true;
@@ -1220,7 +1191,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
 #endif //HAVE_SSE42 && HAVE_PCLMUL
 
 static inline Function Choose_Extend() {
-#ifdef HAVE_POWER8
+#ifdef __powerpc64__
   return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #elif defined(__linux__) && defined(HAVE_ARM64_CRC)
   if(crc32c_runtime_check()) {
