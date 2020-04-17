@@ -78,7 +78,6 @@ class Status {
     kPathNotFound = 9,
     KMergeOperandsInsufficientCapacity = 10,
     kManualCompactionPaused = 11,
-    kRedundant = 12,
     kMaxSubCode
   };
 
@@ -101,9 +100,6 @@ class Status {
 
   // Return a success status.
   static Status OK() { return Status(); }
-
-  // Successful but seems to have been unnecessary
-  static Status OkRedundant() { return Status(kOk, kRedundant); }
 
   // Return error status of an appropriate type.
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -223,11 +219,6 @@ class Status {
 
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
-
-  // Returns true iff the status indicates *redundant* success
-  bool IsOkRedundant() const {
-    return code() == kOk && subcode() == kRedundant;
-  }
 
   // Returns true iff the status indicates a NotFound error.
   bool IsNotFound() const { return code() == kNotFound; }

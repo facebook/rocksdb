@@ -1233,10 +1233,13 @@ public class RocksDBTest {
         db.put(key2, key2);
         db.put(key3, key3);
 
-        final long[] sizes =
-            db.getApproximateSizes(Arrays.asList(new Range(new Slice(key1), new Slice(key1)),
-                                       new Range(new Slice(key2), new Slice(key3))),
-                SizeApproximationFlag.INCLUDE_FILES, SizeApproximationFlag.INCLUDE_MEMTABLES);
+        final long[] sizes = db.getApproximateSizes(
+            Arrays.asList(
+                new Range(new Slice(key1), new Slice(key1)),
+                new Range(new Slice(key2), new Slice(key3))
+            ),
+            SizeApproximationFlag.INCLUDE_FILES,
+            SizeApproximationFlag.INCLUDE_MEMTABLES);
 
         assertThat(sizes.length).isEqualTo(2);
         assertThat(sizes[0]).isEqualTo(0);
