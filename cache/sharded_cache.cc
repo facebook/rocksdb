@@ -159,4 +159,22 @@ int GetDefaultCacheShardBits(size_t capacity) {
   return num_shard_bits;
 }
 
+namespace {
+// To access protected Status API
+class InsertStatusOkReplaced : public Status {
+public:
+  InsertStatusOkReplaced() : Status(Status::kOk, static_cast<Status::SubCode>(1)) {
+    // Confirm compatible with normal OK checks
+    assert(ok());
+    assert(*this == Status::OK());
+  }
+};
+}  // anonymous namespace
+
+const Status ShardedCache::kInsertStatusOkReplaced = InsertStatusOkReplaced();
+
+bool ShardedCache::IsInsertStatusOkReplaced(const Status& s) {
+  return s.code() == kInsertStatusOkReplaced.code() && s.subcode() == kInsertStatusOkReplaced.subcode();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

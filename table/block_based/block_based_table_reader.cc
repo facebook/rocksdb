@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "cache/sharded_cache.h"
+
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 
@@ -1203,7 +1205,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
                               cache_handle);
 
         UpdateCacheInsertionMetrics(block_type, get_context, charge,
-                                    s.IsOkRedundant());
+                                    ShardedCache::IsInsertStatusOkReplaced(s));
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       }
@@ -1309,7 +1311,7 @@ Status BlockBasedTable::PutDataBlockToCache(
                                    cache_handle);
 
       UpdateCacheInsertionMetrics(block_type, get_context, charge,
-                                  s.IsOkRedundant());
+                                  ShardedCache::IsInsertStatusOkReplaced(s));
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
     }

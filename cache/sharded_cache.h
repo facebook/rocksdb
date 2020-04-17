@@ -89,6 +89,12 @@ class ShardedCache : public Cache {
 
   int GetNumShardBits() const { return num_shard_bits_; }
 
+  // A special status for returning an alternate but compatible OK status
+  // from Insert without updating the Cache API. This status indicates
+  // an existing cache entry was replaced.
+  static const Status kInsertStatusOkReplaced;
+  static bool IsInsertStatusOkReplaced(const Status& s);
+
  private:
   static inline uint32_t HashSlice(const Slice& s) {
     return static_cast<uint32_t>(GetSliceNPHash64(s));
