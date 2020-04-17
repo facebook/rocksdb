@@ -121,14 +121,32 @@ default_params = {
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
+_DISK_TEMP_DIR_ENV_VAR = "DISK_TEMP_DIR"
+_HOME_ENV_VAR = "HOME"
+
+
+def need_direct_io_support(params):
+    return (params["use_direct_reads"] == 1 or \
+            params["use_direct_io_for_flush_and_compaction"] == 1) and \
+            params["mmap_read"] == 0
 
 
 def get_dbname(test_name):
+    test_dir_name = "rocksdb_crashtest_" + test_name
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
-        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_' + test_name)
+        dbname = tempfile.mkdtemp(prefix=test_dir_name)
     else:
-        dbname = test_tmpdir + "/rocksdb_crashtest_" + test_name
+        dbname = test_tmpdir + "/" + test_dir_name
+        shutil.rmtree(dbname, True)
+        os.mkdir(dbname)
+    if need_direct_io_support(default_params) and \
+            not is_direct_io_supported(dbname):
+        shutil.rmtree(dbname, True)
+        test_tmpdir = os.environ.get(_DISK_TEMP_DIR_ENV_VAR)
+        if test_tmpdir is None:
+            test_tmpdir = os.environ.get(_HOME_ENV_VAR)
+        dbname = test_tmpdir + "/" + test_dir_name
         shutil.rmtree(dbname, True)
         os.mkdir(dbname)
     return dbname
@@ -215,10 +233,14 @@ def finalize_and_sanitize(src_params):
         dest_params["compression_zstd_max_train_bytes"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
-    if dest_params["mmap_read"] == 1 or not is_direct_io_supported(
-            dest_params["db"]):
+    if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+    if need_direct_io_support(dest_params) and \
+            not is_direct_io_supported(dest_params["db"]):
+        print("%s does not support direct IO".format(dest_params["db"]))
+        sys.exit(1)
+
     # DeleteRange is not currnetly compatible with Txns
     if dest_params.get("test_batches_snapshots") == 1 or \
             dest_params.get("use_txn") == 1:
