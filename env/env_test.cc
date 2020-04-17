@@ -1937,7 +1937,13 @@ class TestEnv : public EnvWrapper {
   int close_count;
 };
 
-class EnvTest : public testing::Test {};
+class EnvTest : public testing::Test {
+ public:
+  EnvTest() : test_directory_(test::PerThreadDBPath("env_test")) {}
+
+ protected:
+  const std::string test_directory_;
+};
 
 TEST_F(EnvTest, Close) {
   TestEnv* env = new TestEnv();
@@ -2088,6 +2094,31 @@ TEST_F(EnvTest, MultipleCompositeEnv) {
   ASSERT_EQ(env1->GetBackgroundThreads(Env::HIGH), 8);
   ASSERT_EQ(env2->GetBackgroundThreads(Env::LOW), 16);
   ASSERT_EQ(env2->GetBackgroundThreads(Env::HIGH), 8);
+}
+
+TEST_F(EnvTest, IsDirectory) {
+  Status s = Env::Default()->CreateDirIfMissing(test_directory_);
+  ASSERT_OK(s);
+  const std::string test_sub_dir = test_directory_ + "sub1";
+  const std::string test_file_path = test_directory_ + "file1";
+  ASSERT_OK(Env::Default()->CreateDirIfMissing(test_sub_dir));
+  bool is_dir = false;
+  ASSERT_OK(Env::Default()->IsDirectory(test_sub_dir, &is_dir));
+  ASSERT_TRUE(is_dir);
+  {
+    std::unique_ptr<FSWritableFile> wfile;
+    s = Env::Default()->GetFileSystem()->NewWritableFile(
+        test_file_path, FileOptions(), &wfile, /*dbg=*/nullptr);
+    ASSERT_OK(s);
+    std::unique_ptr<WritableFileWriter> fwriter;
+    fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
+                                         FileOptions(), Env::Default()));
+    constexpr char buf[] = "test";
+    s = fwriter->Append(buf);
+    ASSERT_OK(s);
+  }
+  ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
+  ASSERT_FALSE(is_dir);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

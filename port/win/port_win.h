@@ -365,6 +365,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_PathIsRelative PathIsRelativeW
 #define RX_GetCurrentDirectory GetCurrentDirectoryW
 #define RX_GetDiskFreeSpaceEx GetDiskFreeSpaceExW
+#define RX_PathIsDirectory PathIsDirectoryW
 
 #else
 
@@ -389,6 +390,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_PathIsRelative PathIsRelativeA
 #define RX_GetCurrentDirectory GetCurrentDirectoryA
 #define RX_GetDiskFreeSpaceEx GetDiskFreeSpaceExA
+#define RX_PathIsDirectory PathIsDirectoryA
 
 #endif
 
