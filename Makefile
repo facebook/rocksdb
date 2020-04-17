@@ -1187,6 +1187,17 @@ tags0:
 format:
 	build_tools/format-diff.sh
 
+buck-targets:
+	python buckifier/buckify_rocksdb.py
+
+check-buck-targets: buck-targets
+	$(eval TMP=$(shell bash -c "git diff TARGETS |head -n 1"))
+	if [ -z "$(TMP)" ]; then \
+		exit 0; \
+	else \
+		exit 1; \
+	fi
+
 package:
 	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
 
