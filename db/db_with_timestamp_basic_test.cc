@@ -452,10 +452,10 @@ TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
 // Create two L0, and compact them to a new L1. In this test, L1 is L_bottom.
 // Two L0s:
 //       f1                                  f2
-// <a, 1, kTypeValue>    <a, 3, kTypeDeletion>...<b, 2, kTypeValue>
+// <a, 1, kTypeValue>    <a, 3, kTypeDeletionWithTimestamp>...<b, 2, kTypeValue>
 // Since f2.smallest < f1.largest < f2.largest
 // f1 and f2 will be the inputs of a real compaction instead of trivial move.
-TEST_F(DBBasicTestWithTimestamp, CompactToBottomLevelAndDropTombstone) {
+TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -484,11 +484,18 @@ TEST_F(DBBasicTestWithTimestamp, CompactToBottomLevelAndDropTombstone) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   ReadOptions read_opts;
-  ts_str = Timestamp(3, 0);
+  ts_str = Timestamp(1, 0);
   ts = ts_str;
   read_opts.timestamp = &ts;
   std::string value;
   Status s = db_->Get(read_opts, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("value0", value);
+
+  ts_str = Timestamp(3, 0);
+  ts = ts_str;
+  read_opts.timestamp = &ts;
+  s = db_->Get(read_opts, "a", &value);
   ASSERT_TRUE(s.IsNotFound());
   Close();
 }
