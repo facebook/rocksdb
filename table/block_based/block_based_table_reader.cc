@@ -2171,7 +2171,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     size_t ts_sz =
         rep_->internal_comparator.user_comparator()->timestamp_size();
-    bool matched = false;  // if such user key mathced a key in SST
+    bool matched = false;  // if such user key matched a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
