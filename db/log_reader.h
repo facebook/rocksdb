@@ -49,7 +49,6 @@ class Reader {
   //
   // If "checksum" is true, verify checksums if available.
   Reader(std::shared_ptr<Logger> info_log,
-         // @lint-ignore TXT2 T25377293 Grandfathered in
          std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
          bool checksum, uint64_t log_num);
   // No copying allowed
@@ -159,7 +158,6 @@ class Reader {
 class FragmentBufferedReader : public Reader {
  public:
   FragmentBufferedReader(std::shared_ptr<Logger> info_log,
-                         // @lint-ignore TXT2 T25377293 Grandfathered in
                          std::unique_ptr<SequentialFileReader>&& _file,
                          Reporter* reporter, bool checksum, uint64_t log_num)
       : Reader(info_log, std::move(_file), reporter, checksum, log_num),
