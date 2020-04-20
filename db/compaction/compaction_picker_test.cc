@@ -85,7 +85,7 @@ class CompactionPickerTest : public testing::Test {
     input_files_.clear();
   }
 
-  void Add(int level, uint32_t file_number, const char* smallest,
+  FileMetaData* Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            size_t compensated_file_size = 0) {
@@ -102,6 +102,7 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->AddFile(level, f);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
+    return f;
   }
 
   void SetCompactionInputFilesLevels(int level_count, int start_level) {
@@ -256,6 +257,26 @@ TEST_F(CompactionPickerTest, NeedsCompactionLevel) {
       DeleteVersionStorage();
     }
   }
+}
+
+TEST_F(CompactionPickerTest, LevelTriggerDeletion) {
+  NewVersionStorage(4, kCompactionStyleLevel);
+  // Level 1: 1 small file, all entries are deletions.
+  FileMetaData* f = Add(1, 1U, "150", "200", 1U);
+  f->num_deletions = 100;
+  f->num_entries = 100;
+  // Level 2: 1 large file, no deletions.
+  Add(2, 2U, "150", "200", 1000000U);
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(1, vstorage_->CompactionScoreLevel(0));
+  ASSERT_EQ(1, vstorage_->CompactionScore(0));
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
 }
 
 TEST_F(CompactionPickerTest, Level0TriggerDynamic) {

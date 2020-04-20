@@ -2423,15 +2423,25 @@ void VersionStorageInfo::ComputeCompactionScore(
         }
       }
     } else {
-      // Compute the ratio of current size to size limit.
+      // The score is the maxium between
+      // the ratio of current size to size limit and
+      // the ratio of number of deletion to total entries.
       uint64_t level_bytes_no_compacting = 0;
+      uint64_t total_deletions = 0;
+      uint64_t total_entries = 0;
       for (auto f : files_[level]) {
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
+          total_deletions += f->num_deletions;
+          total_entries += f->num_entries;
         }
       }
       score = static_cast<double>(level_bytes_no_compacting) /
-              MaxBytesForLevel(level);
+          MaxBytesForLevel(level);
+      if (total_entries > 0) {
+        score = std::max(score,
+            static_cast<double>(total_deletions) / total_entries);
+      }
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
