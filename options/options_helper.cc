@@ -191,6 +191,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.ttl = mutable_cf_options.ttl;
   cf_opts.periodic_compaction_seconds =
       mutable_cf_options.periodic_compaction_seconds;
+  cf_opts.deletion_ratio_compaction_trigger =
+      mutable_cf_options.deletion_ratio_compaction_trigger;
 
   cf_opts.max_bytes_for_level_multiplier_additional.clear();
   for (auto value :
