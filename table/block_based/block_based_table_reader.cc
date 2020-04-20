@@ -53,12 +53,12 @@
 #include "table/two_level_iterator.h"
 
 #include "monitoring/perf_context_imp.h"
+#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {

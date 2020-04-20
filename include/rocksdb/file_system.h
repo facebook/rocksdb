@@ -105,6 +105,8 @@ struct FileOptions : EnvOptions {
 
   FileOptions(const FileOptions& opts)
     : EnvOptions(opts), io_options(opts.io_options) {}
+
+  FileOptions& operator=(const FileOptions& opts) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem

@@ -1,6 +1,6 @@
 version: 1.0.{build}
 
-image: Visual Studio 2017
+image: Visual Studio 2019
 
 environment:
   JAVA_HOME: C:\Program Files\Java\jdk1.8.0
@@ -24,6 +24,15 @@ environment:
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
       CMAKE_GENERATOR: Visual Studio 15 Win64
       DEV_ENV: C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE\devenv.com
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+      CMAKE_GENERATOR: Visual Studio 16
+      CMAKE_PLATEFORM_NAME: x64
+      DEV_ENV: C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\devenv.com
+    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
+      CMAKE_GENERATOR: Visual Studio 16
+      CMAKE_PLATEFORM_NAME: x64
+      CMAKE_OPT: -DCMAKE_CXX_STANDARD=20
+      DEV_ENV: C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\devenv.com
 
 install:
   - md %THIRDPARTY_HOME%
@@ -34,7 +43,8 @@ install:
   - cd snappy-1.1.7
   - mkdir build
   - cd build
-  - cmake -G "%CMAKE_GENERATOR%" ..
+  - if DEFINED CMAKE_PLATEFORM_NAME (set "PLATEFORM_OPT=-A %CMAKE_PLATEFORM_NAME%")
+  - cmake .. -G "%CMAKE_GENERATOR%" %PLATEFORM_OPT%
   - msbuild Snappy.sln /p:Configuration=Debug /p:Platform=x64
   - msbuild Snappy.sln /p:Configuration=Release /p:Platform=x64
   - echo "Building LZ4 dependency..."
@@ -57,7 +67,8 @@ install:
 before_build:
   - md %APPVEYOR_BUILD_FOLDER%\build
   - cd %APPVEYOR_BUILD_FOLDER%\build
-  - cmake -G "%CMAKE_GENERATOR%" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DLZ4=1 -DZSTD=1 -DXPRESS=1 -DJNI=1 ..
+  - if DEFINED CMAKE_PLATEFORM_NAME (set "PLATEFORM_OPT=-A %CMAKE_PLATEFORM_NAME%")
+  - cmake .. -G "%CMAKE_GENERATOR%" %PLATEFORM_OPT% %CMAKE_OPT% -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DLZ4=1 -DZSTD=1 -DXPRESS=1 -DJNI=1
   - cd ..
 
 build:
