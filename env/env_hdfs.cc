@@ -609,6 +609,18 @@ Status HdfsEnv::NewLogger(const std::string& fname,
   return Status::OK();
 }
 
+Status HdfsEnv::IsDirectory(const std::string& path, bool* is_dir) {
+  hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, path.c_str());
+  if (pFileInfo != nullptr) {
+    if (is_dir != nullptr) {
+      *is_dir = (pFileInfo->mKind == tObjectKindDirectory);
+    }
+    hdfsFreeFileInfo(pFileInfo, 1);
+    return Status::OK();
+  }
+  return IOError(path, errno);
+}
+
 // The factory method for creating an HDFS Env
 Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
   *hdfs_env = new HdfsEnv(fsname);

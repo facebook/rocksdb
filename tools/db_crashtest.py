@@ -66,7 +66,7 @@ default_params = {
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
-    "open_files": lambda : random.choice([-1, 500000]),
+    "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "partition_filters": lambda: random.randint(0, 1),
     "pause_background_one_in": 1000000,
     "prefixpercent": 5,

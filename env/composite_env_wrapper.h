@@ -492,6 +492,12 @@ class CompositeEnvWrapper : public Env {
     return file_system_->NewLogger(fname, io_opts, result, &dbg);
   }
 
+  Status IsDirectory(const std::string& path, bool* is_dir) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->IsDirectory(path, io_opts, is_dir, &dbg);
+  }
+
 #if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,
@@ -1080,6 +1086,10 @@ class LegacyFileSystemWrapper : public FileSystem {
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& /*options*/,
                         uint64_t* diskfree, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->GetFreeSpace(path, diskfree));
+  }
+  IOStatus IsDirectory(const std::string& path, const IOOptions& /*options*/,
+                       bool* is_dir, IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
  private:

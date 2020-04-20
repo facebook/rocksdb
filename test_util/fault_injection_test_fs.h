@@ -364,10 +364,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int frames;
 
     explicit ErrorContext(uint32_t seed)
-      : rand(seed),
-        enable_error_injection(false),
-        callstack(nullptr),
-    frames(0) {}
+        : rand(seed),
+          enable_error_injection(false),
+          callstack(nullptr),
+          frames(0) {}
     ~ErrorContext() {
       if (callstack) {
         free(callstack);
