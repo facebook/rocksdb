@@ -9,6 +9,7 @@
 
 #include "test_util/testutil.h"
 
+#include <fcntl.h>
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -506,6 +507,23 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   }
 
   return count;
+}
+
+void SetupSyncPointsToMockDirectIO() {
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX) && !defined(OS_OPENBSD)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+#endif
 }
 
 }  // namespace test
