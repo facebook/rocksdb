@@ -133,7 +133,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct MutableDBOptions, base_background_compactions)}},
         {"max_background_flushes",
          {offsetof(struct DBOptions, max_background_flushes), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableDBOptions, max_background_flushes)}},
         {"max_file_opening_threads",
          {offsetof(struct DBOptions, max_file_opening_threads),
           OptionType::kInt, OptionVerificationType::kNormal,
@@ -354,7 +355,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
       max_subcompactions(options.max_subcompactions),
-      max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),
       keep_log_file_num(options.keep_log_file_num),
@@ -472,8 +472,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                     Options.max_subcompactions: %" PRIu32,
                    max_subcompactions);
-  ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
-                   max_background_flushes);
   ROCKS_LOG_HEADER(log,
                    "                        Options.WAL_ttl_seconds: %" PRIu64,
                    wal_ttl_seconds);
@@ -587,7 +585,8 @@ MutableDBOptions::MutableDBOptions()
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
-      compaction_readahead_size(0) {}
+      compaction_readahead_size(0),
+      max_background_flushes(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -606,7 +605,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
-      compaction_readahead_size(options.compaction_readahead_size) {}
+      compaction_readahead_size(options.compaction_readahead_size),
+      max_background_flushes(options.max_background_flushes) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -647,6 +647,8 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "      Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
                    compaction_readahead_size);
+  ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
+                          max_background_flushes);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
