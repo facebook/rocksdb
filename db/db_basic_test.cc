@@ -2421,7 +2421,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
           file_(std::move(file)) {}
 
     IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
-                  Slice* result, char* scratch, IODebugContext* dbg) const {
+          Slice* result, char* scratch, IODebugContext* dbg) const override {
       int delay;
       if (fs_.ShouldDelay(&delay)) {
         Env::Default()->SleepForMicroseconds(delay);
@@ -2431,7 +2431,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
     }
 
     IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-                       const IOOptions& options, IODebugContext* dbg) {
+          const IOOptions& options, IODebugContext* dbg) override {
       int delay;
       if (fs_.ShouldDelay(&delay)) {
         Env::Default()->SleepForMicroseconds(delay);
@@ -2452,7 +2452,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
     IOStatus NewRandomAccessFile(const std::string& fname,
                                  const FileOptions& opts,
                                  std::unique_ptr<FSRandomAccessFile>* result,
-                                 IODebugContext* dbg) {
+                                 IODebugContext* dbg) override {
       std::unique_ptr<FSRandomAccessFile> file;
       IOStatus s;
 
