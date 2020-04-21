@@ -1769,7 +1769,7 @@ class DBImpl : public DB {
   // to have acquired the SuperVersion and pass in a snapshot sequence number
   // in order to construct the LookupKeys. The start_key and num_keys specify
   // the range of keys in the sorted_keys vector for a single column family.
-  void MultiGetImpl(
+  Status MultiGetImpl(
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,

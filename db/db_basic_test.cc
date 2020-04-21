@@ -1890,17 +1890,14 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
 }
 #endif  // !ROCKSDB_LITE
 
-class DBBasicTestWithParallelIO
-    : public DBTestBase,
-      public testing::WithParamInterface<
-          std::tuple<bool, bool, bool, bool, uint32_t>> {
+class DBBasicTestMultiGet : public DBTestBase {
  public:
-  DBBasicTestWithParallelIO() : DBTestBase("/db_basic_test_with_parallel_io") {
-    bool compressed_cache = std::get<0>(GetParam());
-    bool uncompressed_cache = std::get<1>(GetParam());
-    compression_enabled_ = std::get<2>(GetParam());
-    fill_cache_ = std::get<3>(GetParam());
-    uint32_t compression_parallel_threads = std::get<4>(GetParam());
+  DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
+                      bool uncompressed_cache, bool compression_enabled,
+                      bool fill_cache, uint32_t compression_parallel_threads)
+      : DBTestBase(test_dir) {
+    compression_enabled_ = compression_enabled;
+    fill_cache_ = fill_cache;
 
     if (compressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
@@ -1960,22 +1957,43 @@ class DBBasicTestWithParallelIO
     }
     Reopen(options);
 
-    std::string zero_str(128, '\0');
-    for (int i = 0; i < 100; ++i) {
-      // Make the value compressible. A purely random string doesn't compress
-      // and the resultant data block will not be compressed
-      values_.emplace_back(RandomString(&rnd, 128) + zero_str);
-      assert(Put(Key(i), values_[i]) == Status::OK());
+    if (num_cfs > 1) {
+      for (int cf = 0; cf < num_cfs; ++cf) {
+        cf_names_.emplace_back("cf" + std::to_string(cf));
+      }
+      CreateColumnFamilies(cf_names_, options);
+      cf_names_.emplace_back("default");
     }
-    Flush();
 
-    for (int i = 0; i < 100; ++i) {
-      // block cannot gain space by compression
-      uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
-      std::string tmp_key = "a" + Key(i);
-      assert(Put(tmp_key, uncompressable_values_[i]) == Status::OK());
+    std::string zero_str(128, '\0');
+    for (int cf = 0; cf < num_cfs; ++cf) {
+      for (int i = 0; i < 100; ++i) {
+        // Make the value compressible. A purely random string doesn't compress
+        // and the resultant data block will not be compressed
+        values_.emplace_back(RandomString(&rnd, 128) + zero_str);
+        assert(((num_cfs == 1) ? Put(Key(i), values_[i])
+                               : Put(cf, Key(i), values_[i])) == Status::OK());
+      }
+      if (num_cfs == 1) {
+        Flush();
+      } else {
+        dbfull()->Flush(FlushOptions(), handles_[cf]);
+      }
+
+      for (int i = 0; i < 100; ++i) {
+        // block cannot gain space by compression
+        uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
+        std::string tmp_key = "a" + Key(i);
+        assert(((num_cfs == 1) ? Put(tmp_key, uncompressable_values_[i])
+                               : Put(cf, tmp_key, uncompressable_values_[i])) ==
+               Status::OK());
+      }
+      if (num_cfs == 1) {
+        Flush();
+      } else {
+        dbfull()->Flush(FlushOptions(), handles_[cf]);
+      }
     }
-    Flush();
   }
 
   bool CheckValue(int i, const std::string& value) {
@@ -1991,6 +2009,8 @@ class DBBasicTestWithParallelIO
     }
     return false;
   }
+
+  const std::vector<std::string>& GetCFNames() const { return cf_names_; }
 
   int num_lookups() { return uncompressed_cache_->num_lookups(); }
   int num_found() { return uncompressed_cache_->num_found(); }
@@ -2008,7 +2028,7 @@ class DBBasicTestWithParallelIO
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
- private:
+ protected:
   class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
    public:
     MyFlushBlockPolicyFactory() {}
@@ -2143,6 +2163,19 @@ class DBBasicTestWithParallelIO
   std::vector<std::string> values_;
   std::vector<std::string> uncompressable_values_;
   bool fill_cache_;
+  std::vector<std::string> cf_names_;
+};
+
+class DBBasicTestWithParallelIO
+    : public DBBasicTestMultiGet,
+      public testing::WithParamInterface<
+          std::tuple<bool, bool, bool, bool, uint32_t>> {
+ public:
+  DBBasicTestWithParallelIO()
+      : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,
+                            std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam()), std::get<3>(GetParam()),
+                            std::get<4>(GetParam())) {}
 };
 
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
@@ -2362,6 +2395,254 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                         ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Values(1, 4)));
+
+// A test class for intercepting random reads and injecting artificial
+// delays. Used for testing the deadline/timeout feature
+class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
+ public:
+  DBBasicTestMultiGetDeadline()
+      : DBBasicTestMultiGet("db_basic_test_multiget_deadline" /*Test dir*/,
+                             10 /*# of column families*/,
+                             false /*compressed cache enabled*/,
+                             true /*uncompressed cache enabled*/,
+                             true /*compression enabled*/,
+                             true /*ReadOptions.fill_cache*/,
+                             1 /*# of parallel compression threads*/) {}
+
+  // Forward declaration
+  class DeadlineFS;
+
+  class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
+   public:
+    DeadlineRandomAccessFile(DeadlineFS& fs,
+                             std::unique_ptr<FSRandomAccessFile>& file)
+        : FSRandomAccessFileWrapper(file.get()),
+          fs_(fs),
+          file_(std::move(file)) {}
+
+    IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
+          Slice* result, char* scratch, IODebugContext* dbg) const override {
+      int delay;
+      if (fs_.ShouldDelay(&delay)) {
+        Env::Default()->SleepForMicroseconds(delay);
+      }
+      return FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
+                                             dbg);
+    }
+
+    IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+          const IOOptions& options, IODebugContext* dbg) override {
+      int delay;
+      if (fs_.ShouldDelay(&delay)) {
+        Env::Default()->SleepForMicroseconds(delay);
+      }
+      return FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
+    }
+
+   private:
+    DeadlineFS& fs_;
+    std::unique_ptr<FSRandomAccessFile> file_;
+  };
+
+  class DeadlineFS : public FileSystemWrapper {
+   public:
+    DeadlineFS() : FileSystemWrapper(FileSystem::Default()) {}
+    ~DeadlineFS() = default;
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s;
+
+      s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      result->reset(new DeadlineRandomAccessFile(*this, file));
+      return s;
+    }
+
+    // Set a vector of {IO counter, delay in microseconds} pairs that control
+    // when to inject a delay and duration of the delay
+    void SetDelaySequence(const std::vector<std::pair<int, int>>&& seq) {
+      int total_delay = 0;
+      for (auto& seq_iter : seq) {
+        // Ensure no individual delay is > 500ms
+        ASSERT_LT(seq_iter.second, 500000);
+        total_delay += seq_iter.second;
+      }
+      // ASSERT total delay is < 1s. This is mainly to keep the test from
+      // timing out in CI test frameworks
+      ASSERT_LT(total_delay, 1000000);
+      delay_seq_ = seq;
+      delay_idx_ = 0;
+      io_count_ = 0;
+    }
+
+    // Increment the IO counter and return a delay in microseconds
+    bool ShouldDelay(int* delay) {
+      if (delay_idx_ < delay_seq_.size() &&
+          delay_seq_[delay_idx_].first == io_count_++) {
+        *delay = delay_seq_[delay_idx_].second;
+        delay_idx_++;
+        return true;
+      }
+      return false;
+    }
+
+   private:
+    std::vector<std::pair<int, int>> delay_seq_;
+    size_t delay_idx_;
+    int io_count_;
+  };
+
+  inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      if (i < num_ok) {
+        EXPECT_OK(statuses[i]);
+      } else {
+        EXPECT_EQ(statuses[i], Status::TimedOut());
+      }
+    }
+  }
+};
+
+TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
+  std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
+      new DBBasicTestMultiGetDeadline::DeadlineFS());
+  std::unique_ptr<Env> env = NewCompositeEnv(fs);
+  Options options = CurrentOptions();
+
+  std::shared_ptr<Cache> cache = NewLRUCache(1048576);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.env = env.get();
+  ReopenWithColumnFamilies(GetCFNames(), options);
+
+  // Test the non-batched version of MultiGet with multiple column
+  // families
+  std::vector<std::string> key_str;
+  size_t i;
+  for (i = 0; i < 5; ++i) {
+    key_str.emplace_back(Key(static_cast<int>(i)));
+  }
+  std::vector<ColumnFamilyHandle*> cfs(key_str.size());
+  ;
+  std::vector<Slice> keys(key_str.size());
+  std::vector<std::string> values(key_str.size());
+  for (i = 0; i < key_str.size(); ++i) {
+    cfs[i] = handles_[i];
+    keys[i] = Slice(key_str[i].data(), key_str[i].size());
+  }
+  // Delay the first IO by 200ms
+  fs->SetDelaySequence({{0, 200000}});
+
+  ReadOptions ro;
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
+  std::cout << "Non-batched MultiGet";
+  // The first key is successful because we check after the lookup, but
+  // subsequent keys fail due to deadline exceeded
+  CheckStatus(statuses, 1);
+
+  // Clear the cache
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  // Test non-batched Multiget with multiple column families and
+  // introducing an IO delay in one of the middle CFs
+  key_str.clear();
+  for (i = 0; i < 10; ++i) {
+    key_str.emplace_back(Key(static_cast<int>(i)));
+  }
+  cfs.resize(key_str.size());
+  keys.resize(key_str.size());
+  values.resize(key_str.size());
+  for (i = 0; i < key_str.size(); ++i) {
+    // 2 keys per CF
+    cfs[i] = handles_[i / 2];
+    keys[i] = Slice(key_str[i].data(), key_str[i].size());
+  }
+  fs->SetDelaySequence({{1, 200000}});
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
+  std::cout << "Non-batched 2";
+  CheckStatus(statuses, 3);
+
+  // Test batched MultiGet with an IO delay in the first data block read.
+  // Both keys in the first CF should succeed as they're in the same data
+  // block and would form one batch, and we check for deadline between
+  // batches.
+  std::vector<PinnableSlice> pin_values(keys.size());
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  statuses.clear();
+  statuses.resize(keys.size());
+  fs->SetDelaySequence({{0, 200000}});
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
+                     pin_values.data(), statuses.data());
+  std::cout << "Batched 1";
+  CheckStatus(statuses, 2);
+
+  // Similar to the previous one, but an IO delay in the third CF data block
+  // read
+  for (PinnableSlice& value : pin_values) {
+    value.Reset();
+  }
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  statuses.clear();
+  statuses.resize(keys.size());
+  fs->SetDelaySequence({{2, 200000}});
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
+                     pin_values.data(), statuses.data());
+  std::cout << "Batched 2";
+  CheckStatus(statuses, 6);
+
+  // Similar to the previous one, but an IO delay in the last but one CF
+  for (PinnableSlice& value : pin_values) {
+    value.Reset();
+  }
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  statuses.clear();
+  statuses.resize(keys.size());
+  fs->SetDelaySequence({{3, 200000}});
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
+                     pin_values.data(), statuses.data());
+  std::cout << "Batched 3";
+  CheckStatus(statuses, 8);
+
+  // Test batched MultiGet with single CF and lots of keys. Inject delay
+  // into the second batch of keys. As each batch is 32, the first 64 keys,
+  // i.e first two batches, should succeed and the rest should time out
+  for (PinnableSlice& value : pin_values) {
+    value.Reset();
+  }
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  key_str.clear();
+  for (i = 0; i < 100; ++i) {
+    key_str.emplace_back(Key(static_cast<int>(i)));
+  }
+  keys.resize(key_str.size());
+  pin_values.clear();
+  pin_values.resize(key_str.size());
+  for (i = 0; i < key_str.size(); ++i) {
+    keys[i] = Slice(key_str[i].data(), key_str[i].size());
+  }
+  statuses.clear();
+  statuses.resize(keys.size());
+  fs->SetDelaySequence({{1, 200000}});
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
+                     pin_values.data(), statuses.data());
+  std::cout << "Batched single CF";
+  CheckStatus(statuses, 64);
+  Close();
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

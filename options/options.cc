@@ -607,7 +607,8 @@ ReadOptions::ReadOptions()
       ignore_range_deletions(false),
       iter_start_seqnum(0),
       timestamp(nullptr),
-      iter_start_ts(nullptr) {}
+      iter_start_ts(nullptr),
+      deadline(std::chrono::microseconds::zero()) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -628,6 +629,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       ignore_range_deletions(false),
       iter_start_seqnum(0),
       timestamp(nullptr),
-      iter_start_ts(nullptr) {}
+      iter_start_ts(nullptr),
+      deadline(std::chrono::microseconds::zero()) {}
 
 }  // namespace ROCKSDB_NAMESPACE
