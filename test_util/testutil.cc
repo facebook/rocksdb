@@ -387,7 +387,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
-  cf_opt->deletion_ratio_compaction_trigger = 
+  cf_opt->deletion_ratio_compaction_trigger =
       static_cast<double>(rnd->Uniform(100)) / 100.0;
 
   // int options

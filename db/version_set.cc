@@ -2437,7 +2437,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         }
       }
       score = static_cast<double>(level_bytes_no_compacting) /
-          MaxBytesForLevel(level);
+              MaxBytesForLevel(level);
       if (total_entries > 0) {
         double deletion_ratio =
             static_cast<double>(total_deletions) / total_entries;

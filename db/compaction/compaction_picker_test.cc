@@ -86,9 +86,10 @@ class CompactionPickerTest : public testing::Test {
   }
 
   FileMetaData* Add(int level, uint32_t file_number, const char* smallest,
-           const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
-           SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
-           size_t compensated_file_size = 0) {
+                    const char* largest, uint64_t file_size = 1,
+                    uint32_t path_id = 0, SequenceNumber smallest_seq = 100,
+                    SequenceNumber largest_seq = 100,
+                    size_t compensated_file_size = 0) {
     assert(level < vstorage_->num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, path_id, file_size,

@@ -145,7 +145,8 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
         max_compaction_bytes(options.max_compaction_bytes),
-        deletion_ratio_compaction_trigger(options.deletion_ratio_compaction_trigger),
+        deletion_ratio_compaction_trigger(
+            options.deletion_ratio_compaction_trigger),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
