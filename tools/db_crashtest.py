@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import random
+import re
 import tempfile
 import subprocess
 import shutil
@@ -217,6 +218,13 @@ txn_params = {
     "enable_pipelined_write": 0,
 }
 
+best_efforts_recovery_params = {
+    "best_efforts_recovery": True,
+    "skip_verifydb": True,
+    "verify_db_one_in": 0,
+    "continuous_verification_interval": 0,
+}
+
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
@@ -287,6 +295,8 @@ def gen_cmd_params(args):
         params.update(cf_consistency_params)
     if args.txn:
         params.update(txn_params)
+    if args.test_best_efforts_recovery:
+        params.update(best_efforts_recovery_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -300,9 +310,47 @@ def gen_cmd(params, unknown_params):
         '--{0}={1}'.format(k, v)
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
-                         'random_kill_odd', 'cf_consistency', 'txn'])
+                         'random_kill_odd', 'cf_consistency', 'txn',
+                         'test_best_efforts_recovery'])
         and v is not None] + unknown_params
     return cmd
+
+
+# Inject inconsistency to db directory.
+def inject_inconsistencies_to_db_dir(dir_path):
+    files = os.listdir(dir_path)
+    file_num_rgx = re.compile(r'(?P<number>[0-9]{6})')
+    largest_fnum = 0
+    for f in files:
+        m = file_num_rgx.search(f)
+        if m and not f.startswith('LOG'):
+            largest_fnum = max(largest_fnum, int(m.group('number')))
+
+    candidates = [
+        f for f in files if re.search(r'[0-9]+\.sst', f)
+    ]
+    deleted = 0
+    corrupted = 0
+    for f in candidates:
+        rnd = random.randint(0, 99)
+        f_path = os.path.join(dir_path, f)
+        if rnd < 10:
+            os.unlink(f_path)
+            deleted = deleted + 1
+        elif 10 <= rnd and rnd < 30:
+            with open(f_path, "a") as fd:
+                fd.write('12345678')
+            corrupted = corrupted + 1
+    print('Removed %d table files' % deleted)
+    print('Corrupted %d table files' % corrupted)
+
+    # Add corrupted MANIFEST and SST
+    for num in range(largest_fnum + 1, largest_fnum + 10):
+        rnd = random.randint(0, 1)
+        fname = ("MANIFEST-%06d" % num) if rnd == 0 else ("%06d.sst" % num)
+        print('Write %s' % fname)
+        with open(os.path.join(dir_path, fname), "w") as fd:
+            fd.write("garbage")
 
 
 # This script runs and kills db_stress multiple times. It checks consistency
@@ -357,6 +405,11 @@ def blackbox_crash_main(args, unknown_args):
 
         if run_had_errors:
             sys.exit(2)
+
+        time.sleep(1)  # time to stabilize before the next run
+
+        if args.test_best_efforts_recovery:
+            inject_inconsistencies_to_db_dir(dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -510,6 +563,7 @@ def main():
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--cf_consistency", action='store_true')
     parser.add_argument("--txn", action='store_true')
+    parser.add_argument("--test_best_efforts_recovery", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
