@@ -269,8 +269,8 @@ TEST_F(CompactionPickerTest, LevelTriggerDeletion) {
   Add(2, 2U, "150", "200", 1000000U);
   UpdateVersionStorageInfo();
 
-  ASSERT_EQ(1, vstorage_->CompactionScoreLevel(0));
-  ASSERT_EQ(0.5, vstorage_->CompactionScore(0));
+  ASSERT_EQ(1, vstorage_->MaxNonL0DeletionRatioLevel());
+  ASSERT_EQ(0.5, vstorage_->MaxNonL0DeletionRatio());
 
   mutable_cf_options_.deletion_ratio_compaction_trigger = 0.5;
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
