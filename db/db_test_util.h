@@ -654,9 +654,6 @@ class CacheWrapper : public Cache {
   explicit CacheWrapper(std::shared_ptr<Cache> target)
       : target_(std::move(target)) {}
 
-  explicit CacheWrapper(std::shared_ptr<Cache>&& target)
-      : target_(std::move(target)) {}
-
   const char* Name() const override { return target_->Name(); }
 
   Status Insert(const Slice& key, void* value, size_t charge,

@@ -528,7 +528,7 @@ class LookupLiarCache : public CacheWrapper {
 
  public:
   explicit LookupLiarCache(std::shared_ptr<Cache> target)
-      : CacheWrapper(target) {}
+      : CacheWrapper(std::move(target)) {}
 
   Handle* Lookup(const Slice& key, Statistics* stats) override {
     if (nth_lookup_not_found_ == 1) {
@@ -550,9 +550,15 @@ class LookupLiarCache : public CacheWrapper {
 TEST_F(DBBlockCacheTest, AddRedundantStats) {
   const size_t capacity = size_t{1} << 25;
   const int num_shard_bits = 0;  // 1 shard
+  int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
         NewClockCache(capacity, num_shard_bits)}) {
+    if (!base_cache) {
+      // Skip clock cache when not supported
+      continue;
+    }
+    ++iterations_tested;
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -641,6 +647,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
     // --------
     EXPECT_EQ(3, TestGetTickerCount(options, BLOCK_CACHE_ADD_REDUNDANT));
   }
+  EXPECT_GE(iterations_tested, 1);
 }
 
 TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
