@@ -21,6 +21,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace test {
