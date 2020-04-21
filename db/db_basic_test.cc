@@ -2010,7 +2010,7 @@ class DBBasicTestMultiGet : public DBTestBase {
     return false;
   }
 
-  std::vector<std::string>& GetCFNames() { return cf_names_; }
+  const std::vector<std::string>& GetCFNames() const { return cf_names_; }
 
   int num_lookups() { return uncompressed_cache_->num_lookups(); }
   int num_found() { return uncompressed_cache_->num_found(); }

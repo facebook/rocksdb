@@ -1773,7 +1773,7 @@ std::vector<Status> DBImpl::MultiGet(
 
     LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
     auto cfh =
-        reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[keys_read]);
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_family[keys_read]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
@@ -2054,7 +2054,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     }
   }
 
-  for (auto iter : multiget_cf_data) {
+  for (const auto& iter : multiget_cf_data) {
     if (!unref_only) {
       ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
     } else {
