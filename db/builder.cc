@@ -94,6 +94,7 @@ Status BuildTable(
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
+  IOStatus io_s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -124,7 +125,11 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      s = NewWritableFile(fs, fname, &file, file_options);
+      io_s = NewWritableFile(fs, fname, &file, file_options);
+      s = io_s;
+      if (io_status->ok()) {
+        *io_status = io_s;
+      }
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
@@ -193,7 +198,10 @@ Status BuildTable(
     } else {
       s = builder->Finish();
     }
-    *io_status = builder->io_status();
+    io_s = builder->io_status();
+    if (io_status->ok()) {
+      *io_status = io_s;
+    }
 
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();

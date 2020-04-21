@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #ifndef ROCKSDB_LITE
 
+#include <iostream>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/io_status.h"
@@ -245,6 +247,112 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeError) {
   Destroy(options);
 }
 
+TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
+  // Fail the first resume and make the second resume successful
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 10;  // 0.1 second
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  Put(Key(1), "val1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:BeforeWait0",
+        "FLushWritRetryableeErrorAutoRecover:0"},
+       {"FLushWritRetryableeErrorAutoRecover:1",
+        "RecoverFromRetryableBGIOError:BeforeWait1"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FLushWritRetryableeErrorAutoRecover:2"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover:0");
+  fault_fs->SetFilesystemActive(true);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover:1");
+  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover:2");
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_EQ("val1", Get(Key(1)));
+  Reopen(options);
+  ASSERT_EQ("val1", Get(Key(1)));
+  Put(Key(2), "val2");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ("val2", Get(Key(2)));
+
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
+  // Activate the FS before the first resume
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 10;  // 0.1 second
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  Put(Key(1), "val1");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:BeforeResume0",
+        "FLushWritRetryableeErrorAutoRecover:0"},
+       {"FLushWritRetryableeErrorAutoRecover:1",
+        "RecoverFromRetryableBGIOError:BeforeResume1"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "FLushWritRetryableeErrorAutoRecover:2"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover:0");
+  fault_fs->SetFilesystemActive(true);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover:1");
+  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover:2");
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_EQ("val1", Get(Key(1)));
+  Reopen(options);
+  ASSERT_EQ("val1", Get(Key(1)));
+  Put(Key(2), "val2");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ("val2", Get(Key(2)));
+
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
@@ -323,6 +431,62 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   fault_fs->SetFilesystemActive(true);
   s = dbfull()->Resume();
   ASSERT_EQ(s, Status::OK());
+
+  new_manifest = GetManifestNameFromLiveFiles();
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  ASSERT_EQ("val", Get(Key(1)));
+  Close();
+}
+
+TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
+  // Fail the first resume and let the second resume be successful
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+  std::string old_manifest;
+  std::string new_manifest;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+  old_manifest = GetManifestNameFromLiveFiles();
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  Put(Key(0), "val");
+  Flush();
+  Put(Key(1), "val");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:BeforeWait0",
+        "ManifestWriteRetryableErrorAutoRecover:0"},
+       {"ManifestWriteRetryableErrorAutoRecover:1",
+        "RecoverFromRetryableBGIOError:BeforeWait1"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "ManifestWriteRetryableErrorAutoRecover:2"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  TEST_SYNC_POINT("ManifestWriteRetryableErrorAutoRecover:0");
+  fault_fs->SetFilesystemActive(true);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  TEST_SYNC_POINT("ManifestWriteRetryableErrorAutoRecover:1");
+  TEST_SYNC_POINT("ManifestWriteRetryableErrorAutoRecover:2");
+  SyncPoint::GetInstance()->DisableProcessing();
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -519,6 +683,96 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   SyncPoint::GetInstance()->DisableProcessing();
   s = dbfull()->Resume();
   ASSERT_EQ(s, Status::OK());
+
+  new_manifest = GetManifestNameFromLiveFiles();
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  ASSERT_EQ("val", Get(Key(1)));
+  ASSERT_EQ("val", Get(Key(2)));
+  Close();
+}
+
+TEST_F(DBErrorHandlingFSTest,
+       CompactionManifestWriteRetryableErrorAutoRecover) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+  std::string old_manifest;
+  std::string new_manifest;
+  std::atomic<bool> fail_manifest(false);
+  DestroyAndReopen(options);
+  old_manifest = GetManifestNameFromLiveFiles();
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  Put(Key(0), "val");
+  Put(Key(2), "val");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
+  listener->EnableAutoRecovery(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      // Wait for flush of 2nd L0 file before starting compaction
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"},
+       // Wait for compaction to detect manifest write error
+       {"BackgroundCallCompaction:1", "CompactionManifestWriteError:0"},
+       // Make compaction thread wait for error to be cleared
+       {"CompactionManifestWriteError:1",
+        "DBImpl::BackgroundCallCompaction:FoundObsoleteFiles"},
+       {"CompactionManifestWriteError:2",
+        "RecoverFromRetryableBGIOError:BeforeStart"},
+       // Fail the first resume, before the wait in resume
+       {"RecoverFromRetryableBGIOError:BeforeResume0",
+        "CompactionManifestWriteError:3"},
+       // Activate the FS before the second resume
+       {"CompactionManifestWriteError:4",
+        "RecoverFromRetryableBGIOError:BeforeResume1"},
+       // Wait the auto resume be sucessful
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "CompactionManifestWriteError:5"}});
+  // trigger manifest write failure in compaction thread
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void*) { fail_manifest.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (fail_manifest.load()) {
+          fault_fs->SetFilesystemActive(false, error_msg);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(Key(1), "val");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  TEST_SYNC_POINT("CompactionManifestWriteError:0");
+  TEST_SYNC_POINT("CompactionManifestWriteError:1");
+
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  std::cout << "After compaction finished\n";
+  TEST_SYNC_POINT("CompactionManifestWriteError:2");
+  TEST_SYNC_POINT("CompactionManifestWriteError:3");
+  fault_fs->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  TEST_SYNC_POINT("CompactionManifestWriteError:4");
+  TEST_SYNC_POINT("CompactionManifestWriteError:5");
+  SyncPoint::GetInstance()->DisableProcessing();
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);

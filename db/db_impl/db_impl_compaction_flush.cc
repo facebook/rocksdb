@@ -194,7 +194,9 @@ Status DBImpl::FlushMemTableToOutputFile(
   } else {
     flush_job.Cancel();
   }
-  io_s = flush_job.io_status();
+  if (io_s.ok()) {
+    io_s = flush_job.io_status();
+  }
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
@@ -1107,7 +1109,12 @@ Status DBImpl::CompactFilesImpl(
                    "[%s] [JOB %d] Compaction error: %s",
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id, status.ToString().c_str());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    IOStatus io_s = compaction_job.io_status();
+    if (!io_s.ok()) {
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
+    } else {
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    }
   }
 
   if (output_file_names != nullptr) {

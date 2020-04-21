@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "db/error_handler.h"
+#include <iostream>
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
@@ -177,7 +178,6 @@ void ErrorHandler::CancelErrorRecovery() {
 // end whether recovery succeeded or not
 Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
-
   if (bg_err.ok()) {
     return Status::OK();
   }
@@ -217,6 +217,7 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   // Check if recovery is currently in progress. If it is, we will save this
   // error so we can check it at the end to see if recovery succeeded or not
   if (recovery_in_prog_ && recovery_error_.ok()) {
+    std::cout << bg_err.ToString() << "; set recover error\n";
     recovery_error_ = new_bg_err;
   }
 
@@ -260,7 +261,9 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (bg_io_err.ok()) {
     return Status::OK();
   }
+  std::cout << bg_io_err.ToString() << "; set io error\n";
   if (recovery_in_prog_ && recovery_io_error_.ok()) {
+    std::cout << "set recovery io error\n";
     recovery_io_error_ = bg_io_err;
   }
   if (BackgroundErrorReason::kManifestWrite == reason) {
@@ -409,11 +412,11 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
 }
 
 Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
-  InstrumentedMutexLock l(db_mutex_);
+  db_mutex_->AssertHeld();
   if (bg_error_.ok() || io_error.ok()) {
     return Status::OK();
   }
-  if (db_options_.max_bgerror_resume_count <= 0) {
+  if (recovery_in_prog_ || db_options_.max_bgerror_resume_count <= 0) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
   }
@@ -438,6 +441,7 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
 void ErrorHandler::RecoverFromRetryableBGIOError() {
 #ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
+  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
   if (recovery_in_prog_) {
     return;
   }
@@ -452,11 +456,30 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     if (end_recovery_) {
       return;
     }
+    std::cout << "start to resume\n";
+    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
+    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
     recovery_io_error_ = IOStatus::OK();
     recovery_error_ = Status::OK();
     Status s = db_->ResumeImpl();
+    std::cout << "After resume is called\n";
+    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume0");
+    std::cout << "end resume" << s.ToString()
+              << " io:" << recovery_io_error_.ToString()
+              << " recover: " << recovery_error_.ToString() << "\n";
+    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
+    /*
+    recovery_io_error_ = IOStatus::OK();
+    recovery_error_ = Status::OK();
+    s = db_->ResumeImpl();
+    std::cout<<"end resume"<<s.ToString()<<"
+    io:"<<recovery_io_error_.ToString()<<" recover:
+    "<<recovery_error_.ToString()<<"\n";
+    TEST_SYNC_POINT("BGErrorAutoRecoveryFinished:2");
+    */
     if (s.IsShutdownInProgress() ||
         bg_error_.severity() >= Status::Severity::kFatalError) {
+      std::cout << "Do not continue auto resume\n";
       recovery_in_prog_ = false;
       return;
     }
@@ -464,15 +487,20 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         recovery_error_.severity() <= Status::Severity::kHardError &&
         recovery_io_error_.GetRetryable()) {
       // Wait on the condition
+      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait0");
+      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
       int64_t wait_until = db_->env_->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
+      std::cout << "The FS is set to active now\n";
     } else {
+      std::cout << "recover is successful\n";
       // There are four possibility: 1) recover_io_error is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
       // error happens during resume and cannot be resumed here
       if (recovery_io_error_.ok() && recovery_error_.ok() && s.ok()) {
         // recover from the retryable IO error and no other BG errors. Clean
         // the bg_error and notify user.
+        TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
         Status old_bg_error = bg_error_;
         bg_error_ = Status::OK();
         recovery_in_prog_ = false;
@@ -480,6 +508,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
                                                      old_bg_error, db_mutex_);
         return;
       } else {
+        std::cout << "should not use auto recover\n";
         // In this case: 1) recovery_io_error is more serious or not retryable
         // 2) other recovery_error happens. The auto recovery stops.
         recovery_in_prog_ = false;
@@ -496,17 +525,18 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 }
 
 void ErrorHandler::EndAutoRecovery() {
-  {
-    InstrumentedMutexLock l(db_mutex_);
-    if (end_recovery_) {
-      return;
-    }
-    end_recovery_ = true;
-    cv_.SignalAll();
+  db_mutex_->AssertHeld();
+  if (end_recovery_) {
+    return;
   }
+  end_recovery_ = true;
+  cv_.SignalAll();
+  db_mutex_->Unlock();
   if (recovery_thread_) {
     recovery_thread_->join();
   }
+  db_mutex_->Lock();
+  return;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
