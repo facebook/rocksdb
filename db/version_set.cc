@@ -2361,6 +2361,8 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableCFOptions& immutable_cf_options,
     const MutableCFOptions& mutable_cf_options) {
+  max_non_L0_deletion_ratio_ = 0;
+  max_non_L0_deletion_ratio_level_ = 1;
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -2423,9 +2425,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         }
       }
     } else {
-      // The score is the maxium between
-      // the ratio of current size to size limit and
-      // the ratio of number of deletion to total entries.
+      // The score is the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       uint64_t total_deletions = 0;
       uint64_t total_entries = 0;
@@ -2439,8 +2439,12 @@ void VersionStorageInfo::ComputeCompactionScore(
       score = static_cast<double>(level_bytes_no_compacting) /
           MaxBytesForLevel(level);
       if (total_entries > 0) {
-        score = std::max(score,
-            static_cast<double>(total_deletions) / total_entries);
+        double deletion_ratio =
+            static_cast<double>(total_deletions) / total_entries;
+        if (deletion_ratio > max_non_L0_deletion_ratio_) {
+          max_non_L0_deletion_ratio_ = deletion_ratio;
+          max_non_L0_deletion_ratio_level_ = level;
+        }
       }
     }
     compaction_level_[level] = level;

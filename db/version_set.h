@@ -209,6 +209,12 @@ class VersionStorageInfo {
   // Return idx'th highest score
   double CompactionScore(int idx) const { return compaction_score_[idx]; }
 
+  int MaxNonL0DeletionRatioLevel() const {
+    return max_non_L0_deletion_ratio_level_;
+  }
+
+  double MaxNonL0DeletionRatio() const { return max_non_L0_deletion_ratio_; }
+
   void GetOverlappingInputs(
       int level, const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,               // nullptr means after all keys
@@ -529,6 +535,10 @@ class VersionStorageInfo {
   // These are used to pick the best compaction level
   std::vector<double> compaction_score_;
   std::vector<int> compaction_level_;
+  // Computed along with compaction scores in ComputeCompactionScore.
+  double max_non_L0_deletion_ratio_ = 0;
+  int max_non_L0_deletion_ratio_level_ = 1;
+
   int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
                                     // for number of L0 files.
 

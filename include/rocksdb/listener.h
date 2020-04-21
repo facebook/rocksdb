@@ -65,6 +65,9 @@ enum class CompactionReason : int {
   kLevelL0FilesNum,
   // [Level] total size of level > MaxBytesForLevel()
   kLevelMaxLevelSize,
+  // [Level] ratio of number of deletion entries to number of total entries >=
+  // deletion_ratio_compaction_trigger
+  kLevelDeletionRatio,
   // [Universal] Compacting for size amplification
   kUniversalSizeAmplification,
   // [Universal] Compacting for size ratio

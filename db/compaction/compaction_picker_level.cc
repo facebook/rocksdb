@@ -238,6 +238,10 @@ void LevelCompactionBuilder::SetupInitialFiles() {
           }
         }
       }
+    } else {
+      // Compaction scores are sorted in descending order, no further scores
+      // will be >= 1.
+      break;
     }
   }
 
@@ -294,6 +298,17 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     if (!start_level_inputs_.empty()) {
       compaction_reason_ = CompactionReason::kPeriodicCompaction;
       return;
+    }
+  }
+
+  // Check whether deletion ratio can trigger compaction.
+  if (start_level_inputs_.empty() &&
+      vstorage_->MaxNonL0DeletionRatio() >=
+          mutable_cf_options_.deletion_ratio_compaction_trigger) {
+    start_level_ = vstorage_->MaxNonL0DeletionRatioLevel();
+    output_level_ = start_level_ + 1;
+    if (PickFileToCompact()) {
+      compaction_reason_ = CompactionReason::kLevelDeletionRatio;
     }
   }
 }

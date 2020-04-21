@@ -260,21 +260,24 @@ TEST_F(CompactionPickerTest, NeedsCompactionLevel) {
 }
 
 TEST_F(CompactionPickerTest, LevelTriggerDeletion) {
-  NewVersionStorage(4, kCompactionStyleLevel);
-  // Level 1: 1 small file, all entries are deletions.
+  NewVersionStorage(ioptions_.num_levels, kCompactionStyleLevel);
+  // Level 1: 1 small file, half of the entries are deletions.
   FileMetaData* f = Add(1, 1U, "150", "200", 1U);
-  f->num_deletions = 100;
   f->num_entries = 100;
+  f->num_deletions = 50;
   // Level 2: 1 large file, no deletions.
   Add(2, 2U, "150", "200", 1000000U);
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(1, vstorage_->CompactionScoreLevel(0));
-  ASSERT_EQ(1, vstorage_->CompactionScore(0));
+  ASSERT_EQ(0.5, vstorage_->CompactionScore(0));
 
+  mutable_cf_options_.deletion_ratio_compaction_trigger = 0.5;
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kLevelDeletionRatio);
   ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
 }

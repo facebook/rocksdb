@@ -563,8 +563,9 @@ struct AdvancedColumnFamilyOptions {
   // Default: kMinOverlappingRatio
   CompactionPri compaction_pri = kMinOverlappingRatio;
 
-  // For level compaction, if the ratio of number of deletion entries to the
-  // total number of entries >= this ratio, also trigger compaction.
+  // In level compaction, for non-zero level,
+  // if the ratio of number of deletion entries to the total number of entries
+  // >= this ratio, also trigger compaction.
   //
   // Default: 1
   //
