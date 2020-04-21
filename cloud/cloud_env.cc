@@ -71,7 +71,7 @@ void BucketOptions::TEST_Initialize(const std::string& bucket,
   if (!CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_BUCKET_NAME",
                                                "ROCKSDB_CLOUD_BUCKET_NAME",
                                                &bucket_)) {
-#ifdef _MSC_VER
+#ifdef _WIN32_WINNT
     char user_name[257];  // UNLEN + 1
     DWORD dwsize = sizeof(user_name);
     if (!::GetUserName(user_name, &dwsize)) {
