@@ -128,50 +128,25 @@ class CondVar;
 
 class Mutex {
  public:
-
-   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
-#ifndef NDEBUG
-     : locked_(false)
-#endif
-   { }
-
+  /* implicit */ Mutex(bool adaptive = false);
   ~Mutex();
 
-  void Lock() {
-    mutex_.lock();
-#ifndef NDEBUG
-    locked_ = true;
-#endif
-  }
-
-  void Unlock() {
-#ifndef NDEBUG
-    locked_ = false;
-#endif
-    mutex_.unlock();
-  }
+  void Lock();
+  void Unlock();
 
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld() {
-#ifndef NDEBUG
-    assert(locked_);
-#endif
-  }
+  void AssertHeld();
 
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;
   void operator=(const Mutex&) = delete;
 
  private:
-
   friend class CondVar;
 
-  std::mutex& getLock() {
-    return mutex_;
-  }
+  CRITICAL_SECTION section_;
 
-  std::mutex mutex_;
 #ifndef NDEBUG
   bool locked_;
 #endif
@@ -201,9 +176,7 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu) : mu_(mu) {
-  }
-
+  explicit CondVar(Mutex* mu);
   ~CondVar();
   void Wait();
   bool TimedWait(uint64_t expiration_time);
@@ -218,7 +191,7 @@ class CondVar {
   CondVar& operator=(CondVar&&) = delete;
 
  private:
-  std::condition_variable cv_;
+  CONDITION_VARIABLE cv_;
   Mutex* mu_;
 };
 

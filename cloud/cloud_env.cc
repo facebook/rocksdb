@@ -1,7 +1,11 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
+#ifndef _WIN32_WINNT
 #include <unistd.h>
+#else
+#include <windows.h>
+#endif
 
 #include "cloud/aws/aws_env.h"
 #include "cloud/cloud_env_impl.h"
@@ -67,7 +71,19 @@ void BucketOptions::TEST_Initialize(const std::string& bucket,
   if (!CloudEnvOptions::GetNameFromEnvironment("ROCKSDB_CLOUD_TEST_BUCKET_NAME",
                                                "ROCKSDB_CLOUD_BUCKET_NAME",
                                                &bucket_)) {
+#ifdef _MSC_VER
+    char user_name[257];  // UNLEN + 1
+    DWORD dwsize = sizeof(user_name);
+    if (!::GetUserName(user_name, &dwsize)) {
+      bucket_ = bucket_ + "unknown";
+    } else {
+      bucket_ =
+          bucket_ +
+          std::string(user_name, static_cast<std::string::size_type>(dwsize));
+    }
+#else
     bucket_ = bucket + std::to_string(geteuid());
+#endif
   }
   if (CloudEnvOptions::GetNameFromEnvironment(
           "ROCKSDB_CLOUD_TEST_BUCKET_PREFIX", "ROCKSDB_CLOUD_BUCKET_PREFIX",

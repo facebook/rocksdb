@@ -2,8 +2,6 @@
 //
 #include "cloud/aws/aws_env.h"
 
-#include <unistd.h>
-
 #include <chrono>
 #include <cinttypes>
 #include <fstream>
@@ -14,7 +12,7 @@
 #include "cloud/cloud_log_controller_impl.h"
 #include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/env.h"
@@ -29,6 +27,10 @@
 
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
+
+#ifdef _WIN32_WINNT
+#undef GetObject
+#endif
 
 namespace rocksdb {
 
@@ -119,8 +121,8 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
   AwsAccessType aws_type = GetAccessType();
   Status status = CheckCredentials(aws_type);
   if (status.ok()) {
-    switch (aws_type) {
 #ifdef USE_AWS
+    switch (aws_type) {
       case AwsAccessType::kSimple: {
         const char* access_key =
             (access_key_id.empty() ? getenv("AWS_ACCESS_KEY_ID")
@@ -154,11 +156,13 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
         // Use AWS SDK's default credential chain
         result->reset();
         break;
-#endif
       default:
         status = Status::NotSupported("AWS credentials type not supported");
         break;  // not supported
     }
+#else
+    status = Status::NotSupported("AWS credentials type not supported");
+#endif
   }
   return status;
 }
@@ -1255,6 +1259,16 @@ Status AwsEnv::NewAwsEnv(Env* base_env,
     *cenv = aenv.release();
   }
   return status;
+}
+
+uint64_t AwsEnv::gettid() {
+#ifdef _WIN32_WINNT
+  return static_cast<uint64_t>(::GetCurrentThreadId());
+#else
+  static_assert(sizeof(pthread_t) <= sizeof(uint64_t),
+                "pthread_t is expected to be smaller or equal than 64-bit");
+  return static_cast<uint64_t>(pthread_self());
+#endif
 }
 
 std::string AwsEnv::GetWALCacheDir() {

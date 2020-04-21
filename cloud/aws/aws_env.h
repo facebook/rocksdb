@@ -14,6 +14,8 @@
 
 #ifdef USE_AWS
 
+#include <string.h>
+
 #include <chrono>
 #include <list>
 #include <unordered_map>
@@ -186,10 +188,7 @@ class AwsEnv : public CloudEnvImpl {
     return base_env_->TimeToString(number);
   }
 
-  static uint64_t gettid() {
-    assert(sizeof(pthread_t) <= sizeof(uint64_t));
-    return (uint64_t)pthread_self();
-  }
+  static uint64_t gettid();
 
   virtual uint64_t GetThreadID() const override { return AwsEnv::gettid(); }
 

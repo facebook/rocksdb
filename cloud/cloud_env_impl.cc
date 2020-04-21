@@ -19,6 +19,10 @@
 #include "util/file_reader_writer.h"
 #include "util/xxhash.h"
 
+#ifdef _MSC_VER
+#undef GetObject
+#endif
+
 namespace rocksdb {
 
 CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base,

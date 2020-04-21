@@ -13,24 +13,24 @@
 
 #include "port/win/port_win.h"
 
+#include <assert.h>
 #include <io.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <chrono>
+#include <cstdlib>
+#include <exception>
+#include <memory>
+
 #include "port/port_dirent.h"
 #include "port/sys_time.h"
 
-#include <cstdlib>
-#include <stdio.h>
-#include <assert.h>
-#include <string.h>
-
-#include <memory>
-#include <exception>
-#include <chrono>
-
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 // utf8 <-> utf16
-#include <string>
-#include <locale>
 #include <codecvt>
+#include <locale>
+#include <string>
 #endif
 
 #include "logging/logging.h"
@@ -43,7 +43,7 @@ namespace port {
 
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 std::string utf16_to_utf8(const std::wstring& utf16) {
-  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>,wchar_t> convert;
+  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> convert;
   return convert.to_bytes(utf16);
 }
 
@@ -63,30 +63,48 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
 
   tv->tv_sec = static_cast<long>(secNow.count());
   tv->tv_usec = static_cast<long>(usNow.count() -
-      duration_cast<microseconds>(secNow).count());
+                                  duration_cast<microseconds>(secNow).count());
 }
 
-Mutex::~Mutex() {}
+Mutex::Mutex(bool adaptive) { ::InitializeCriticalSection(&section_); }
+
+Mutex::~Mutex() { ::DeleteCriticalSection(&section_); }
+
+void Mutex::Lock() {
+  ::EnterCriticalSection(&section_);
+#ifndef NDEBUG
+  locked_ = true;
+#endif
+}
+
+void Mutex::Unlock() {
+#ifndef NDEBUG
+  locked_ = false;
+#endif
+  ::LeaveCriticalSection(&section_);
+}
+
+void Mutex::AssertHeld() {
+#ifndef NDEBUG
+  assert(locked_);
+#endif
+}
+
+CondVar::CondVar(Mutex* mu) : mu_(mu) { ::InitializeConditionVariable(&cv_); }
 
 CondVar::~CondVar() {}
 
 void CondVar::Wait() {
-  // Caller must ensure that mutex is held prior to calling this method
-  std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
 #ifndef NDEBUG
   mu_->locked_ = false;
 #endif
-  cv_.wait(lk);
+  ::SleepConditionVariableCS(&cv_, &(mu_->section_), INFINITE);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
-  // Release ownership of the lock as we don't want it to be unlocked when
-  // it goes out of scope (as we adopted the lock and didn't lock it ourselves)
-  lk.release();
 }
 
 bool CondVar::TimedWait(uint64_t abs_time_us) {
-
   using namespace std::chrono;
 
   // MSVC++ library implements wait_until in terms of wait_for so
@@ -94,33 +112,28 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
   microseconds usAbsTime(abs_time_us);
 
   microseconds usNow(
-    duration_cast<microseconds>(system_clock::now().time_since_epoch()));
+      duration_cast<microseconds>(system_clock::now().time_since_epoch()));
   microseconds relTimeUs =
-    (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
+      (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
 
-  // Caller must ensure that mutex is held prior to calling this method
-  std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
-#ifndef NDEBUG
-  mu_->locked_ = false;
-#endif
-  std::cv_status cvStatus = cv_.wait_for(lk, relTimeUs);
+  const BOOL cvStatus = ::SleepConditionVariableCS(
+      &cv_, &(mu_->section_),
+      static_cast<DWORD>(duration_cast<milliseconds>(relTimeUs).count()));
+
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
-  // Release ownership of the lock as we don't want it to be unlocked when
-  // it goes out of scope (as we adopted the lock and didn't lock it ourselves)
-  lk.release();
 
-  if (cvStatus == std::cv_status::timeout) {
+  if ((!cvStatus) && (GetLastError() == ERROR_TIMEOUT)) {
     return true;
   }
 
   return false;
 }
 
-void CondVar::Signal() { cv_.notify_one(); }
+void CondVar::Signal() { ::WakeConditionVariable(&cv_); }
 
-void CondVar::SignalAll() { cv_.notify_all(); }
+void CondVar::SignalAll() { WakeAllConditionVariable(&cv_); }
 
 int PhysicalCoreID() { return GetCurrentProcessorNumber(); }
 
@@ -130,13 +143,12 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 
 // Private structure, exposed only by pointer
 struct DIR {
-  HANDLE      handle_;
-  bool        firstread_;
+  HANDLE handle_;
+  bool firstread_;
   RX_WIN32_FIND_DATA data_;
   dirent entry_;
 
-  DIR() : handle_(INVALID_HANDLE_VALUE),
-    firstread_(true) {}
+  DIR() : handle_(INVALID_HANDLE_VALUE), firstread_(true) {}
 
   DIR(const DIR&) = delete;
   DIR& operator=(const DIR&) = delete;
@@ -159,20 +171,19 @@ DIR* opendir(const char* name) {
 
   std::unique_ptr<DIR> dir(new DIR);
 
-  dir->handle_ = RX_FindFirstFileEx(RX_FN(pattern).c_str(), 
-    FindExInfoBasic, // Do not want alternative name
-    &dir->data_,
-    FindExSearchNameMatch,
-    NULL, // lpSearchFilter
-    0);
+  dir->handle_ =
+      RX_FindFirstFileEx(RX_FN(pattern).c_str(),
+                         FindExInfoBasic,  // Do not want alternative name
+                         &dir->data_, FindExSearchNameMatch,
+                         NULL,  // lpSearchFilter
+                         0);
 
   if (dir->handle_ == INVALID_HANDLE_VALUE) {
     return nullptr;
   }
 
   RX_FILESTRING x(dir->data_.cFileName, RX_FNLEN(dir->data_.cFileName));
-  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), 
-           FN_TO_RX(x).c_str());
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), FN_TO_RX(x).c_str());
 
   return dir.release();
 }
@@ -195,7 +206,7 @@ struct dirent* readdir(DIR* dirp) {
   }
 
   RX_FILESTRING x(dirp->data_.cFileName, RX_FNLEN(dirp->data_.cFileName));
-  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), 
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name),
            FN_TO_RX(x).c_str());
 
   return &dirp->entry_;
@@ -215,7 +226,6 @@ int truncate(const char* path, int64_t length) {
 }
 
 int Truncate(std::string path, int64_t len) {
-
   if (len < 0) {
     errno = EINVAL;
     return -1;
@@ -223,10 +233,10 @@ int Truncate(std::string path, int64_t len) {
 
   HANDLE hFile =
       RX_CreateFile(RX_FN(path).c_str(), GENERIC_READ | GENERIC_WRITE,
-                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                 NULL,           // Security attrs
-                 OPEN_EXISTING,  // Truncate existing file only
-                 FILE_ATTRIBUTE_NORMAL, NULL);
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    NULL,           // Security attrs
+                    OPEN_EXISTING,  // Truncate existing file only
+                    FILE_ATTRIBUTE_NORMAL, NULL);
 
   if (INVALID_HANDLE_VALUE == hFile) {
     auto lastError = GetLastError();
