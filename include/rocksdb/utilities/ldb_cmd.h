@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -16,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/ldb_tool.h"
@@ -161,8 +163,6 @@ class LDBCommand {
   // If true, try to construct options from DB's option files.
   bool try_load_options_;
 
-  bool ignore_unknown_options_;
-
   bool create_if_missing_;
 
   /**
@@ -237,6 +237,7 @@ class LDBCommand {
 
   Options options_;
   std::vector<ColumnFamilyDescriptor> column_families_;
+  ConfigOptions config_options_;
   LDBOptions ldb_options_;
 
  private:

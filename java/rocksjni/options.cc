@@ -3277,9 +3277,43 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptionsFromOptions(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    getColumnFamilyOptionsFromProps
+ * Signature: (JLjava/lang/String;)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps__JLjava_lang_String_2(
+    JNIEnv* env, jclass, jlong cfg_handle, jstring jopt_string) {
+  const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
+  if (opt_string == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+  auto* config_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(cfg_handle);
+  auto* cf_options = new ROCKSDB_NAMESPACE::ColumnFamilyOptions();
+  ROCKSDB_NAMESPACE::Status status =
+      ROCKSDB_NAMESPACE::GetColumnFamilyOptionsFromString(
+          *config_options, ROCKSDB_NAMESPACE::ColumnFamilyOptions(), opt_string,
+          cf_options);
+
+  env->ReleaseStringUTFChars(jopt_string, opt_string);
+
+  // Check if ColumnFamilyOptions creation was possible.
+  jlong ret_value = 0;
+  if (status.ok()) {
+    ret_value = reinterpret_cast<jlong>(cf_options);
+  } else {
+    // if operation failed the ColumnFamilyOptions need to be deleted
+    // again to prevent a memory leak.
+    delete cf_options;
+  }
+  return ret_value;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    getColumnFamilyOptionsFromProps
  * Signature: (Ljava/util/String;)J
  */
-jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
+jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps__Ljava_lang_String_2(
     JNIEnv* env, jclass, jstring jopt_string) {
   const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
   if (opt_string == nullptr) {
@@ -4670,9 +4704,42 @@ jlong Java_org_rocksdb_DBOptions_newDBOptionsFromOptions(
 /*
  * Class:     org_rocksdb_DBOptions
  * Method:    getDBOptionsFromProps
+ * Signature: (JLjava/lang/String;)J
+ */
+jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps__JLjava_lang_String_2(
+    JNIEnv* env, jclass, jlong config_handle, jstring jopt_string) {
+  const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
+  if (opt_string == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+
+  auto* config_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ConfigOptions*>(config_handle);
+  auto* db_options = new ROCKSDB_NAMESPACE::DBOptions();
+  ROCKSDB_NAMESPACE::Status status = ROCKSDB_NAMESPACE::GetDBOptionsFromString(
+      *config_options, ROCKSDB_NAMESPACE::DBOptions(), opt_string, db_options);
+
+  env->ReleaseStringUTFChars(jopt_string, opt_string);
+
+  // Check if DBOptions creation was possible.
+  jlong ret_value = 0;
+  if (status.ok()) {
+    ret_value = reinterpret_cast<jlong>(db_options);
+  } else {
+    // if operation failed the DBOptions need to be deleted
+    // again to prevent a memory leak.
+    delete db_options;
+  }
+  return ret_value;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    getDBOptionsFromProps
  * Signature: (Ljava/util/String;)J
  */
-jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps(
+jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps__Ljava_lang_String_2(
     JNIEnv* env, jclass, jstring jopt_string) {
   const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
   if (opt_string == nullptr) {

@@ -347,12 +347,13 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, sample_for_compression)}}};
 
-Status ParseColumnFamilyOption(const std::string& name,
+Status ParseColumnFamilyOption(const ConfigOptions& config_options,
+                               const std::string& name,
                                const std::string& org_value,
-                               ColumnFamilyOptions* new_options,
-                               bool input_strings_escaped) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
+                               ColumnFamilyOptions* new_options) {
+  const std::string& value = config_options.input_strings_escaped
+                                 ? UnescapeOptionString(org_value)
+                                 : org_value;
   try {
     if (name == "block_based_table_factory") {
       // Nested options
