@@ -480,7 +480,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       fname = MakeTableFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else if (type == kBlobFile) {
-      // TODO: fname ???
+      fname = BlobFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else {
       dir_to_sync =
