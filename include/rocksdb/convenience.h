@@ -26,6 +26,10 @@ struct Options;
 // of the serialization (e.g. delimiter), and how to compare
 // options (sanity_level).
 struct ConfigOptions {
+  // Returns a ConfigOptions suitable for nested/embedded
+  // options.
+  ConfigOptions Embedded() const;
+
   // This enum defines the RocksDB options sanity level.
   enum SanityLevel : unsigned char {
     kSanityLevelNone = 0x01,  // Performs no sanity check at all.
