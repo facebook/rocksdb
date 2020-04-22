@@ -1527,11 +1527,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
-  // We will eventually support deadline for Get requests too, but safeguard
-  // for now
-  if (read_options.deadline != std::chrono::microseconds::zero()) {
-    return Status::NotSupported("ReadOptions deadline is not supported");
-  }
 
 #ifndef NDEBUG
   assert(get_impl_options.column_family);

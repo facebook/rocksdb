@@ -239,14 +239,16 @@ Status BlockFetcher::ReadBlockContents() {
     if (file_->use_direct_io()) {
       PERF_TIMER_GUARD(block_read_time);
       status_ =
-          file_->Read(handle_.offset(), block_size_with_trailer_,
+          file_->Read(read_options_, handle_.offset(),
+                      block_size_with_trailer_,
                       &slice_, nullptr, &direct_io_buf_, for_compaction_);
       PERF_COUNTER_ADD(block_read_count, 1);
       used_buf_ = const_cast<char*>(slice_.data());
     } else {
       PrepareBufferForBlockFromFile();
       PERF_TIMER_GUARD(block_read_time);
-      status_ = file_->Read(handle_.offset(), block_size_with_trailer_,
+      status_ = file_->Read(read_options_, handle_.offset(),
+                            block_size_with_trailer_,
                             &slice_, used_buf_, nullptr, for_compaction_);
       PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG

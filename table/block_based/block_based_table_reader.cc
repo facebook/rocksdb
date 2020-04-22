@@ -1671,7 +1671,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     read_reqs.emplace_back(req);
   }
 
-  file->MultiRead(&read_reqs[0], read_reqs.size(), nullptr);
+  file->MultiRead(options, &read_reqs[0], read_reqs.size(), nullptr);
 
   idx_in_batch = 0;
   size_t valid_batch_idx = 0;
