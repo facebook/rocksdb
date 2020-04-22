@@ -2111,14 +2111,40 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   if (filter == nullptr || filter->IsBlockBased()) {
     return;
   }
+  uint64_t before_keys = range->KeysLeft();
+  if (before_keys == 0) {
+    // Nothing left to filter
+    return;
+  }
   if (rep_->whole_key_filtering) {
     filter->KeysMayMatch(range, prefix_extractor, kNotValid, no_io,
                          lookup_context);
+    uint64_t after_keys = range->KeysLeft();
+    if (after_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE,
+                 after_keys);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, after_keys,
+                                rep_->level);
+    }
+    uint64_t filtered_keys = before_keys - after_keys;
+    if (filtered_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL, filtered_keys);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, filtered_keys,
+                                rep_->level);
+    }
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0) {
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
+    RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_PREFIX_CHECKED,
+               before_keys);
+    uint64_t after_keys = range->KeysLeft();
+    uint64_t filtered_keys = before_keys - after_keys;
+    if (filtered_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_PREFIX_USEFUL,
+                 filtered_keys);
+    }
   }
 }
 

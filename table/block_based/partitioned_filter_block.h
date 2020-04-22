@@ -80,12 +80,21 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
                    uint64_t block_offset, const bool no_io,
                    const Slice* const const_ikey_ptr, GetContext* get_context,
                    BlockCacheLookupContext* lookup_context) override;
+  void KeysMayMatch(MultiGetRange* range,
+                    const SliceTransform* prefix_extractor,
+                    uint64_t block_offset, const bool no_io,
+                    BlockCacheLookupContext* lookup_context) override;
+
   bool PrefixMayMatch(const Slice& prefix,
                       const SliceTransform* prefix_extractor,
                       uint64_t block_offset, const bool no_io,
                       const Slice* const const_ikey_ptr,
                       GetContext* get_context,
                       BlockCacheLookupContext* lookup_context) override;
+  void PrefixesMayMatch(MultiGetRange* range,
+                        const SliceTransform* prefix_extractor,
+                        uint64_t block_offset, const bool no_io,
+                        BlockCacheLookupContext* lookup_context) override;
 
   size_t ApproximateMemoryUsage() const override;
 
@@ -108,6 +117,19 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
                 GetContext* get_context,
                 BlockCacheLookupContext* lookup_context,
                 FilterFunction filter_function) const;
+  using FilterManyFunction = void (FullFilterBlockReader::*)(
+      MultiGetRange* range, const SliceTransform* prefix_extractor,
+      uint64_t block_offset, const bool no_io,
+      BlockCacheLookupContext* lookup_context);
+  void MayMatch(MultiGetRange* range, const SliceTransform* prefix_extractor,
+                uint64_t block_offset, bool no_io,
+                BlockCacheLookupContext* lookup_context,
+                FilterManyFunction filter_function) const;
+  void MayMatchPartition(MultiGetRange* range,
+                         const SliceTransform* prefix_extractor,
+                         uint64_t block_offset, BlockHandle filter_handle,
+                         bool no_io, BlockCacheLookupContext* lookup_context,
+                         FilterManyFunction filter_function) const;
   void CacheDependencies(bool pin) override;
 
   const InternalKeyComparator* internal_comparator() const;

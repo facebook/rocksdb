@@ -13,6 +13,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
 #include "util/autovector.h"
+#include "util/math.h"
 
 namespace ROCKSDB_NAMESPACE {
 class GetContext;
@@ -156,7 +157,7 @@ class MultiGetContext {
       Iterator(const Range* range, size_t idx)
           : range_(range), ctx_(range->ctx_), index_(idx) {
         while (index_ < range_->end_ &&
-               (1ull << index_) &
+               (uint64_t{1} << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_))
           index_++;
       }
@@ -166,7 +167,7 @@ class MultiGetContext {
 
       Iterator& operator++() {
         while (++index_ < range_->end_ &&
-               (1ull << index_) &
+               (uint64_t{1} << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_))
           ;
         return *this;
@@ -208,6 +209,8 @@ class MultiGetContext {
       start_ = first.index_;
       end_ = last.index_;
       skip_mask_ = mget_range.skip_mask_;
+      assert(start_ < 64);
+      assert(end_ < 64);
     }
 
     Range() = default;
@@ -216,31 +219,27 @@ class MultiGetContext {
 
     Iterator end() const { return Iterator(this, end_); }
 
-    bool empty() {
-      return (((1ull << end_) - 1) & ~((1ull << start_) - 1) &
-              ~(ctx_->value_mask_ | skip_mask_)) == 0;
-    }
+    bool empty() { return RemainingMask() == 0; }
 
-    void SkipKey(const Iterator& iter) { skip_mask_ |= 1ull << iter.index_; }
+    void SkipKey(const Iterator& iter) {
+      skip_mask_ |= uint64_t{1} << iter.index_;
+    }
 
     // Update the value_mask_ in MultiGetContext so its
     // immediately reflected in all the Range Iterators
     void MarkKeyDone(Iterator& iter) {
-      ctx_->value_mask_ |= (1ull << iter.index_);
+      ctx_->value_mask_ |= (uint64_t{1} << iter.index_);
     }
 
     bool CheckKeyDone(Iterator& iter) {
-      return ctx_->value_mask_ & (1ull << iter.index_);
+      return ctx_->value_mask_ & (uint64_t{1} << iter.index_);
     }
 
-    uint64_t KeysLeft() {
-      uint64_t new_val = skip_mask_ | ctx_->value_mask_;
-      uint64_t count = 0;
-      while (new_val) {
-        new_val = new_val & (new_val - 1);
-        count++;
-      }
-      return end_ - count;
+    uint64_t KeysLeft() { return BitsSetToOne(RemainingMask()); }
+
+    void AddSkipsFrom(const Range& other) {
+      assert(ctx_ == other.ctx_);
+      skip_mask_ |= other.skip_mask_;
     }
 
    private:
@@ -251,7 +250,14 @@ class MultiGetContext {
     uint64_t skip_mask_;
 
     Range(MultiGetContext* ctx, size_t num_keys)
-        : ctx_(ctx), start_(0), end_(num_keys), skip_mask_(0) {}
+        : ctx_(ctx), start_(0), end_(num_keys), skip_mask_(0) {
+      assert(num_keys < 64);
+    }
+
+    uint64_t RemainingMask() {
+      return (((uint64_t{1} << end_) - 1) & ~((uint64_t{1} << start_) - 1) &
+              ~(ctx_->value_mask_ | skip_mask_));
+    }
   };
 
   // Return the initial range that encompasses all the keys in the batch

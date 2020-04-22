@@ -190,7 +190,6 @@ void FullFilterBlockReader::KeysMayMatch(
     uint64_t block_offset, const bool no_io,
     BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
-  (void)range;
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
@@ -207,7 +206,6 @@ void FullFilterBlockReader::PrefixesMayMatch(
     uint64_t block_offset, const bool no_io,
     BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
-  (void)range;
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
