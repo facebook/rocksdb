@@ -33,6 +33,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;
+struct ConfigOptions;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -141,6 +142,13 @@ class Cache {
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
+
+  // Creates a new Cache based on the input value string and returns the result
+  // The value might be an ID, and ID with properties, or an old-style cache
+  // initialization string.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& value,
+                                 std::shared_ptr<Cache>* result);
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.

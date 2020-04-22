@@ -1,5 +1,6 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
+  cache/cache.cc                                                \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
@@ -118,7 +119,6 @@ LIB_SOURCES =                                                   \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
-  options/options_sanity_check.cc                               \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \

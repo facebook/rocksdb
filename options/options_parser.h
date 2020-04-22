@@ -43,11 +43,6 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, FileSystem* fs);
 
-extern bool AreEqualOptions(
-    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
-    const std::string& opt_name,
-    const std::unordered_map<std::string, std::string>* opt_map);
-
 class RocksDBOptionsParser {
  public:
   explicit RocksDBOptionsParser();

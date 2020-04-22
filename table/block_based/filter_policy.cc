@@ -756,4 +756,34 @@ FilterBuildingContext::FilterBuildingContext(
 
 FilterPolicy::~FilterPolicy() { }
 
+Status FilterPolicy::CreateFromString(
+    const ConfigOptions& /*options*/, const std::string& value,
+    std::shared_ptr<const FilterPolicy>* policy) {
+  const std::string kBloomName = "bloomfilter:";
+  if (value == kNullptrString || value == "rocksdb.BuiltinBloomFilter") {
+    policy->reset();
+#ifndef ROCKSDB_LITE
+  } else if (value.compare(0, kBloomName.size(), kBloomName) == 0) {
+    size_t pos = value.find(':', kBloomName.size());
+    if (pos == std::string::npos) {
+      return Status::InvalidArgument(
+          "Invalid filter policy config, missing bits_per_key");
+    } else {
+      double bits_per_key = ParseDouble(
+          trim(value.substr(kBloomName.size(), pos - kBloomName.size())));
+      bool use_block_based_builder =
+          ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
+      policy->reset(
+          NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
+    }
+  } else {
+    return Status::InvalidArgument("Invalid filter policy name ", value);
+#else
+  } else {
+    return Status::NotSupported("Cannot load filter policy in LITE mode ",
+                                value);
+#endif  // ROCKSDB_LITE
+  }
+  return Status::OK();
+}
 }  // namespace ROCKSDB_NAMESPACE

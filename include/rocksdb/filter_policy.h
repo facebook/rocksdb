@@ -20,17 +20,20 @@
 #pragma once
 
 #include <stdlib.h>
+
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 struct BlockBasedTableOptions;
+struct ConfigOptions;
 
 // A class that takes a bunch of keys, then generates filter
 class FilterBitsBuilder {
@@ -124,6 +127,26 @@ struct FilterBuildingContext {
 class FilterPolicy {
  public:
   virtual ~FilterPolicy();
+
+  // Creates a new FilterPolicy based on the input value string and returns the
+  // result The value might be an ID, and ID with properties, or an old-style
+  // policy string.
+  // The value describes the FilterPolicy being created.
+  // For BloomFilters, value may be a ":"-delimited value of the form:
+  //   "bloomfilter:[bits_per_key]:[use_block_based_builder]",
+  //   e.g. ""bloomfilter:4:true"
+  //   The above string is equivalent to calling
+  //     NewBloomFilterPolicy(4, true).
+  // The value may also be specified as a single string (e.g.
+  // "CustomBloomFilter"), in which case this method will attempt to create a
+  // filter by that name.
+  //
+  // Alternatively, the value could be {id=name; [opt=value;[opt=value;]]},
+  // In this case, the method will attempt to create FilterPolicy specifed by
+  // the name, and configure it with any optional name-value pairs specified.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& value,
+                                 std::shared_ptr<const FilterPolicy>* result);
 
   // Return the name of this policy.  Note that if the filter encoding
   // changes in an incompatible way, the name returned by this method
