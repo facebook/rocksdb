@@ -705,22 +705,21 @@ Status DBImpl::CleanupFilesAfterRecovery() {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
 
-#if 0
   VersionEdit edit;
   edit.SetNextFile(versions_->next_file_number_.load());
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
+  // Even if new_descriptor_log is false, we will still switch to a new
+  // MANIFEST and update CURRENT file, since this is in recovery.
   Status s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
       directories_.GetDbDir(), /*new_descriptor_log*/ false);
   if (!s.ok()) {
     return s;
   }
-  #endif
 
   mutex_.Unlock();
-  Status s;
   for (const auto& fname : files_to_delete) {
     s = env_->DeleteFile(fname);
     if (!s.ok()) {
