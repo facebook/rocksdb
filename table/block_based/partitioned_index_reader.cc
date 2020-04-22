@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
+#include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status PartitionIndexReader::Create(
@@ -116,7 +117,7 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
                    "Error retrieving top-level index block while trying to "
                    "cache index partitions: %s",
                    s.ToString().c_str());
-    TEST_SYNC_POINT("FaultInjectionIgnoredError");
+    IGNORE_STATUS_IF_ERROR(s);
     return;
   }
 
@@ -149,11 +150,7 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
   s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                 static_cast<size_t>(prefetch_len));
-#ifndef NDEBUG
-  if (!s.ok()) {
-    TEST_SYNC_POINT("FaultInjectionIgnoredError");
-  }
-#endif
+  IGNORE_STATUS_IF_ERROR(s);
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
@@ -168,11 +165,7 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
         &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
         /*contents=*/nullptr);
 
-#ifndef NDEBUG
-    if (!s.ok()) {
-      TEST_SYNC_POINT("FaultInjectionIgnoredError");
-    }
-#endif
+    IGNORE_STATUS_IF_ERROR(s);
 
     assert(s.ok() || block.GetValue() == nullptr);
     if (s.ok() && block.GetValue() != nullptr) {
