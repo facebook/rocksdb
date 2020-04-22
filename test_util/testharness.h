@@ -46,7 +46,10 @@ int RandomSeed();
 
 // Callback sync point for any read IO errors that should be ignored by
 // the fault injection framework
-#ifndef NDEBUG
+#ifdef NDEBUG
+// Disable in release mode
+#define IGNORE_STATUS_IF_ERROR(_status_)
+#else
 #define IGNORE_STATUS_IF_ERROR(_status_)          \
 {                                                 \
   if (!_status_.ok()) {                           \
