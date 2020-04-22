@@ -92,7 +92,8 @@ class MultiGetContext {
   static const int MAX_BATCH_SIZE = 32;
 
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,
-                  size_t begin, size_t num_keys, SequenceNumber snapshot)
+                  size_t begin, size_t num_keys, SequenceNumber snapshot,
+                  const ReadOptions& read_opts)
       : num_keys_(num_keys),
         value_mask_(0),
         lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)) {
@@ -106,7 +107,7 @@ class MultiGetContext {
       // autovector may not be contiguous storage, so make a copy
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
-          LookupKey(*sorted_keys_[iter]->key, snapshot);
+          LookupKey(*sorted_keys_[iter]->key, snapshot, read_opts.timestamp);
       sorted_keys_[iter]->ukey = sorted_keys_[iter]->lkey->user_key();
       sorted_keys_[iter]->ikey = sorted_keys_[iter]->lkey->internal_key();
     }

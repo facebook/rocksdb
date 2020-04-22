@@ -774,6 +774,36 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+  ASSERT_OK(db_->Put(write_opts, "foo", "value"));
+  ASSERT_OK(db_->Put(write_opts, "bar", "value"));
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts;
+  ColumnFamilyHandle* column_families[] = {cfh, cfh};
+  Slice keys[] = {"foo", "bar"};
+  PinnableSlice values[] = {PinnableSlice(), PinnableSlice()};
+  Status statuses[] = {Status::OK(), Status::OK()};
+  dbfull()->MultiGet(read_opts, 2, &column_families[0], &keys[0], &values[0],
+                     &statuses[0], false);
+  for (const auto& s : statuses) {
+    ASSERT_OK(s);
+  }
+  Close();
+}
+
 #endif  // !ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(
