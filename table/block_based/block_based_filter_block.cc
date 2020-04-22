@@ -14,9 +14,9 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
