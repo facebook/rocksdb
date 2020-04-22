@@ -1996,7 +1996,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(column_families[i], keys[i], &values[i],
-                             &timestamps[i], &statuses[i]);
+                             timestamps ? &timestamps[i] : nullptr,
+                             &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
