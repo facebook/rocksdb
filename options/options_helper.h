@@ -57,10 +57,6 @@ Status GetTableFactoryFromMap(
     std::shared_ptr<TableFactory>* table_factory,
     bool ignore_unknown_options = false);
 
-Status ParseCompressionOptions(const std::string& value,
-                               const std::string& name,
-                               CompressionOptions& compression_opts);
-
 Status GetTableFactoryFromMap(
     const ConfigOptions& config_options, const std::string& factory_name,
     const std::unordered_map<std::string, std::string>& opt_map,
