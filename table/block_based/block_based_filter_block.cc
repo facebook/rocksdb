@@ -16,6 +16,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
 #include "util/string_util.h"
+#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -184,6 +185,7 @@ std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 

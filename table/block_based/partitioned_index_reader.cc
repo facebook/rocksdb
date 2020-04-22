@@ -116,6 +116,7 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
                    "Error retrieving top-level index block while trying to "
                    "cache index partitions: %s",
                    s.ToString().c_str());
+    TEST_SYNC_POINT("FaultInjectionIgnoredError");
     return;
   }
 
@@ -148,6 +149,11 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
   s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                 static_cast<size_t>(prefetch_len));
+#ifndef NDEBUG
+  if (!s.ok()) {
+    TEST_SYNC_POINT("FaultInjectionIgnoredError");
+  }
+#endif
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
@@ -161,6 +167,12 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
         &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
         /*contents=*/nullptr);
+
+#ifndef NDEBUG
+    if (!s.ok()) {
+      TEST_SYNC_POINT("FaultInjectionIgnoredError");
+    }
+#endif
 
     assert(s.ok() || block.GetValue() == nullptr);
     if (s.ok() && block.GetValue() != nullptr) {

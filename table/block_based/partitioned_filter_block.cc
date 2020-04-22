@@ -14,6 +14,7 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "util/coding.h"
+#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -143,6 +144,7 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 
@@ -254,7 +256,7 @@ bool PartitionedFilterBlockReader::MayMatch(
   Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (UNLIKELY(!s.ok())) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -272,7 +274,7 @@ bool PartitionedFilterBlockReader::MayMatch(
                               no_io, get_context, lookup_context,
                               &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -312,7 +314,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
                    "Error retrieving top-level filter block while trying to "
                    "cache filter partitions: %s",
                    s.ToString().c_str());
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return;
   }
 
@@ -343,11 +345,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   prefetch_buffer.reset(new FilePrefetchBuffer());
   s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                 static_cast<size_t>(prefetch_len));
-#ifndef NDEBUG
-  if (!s.ok()) {
-    TEST_SYNC_POINT("FilterReadError");
-  }
-#endif
+  IGNORE_STATUS_IF_ERROR(s);
 
   // After prefetch, read the partitions one by one
   ReadOptions read_options;
@@ -370,11 +368,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
         }
       }
     }
-#ifndef NDEBUG
-    if (!s.ok()) {
-      TEST_SYNC_POINT("FilterReadError");
-    }
-#endif
+    IGNORE_STATUS_IF_ERROR(s);
   }
 }
 
