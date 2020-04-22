@@ -160,6 +160,34 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
 }
 
 #ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
+    block_base_table_index_type_string_map = {
+        {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
+        {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
+        {"kTwoLevelIndexSearch",
+         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch},
+        {"kBinarySearchWithFirstKey",
+         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
+
+static std::unordered_map<std::string,
+                          BlockBasedTableOptions::DataBlockIndexType>
+    block_base_table_data_block_index_type_string_map = {
+        {"kDataBlockBinarySearch",
+         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch},
+        {"kDataBlockBinaryAndHash",
+         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash}};
+
+static std::unordered_map<std::string,
+                          BlockBasedTableOptions::IndexShorteningMode>
+    block_base_table_index_shortening_mode_string_map = {
+        {"kNoShortening",
+         BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
+        {"kShortenSeparators",
+         BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
+        {"kShortenSeparatorsAndSuccessor",
+         BlockBasedTableOptions::IndexShorteningMode::
+             kShortenSeparatorsAndSuccessor}};
+
 static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
         /* currently not supported
@@ -185,22 +213,21 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    pin_l0_filter_and_index_blocks_in_cache),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
-        {"index_type",
-         {offsetof(struct BlockBasedTableOptions, index_type),
-          OptionType::kBlockBasedTableIndexType,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"index_type", OptionTypeInfo::Enum<BlockBasedTableOptions::IndexType>(
+                           offsetof(struct BlockBasedTableOptions, index_type),
+                           &block_base_table_index_type_string_map)},
         {"hash_index_allow_collision",
          {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         {"data_block_index_type",
-         {offsetof(struct BlockBasedTableOptions, data_block_index_type),
-          OptionType::kBlockBasedTableDataBlockIndexType,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+         OptionTypeInfo::Enum<BlockBasedTableOptions::DataBlockIndexType>(
+             offsetof(struct BlockBasedTableOptions, data_block_index_type),
+             &block_base_table_data_block_index_type_string_map)},
         {"index_shortening",
-         {offsetof(struct BlockBasedTableOptions, index_shortening),
-          OptionType::kBlockBasedTableIndexShorteningMode,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+         OptionTypeInfo::Enum<BlockBasedTableOptions::IndexShorteningMode>(
+             offsetof(struct BlockBasedTableOptions, index_shortening),
+             &block_base_table_index_shortening_mode_string_map)},
         {"data_block_hash_table_util_ratio",
          {offsetof(struct BlockBasedTableOptions,
                    data_block_hash_table_util_ratio),

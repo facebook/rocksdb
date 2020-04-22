@@ -41,18 +41,13 @@ enum class OptionType {
   kCompactionStopStyle,
   kMergeOperator,
   kMemTableRepFactory,
-  kBlockBasedTableIndexType,
-  kBlockBasedTableDataBlockIndexType,
-  kBlockBasedTableIndexShorteningMode,
   kFilterPolicy,
   kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
-  kWALRecoveryMode,
-  kAccessHint,
-  kInfoLogLevel,
   kLRUCacheOptions,
   kEnv,
+  kEnum,
   kUnknown,
 };
 
@@ -95,6 +90,29 @@ inline OptionTypeFlags operator&(const OptionTypeFlags &a,
                                  const OptionTypeFlags &b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
+}
+
+template <typename T>
+bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
+               const std::string& type, T* value) {
+  auto iter = type_map.find(type);
+  if (iter != type_map.end()) {
+    *value = iter->second;
+    return true;
+  }
+  return false;
+}
+
+template <typename T>
+bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
+                   const T& type, std::string* value) {
+  for (const auto& pair : type_map) {
+    if (pair.second == type) {
+      *value = pair.first;
+      return true;
+    }
+  }
+  return false;
 }
 
 // Function for converting a option string value into its underlying
@@ -197,6 +215,40 @@ class OptionTypeInfo {
         type(_type),
         verification(_verification),
         flags(_flags) {}
+
+  template <typename T>
+  static OptionTypeInfo Enum(
+      int _offset, const std::unordered_map<std::string, T>* const map) {
+    return OptionTypeInfo(
+        _offset, OptionType::kEnum, OptionVerificationType::kNormal,
+        OptionTypeFlags::kNone, 0,
+        [map](const ConfigOptions&, const std::string& name,
+              const std::string& value, char* addr) {
+          if (map == nullptr) {
+            return Status::NotSupported("No enum mapping ", name);
+          } else if (ParseEnum<T>(*map, value, reinterpret_cast<T*>(addr))) {
+            return Status::OK();
+          } else {
+            return Status::InvalidArgument("No mapping for enum ", name);
+          }
+        },
+        [map](const ConfigOptions&, const std::string& name, const char* addr,
+              std::string* value) {
+          if (map == nullptr) {
+            return Status::NotSupported("No enum mapping ", name);
+          } else if (SerializeEnum<T>(*map, (*reinterpret_cast<const T*>(addr)),
+                                      value)) {
+            return Status::OK();
+          } else {
+            return Status::InvalidArgument("No mapping for enum ", name);
+          }
+        },
+        [](const ConfigOptions&, const std::string&, const char* addr1,
+           const char* addr2, std::string*) {
+          return (*reinterpret_cast<const T*>(addr1) ==
+                  *reinterpret_cast<const T*>(addr2));
+        });
+  }
 
   bool IsEnabled(OptionTypeFlags otf) const { return (flags & otf) == otf; }
 
