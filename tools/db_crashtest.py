@@ -225,8 +225,8 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
-    if (dest_params["use_direct_io_for_flush_and_compaction"] == 1 or
-            dest_params["use_direct_reads"] == 1) and \
+    if (dest_params["use_direct_io_for_flush_and_compaction"] == 1
+            or dest_params["use_direct_reads"] == 1) and \
             not is_direct_io_supported(dest_params["db"]):
         if is_release_mode():
             print("{} does not support direct IO".format(dest_params["db"]))
