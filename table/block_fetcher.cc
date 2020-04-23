@@ -225,30 +225,30 @@ Status BlockFetcher::ReadBlockContents() {
       return status_;
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
-    {
-      PERF_TIMER_GUARD(block_read_time);
       // Actual file read
-      if (file_->use_direct_io()) {
-        status_ =
-            file_->Read(handle_.offset(), block_size_with_trailer_,
-                        &slice_, nullptr, &direct_io_buf_, for_compaction_);
-        used_buf_ = const_cast<char*>(slice_.data());
-      } else {
-        PrepareBufferForBlockFromFile();
-        status_ = file_->Read(handle_.offset(), block_size_with_trailer_,
-                              &slice_, used_buf_, nullptr, for_compaction_);
+    if (file_->use_direct_io()) {
+      PERF_TIMER_GUARD(block_read_time);
+      status_ =
+          file_->Read(handle_.offset(), block_size_with_trailer_,
+                      &slice_, nullptr, &direct_io_buf_, for_compaction_);
+      PERF_COUNTER_ADD(block_read_count, 1);
+      used_buf_ = const_cast<char*>(slice_.data());
+    } else {
+      PrepareBufferForBlockFromFile();
+      PERF_TIMER_GUARD(block_read_time);
+      status_ = file_->Read(handle_.offset(), block_size_with_trailer_,
+                            &slice_, used_buf_, nullptr, for_compaction_);
+      PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
-        if (used_buf_ == &stack_buf_[0]) {
-          num_stack_buf_memcpy_++;
-        } else if (used_buf_ == heap_buf_.get()) {
-          num_heap_buf_memcpy_++;
-        } else if (used_buf_ == compressed_buf_.get()) {
-          num_compressed_buf_memcpy_++;
-        }
-#endif
+      if (used_buf_ == &stack_buf_[0]) {
+        num_stack_buf_memcpy_++;
+      } else if (used_buf_ == heap_buf_.get()) {
+        num_heap_buf_memcpy_++;
+      } else if (used_buf_ == compressed_buf_.get()) {
+        num_compressed_buf_memcpy_++;
       }
+#endif
     }
-    PERF_COUNTER_ADD(block_read_count, 1);
 
     // TODO: introduce dedicated perf counter for range tombstones
     switch (block_type_) {
