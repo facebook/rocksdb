@@ -293,7 +293,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 
   if (entry == kNoEntry) {
     // Even if we cannot find the user_key in this block, the result may
-    // exist in the next block. Consider this exmpale:
+    // exist in the next block. Consider this example:
     //
     // Block N:    [aab@100, ... , app@120]
     // bounary key: axy@50 (we make minimal assumption about a boundary key)
@@ -301,7 +301,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // If seek_key = axy@60, the search will starts from Block N.
     // Even if the user_key is not found in the hash map, the caller still
-    // have to conntinue searching the next block.
+    // have to continue searching the next block.
     //
     // In this case, we pretend the key is the the last restart interval.
     // The while-loop below will search the last restart interval for the
@@ -627,7 +627,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
 // restart_point n-1: k, v (off, sz), k, v (delta-sz), ..., k, v (delta-sz)
 // where, k is key, v is value, and its encoding is in parenthesis.
 // The format of each key is (shared_size, non_shared_size, shared, non_shared)
-// The format of each value, i.e., block hanlde, is (offset, size) whenever the
+// The format of each value, i.e., block handle, is (offset, size) whenever the
 // shared_size is 0, which included the first entry in each restart point.
 // Otherwise the format is delta-size = block handle size - size of last block
 // handle.
