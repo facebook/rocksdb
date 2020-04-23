@@ -169,13 +169,9 @@ using EqualsFunc = std::function<bool(
 // option type, and offset.
 class OptionTypeInfo {
  public:
-  int offset;
-  int mutable_offset;
-
   // A simple "normal", non-mutable Type "_type" at _offset
   OptionTypeInfo(int _offset, OptionType _type)
       : offset(_offset),
-        mutable_offset(0),
         parser_func(nullptr),
         string_func(nullptr),
         equals_func(nullptr),
@@ -183,22 +179,9 @@ class OptionTypeInfo {
         verification(OptionVerificationType::kNormal),
         flags(OptionTypeFlags::kNone) {}
 
-  // A simple "normal", mutable Type "_type" at _offset
-  OptionTypeInfo(int _offset, OptionType _type, int _mutable_offset)
-      : offset(_offset),
-        mutable_offset(_mutable_offset),
-        parser_func(nullptr),
-        string_func(nullptr),
-        equals_func(nullptr),
-        type(_type),
-        verification(OptionVerificationType::kNormal),
-        flags(OptionTypeFlags::kMutable) {}
-
   OptionTypeInfo(int _offset, OptionType _type,
-                 OptionVerificationType _verification, OptionTypeFlags _flags,
-                 int _mutable_offset)
+                 OptionVerificationType _verification, OptionTypeFlags _flags)
       : offset(_offset),
-        mutable_offset(_mutable_offset),
         parser_func(nullptr),
         string_func(nullptr),
         equals_func(nullptr),
@@ -208,9 +191,8 @@ class OptionTypeInfo {
 
   OptionTypeInfo(int _offset, OptionType _type,
                  OptionVerificationType _verification, OptionTypeFlags _flags,
-                 int _mutable_offset, const ParserFunc& _pfunc)
+                 const ParserFunc& _pfunc)
       : offset(_offset),
-        mutable_offset(_mutable_offset),
         parser_func(_pfunc),
         string_func(nullptr),
         equals_func(nullptr),
@@ -220,10 +202,9 @@ class OptionTypeInfo {
 
   OptionTypeInfo(int _offset, OptionType _type,
                  OptionVerificationType _verification, OptionTypeFlags _flags,
-                 int _mutable_offset, const ParserFunc& _pfunc,
-                 const StringFunc& _sfunc, const EqualsFunc& _efunc)
+                 const ParserFunc& _pfunc, const StringFunc& _sfunc,
+                 const EqualsFunc& _efunc)
       : offset(_offset),
-        mutable_offset(_mutable_offset),
         parser_func(_pfunc),
         string_func(_sfunc),
         equals_func(_efunc),
@@ -236,7 +217,7 @@ class OptionTypeInfo {
       int _offset, const std::unordered_map<std::string, T>* const map) {
     return OptionTypeInfo(
         _offset, OptionType::kEnum, OptionVerificationType::kNormal,
-        OptionTypeFlags::kNone, 0,
+        OptionTypeFlags::kNone,
         [map](const ConfigOptions&, const std::string& name,
               const std::string& value, char* addr) {
           if (map == nullptr) {
@@ -268,10 +249,10 @@ class OptionTypeInfo {
   static OptionTypeInfo Struct(
       const std::string& struct_name,
       const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
-      int _offset, OptionVerificationType _verification, OptionTypeFlags _flags,
-      int _mutable_offset) {
+      int _offset, OptionVerificationType _verification,
+      OptionTypeFlags _flags) {
     return OptionTypeInfo(
-        _offset, OptionType::kStruct, _verification, _flags, _mutable_offset,
+        _offset, OptionType::kStruct, _verification, _flags,
         [struct_name, struct_map](const ConfigOptions& opts,
                                   const std::string& name,
                                   const std::string& value, char* addr) {
@@ -294,10 +275,9 @@ class OptionTypeInfo {
       const std::string& struct_name,
       const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
       int _offset, OptionVerificationType _verification, OptionTypeFlags _flags,
-      int _mutable_offset, const ParserFunc& _pfunc) {
+      const ParserFunc& _pfunc) {
     return OptionTypeInfo(
-        _offset, OptionType::kStruct, _verification, _flags, _mutable_offset,
-        _pfunc,
+        _offset, OptionType::kStruct, _verification, _flags, _pfunc,
         [struct_name, struct_map](const ConfigOptions& opts,
                                   const std::string& name, const char* addr,
                                   std::string* value) {
@@ -315,11 +295,11 @@ class OptionTypeInfo {
   template <typename T>
   static OptionTypeInfo Vector(int _offset,
                                OptionVerificationType _verification,
-                               OptionTypeFlags _flags, int _mutable_offset,
+                               OptionTypeFlags _flags,
                                const OptionTypeInfo& elem_info,
                                char separator = ':') {
     return OptionTypeInfo(
-        _offset, OptionType::kVector, _verification, _flags, _mutable_offset,
+        _offset, OptionType::kVector, _verification, _flags,
         [elem_info, separator](const ConfigOptions& opts,
                                const std::string& name,
                                const std::string& value, char* addr) {
@@ -406,27 +386,27 @@ class OptionTypeInfo {
   // InvalidArgument means the opt_value is not valid for this option.
   Status ParseOption(const ConfigOptions& config_options,
                      const std::string& opt_name, const std::string& opt_value,
-                     char* opt_addr) const;
+                     void* opt_ptr) const;
 
-  // Serializes the option in "opt_addr" according to the rules of this class
+  // Serializes the option in "opt_ptr" according to the rules of this class
   // into the value at "opt_value".
   Status SerializeOption(const ConfigOptions& config_options,
-                         const std::string& opt_name, const char* opt_addr,
+                         const std::string& opt_name, const void* const opt_ptr,
                          std::string* opt_value) const;
 
   // Compares the "addr1" and "addr2" values according to the rules of this
   // class and returns true if they match.  On a failed match, mismatch is the
   // name of the option that failed to match.
   bool MatchesOption(const ConfigOptions& config_options,
-                     const std::string& opt_name, const char* addr1,
-                     const char* addr2, std::string* mismatch) const;
+                     const std::string& opt_name, const void* const addr1,
+                     const void* const addr2, std::string* mismatch) const;
 
   // Used to override the match rules for "ByName" options.
   bool CheckByName(const ConfigOptions& config_options,
-                   const std::string& opt_name, const char* this_offset,
-                   const char* that_offset) const;
+                   const std::string& opt_name, const void* const this_ptr,
+                   const void* const that_ptr) const;
   bool CheckByName(const ConfigOptions& config_options,
-                   const std::string& opt_name, const char* this_ptr,
+                   const std::string& opt_name, const void* const this_ptr,
                    const std::string& that_value) const;
 
   // Parses the input value according to the map for the struct at opt_addr
@@ -474,6 +454,9 @@ class OptionTypeInfo {
                           size_t* end, std::string* token);
 
  private:
+  // The offset of this option from the ptr
+  int offset;
+
   // The optional function to convert a string to its representation
   ParserFunc parser_func;
 

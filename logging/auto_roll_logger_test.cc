@@ -7,8 +7,15 @@
 #ifndef ROCKSDB_LITE
 
 #include "logging/auto_roll_logger.h"
+
 #include <errno.h>
+#include <execinfo.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -17,6 +24,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -24,6 +32,18 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
+void handler(int sig) {
+  void* array[10];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 10);
+
+  // print out all the frames to stderr
+  fprintf(stderr, "Error: signal %d:\n", sig);
+  backtrace_symbols_fd(array, (int)size, STDERR_FILENO);
+  exit(1);
+}
 namespace ROCKSDB_NAMESPACE {
 namespace {
 class NoSleepEnv : public EnvWrapper {
@@ -669,6 +689,7 @@ TEST_F(AutoRollLoggerTest, FileCreateFailure) {
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  signal(SIGSEGV, handler);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

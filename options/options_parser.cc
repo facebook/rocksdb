@@ -15,7 +15,10 @@
 
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
+#include "options/options_type.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -593,25 +596,52 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const ConfigOptions& config_options, const DBOptions& base_opt,
     const DBOptions& file_opt,
     const std::unordered_map<std::string, std::string>* /*opt_map*/) {
-  for (const auto& pair : db_options_type_info) {
+  MutableDBOptions base_mdb(base_opt);
+  MutableDBOptions file_mdb(file_opt);
+
+  for (auto pair : db_mutable_options_type_info) {
     const auto& opt_info = pair.second;
     if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
-      const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + opt_info.offset;
-      const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + opt_info.offset;
       std::string mismatch;
-      if (!opt_info.MatchesOption(config_options, pair.first, base_addr,
-                                  file_addr, &mismatch) &&
-          !opt_info.CheckByName(config_options, pair.first, base_addr,
-                                file_addr)) {
+      if (!opt_info.MatchesOption(config_options, pair.first, &base_mdb,
+                                  &file_mdb, &mismatch) &&
+          !opt_info.CheckByName(config_options, pair.first, &base_mdb,
+                                &file_mdb)) {
         const size_t kBufferSize = 2048;
         char buffer[kBufferSize];
         std::string base_value;
         std::string file_value;
-        opt_info.SerializeOption(config_options, pair.first, base_addr,
+        opt_info.SerializeOption(config_options, pair.first, &base_mdb,
                                  &base_value);
-        opt_info.SerializeOption(config_options, pair.first, file_addr,
+        opt_info.SerializeOption(config_options, pair.first, &file_mdb,
+                                 &file_value);
+        snprintf(buffer, sizeof(buffer),
+                 "[RocksDBOptionsParser]: "
+                 "failed the verification on DBOptions::%s --- "
+                 "The specified one is %s while the persisted one is %s.\n",
+                 pair.first.c_str(), base_value.c_str(), file_value.c_str());
+        return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
+      }
+    }
+  }
+
+  ImmutableDBOptions base_idb(base_opt);
+  ImmutableDBOptions file_idb(file_opt);
+  for (auto pair : db_immutable_options_type_info) {
+    const auto& opt_info = pair.second;
+    if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
+      std::string mismatch;
+      if (!opt_info.MatchesOption(config_options, pair.first, &base_idb,
+                                  &file_idb, &mismatch) &&
+          !opt_info.CheckByName(config_options, pair.first, &base_idb,
+                                &file_idb)) {
+        const size_t kBufferSize = 2048;
+        char buffer[kBufferSize];
+        std::string base_value;
+        std::string file_value;
+        opt_info.SerializeOption(config_options, pair.first, &base_idb,
+                                 &base_value);
+        opt_info.SerializeOption(config_options, pair.first, &file_idb,
                                  &file_value);
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
@@ -629,17 +659,14 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     const ConfigOptions& config_options, const ColumnFamilyOptions& base_opt,
     const ColumnFamilyOptions& file_opt,
     const std::unordered_map<std::string, std::string>* opt_map) {
-  for (const auto& pair : cf_options_type_info) {
+  for (auto& pair : cf_immutable_options_type_info) {
     const auto& opt_info = pair.second;
 
     if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
       std::string mismatch;
-      const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + opt_info.offset;
-      const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + opt_info.offset;
       bool matches = opt_info.MatchesOption(config_options, pair.first,
-                                            base_addr, file_addr, &mismatch);
+                                            &base_opt, &file_opt, &mismatch);
+      std::string base_value;
       if (!matches && opt_info.IsByName()) {
         if (opt_map == nullptr) {
           matches = true;
@@ -649,7 +676,49 @@ Status RocksDBOptionsParser::VerifyCFOptions(
             matches = true;
           } else {
             matches = opt_info.CheckByName(config_options, pair.first,
-                                           base_addr, iter->second);
+                                           &base_opt, iter->second);
+          }
+        }
+      }
+      if (!matches) {
+        // The options do not match
+        const size_t kBufferSize = 2048;
+        char buffer[kBufferSize];
+        std::string file_value;
+        opt_info.SerializeOption(config_options, pair.first, &base_opt,
+                                 &base_value);
+        opt_info.SerializeOption(config_options, pair.first, &file_opt,
+                                 &file_value);
+        snprintf(buffer, sizeof(buffer),
+                 "[RocksDBOptionsParser]: "
+                 "failed the verification on ColumnFamilyOptions::%s --- "
+                 "The specified one is %s while the persisted one is %s.\n",
+                 pair.first.c_str(), base_value.c_str(), file_value.c_str());
+        return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
+      }  // if (! matches)
+    }    // CheckSanityLevel
+  }      // For each option
+
+  MutableCFOptions base_mcf(base_opt);
+  MutableCFOptions file_mcf(file_opt);
+
+  for (auto& pair : cf_mutable_options_type_info) {
+    const auto& opt_info = pair.second;
+
+    if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
+      std::string mismatch;
+      bool matches = opt_info.MatchesOption(config_options, pair.first,
+                                            &base_mcf, &file_mcf, &mismatch);
+      if (!matches && opt_info.IsByName()) {
+        if (opt_map == nullptr) {
+          matches = true;
+        } else {
+          auto iter = opt_map->find(pair.first);
+          if (iter == opt_map->end()) {
+            matches = true;
+          } else {
+            matches = opt_info.CheckByName(config_options, pair.first,
+                                           &base_mcf, iter->second);
           }
         }
       }
@@ -659,9 +728,9 @@ Status RocksDBOptionsParser::VerifyCFOptions(
         char buffer[kBufferSize];
         std::string base_value;
         std::string file_value;
-        opt_info.SerializeOption(config_options, pair.first, base_addr,
+        opt_info.SerializeOption(config_options, pair.first, &base_mcf,
                                  &base_value);
-        opt_info.SerializeOption(config_options, pair.first, file_addr,
+        opt_info.SerializeOption(config_options, pair.first, &file_mcf,
                                  &file_value);
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "

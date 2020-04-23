@@ -10,6 +10,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_type.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -221,6 +223,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.sample_for_compression = mutable_cf_options.sample_for_compression;
 
   cf_opts.table_factory = options.table_factory;
+
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
 
@@ -320,8 +323,8 @@ bool ParseSliceTransform(
   return false;
 }
 
-bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
-                       const std::string& value) {
+static bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
+                              const std::string& value) {
   switch (opt_type) {
     case OptionType::kBoolean:
       *reinterpret_cast<bool*>(opt_address) = ParseBoolean("", value);
@@ -539,6 +542,24 @@ bool SerializeSingleOptionHelper(const char* opt_address,
   return true;
 }
 
+static Status GetMutableOptionsFromMap(
+    const ConfigOptions& config_options, const MutableCFOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableCFOptions* new_options,
+    std::unordered_map<std::string, std::string>* unused_opts) {
+  assert(new_options);
+  assert(unused_opts);
+  *new_options = base_options;
+
+  Status s =
+      ParseOptionsTypeFromMap(config_options, cf_mutable_options_type_info,
+                              new_options, options_map, unused_opts);
+  if (!s.ok()) {
+    *new_options = base_options;
+  }
+  return s;
+}
+
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -548,27 +569,111 @@ Status GetMutableOptionsFromStrings(
   ConfigOptions config_options;
   for (const auto& o : options_map) {
     std::string elem;
-    const auto opt_info =
-        OptionTypeInfo::FindOption(o.first, cf_options_type_info, &elem);
+    const auto opt_info = OptionTypeInfo::FindOption(
+        o.first, cf_mutable_options_type_info, &elem);
     if (opt_info == nullptr) {
       return Status::InvalidArgument("Unrecognized option: " + o.first);
-    } else if (!opt_info->IsMutable()) {
-      return Status::InvalidArgument("Option not changeable: " + o.first);
     } else if (opt_info->IsDeprecated()) {
       // log warning when user tries to set a deprecated option but don't fail
       // the call for compatibility.
       ROCKS_LOG_WARN(info_log, "%s is a deprecated option and cannot be set",
                      o.first.c_str());
     } else {
-      Status s = opt_info->ParseOption(
-          config_options, elem, o.second,
-          reinterpret_cast<char*>(new_options) + opt_info->mutable_offset);
+      Status s =
+          opt_info->ParseOption(config_options, elem, o.second, new_options);
       if (!s.ok()) {
         return s;
       }
     }
   }
   return Status::OK();
+}
+
+Status ParseOptionsTypeFromMap(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
+    void* opt_ptr,
+    const std::unordered_map<std::string, std::string>& options) {
+  std::unordered_map<std::string, std::string> unused_opts;
+  return ParseOptionsTypeFromMap(config_options, opt_map, opt_ptr, options,
+                                 &unused_opts);
+}
+
+Status ParseOptionsTypeFromMap(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
+    void* opt_ptr, const std::unordered_map<std::string, std::string>& options,
+    std::unordered_map<std::string, std::string>* unused_opts) {
+  Status s, result, invalid;
+  bool found_one = false;
+  std::unordered_map<std::string, std::string> invalid_opts;
+  // Go through all of the values in the input map and attempt to configure the
+  // property.
+  for (const auto& o : options) {
+    std::string opt_name;
+    const auto opt_info =
+        OptionTypeInfo::FindOption(o.first, opt_map, &opt_name);
+    if (opt_info == nullptr) {
+      result = Status::NotFound("Could not find option: ", o.first);
+      unused_opts->insert(o);
+    } else {
+      s = opt_info->ParseOption(config_options, opt_name, o.second, opt_ptr);
+      if (s.ok()) {
+        found_one = true;
+      } else if (s.IsNotFound()) {
+        result = s;
+        unused_opts->insert(o);
+      } else if (s.IsNotSupported()) {
+        // Let not supported appear in unused for the first pass
+        unused_opts->insert(o);
+      } else {
+        invalid_opts.insert(o);
+        invalid = s;
+      }
+    }
+  }
+  // While there are unused properties and we processed at least one,
+  // go through the remaining unused properties and attempt to configure them.
+  while (found_one && !unused_opts->empty()) {
+    result = Status::OK();
+    found_one = false;
+    for (auto it = unused_opts->begin(); it != unused_opts->end();) {
+      std::string opt_name;
+      const auto opt_info =
+          OptionTypeInfo::FindOption(it->first, opt_map, &opt_name);
+      if (opt_info != nullptr) {
+        s = opt_info->ParseOption(config_options, opt_name, it->second,
+                                  opt_ptr);
+        if (s.ok()) {
+          found_one = true;
+          it = unused_opts->erase(it);
+        } else if (s.IsNotFound()) {
+          result = s;
+          ++it;
+        } else if (s.IsNotSupported()) {
+          // Still not supported.  Give up on it
+          it = unused_opts->erase(it);
+        } else {
+          invalid_opts.insert(*it);
+          it = unused_opts->erase(it);
+          invalid = s;
+        }
+      } else {  // We did not find the option, move on to the next one
+        result = Status::NotFound("Could not find option: ", it->first);
+        ++it;
+      }
+    }
+  }
+  if (!invalid_opts.empty()) {
+    unused_opts->insert(invalid_opts.begin(), invalid_opts.end());
+  }
+  if (config_options.ignore_unknown_options || (invalid.ok() && result.ok())) {
+    return Status::OK();
+  } else if (!invalid.ok()) {
+    return invalid;
+  } else {
+    return result;
+  }
 }
 
 Status GetMutableDBOptionsFromStrings(
@@ -582,16 +687,15 @@ Status GetMutableDBOptionsFromStrings(
   for (const auto& o : options_map) {
     try {
       std::string elem;
-      const auto opt_info =
-          OptionTypeInfo::FindOption(o.first, db_options_type_info, &elem);
+      const auto opt_info = OptionTypeInfo::FindOption(
+          o.first, db_mutable_options_type_info, &elem);
       if (opt_info == nullptr) {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       } else if (!opt_info->IsMutable()) {
         return Status::InvalidArgument("Option not changeable: " + o.first);
       } else {
-        Status s = opt_info->ParseOption(
-            config_options, elem, o.second,
-            reinterpret_cast<char*>(new_options) + opt_info->mutable_offset);
+        Status s =
+            opt_info->ParseOption(config_options, elem, o.second, new_options);
         if (!s.ok()) {
           return s;
         }
@@ -655,11 +759,9 @@ Status GetStringFromStruct(
     // If the option is no longer used in rocksdb and marked as deprecated,
     // we skip it in the serialization.
     if (opt_info.ShouldSerialize()) {
-      const char* opt_addr =
-          reinterpret_cast<const char*>(opt_ptr) + opt_info.offset;
       std::string value;
-      Status s = opt_info.SerializeOption(config_options, iter.first, opt_addr,
-                                          &value);
+      Status s =
+          opt_info.SerializeOption(config_options, iter.first, opt_ptr, &value);
       if (s.ok()) {
         opt_string->append(iter.first + "=" + value + config_options.delimiter);
       } else {
@@ -670,6 +772,13 @@ Status GetStringFromStruct(
   return Status::OK();
 }
 
+Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
+                                     const MutableDBOptions& mutable_opts,
+                                     std::string* opt_string) {
+  return GetStringFromStruct(config_options, &mutable_opts,
+                             db_mutable_options_type_info, opt_string);
+}
+
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
@@ -678,11 +787,33 @@ Status GetStringFromDBOptions(std::string* opt_string,
   return GetStringFromDBOptions(config_options, db_options, opt_string);
 }
 
-Status GetStringFromDBOptions(const ConfigOptions& cfg_options,
+Status GetStringFromDBOptions(const ConfigOptions& config_options,
                               const DBOptions& db_options,
                               std::string* opt_string) {
-  return GetStringFromStruct(cfg_options, &db_options, db_options_type_info,
-                             opt_string);
+  assert(opt_string);
+  std::string mutable_opts;
+  std::string immutable_opts;
+  MutableDBOptions mdb(db_options);
+  ImmutableDBOptions idb(db_options);
+
+  Status s = GetStringFromMutableDBOptions(config_options, mdb, &mutable_opts);
+  if (s.ok()) {
+    s = GetStringFromStruct(config_options, &idb,
+                            db_immutable_options_type_info, &immutable_opts);
+  }
+  if (s.ok()) {
+    *opt_string = mutable_opts + immutable_opts;
+  }
+  return s;
+}
+
+Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
+                                     const MutableCFOptions& mutable_opts,
+                                     std::string* opt_string) {
+  assert(opt_string);
+  opt_string->clear();
+  return GetStringFromStruct(config_options, &mutable_opts,
+                             cf_mutable_options_type_info, opt_string);
 }
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
@@ -697,8 +828,20 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
 Status GetStringFromColumnFamilyOptions(const ConfigOptions& config_options,
                                         const ColumnFamilyOptions& cf_options,
                                         std::string* opt_string) {
-  return GetStringFromStruct(config_options, &cf_options, cf_options_type_info,
-                             opt_string);
+  std::string mutable_string;
+  std::string immutable_string;
+
+  Status s =
+      GetStringFromStruct(config_options, &cf_options,
+                          cf_immutable_options_type_info, &immutable_string);
+  if (s.ok()) {
+    s = GetStringFromMutableCFOptions(
+        config_options, MutableCFOptions(cf_options), &mutable_string);
+  }
+  if (s.ok()) {
+    *opt_string = mutable_string + immutable_string;
+  }
+  return s;
 }
 
 Status GetStringFromCompressionType(std::string* compression_str,
@@ -723,25 +866,6 @@ std::vector<CompressionType> GetSupportedCompressions() {
   return supported_compressions;
 }
 
-static Status ParseDBOption(const ConfigOptions& config_options,
-                            const std::string& name,
-                            const std::string& org_value,
-                            DBOptions* new_options) {
-  const std::string& value = config_options.input_strings_escaped
-                                 ? UnescapeOptionString(org_value)
-                                 : org_value;
-  std::string elem;
-  const auto opt_info =
-      OptionTypeInfo::FindOption(name, db_options_type_info, &elem);
-  if (opt_info == nullptr) {
-    return Status::InvalidArgument("Unrecognized option DBOptions:", name);
-  } else {
-    return opt_info->ParseOption(
-        config_options, elem, value,
-        reinterpret_cast<char*>(new_options) + opt_info->offset);
-  }
-}
-
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
@@ -760,24 +884,28 @@ Status GetColumnFamilyOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options) {
   assert(new_options);
+
+  std::unordered_map<std::string, std::string> unused;
+  ConfigOptions copy = config_options;
+  copy.ignore_unknown_options = true;
+
   *new_options = base_options;
-  for (const auto& o : opts_map) {
-    auto s =
-        ParseColumnFamilyOption(config_options, o.first, o.second, new_options);
-    if (!s.ok()) {
-      if (s.IsNotSupported()) {
-        continue;
-      } else if (s.IsInvalidArgument() &&
-                 config_options.ignore_unknown_options) {
-        continue;
-      } else {
-        // Restore "new_options" to the default "base_options".
-        *new_options = base_options;
-        return s;
-      }
-    }
+
+  MutableCFOptions mcf;
+  Status s = GetMutableOptionsFromMap(copy, MutableCFOptions(*new_options),
+                                      opts_map, &mcf, &unused);
+  if (s.ok() && !unused.empty()) {
+    copy.ignore_unknown_options = config_options.ignore_unknown_options;
+    s = ParseOptionsTypeFromMap(copy, cf_immutable_options_type_info,
+                                new_options, unused);
   }
-  return Status::OK();
+  if (s.ok()) {
+    *new_options = BuildColumnFamilyOptions(*new_options, mcf);
+  } else {
+    // Restore "new_options" to the default "base_options".
+    *new_options = base_options;
+  }
+  return s;
 }
 
 Status GetColumnFamilyOptionsFromString(
@@ -821,44 +949,41 @@ Status GetDBOptionsFromMap(
     const ConfigOptions& config_options, const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options) {
+  std::unordered_map<std::string, std::string> unused;
+
   return GetDBOptionsFromMapInternal(config_options, base_options, opts_map,
-                                     new_options, nullptr);
+                                     new_options, &unused);
 }
 
 Status GetDBOptionsFromMapInternal(
     const ConfigOptions& config_options, const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options,
-    std::vector<std::string>* unsupported_options_names) {
+    std::unordered_map<std::string, std::string>* unused_opts) {
   assert(new_options);
   *new_options = base_options;
-  if (unsupported_options_names) {
-    unsupported_options_names->clear();
+  unused_opts->clear();
+  MutableDBOptions mdb(base_options);
+  ImmutableDBOptions idb(base_options);
+
+  ConfigOptions copy = config_options;
+  copy.ignore_unknown_options = true;
+  std::unordered_map<std::string, std::string> unused_idb;
+
+  Status s = ParseOptionsTypeFromMap(copy, db_immutable_options_type_info, &idb,
+                                     opts_map, &unused_idb);
+  if (s.ok()) {
+    copy.ignore_unknown_options = config_options.ignore_unknown_options;
+    s = ParseOptionsTypeFromMap(copy, db_mutable_options_type_info, &mdb,
+                                unused_idb, unused_opts);
   }
-  for (const auto& o : opts_map) {
-    auto s = ParseDBOption(config_options, o.first, o.second, new_options);
-    if (!s.ok()) {
-      if (s.IsNotSupported()) {
-        // If the deserialization of the specified option is not supported
-        // and an output vector of unsupported_options is provided, then
-        // we log the name of the unsupported option and proceed.
-        if (unsupported_options_names != nullptr) {
-          unsupported_options_names->push_back(o.first);
-        }
-        // Note that we still return Status::OK in such case to maintain
-        // the backward compatibility in the old public API defined in
-        // rocksdb/convenience.h
-      } else if (s.IsInvalidArgument() &&
-                 config_options.ignore_unknown_options) {
-        continue;
-      } else {
-        // Restore "new_options" to the default "base_options".
-        *new_options = base_options;
-        return s;
-      }
-    }
+  if (!s.ok()) {
+    // Restore "new_options" to the default "base_options".
+    *new_options = base_options;
+  } else {
+    *new_options = BuildDBOptions(idb, mdb);
   }
-  return Status::OK();
+  return s;
 }
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
@@ -899,25 +1024,29 @@ Status GetOptionsFromString(const Options& base_options,
 Status GetOptionsFromString(const ConfigOptions& config_options,
                             const Options& base_options,
                             const std::string& opts_str, Options* new_options) {
+  DBOptions new_db_options;
+  ColumnFamilyOptions new_cf_options;
+  std::unordered_map<std::string, std::string> unused_opts;
   std::unordered_map<std::string, std::string> opts_map;
+
+  ConfigOptions copy = config_options;
+  copy.ignore_unknown_options = true;
+
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     return s;
   }
-  DBOptions new_db_options(base_options);
-  ColumnFamilyOptions new_cf_options(base_options);
-  for (const auto& o : opts_map) {
-    if (ParseDBOption(config_options, o.first, o.second, &new_db_options)
-            .ok()) {
-    } else if (ParseColumnFamilyOption(config_options, o.first, o.second,
-                                       &new_cf_options)
-                   .ok()) {
-    } else {
-      return Status::InvalidArgument("Can't parse option " + o.first);
+  s = GetDBOptionsFromMapInternal(copy, base_options, opts_map, &new_db_options,
+                                  &unused_opts);
+  if (s.ok()) {
+    copy.ignore_unknown_options = config_options.ignore_unknown_options;
+    s = GetColumnFamilyOptionsFromMap(copy, base_options, unused_opts,
+                                      &new_cf_options);
+    if (s.ok()) {
+      *new_options = Options(new_db_options, new_cf_options);
     }
   }
-  *new_options = Options(new_db_options, new_cf_options);
-  return Status::OK();
+  return s;
 }
 
 Status GetTableFactoryFromMap(
@@ -1039,12 +1168,17 @@ Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
 
 Status OptionTypeInfo::ParseOption(const ConfigOptions& config_options,
                                    const std::string& opt_name,
-                                   const std::string& opt_value,
-                                   char* opt_addr) const {
+                                   const std::string& value,
+                                   void* opt_ptr) const {
   if (IsDeprecated()) {
     return Status::OK();
   }
   try {
+    char* opt_addr = reinterpret_cast<char*>(opt_ptr) + offset;
+    const std::string& opt_value = config_options.input_strings_escaped
+                                       ? UnescapeOptionString(value)
+                                       : value;
+
     if (opt_addr == nullptr) {
       return Status::NotFound("Could not find option: ", opt_name);
     } else if (parser_func != nullptr) {
@@ -1077,8 +1211,7 @@ Status OptionTypeInfo::ParseStruct(
         const auto iter = struct_map->find(map_iter.first);
         if (iter != struct_map->end()) {
           status = iter->second.ParseOption(config_options, map_iter.first,
-                                            map_iter.second,
-                                            opt_addr + iter->second.offset);
+                                            map_iter.second, opt_addr);
         } else {
           return Status::InvalidArgument("Unrecognized option: ",
                                          struct_name + "." + map_iter.first);
@@ -1091,8 +1224,8 @@ Status OptionTypeInfo::ParseStruct(
     const auto opt_info = FindOption(opt_name.substr(struct_name.size() + 1),
                                      *struct_map, &elem_name);
     if (opt_info != nullptr) {
-      status = opt_info->ParseOption(config_options, elem_name, opt_value,
-                                     opt_addr + opt_info->offset);
+      status =
+          opt_info->ParseOption(config_options, elem_name, opt_value, opt_addr);
     } else {
       status = Status::InvalidArgument("Unrecognized option: ", opt_name);
     }
@@ -1101,8 +1234,8 @@ Status OptionTypeInfo::ParseStruct(
     std::string elem_name;
     const auto opt_info = FindOption(opt_name, *struct_map, &elem_name);
     if (opt_info != nullptr) {
-      status = opt_info->ParseOption(config_options, elem_name, opt_value,
-                                     opt_addr + opt_info->offset);
+      status =
+          opt_info->ParseOption(config_options, elem_name, opt_value, opt_addr);
     } else {
       status = Status::InvalidArgument("Unrecognized option: ",
                                        struct_name + "." + opt_name);
@@ -1113,11 +1246,12 @@ Status OptionTypeInfo::ParseStruct(
 
 Status OptionTypeInfo::SerializeOption(const ConfigOptions& config_options,
                                        const std::string& opt_name,
-                                       const char* opt_addr,
+                                       const void* const opt_ptr,
                                        std::string* opt_value) const {
   // If the option is no longer used in rocksdb and marked as deprecated,
   // we skip it in the serialization.
   Status s;
+  const char* opt_addr = reinterpret_cast<const char*>(opt_ptr) + offset;
   if (opt_addr == nullptr || IsDeprecated()) {
     return Status::OK();
   } else if (string_func != nullptr) {
@@ -1144,8 +1278,8 @@ Status OptionTypeInfo::SerializeStruct(
       std::string single;
       const auto& opt_info = iter.second;
       if (opt_info.ShouldSerialize()) {
-        status = opt_info.SerializeOption(embedded, iter.first,
-                                          opt_addr + opt_info.offset, &single);
+        status =
+            opt_info.SerializeOption(embedded, iter.first, opt_addr, &single);
         if (!status.ok()) {
           return status;
         } else {
@@ -1160,8 +1294,8 @@ Status OptionTypeInfo::SerializeStruct(
     const auto opt_info = FindOption(opt_name.substr(struct_name.size() + 1),
                                      *struct_map, &elem_name);
     if (opt_info != nullptr) {
-      status = opt_info->SerializeOption(config_options, elem_name,
-                                         opt_addr + opt_info->offset, value);
+      status =
+          opt_info->SerializeOption(config_options, elem_name, opt_addr, value);
     } else {
       status = Status::InvalidArgument("Unrecognized option: ", opt_name);
     }
@@ -1172,9 +1306,8 @@ Status OptionTypeInfo::SerializeStruct(
     if (opt_info == nullptr) {
       return Status::InvalidArgument("Unrecognized option: ", opt_name);
     } else if (opt_info->ShouldSerialize()) {
-      return opt_info->SerializeOption(config_options,
-                                       opt_name + "." + elem_name,
-                                       opt_addr + opt_info->offset, value);
+      return opt_info->SerializeOption(
+          config_options, opt_name + "." + elem_name, opt_addr, value);
     }
   }
   return Status::OK();
@@ -1245,12 +1378,14 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
 
 bool OptionTypeInfo::MatchesOption(const ConfigOptions& config_options,
                                    const std::string& opt_name,
-                                   const char* this_addr, const char* that_addr,
-
+                                   const void* const this_ptr,
+                                   const void* const that_ptr,
                                    std::string* mismatch) const {
   if (!config_options.IsCheckEnabled(GetSanityLevel())) {
     return true;  // If the sanity level is not being checked, skip it
   }
+  const auto this_addr = reinterpret_cast<const char*>(this_ptr) + offset;
+  const auto that_addr = reinterpret_cast<const char*>(that_ptr) + offset;
   if (this_addr == nullptr || that_addr == nullptr) {
     if (this_addr == that_addr) {
       return true;
@@ -1282,9 +1417,8 @@ bool OptionTypeInfo::MatchesStruct(
     for (const auto& iter : *struct_map) {
       const auto& opt_info = iter.second;
 
-      matches = opt_info.MatchesOption(config_options, iter.first,
-                                       this_offset + opt_info.offset,
-                                       that_offset + opt_info.offset, &result);
+      matches = opt_info.MatchesOption(config_options, iter.first, this_offset,
+                                       that_offset, &result);
       if (!matches) {
         *mismatch = struct_name + "." + result;
         return false;
@@ -1299,9 +1433,8 @@ bool OptionTypeInfo::MatchesStruct(
     if (opt_info == nullptr) {
       *mismatch = opt_name;
       matches = false;
-    } else if (!opt_info->MatchesOption(
-                   config_options, elem_name, this_offset + opt_info->offset,
-                   that_offset + opt_info->offset, &result)) {
+    } else if (!opt_info->MatchesOption(config_options, elem_name, this_offset,
+                                        that_offset, &result)) {
       matches = false;
       *mismatch = struct_name + "." + result;
     }
@@ -1313,9 +1446,8 @@ bool OptionTypeInfo::MatchesStruct(
     if (opt_info == nullptr) {
       *mismatch = struct_name + "." + opt_name;
       matches = false;
-    } else if (!opt_info->MatchesOption(
-                   config_options, elem_name, this_offset + opt_info->offset,
-                   that_offset + opt_info->offset, &result)) {
+    } else if (!opt_info->MatchesOption(config_options, elem_name, this_offset,
+                                        that_offset, &result)) {
       matches = false;
       *mismatch = struct_name + "." + result;
     }
@@ -1323,15 +1455,34 @@ bool OptionTypeInfo::MatchesStruct(
   return matches;
 }
 
+bool MatchesOptionsTypeFromMap(
+    const ConfigOptions& config_options,
+    const std::unordered_map<std::string, OptionTypeInfo>& type_map,
+    const void* const this_ptr, const void* const that_ptr,
+    std::string* mismatch) {
+  for (auto& pair : type_map) {
+    // We skip checking deprecated variables as they might
+    // contain random values since they might not be initialized
+    if (config_options.IsCheckEnabled(pair.second.GetSanityLevel())) {
+      if (!pair.second.MatchesOption(config_options, pair.first, this_ptr,
+                                     that_ptr, mismatch) &&
+          !pair.second.CheckByName(config_options, pair.first, this_ptr,
+                                   that_ptr)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool OptionTypeInfo::CheckByName(const ConfigOptions& config_options,
                                  const std::string& opt_name,
-                                 const char* this_addr,
-                                 const char* that_addr) const {
+                                 const void* const this_ptr,
+                                 const void* const that_ptr) const {
   if (IsByName()) {
     std::string that_value;
-    if (SerializeOption(config_options, opt_name, that_addr, &that_value)
-            .ok()) {
-      return CheckByName(config_options, opt_name, this_addr, that_value);
+    if (SerializeOption(config_options, opt_name, that_ptr, &that_value).ok()) {
+      return CheckByName(config_options, opt_name, this_ptr, that_value);
     }
   }
   return false;
@@ -1339,12 +1490,12 @@ bool OptionTypeInfo::CheckByName(const ConfigOptions& config_options,
 
 bool OptionTypeInfo::CheckByName(const ConfigOptions& config_options,
                                  const std::string& opt_name,
-                                 const char* opt_addr,
+                                 const void* const opt_ptr,
                                  const std::string& that_value) const {
   std::string this_value;
   if (!IsByName()) {
     return false;
-  } else if (!SerializeOption(config_options, opt_name, opt_addr, &this_value)
+  } else if (!SerializeOption(config_options, opt_name, opt_ptr, &this_value)
                   .ok()) {
     return false;
   } else if (IsEnabled(OptionVerificationType::kByNameAllowFromNull)) {
