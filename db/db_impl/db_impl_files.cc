@@ -665,7 +665,7 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::CleanupFilesAfterRecovery() {
+Status DBImpl::FinishBestEffortsRecovery() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(dbname_);
@@ -704,8 +704,22 @@ Status DBImpl::CleanupFilesAfterRecovery() {
   if (largest_file_number > next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
+
+  VersionEdit edit;
+  edit.SetNextFile(versions_->next_file_number_.load());
+  assert(versions_->GetColumnFamilySet());
+  ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
+  assert(default_cfd);
+  // Even if new_descriptor_log is false, we will still switch to a new
+  // MANIFEST and update CURRENT file, since this is in recovery.
+  Status s = versions_->LogAndApply(
+      default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
+      directories_.GetDbDir(), /*new_descriptor_log*/ false);
+  if (!s.ok()) {
+    return s;
+  }
+
   mutex_.Unlock();
-  Status s;
   for (const auto& fname : files_to_delete) {
     s = env_->DeleteFile(fname);
     if (!s.ok()) {

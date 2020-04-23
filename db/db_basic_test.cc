@@ -1850,6 +1850,29 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
   }
 }
 
+TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Put(1, "bar", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Flush(1));
+  Close();
+  ASSERT_OK(env_->DeleteFile(CurrentFileName(dbname_)));
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  std::vector<std::string> cf_names;
+  ASSERT_OK(DB::ListColumnFamilies(DBOptions(options), dbname_, &cf_names));
+  ASSERT_EQ(2, cf_names.size());
+  for (const auto& name : cf_names) {
+    ASSERT_TRUE(name == kDefaultColumnFamilyName || name == "pikachu");
+  }
+}
+
 TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
