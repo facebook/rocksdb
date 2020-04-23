@@ -90,10 +90,8 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr &&
       prefetch_buffer_->TryReadFromCache(
-          handle_.offset(),
-          static_cast<size_t>(handle_.size()) + kBlockTrailerSize, &slice_,
+          handle_.offset(), block_size_with_trailer_, &slice_,
           for_compaction_)) {
-    block_size_ = static_cast<size_t>(handle_.size());
     CheckBlockChecksum();
     if (!status_.ok()) {
       return true;
@@ -110,7 +108,7 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
     // lookup uncompressed cache mode p-cache
     std::unique_ptr<char[]> raw_data;
     status_ = PersistentCacheHelper::LookupRawPage(
-        cache_options_, handle_, &raw_data, block_size_ + kBlockTrailerSize);
+        cache_options_, handle_, &raw_data, block_size_with_trailer_);
     if (status_.ok()) {
       heap_buf_ = CacheAllocationPtr(raw_data.release());
       used_buf_ = heap_buf_.get();
@@ -129,17 +127,17 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
 inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
   if (do_uncompress_ &&
-      block_size_ + kBlockTrailerSize < kDefaultStackBufferSize) {
+      block_size_with_trailer_ < kDefaultStackBufferSize) {
     // If we've got a small enough hunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
     used_buf_ = &stack_buf_[0];
   } else if (maybe_compressed_ && !do_uncompress_) {
-    compressed_buf_ = AllocateBlock(block_size_ + kBlockTrailerSize,
+    compressed_buf_ = AllocateBlock(block_size_with_trailer_,
                                     memory_allocator_compressed_);
     used_buf_ = compressed_buf_.get();
   } else {
     heap_buf_ =
-        AllocateBlock(block_size_ + kBlockTrailerSize, memory_allocator_);
+        AllocateBlock(block_size_with_trailer_, memory_allocator_);
     used_buf_ = heap_buf_.get();
   }
 }
@@ -150,7 +148,7 @@ inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
       cache_options_.persistent_cache->IsCompressed()) {
     // insert to raw cache
     PersistentCacheHelper::InsertRawPage(cache_options_, handle_, used_buf_,
-                                         block_size_ + kBlockTrailerSize);
+                                         block_size_with_trailer_);
   }
 }
 
@@ -166,9 +164,8 @@ inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
 
 inline void BlockFetcher::CopyBufferToHeapBuf() {
   assert(used_buf_ != heap_buf_.get());
-  size_t size = block_size_ + kBlockTrailerSize;
-  heap_buf_ = AllocateBlock(size, memory_allocator_);
-  memcpy(heap_buf_.get(), used_buf_, size);
+  heap_buf_ = AllocateBlock(block_size_with_trailer_, memory_allocator_);
+  memcpy(heap_buf_.get(), used_buf_, block_size_with_trailer_);
 #ifndef NDEBUG
   num_heap_buf_memcpy_++;
 #endif
@@ -176,9 +173,9 @@ inline void BlockFetcher::CopyBufferToHeapBuf() {
 
 inline void BlockFetcher::CopyBufferToCompressedBuf() {
   assert(used_buf_ != compressed_buf_.get());
-  size_t size = block_size_ + kBlockTrailerSize;
-  compressed_buf_ = AllocateBlock(size, memory_allocator_compressed_);
-  memcpy(compressed_buf_.get(), used_buf_, size);
+  compressed_buf_ = AllocateBlock(block_size_with_trailer_,
+                                  memory_allocator_compressed_);
+  memcpy(compressed_buf_.get(), used_buf_, block_size_with_trailer_);
 #ifndef NDEBUG
   num_compressed_buf_memcpy_++;
 #endif
@@ -216,8 +213,6 @@ inline void BlockFetcher::GetBlockContents() {
 }
 
 Status BlockFetcher::ReadBlockContents() {
-  block_size_ = static_cast<size_t>(handle_.size());
-
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
@@ -235,12 +230,12 @@ Status BlockFetcher::ReadBlockContents() {
       // Actual file read
       if (file_->use_direct_io()) {
         status_ =
-            file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
+            file_->Read(handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
-        status_ = file_->Read(handle_.offset(), block_size_ + kBlockTrailerSize,
+        status_ = file_->Read(handle_.offset(), block_size_with_trailer_,
                               &slice_, used_buf_, nullptr, for_compaction_);
 #ifndef NDEBUG
         if (used_buf_ == &stack_buf_[0]) {
@@ -274,16 +269,16 @@ Status BlockFetcher::ReadBlockContents() {
         break;
     }
 
-    PERF_COUNTER_ADD(block_read_byte, block_size_ + kBlockTrailerSize);
+    PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
     if (!status_.ok()) {
       return status_;
     }
 
-    if (slice_.size() != block_size_ + kBlockTrailerSize) {
+    if (slice_.size() != block_size_with_trailer_) {
       return Status::Corruption("truncated block read from " +
                                 file_->file_name() + " offset " +
                                 ToString(handle_.offset()) + ", expected " +
-                                ToString(block_size_ + kBlockTrailerSize) +
+                                ToString(block_size_with_trailer_) +
                                 " bytes, got " + ToString(slice_.size()));
     }
 

@@ -56,6 +56,8 @@ class BlockFetcher {
         do_uncompress_(do_uncompress),
         maybe_compressed_(maybe_compressed),
         block_type_(block_type),
+        block_size_(static_cast<size_t>(handle_.size())),
+        block_size_with_trailer_(block_size(handle_)),
         uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
@@ -89,10 +91,11 @@ class BlockFetcher {
   const BlockHandle& handle_;
   BlockContents* contents_;
   const ImmutableCFOptions& ioptions_;
-  bool do_uncompress_;
-  bool maybe_compressed_;
-  BlockType block_type_;
-  size_t block_size_;
+  const bool do_uncompress_;
+  const bool maybe_compressed_;
+  const BlockType block_type_;
+  const size_t block_size_;
+  const size_t block_size_with_trailer_;
   const UncompressionDict& uncompression_dict_;
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
