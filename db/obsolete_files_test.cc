@@ -244,7 +244,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   dbfull()->TEST_UnlockMutex();
 
   ASSERT_TRUE(job_context.HaveSomethingToDelete());
-  ASSERT_FALSE(job_context.blob_delete_files.empty());
+  ASSERT_EQ(job_context.blob_delete_files.size(), 1);
   ASSERT_EQ(job_context.blob_delete_files[0].GetBlobFileNumber(),
             first_blob_file_number);
 
@@ -253,7 +253,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   ASSERT_NE(files_grabbed_for_purge.find(first_blob_file_number),
             files_grabbed_for_purge.end());
 
-  ASSERT_FALSE(job_context.blob_live.empty());
+  ASSERT_EQ(job_context.blob_live.size(), 1);
   ASSERT_EQ(job_context.blob_live[0], second_blob_file_number);
 
   dbfull()->PurgeObsoleteFiles(job_context);
