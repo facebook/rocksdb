@@ -395,6 +395,9 @@ DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
             "Use O_DIRECT for writing data");
 
+DEFINE_bool(mock_direct_io, false,
+            "Mock direct IO by not using O_DIRECT for direct IO read");
+
 DEFINE_bool(statistics, false, "Create database statistics");
 
 DEFINE_bool(sync, false, "Sync all writes to disk");

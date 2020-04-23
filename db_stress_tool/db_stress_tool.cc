@@ -45,7 +45,7 @@ int db_stress_tool(int argc, char** argv) {
   SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
   SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
 
-  if (FLAGS_use_direct_reads || FLAGS_use_direct_io_for_flush_and_compaction) {
+  if (FLAGS_mock_direct_io) {
     test::SetupSyncPointsToMockDirectIO();
   }
 

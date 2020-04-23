@@ -64,7 +64,8 @@ default_params = {
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
     "max_write_buffer_number": 3,
-    "mmap_read": lambda: random.randint(0, 1),
+    #"mmap_read": 1,lambda: random.randint(0, 1),
+    "mmap_read": 1,
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "partition_filters": lambda: random.randint(0, 1),
@@ -81,6 +82,7 @@ default_params = {
     "target_file_size_multiplier": 2,
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
+    "mock_direct_io": False,
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     "verify_checksum": 1,
@@ -121,6 +123,11 @@ default_params = {
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
+_DEBUG_LEVEL_ENV_VAR = 'DEBUG_LEVEL'
+
+
+def is_release_mode():
+    return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
 
 
 def get_dbname(test_name):
@@ -133,6 +140,15 @@ def get_dbname(test_name):
         shutil.rmtree(dbname, True)
         os.mkdir(dbname)
     return dbname
+
+
+def is_direct_io_supported(dbname):
+    with tempfile.NamedTemporaryFile(dir=dbname) as f:	
+        try:	
+            os.open(f.name, os.O_DIRECT)	
+        except BaseException:	
+            return False	
+        return True
 
 
 blackbox_default_params = {
@@ -210,6 +226,14 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+    if (dest_params["use_direct_io_for_flush_and_compaction"] == 1 or \
+            dest_params["use_direct_reads"] == 1) and \
+            not is_direct_io_supported(dest_params["db"]):
+        if is_release_mode():
+            print("{} does not support direct IO".format(dest_params["db"]))
+            sys.exit(1)
+        else:
+            dest_params["mock_direct_io"] = True
 
     # DeleteRange is not currnetly compatible with Txns
     if dest_params.get("test_batches_snapshots") == 1 or \
