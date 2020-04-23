@@ -257,6 +257,9 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                                     const std::string& path_to_sync,
                                     FileType type, uint64_t number) {
+  TEST_SYNC_POINT_CALLBACK("DBImpl::DeleteObsoleteFileImpl::BeforeDeletion",
+                           const_cast<std::string*>(&fname));
+
   Status file_deletion_status;
   if (type == kTableFile || type == kLogFile) {
     file_deletion_status =
@@ -328,8 +331,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   }
 
   for (const auto& blob_file : state.blob_delete_files) {
-    candidate_files.emplace_back(
-        BlobFileName(blob_file.GetBlobFileNumber()), blob_file.GetPath());
+    candidate_files.emplace_back(BlobFileName(blob_file.GetBlobFileNumber()),
+                                 blob_file.GetPath());
   }
 
   for (auto file_num : state.log_delete_files) {
