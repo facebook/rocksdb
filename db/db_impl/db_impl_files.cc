@@ -665,7 +665,7 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::CleanupFilesAfterRecovery() {
+Status DBImpl::FinishBestEffortsRecovery() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(dbname_);
