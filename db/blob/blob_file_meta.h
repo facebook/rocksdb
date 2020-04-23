@@ -23,6 +23,42 @@ namespace ROCKSDB_NAMESPACE {
 
 class SharedBlobFileMetaData {
  public:
+  static std::shared_ptr<SharedBlobFileMetaData> Create(
+      uint64_t blob_file_number, uint64_t total_blob_count,
+      uint64_t total_blob_bytes, std::string checksum_method,
+      std::string checksum_value) {
+    return std::shared_ptr<SharedBlobFileMetaData>(new SharedBlobFileMetaData(
+        blob_file_number, total_blob_count, total_blob_bytes,
+        std::move(checksum_method), std::move(checksum_value)));
+  }
+
+  template <typename Deleter>
+  static std::shared_ptr<SharedBlobFileMetaData> Create(
+      uint64_t blob_file_number, uint64_t total_blob_count,
+      uint64_t total_blob_bytes, std::string checksum_method,
+      std::string checksum_value, Deleter deleter) {
+    return std::shared_ptr<SharedBlobFileMetaData>(
+        new SharedBlobFileMetaData(blob_file_number, total_blob_count,
+                                   total_blob_bytes, std::move(checksum_method),
+                                   std::move(checksum_value)),
+        deleter);
+  }
+
+  SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
+  SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
+
+  SharedBlobFileMetaData(SharedBlobFileMetaData&&) = delete;
+  SharedBlobFileMetaData& operator=(SharedBlobFileMetaData&&) = delete;
+
+  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
+  uint64_t GetTotalBlobCount() const { return total_blob_count_; }
+  uint64_t GetTotalBlobBytes() const { return total_blob_bytes_; }
+  const std::string& GetChecksumMethod() const { return checksum_method_; }
+  const std::string& GetChecksumValue() const { return checksum_value_; }
+
+  std::string DebugString() const;
+
+ private:
   SharedBlobFileMetaData(uint64_t blob_file_number, uint64_t total_blob_count,
                          uint64_t total_blob_bytes, std::string checksum_method,
                          std::string checksum_value)
@@ -34,20 +70,6 @@ class SharedBlobFileMetaData {
     assert(checksum_method_.empty() == checksum_value_.empty());
   }
 
-  ~SharedBlobFileMetaData();
-
-  SharedBlobFileMetaData(const SharedBlobFileMetaData&) = delete;
-  SharedBlobFileMetaData& operator=(const SharedBlobFileMetaData&) = delete;
-
-  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
-  uint64_t GetTotalBlobCount() const { return total_blob_count_; }
-  uint64_t GetTotalBlobBytes() const { return total_blob_bytes_; }
-  const std::string& GetChecksumMethod() const { return checksum_method_; }
-  const std::string& GetChecksumValue() const { return checksum_value_; }
-
-  std::string DebugString() const;
-
- private:
   uint64_t blob_file_number_;
   uint64_t total_blob_count_;
   uint64_t total_blob_bytes_;
@@ -68,20 +90,18 @@ std::ostream& operator<<(std::ostream& os,
 
 class BlobFileMetaData {
  public:
-  BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
-                   uint64_t garbage_blob_count, uint64_t garbage_blob_bytes)
-      : shared_meta_(std::move(shared_meta)),
-        garbage_blob_count_(garbage_blob_count),
-        garbage_blob_bytes_(garbage_blob_bytes) {
-    assert(shared_meta_);
-    assert(garbage_blob_count_ <= shared_meta_->GetTotalBlobCount());
-    assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
+  static std::shared_ptr<BlobFileMetaData> Create(
+      std::shared_ptr<SharedBlobFileMetaData> shared_meta,
+      uint64_t garbage_blob_count, uint64_t garbage_blob_bytes) {
+    return std::shared_ptr<BlobFileMetaData>(new BlobFileMetaData(
+        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes));
   }
-
-  ~BlobFileMetaData() = default;
 
   BlobFileMetaData(const BlobFileMetaData&) = delete;
   BlobFileMetaData& operator=(const BlobFileMetaData&) = delete;
+
+  BlobFileMetaData(BlobFileMetaData&&) = delete;
+  BlobFileMetaData& operator=(BlobFileMetaData&&) = delete;
 
   const std::shared_ptr<SharedBlobFileMetaData>& GetSharedMeta() const {
     return shared_meta_;
@@ -114,6 +134,16 @@ class BlobFileMetaData {
   std::string DebugString() const;
 
  private:
+  BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
+                   uint64_t garbage_blob_count, uint64_t garbage_blob_bytes)
+      : shared_meta_(std::move(shared_meta)),
+        garbage_blob_count_(garbage_blob_count),
+        garbage_blob_bytes_(garbage_blob_bytes) {
+    assert(shared_meta_);
+    assert(garbage_blob_count_ <= shared_meta_->GetTotalBlobCount());
+    assert(garbage_blob_bytes_ <= shared_meta_->GetTotalBlobBytes());
+  }
+
   std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
   uint64_t garbage_blob_count_;
   uint64_t garbage_blob_bytes_;

@@ -388,7 +388,7 @@ class VersionBuilder::Rep {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
-    auto shared_meta = std::make_shared<SharedBlobFileMetaData>(
+    auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, blob_file_addition.GetTotalBlobCount(),
         blob_file_addition.GetTotalBlobBytes(),
         blob_file_addition.GetChecksumMethod(),
@@ -396,7 +396,7 @@ class VersionBuilder::Rep {
 
     constexpr uint64_t garbage_blob_count = 0;
     constexpr uint64_t garbage_blob_bytes = 0;
-    auto new_meta = std::make_shared<BlobFileMetaData>(
+    auto new_meta = BlobFileMetaData::Create(
         std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
 
     changed_blob_files_.emplace(blob_file_number, std::move(new_meta));
@@ -417,7 +417,7 @@ class VersionBuilder::Rep {
 
     assert(meta->GetBlobFileNumber() == blob_file_number);
 
-    auto new_meta = std::make_shared<BlobFileMetaData>(
+    auto new_meta = BlobFileMetaData::Create(
         meta->GetSharedMeta(),
         meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
         meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
