@@ -181,6 +181,16 @@ inline void BlockFetcher::CopyBufferToCompressedBuf() {
 #endif
 }
 
+// Entering this method means the block is not compressed or do not need to be
+// uncompressed. The block can be in one of the following buffers:
+// 1. prefetch buffer if prefetch is enabled and the block is prefetched before
+// 2. stack_buf_ if block size is smaller than the stack_buf_ size and block
+//    is not compressed
+// 3. heap_buf_ if the block is not compressed
+// 4. compressed_buf_ if the block is compressed
+// 5. direct_io_buf_ if direct IO is enabled
+// After this method, if the block is compressed, it should be in
+// compressed_buf_, otherwise should be in heap_buf_.
 inline void BlockFetcher::GetBlockContents() {
   if (slice_.data() != used_buf_) {
     // the slice content is not the buffer provided
