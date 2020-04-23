@@ -329,7 +329,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   for (const auto& blob_file : state.blob_delete_files) {
     candidate_files.emplace_back(
-        BlobFileName("", blob_file.GetBlobFileNumber()), blob_file.GetPath());
+        BlobFileName(blob_file.GetBlobFileNumber()), blob_file.GetPath());
   }
 
   for (auto file_num : state.log_delete_files) {
