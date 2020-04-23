@@ -425,7 +425,7 @@ Status DBImpl::Recover(
     s = versions_->TryRecover(column_families, read_only, &db_id_,
                               &missing_table_file);
     if (s.ok()) {
-      s = CleanupFilesAfterRecovery();
+      s = FinishBestEffortsRecovery();
     }
   }
   if (!s.ok()) {

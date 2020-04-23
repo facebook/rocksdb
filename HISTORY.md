@@ -2,6 +2,11 @@
 ## Unreleased
 ### Bug Fixes
 * Upgraded version of bzip library (1.0.6 -> 1.0.8) used with RocksJava to address potential vulnerabilities if an attacker can manipulate compressed data saved and loaded by RocksDB (not normal). See issue #6703.
+* Fix a bug by updating CURRENT file so that it points to the correct MANIFEST file after best-efforts recovery.
+
+## 6.9.3 (04/28/2020)
+### Bug Fixes
+
 
 ## 6.9.2 (04/16/2020)
 ### Public API Change
