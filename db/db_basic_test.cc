@@ -2446,7 +2446,9 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 
   class DeadlineFS : public FileSystemWrapper {
    public:
-    DeadlineFS() : FileSystemWrapper(FileSystem::Default()) {}
+    DeadlineFS()
+      : FileSystemWrapper(FileSystem::Default()),
+        delay_idx_(0) {}
     ~DeadlineFS() = default;
 
     IOStatus NewRandomAccessFile(const std::string& fname,
