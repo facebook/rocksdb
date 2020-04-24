@@ -688,4 +688,19 @@ DEFINE_int32(read_fault_one_in, 1000,
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
             " and unsynced data in DB will lost after crash.");
+
+DEFINE_string(trace_path, "",
+              "Path to the RocksDB Trace file.  If specified, RocksDB Trace "
+              "feature will be enabled, and the trace will be stored in the "
+              "specified file path.  In case db_stress is run with more than "
+              "one reopen, the trace feature will currently only keep the "
+              "latest trace.");
+
+DEFINE_uint64(max_trace_size_in_bytes,
+              uint64_t{64} * 1024 * 1024 * 1024,
+              "The maximum size in bytes which the output trace file is. "
+              "This argument should be used together with --trace_path "
+              "option.  When the trace file exceed the size limit, the "
+              "future operations will not be traced.  Default: 64 GB.");
+
 #endif  // GFLAGS

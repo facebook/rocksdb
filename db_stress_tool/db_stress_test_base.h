@@ -38,6 +38,9 @@ class StressTest {
 
   void PrintStatistics();
 
+  // End trace if FLAGS_trace_path is specified.
+  void EndTrace();
+
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
@@ -205,6 +208,9 @@ class StressTest {
 
   void Reopen(ThreadState* thread);
 
+  // Start trace if FLAGS_trace_path is specified.
+  void MaybeStartTrace();
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
@@ -228,6 +234,7 @@ class StressTest {
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
+  bool trace_enabled_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

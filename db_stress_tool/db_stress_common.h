@@ -234,6 +234,8 @@ DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
+DECLARE_string(trace_path);
+DECLARE_uint64(max_trace_size_in_bytes);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
@@ -241,6 +243,7 @@ const int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
 extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
+extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* trace_env;
 #ifndef NDEBUG
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 #endif
