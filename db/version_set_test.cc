@@ -999,8 +999,8 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
 
   ASSERT_OK(s);
 
-  // Pretend for a moment that the blob file is in the pending range, and make
-  // sure it is not returned as obsolete.
+  // Make sure blob files from the pending number range are not returned
+  // as obsolete.
   {
     std::vector<ObsoleteFileInfo> table_files;
     std::vector<ObsoleteBlobFileInfo> blob_files;
@@ -1033,7 +1033,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
     std::vector<ObsoleteFileInfo> table_files;
     std::vector<ObsoleteBlobFileInfo> blob_files;
     std::vector<std::string> manifest_files;
-    constexpr uint64_t min_pending_output = 0;
+    constexpr uint64_t min_pending_output = blob_file_number + 1;
 
     versions_->GetObsoleteFiles(&table_files, &blob_files, &manifest_files,
                                 min_pending_output);
