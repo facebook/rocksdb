@@ -511,19 +511,20 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
 }
 
 void SetupSyncPointsToMockDirectIO() {
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX) && !defined(OS_OPENBSD)
-  ::ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
+    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewWritableFile:O_DIRECT", [&](void* arg) {
         int* val = static_cast<int*>(arg);
         *val &= ~O_DIRECT;
       });
-  ::ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
         int* val = static_cast<int*>(arg);
         *val &= ~O_DIRECT;
       });
-  ::ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+#endif
 }
 
 void ResetTmpDirForDirectIO() {
