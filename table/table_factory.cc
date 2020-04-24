@@ -3,6 +3,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "options/customizable_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -18,36 +19,28 @@ const std::string TableFactory::kCuckooTableName = "CuckooTable";
 const std::string TableFactory::kCuckooTableOpts = "CuckooTableOptions";
 const std::string TableFactory::kBlockCacheOpts = "BlockCacheOptions";
 
-Status TableFactory::CreateFromString(const ConfigOptions& config_options,
-                                      const std::string& id,
-                                      std::shared_ptr<TableFactory>* factory) {
-  Status status;
-  std::string name = id;
-
-  std::string existing_opts;
-
-  if (factory->get() != nullptr && name == factory->get()->Name()) {
-    status = factory->get()->GetOptionString(config_options.Embedded(),
-                                             &existing_opts);
-    if (!status.ok()) {
-      return status;
-    }
-  }
-  if (name == kBlockBasedTableName) {
+static bool LoadFactory(const std::string& id,
+                        std::shared_ptr<TableFactory>* factory) {
+  bool success = true;
+  if (id == TableFactory::kBlockBasedTableName) {
     factory->reset(new BlockBasedTableFactory());
 #ifndef ROCKSDB_LITE
-  } else if (name == kPlainTableName) {
+  } else if (id == TableFactory::kPlainTableName) {
     factory->reset(new PlainTableFactory());
-  } else if (name == kCuckooTableName) {
+  } else if (id == TableFactory::kCuckooTableName) {
     factory->reset(new CuckooTableFactory());
 #endif  // ROCKSDB_LITE
   } else {
-    return Status::NotSupported("Could not load table factory: ", name);
+    success = false;
   }
-  if (!existing_opts.empty()) {
-    status = factory->get()->ConfigureFromString(config_options, existing_opts);
-  }
-  return status;
+  return success;
+}
+
+Status TableFactory::CreateFromString(const ConfigOptions& config_options,
+                                      const std::string& value,
+                                      std::shared_ptr<TableFactory>* factory) {
+  return LoadSharedObject<TableFactory>(config_options, value, LoadFactory,
+                                        factory);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

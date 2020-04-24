@@ -7,6 +7,7 @@
 
 #include "logging/logging.h"
 #include "options/options_helper.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -111,8 +112,23 @@ Status Configurable::DoConfigureOption(const ConfigOptions& config_options,
     s = Status::NotFound("Could not find option: ", short_name);
   } else if (opt_name == short_name) {
     s = ParseOption(config_options, *opt_info, opt_name, opt_value, opt_ptr);
+  } else if (opt_info->IsCustomizable() &&
+             EndsWith(short_name, kIdPropSuffix)) {
+    s = ParseOption(config_options, *opt_info, opt_name, opt_value, opt_ptr);
   } else if (opt_info->IsStruct()) {
     s = ParseOption(config_options, *opt_info, opt_name, opt_value, opt_ptr);
+  } else if (opt_info->IsCustomizable()) {
+    Customizable* custom = opt_info->AsRawPointer<Customizable>(opt_ptr);
+    if (opt_value.empty()) {
+      s = Status::OK();
+    } else if (custom == nullptr ||
+               !StartsWith(opt_name, custom->GetId() + ".")) {
+      s = Status::NotFound("Could not find customizable option: ", short_name);
+    } else if (opt_value.find("=") != std::string::npos) {
+      s = custom->ConfigureFromString(config_options, opt_value);
+    } else {
+      s = custom->ConfigureOption(config_options, opt_name, opt_value);
+    }
   } else if (opt_info->IsConfigurable()) {
     s = ParseOption(config_options, *opt_info, opt_name, opt_value, opt_ptr);
   }
@@ -156,6 +172,11 @@ Status Configurable::DoConfigureOptions(
           unsupported.insert(it->first);
           found--;  // Saw this one before, don't count it
           ++it;     // Skip it for now
+          if (!config_options.ignore_unknown_objects && not_found.ok()) {
+            // If we are not ignoring unknown objects and this
+            // is the first error, save the status
+            not_found = s;
+          }
         } else {
           unsupported.insert(it->first);
           it = options->erase(it);

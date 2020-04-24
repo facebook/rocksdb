@@ -1034,6 +1034,17 @@ Status OptionTypeInfo::SerializeOption(const ConfigOptions& config_options,
     return string_func(config_options, opt_name, opt_addr, opt_value);
   } else if (SerializeSingleOptionHelper(opt_addr, type, opt_value)) {
     s = Status::OK();
+  } else if (IsCustomizable()) {
+    const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
+    if (custom == nullptr) {
+      *opt_value = kNullptrString;
+    } else if (IsEnabled(OptionTypeFlags::kStringNameOnly) &&
+               !config_options.IsDetailed()) {
+      *opt_value = custom->GetId();
+    } else {
+      *opt_value = custom->ToString(config_options.Embedded());
+    }
+    return Status::OK();
   } else if (IsConfigurable()) {
     const Configurable* config = AsRawPointer<Configurable>(opt_ptr);
     if (config != nullptr) {

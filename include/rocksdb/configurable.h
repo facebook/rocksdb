@@ -57,6 +57,9 @@ class Configurable {
   Configurable() {}
   virtual ~Configurable() {}
 
+  constexpr static const char* kIdPropName = "id";
+  constexpr static const char* kIdPropSuffix = ".id";
+
   // Returns the raw pointer of the named options that is used by this
   // object, or nullptr if this function is not supported.
   // Since the return value is a raw pointer, the object owns the
