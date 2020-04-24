@@ -101,6 +101,8 @@ class HdfsEnv : public Env {
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override;
 
+  Status IsDirectory(const std::string& path, bool* is_dir) override;
+
   void Schedule(void (*function)(void* arg), void* arg, Priority pri = LOW,
                 void* tag = nullptr,
                 void (*unschedFunction)(void* arg) = 0) override {
@@ -326,6 +328,10 @@ class HdfsEnv : public Env {
 
   virtual Status NewLogger(const std::string& /*fname*/,
                            std::shared_ptr<Logger>* /*result*/) override {
+    return notsup;
+  }
+
+  Status IsDirectory(const std::string& /*path*/, bool* /*is_dir*/) override {
     return notsup;
   }
 

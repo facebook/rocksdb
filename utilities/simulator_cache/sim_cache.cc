@@ -92,8 +92,7 @@ class CacheActivityLogger {
     log_line += key.ToString(true);
     log_line += " - ";
     AppendNumberTo(&log_line, size);
-  // @lint-ignore TXT2 T25377293 Grandfathered in
-		log_line += "\n";
+    log_line += "\n";
 
     // line format: "ADD - <KEY> - <KEY-SIZE>"
     MutexLock l(&mutex_);

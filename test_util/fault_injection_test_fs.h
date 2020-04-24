@@ -355,6 +355,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
                               // to underlying FS for writable files
   IOStatus error_;
 
+  enum ErrorType : int {
+    kErrorTypeStatus = 0,
+    kErrorTypeCorruption,
+    kErrorTypeTruncated,
+    kErrorTypeMax
+  };
+
   struct ErrorContext {
     Random rand;
     int one_in;
@@ -362,12 +369,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     bool enable_error_injection;
     void* callstack;
     int frames;
+    ErrorType type;
 
     explicit ErrorContext(uint32_t seed)
-      : rand(seed),
-        enable_error_injection(false),
-        callstack(nullptr),
-    frames(0) {}
+        : rand(seed),
+          enable_error_injection(false),
+          callstack(nullptr),
+          frames(0) {}
     ~ErrorContext() {
       if (callstack) {
         free(callstack);

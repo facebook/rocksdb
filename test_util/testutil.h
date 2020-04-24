@@ -804,5 +804,10 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 // to the file system.
 void SetupSyncPointsToMockDirectIO();
 
+// TEST_TMPDIR may be set to /dev/shm in Makefile,
+// but /dev/shm does not support direct IO.
+// Tries to set TEST_TMPDIR to a directory supporting direct IO.
+void ResetTmpDirForDirectIO();
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

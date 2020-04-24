@@ -8,41 +8,36 @@
 #include <string>
 #include <unordered_map>
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 // This enum defines the RocksDB options sanity level.
-enum OptionsSanityCheckLevel : unsigned char {
-  // Performs no sanity check at all.
-  kSanityLevelNone = 0x00,
-  // Performs minimum check to ensure the RocksDB instance can be
-  // opened without corrupting / mis-interpreting the data.
-  kSanityLevelLooselyCompatible = 0x01,
-  // Perform exact match sanity check.
-  kSanityLevelExactMatch = 0xFF,
-};
 
 // The sanity check level for DB options
-static const std::unordered_map<std::string, OptionsSanityCheckLevel>
-    sanity_level_db_options {};
+static const std::unordered_map<std::string, ConfigOptions::SanityLevel>
+    sanity_level_db_options{};
 
 // The sanity check level for column-family options
-static const std::unordered_map<std::string, OptionsSanityCheckLevel>
+static const std::unordered_map<std::string, ConfigOptions::SanityLevel>
     sanity_level_cf_options = {
-        {"comparator", kSanityLevelLooselyCompatible},
-        {"table_factory", kSanityLevelLooselyCompatible},
-        {"merge_operator", kSanityLevelLooselyCompatible}};
+        {"comparator",
+         ConfigOptions::SanityLevel::kSanityLevelLooselyCompatible},
+        {"table_factory",
+         ConfigOptions::SanityLevel::kSanityLevelLooselyCompatible},
+        {"merge_operator",
+         ConfigOptions::SanityLevel::kSanityLevelLooselyCompatible}};
 
 // The sanity check level for block-based table options
-static const std::unordered_map<std::string, OptionsSanityCheckLevel>
-    sanity_level_bbt_options {};
+static const std::unordered_map<std::string, ConfigOptions::SanityLevel>
+    sanity_level_bbt_options{};
 
-OptionsSanityCheckLevel DBOptionSanityCheckLevel(
+ConfigOptions::SanityLevel DBOptionSanityCheckLevel(
     const std::string& options_name);
-OptionsSanityCheckLevel CFOptionSanityCheckLevel(
+ConfigOptions::SanityLevel CFOptionSanityCheckLevel(
     const std::string& options_name);
-OptionsSanityCheckLevel BBTOptionSanityCheckLevel(
+ConfigOptions::SanityLevel BBTOptionSanityCheckLevel(
     const std::string& options_name);
 
 }  // namespace ROCKSDB_NAMESPACE

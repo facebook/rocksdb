@@ -25,6 +25,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.CompactRangeOptions\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
+	org.rocksdb.ConfigOptions\
 	org.rocksdb.DBOptions\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\

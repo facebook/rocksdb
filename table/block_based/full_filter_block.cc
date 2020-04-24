@@ -11,6 +11,7 @@
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "test_util/testharness.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -132,6 +133,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 
@@ -164,7 +166,7 @@ bool FullFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -222,7 +224,7 @@ void FullFilterBlockReader::MayMatch(
   const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                         lookup_context, &filter_block);
   if (!s.ok()) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return;
   }
 

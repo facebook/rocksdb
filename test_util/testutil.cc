@@ -524,6 +524,18 @@ void SetupSyncPointsToMockDirectIO() {
         *val &= ~O_DIRECT;
       });
   ::ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+}
+
+void ResetTmpDirForDirectIO() {
+#ifdef OS_LINUX
+  unsetenv("TEST_TMPDIR");
+  char* tmpdir = getenv("DISK_TEMP_DIR");
+  if (tmpdir == nullptr) {
+    tmpdir = getenv("HOME");
+  }
+  if (tmpdir != nullptr) {
+    setenv("TEST_TMPDIR", tmpdir, 1);
+  }
 #endif
 }
 

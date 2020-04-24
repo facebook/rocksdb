@@ -608,6 +608,14 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
+  if (use_direct_io()) {
+    for (size_t i = 0; i < num_reqs; i++) {
+      assert(IsSectorAligned(reqs[i].offset, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].len, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].scratch, GetRequiredBufferAlignment()));
+    }
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   struct io_uring* iu = nullptr;
   if (thread_local_io_urings_) {
