@@ -18,9 +18,9 @@ namespace ROCKSDB_NAMESPACE {
 class CompactOnDeletionCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual ~CompactOnDeletionCollectorFactory() {}
+  ~CompactOnDeletionCollectorFactory() {}
 
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+  TablePropertiesCollector* CreateTablePropertiesCollector(
       TablePropertiesCollectorFactory::Context context) override;
 
   // Change the value of sliding_window_size "N"
@@ -34,9 +34,11 @@ class CompactOnDeletionCollectorFactory
     deletion_trigger_.store(deletion_trigger);
   }
 
-  virtual const char* Name() const override {
+  const char* Name() const override {
     return "CompactOnDeletionCollector";
   }
+
+  std::string ToString() const override;
 
  private:
   friend std::shared_ptr<CompactOnDeletionCollectorFactory>

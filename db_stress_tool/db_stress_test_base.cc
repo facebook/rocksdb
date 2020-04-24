@@ -1728,6 +1728,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
+  fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -1825,6 +1826,7 @@ void StressTest::Open() {
     options_.avoid_unnecessary_blocking_io =
         FLAGS_avoid_unnecessary_blocking_io;
     options_.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+    options_.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
     options_.max_write_batch_group_size_bytes =
         FLAGS_max_write_batch_group_size_bytes;
     options_.level_compaction_dynamic_level_bytes =

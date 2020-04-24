@@ -62,6 +62,8 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 }  // namespace
 
+const int kLoadConcurency = 128;
+
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const FileOptions& file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer)
@@ -69,7 +71,8 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
       file_options_(file_options),
       cache_(cache),
       immortal_tables_(false),
-      block_cache_tracer_(block_cache_tracer) {
+      block_cache_tracer_(block_cache_tracer),
+      loader_mutex_(kLoadConcurency, GetSliceNPHash64) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -155,6 +158,13 @@ Status TableCache::FindTable(const FileOptions& file_options,
     if (no_io) {  // Don't do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
+    MutexLock load_lock(loader_mutex_.get(key));
+    // We check the cache again under loading mutex
+    *handle = cache_->Lookup(key);
+    if (*handle != nullptr) {
+      return s;
+    }
+
     std::unique_ptr<TableReader> table_reader;
     s = GetTableReader(file_options, internal_comparator, fd,
                        false /* sequential mode */, record_read_stats,
@@ -184,7 +194,7 @@ InternalIterator* TableCache::NewIterator(
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
     const InternalKey* smallest_compaction_key,
-    const InternalKey* largest_compaction_key) {
+    const InternalKey* largest_compaction_key, bool allow_unprepared_value) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -213,7 +223,8 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
                                    skip_filters, caller,
-                                   file_options.compaction_readahead_size);
+                                   file_options.compaction_readahead_size,
+                                   allow_unprepared_value);
     }
     if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);

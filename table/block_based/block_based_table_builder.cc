@@ -21,6 +21,7 @@
 
 #include "db/dbformat.h"
 #include "index_builder.h"
+#include "port/lang.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -661,13 +662,13 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     rep_->pc_rep->compress_thread_pool.reserve(
         rep_->compression_opts.parallel_threads);
     for (uint32_t i = 0; i < rep_->compression_opts.parallel_threads; i++) {
-      rep_->pc_rep->compress_thread_pool.emplace_back([=] {
+      rep_->pc_rep->compress_thread_pool.emplace_back([this, i] {
         BGWorkCompression(*(rep_->compression_ctxs[i]),
                           rep_->verify_ctxs[i].get());
       });
     }
     rep_->pc_rep->write_thread.reset(
-        new port::Thread([=] { BGWorkWriteRawBlock(); }));
+        new port::Thread([this] { BGWorkWriteRawBlock(); }));
   }
 }
 
@@ -818,6 +819,9 @@ void BlockBasedTableBuilder::Flush() {
             new_blocks_inflight * kBlockTrailerSize,
         std::memory_order_relaxed);
 
+    // Read out first_block here to avoid data race with BGWorkWriteRawBlock
+    bool first_block = r->pc_rep->first_block;
+
     assert(block_rep->status.ok());
     if (!r->pc_rep->write_queue.push(block_rep->slot.get())) {
       return;
@@ -826,10 +830,10 @@ void BlockBasedTableBuilder::Flush() {
       return;
     }
 
-    if (r->pc_rep->first_block) {
+    if (first_block) {
       std::unique_lock<std::mutex> lock(r->pc_rep->first_block_mutex);
       r->pc_rep->first_block_cond.wait(lock,
-                                       [=] { return !r->pc_rep->first_block; });
+                                       [r] { return !r->pc_rep->first_block; });
     }
   } else {
     WriteBlock(&r->data_block, &r->pending_handle, true /* is_data_block */);
@@ -1140,7 +1144,7 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
     }
 
     if (r->pc_rep->first_block) {
-      std::unique_lock<std::mutex> lock(r->pc_rep->first_block_mutex);
+      std::lock_guard<std::mutex> lock(r->pc_rep->first_block_mutex);
       r->pc_rep->first_block = false;
       r->pc_rep->first_block_cond.notify_one();
     }

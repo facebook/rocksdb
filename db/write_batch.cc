@@ -53,13 +53,13 @@
 #include "db/write_batch_internal.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "port/lang.h"
 #include "rocksdb/merge_operator.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/duplicate_detector.h"
 #include "util/string_util.h"
-#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

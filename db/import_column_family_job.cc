@@ -33,7 +33,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
     files_to_import_.push_back(file_to_import);
   }
 
-  const auto ucmp = cfd_->internal_comparator().user_comparator();
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
@@ -55,17 +54,18 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         }
       }
 
-      std::sort(sorted_files.begin(), sorted_files.end(),
-                [&ucmp](const IngestedFileInfo* info1,
-                        const IngestedFileInfo* info2) {
-                  return sstableKeyCompare(ucmp, info1->smallest_internal_key,
-                                           info2->smallest_internal_key) < 0;
-                });
+      std::sort(
+          sorted_files.begin(), sorted_files.end(),
+          [this](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
+            return cfd_->internal_comparator().Compare(
+                       info1->smallest_internal_key,
+                       info2->smallest_internal_key) < 0;
+          });
 
       for (size_t i = 0; i < sorted_files.size() - 1; i++) {
-        if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
-                              sorted_files[i + 1]->smallest_internal_key) >=
-            0) {
+        if (cfd_->internal_comparator().Compare(
+                sorted_files[i]->largest_internal_key,
+                sorted_files[i + 1]->smallest_internal_key) >= 0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }

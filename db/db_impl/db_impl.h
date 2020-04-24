@@ -581,9 +581,14 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
+  // If allow_unprepared_value is true, the returned iterator may defer reading
+  // the value and so will require PrepareValue() to be called before value();
+  // allow_unprepared_value = false is convenient when this optimization is not
+  // useful, e.g. when reading the whole column family.
   InternalIterator* NewInternalIterator(
       Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
-      ColumnFamilyHandle* column_family = nullptr);
+      ColumnFamilyHandle* column_family = nullptr,
+      bool allow_unprepared_value = false);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -709,7 +714,8 @@ class DBImpl : public DB {
 
   InternalIterator* NewInternalIterator(
       const ReadOptions&, ColumnFamilyData* cfd, SuperVersion* super_version,
-      Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence);
+      Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
+      bool allow_unprepared_value);
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
@@ -1143,13 +1149,11 @@ class DBImpl : public DB {
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
   // returns.
-  // Currently, this function should be called only in best-efforts recovery
-  // mode.
   // After best-efforts recovery, there may be SST files in db/cf paths that are
   // not referenced in the MANIFEST. We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  Status CleanupFilesAfterRecovery();
+  Status FinishBestEffortsRecovery();
 
  private:
   friend class DB;
@@ -1763,7 +1767,7 @@ class DBImpl : public DB {
   // to have acquired the SuperVersion and pass in a snapshot sequence number
   // in order to construct the LookupKeys. The start_key and num_keys specify
   // the range of keys in the sorted_keys vector for a single column family.
-  void MultiGetImpl(
+  Status MultiGetImpl(
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,

@@ -170,9 +170,8 @@ class KeyGenerator {
       for (uint64_t i = 0; i < num_; ++i) {
         values_[i] = i;
       }
-      std::shuffle(
-          values_.begin(), values_.end(),
-          std::default_random_engine(static_cast<unsigned int>(FLAGS_seed)));
+      RandomShuffle(values_.begin(), values_.end(),
+                    static_cast<uint32_t>(FLAGS_seed));
     }
   }
 

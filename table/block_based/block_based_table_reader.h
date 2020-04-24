@@ -116,7 +116,8 @@ class BlockBasedTable : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
 
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -453,7 +454,7 @@ class BlockBasedTable : public TableReader {
   friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
-// Maitaning state of a two-level iteration on a partitioned index structure.
+// Maintaining state of a two-level iteration on a partitioned index structure.
 class BlockBasedTable::PartitionedIndexIteratorState
     : public TwoLevelIteratorState {
  public:

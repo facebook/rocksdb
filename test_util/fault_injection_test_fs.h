@@ -165,7 +165,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
-        thread_local_error_(new ThreadLocalPtr(nullptr)) {}
+        thread_local_error_(
+            new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {}
   virtual ~FaultInjectionTestFS() {}
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
@@ -299,6 +300,11 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     ctx->count = 0;
   }
 
+  static void DeleteThreadLocalErrorContext(void *p) {
+    ErrorContext* ctx = static_cast<ErrorContext*>(p);
+    delete ctx;
+  }
+
   // Inject an error. For a READ operation, a status of IOError(), a
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
@@ -358,9 +364,15 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     int frames;
 
     explicit ErrorContext(uint32_t seed)
-      : rand(seed),
-        enable_error_injection(false),
-    frames(0) {}
+        : rand(seed),
+          enable_error_injection(false),
+          callstack(nullptr),
+          frames(0) {}
+    ~ErrorContext() {
+      if (callstack) {
+        free(callstack);
+      }
+    }
   };
 
   std::unique_ptr<ThreadLocalPtr> thread_local_error_;

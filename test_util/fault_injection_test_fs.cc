@@ -17,8 +17,8 @@
 #include "test_util/fault_injection_test_fs.h"
 #include <functional>
 #include <utility>
+#include "port/lang.h"
 #include "port/stack_trace.h"
-#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -241,15 +241,8 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
   if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
-  // Not allow overwriting files
-  IOStatus io_s = target()->FileExists(fname, IOOptions(), dbg);
-  if (io_s.ok()) {
-    return IOStatus::Corruption("File already exists.");
-  } else if (!io_s.IsNotFound()) {
-    assert(io_s.IsIOError());
-    return io_s;
-  }
-  io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
+
+  IOStatus io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSWritableFile(fname, std::move(*result), this));
     // WritableFileWriter* file is opened
@@ -335,10 +328,6 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
     return GetError();
   }
   IOStatus io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
-  if (!io_s.ok()) {
-    fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
-            io_s.ToString().c_str());
-  }
   if (io_s.ok()) {
     UntrackFile(f);
   }
@@ -477,6 +466,9 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
 
   if (ctx->rand.OneIn(ctx->one_in)) {
     ctx->count++;
+    if (ctx->callstack) {
+      free(ctx->callstack);
+    }
     ctx->callstack = port::SaveStack(&ctx->frames);
     switch (op) {
       case kRead:
@@ -534,6 +526,7 @@ void FaultInjectionTestFS::PrintFaultBacktrace() {
     return;
   }
   port::PrintAndFreeStack(ctx->callstack, ctx->frames);
+  ctx->callstack = nullptr;
 #endif
 }
 

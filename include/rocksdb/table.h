@@ -25,20 +25,24 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
+class FilterPolicy;
 class FlushBlockPolicyFactory;
 class PersistentCache;
 class RandomAccessFile;
 struct TableReaderOptions;
 struct TableBuilderOptions;
 class TableBuilder;
+class TableFactory;
 class TableReader;
 class WritableFileWriter;
+struct ColumnFamilyOptions;
+struct ConfigOptions;
+struct DBOptions;
 struct EnvOptions;
 struct Options;
 
@@ -113,11 +117,6 @@ struct BlockBasedTableOptions {
     //    e.g. when prefix changes.
     // Makes the index significantly bigger (2x or more), especially when keys
     // are long.
-    //
-    // IO errors are not handled correctly in this mode right now: if an error
-    // happens when lazily reading a block in value(), value() returns empty
-    // slice, and you need to call Valid()/status() afterwards.
-    // TODO(kolmike): Fix it.
     kBinarySearchWithFirstKey = 0x03,
   };
 
@@ -560,8 +559,8 @@ class TableFactory {
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
 
-  virtual Status GetOptionString(std::string* /*opt_string*/,
-                                 const std::string& /*delimiter*/) const {
+  virtual Status GetOptionString(const ConfigOptions& /*config_options*/,
+                                 std::string* /*opt_string*/) const {
     return Status::NotSupported(
         "The table factory doesn't implement GetOptionString().");
   }

@@ -818,6 +818,8 @@ run_format_compatible()
   rm -rf /dev/shm/rocksdb
   mkdir /dev/shm/rocksdb
 
+  export https_proxy="fwdproxy:8080"
+  
   tools/check_format_compatible.sh
 }
 

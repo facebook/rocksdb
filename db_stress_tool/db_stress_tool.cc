@@ -73,8 +73,9 @@ int db_stress_tool(int argc, char** argv) {
   } else {
     raw_env = Env::Default();
   }
+
 #ifndef NDEBUG
-  if (FLAGS_read_fault_one_in) {
+  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
@@ -84,6 +85,7 @@ int db_stress_tool(int argc, char** argv) {
     raw_env = fault_env_guard.get();
   }
 #endif
+
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 

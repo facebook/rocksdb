@@ -105,6 +105,8 @@ struct FileOptions : EnvOptions {
 
   FileOptions(const FileOptions& opts)
     : EnvOptions(opts), io_options(opts.io_options) {}
+
+  FileOptions& operator=(const FileOptions& opts) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -521,6 +523,10 @@ class FileSystem {
                                 IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported();
   }
+
+  virtual IOStatus IsDirectory(const std::string& /*path*/,
+                               const IOOptions& options, bool* is_dir,
+                               IODebugContext* /*dgb*/) = 0;
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -1192,6 +1198,10 @@ class FileSystemWrapper : public FileSystem {
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* diskfree, IODebugContext* dbg) override {
     return target_->GetFreeSpace(path, options, diskfree, dbg);
+  }
+  IOStatus IsDirectory(const std::string& path, const IOOptions& options,
+                       bool* is_dir, IODebugContext* dbg) override {
+    return target_->IsDirectory(path, options, is_dir, dbg);
   }
 
  private:

@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+#include <algorithm>
 #include <random>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -162,5 +163,18 @@ class Random64 {
     return Uniform(uint64_t(1) << Uniform(max_log + 1));
   }
 };
+
+// A seeded replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last, uint32_t seed) {
+  std::mt19937 rng(seed);
+  std::shuffle(first, last, rng);
+}
+
+// A replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last) {
+  RandomShuffle(first, last, std::random_device{}());
+}
 
 }  // namespace ROCKSDB_NAMESPACE

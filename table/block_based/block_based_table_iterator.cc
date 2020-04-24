@@ -61,10 +61,9 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target) {
   const bool same_block = block_iter_points_to_real_block_ &&
                           v.handle.offset() == prev_block_offset_;
 
-  // TODO(kolmike): Remove the != kBlockCacheTier condition.
   if (!v.first_internal_key.empty() && !same_block &&
       (!target || icomp_.Compare(*target, v.first_internal_key) <= 0) &&
-      read_options_.read_tier != kBlockCacheTier) {
+      allow_unprepared_value_) {
     // Index contains the first key of the block, and it's >= target.
     // We can defer reading the block.
     is_at_first_key_from_index_ = true;
@@ -191,6 +190,7 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
   if (is_valid) {
     result->key = key();
     result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    result->value_prepared = !is_at_first_key_from_index_;
   }
   return is_valid;
 }
@@ -255,12 +255,16 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   is_at_first_key_from_index_ = false;
   InitDataBlock();
   assert(block_iter_points_to_real_block_);
+
+  if (!block_iter_.status().ok()) {
+    return false;
+  }
+
   block_iter_.SeekToFirst();
 
   if (!block_iter_.Valid() ||
       icomp_.Compare(block_iter_.key(),
                      index_iter_->value().first_internal_key) != 0) {
-    // Uh oh.
     block_iter_.Invalidate(Status::Corruption(
         "first key in index doesn't match first key in block"));
     return false;
@@ -321,9 +325,7 @@ void BlockBasedTableIterator::FindBlockForward() {
 
     IndexValue v = index_iter_->value();
 
-    // TODO(kolmike): Remove the != kBlockCacheTier condition.
-    if (!v.first_internal_key.empty() &&
-        read_options_.read_tier != kBlockCacheTier) {
+    if (!v.first_internal_key.empty() && allow_unprepared_value_) {
       // Index contains the first key of the block. Defer reading the block.
       is_at_first_key_from_index_ = true;
       return;

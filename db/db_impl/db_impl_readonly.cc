@@ -87,7 +87,8 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
       super_version->version_number, read_callback);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), read_seq);
+                          db_iter->GetRangeDelAggregator(), read_seq,
+                          /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -118,7 +119,8 @@ Status DBImplReadOnly::NewIterators(
         sv->version_number, read_callback);
     auto* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                            db_iter->GetRangeDelAggregator(), read_seq);
+                            db_iter->GetRangeDelAggregator(), read_seq,
+                            /* allow_unprepared_value */ true);
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }

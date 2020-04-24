@@ -502,9 +502,14 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
                   SequenceNumber global_seqno, BlockPrefixIndex* prefix_index,
                   bool have_first_key, bool key_includes_seq,
                   bool value_is_full, bool block_contents_pinned) {
-    InitializeBase(key_includes_seq ? comparator : user_comparator, data,
-                   restarts, num_restarts, kDisableGlobalSequenceNumber,
-                   block_contents_pinned);
+    if (!key_includes_seq) {
+      user_comparator_wrapper_ = std::unique_ptr<UserComparatorWrapper>(
+          new UserComparatorWrapper(user_comparator));
+    }
+    InitializeBase(
+        key_includes_seq ? comparator : user_comparator_wrapper_.get(), data,
+        restarts, num_restarts, kDisableGlobalSequenceNumber,
+        block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
     key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
@@ -573,6 +578,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   }
 
  private:
+  std::unique_ptr<UserComparatorWrapper> user_comparator_wrapper_;
   // Key is in InternalKey format
   bool key_includes_seq_;
   bool value_delta_encoded_;
