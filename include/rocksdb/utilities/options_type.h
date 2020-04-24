@@ -38,7 +38,6 @@ enum class OptionType {
   kMergeOperator,
   kMemTableRepFactory,
   kFilterPolicy,
-  kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
   kEnv,

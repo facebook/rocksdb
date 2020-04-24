@@ -542,13 +542,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
           *reinterpret_cast<const ChecksumType*>(opt_address), value);
-    case OptionType::kFlushBlockPolicyFactory: {
-      const auto* ptr =
-          reinterpret_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
-              opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
-      break;
-    }
     case OptionType::kEncodingType:
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,

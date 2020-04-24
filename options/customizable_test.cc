@@ -18,6 +18,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "table/mock_table.h"
@@ -609,16 +610,34 @@ static void RegisterTestObjects(ObjectLibrary& library,
       });
 }
 
-static void RegisterLocalObjects(ObjectLibrary& /*library*/,
+class MockFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  const char* Name() const override { return "Test"; }
+  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+      const BlockBasedTableOptions&, const BlockBuilder&) const override {
+    return nullptr;
+  }
+};
+
+static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   // Load any locally defined objects here
+  library.Register<FlushBlockPolicyFactory>(
+      "Test", [](const std::string& /*uri*/,
+                 std::unique_ptr<FlushBlockPolicyFactory>* guard,
+                 std::string* /* errmsg */) {
+        guard->reset(new MockFlushBlockPolicyFactory());
+        return guard->get();
+      });
 }
 #endif  // !ROCKSDB_LITE
 
 class LoadCustomizableTest : public testing::Test {
  public:
   LoadCustomizableTest() {
+    config_options_.ignore_unknown_options = false;
     config_options_.ignore_unknown_objects = false;
+    config_options_.input_strings_escaped = false;
 #ifndef ROCKSDB_LITE
     config_options_.registry = db_opts_.object_registry;
 #endif  // !ROCKSDB_LITE
@@ -660,6 +679,49 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyTest) {
+  std::shared_ptr<FlushBlockPolicyFactory> factory;
+  ASSERT_NOK(FlushBlockPolicyFactory::CreateFromString(config_options_, "Test",
+                                                       &factory));
+  ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
+      config_options_, FlushBlockPolicyFactory::kSizePolicyFactory, &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_EQ(factory->GetId(), FlushBlockPolicyFactory::kSizePolicyFactory);
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options_, cf_opts_,
+      "block_based_table_factory={flush_block_policy_factory={id=Test}}",
+      &cf_opts_));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options_, cf_opts_,
+      "block_based_table_factory={flush_block_policy_factory={id="
+      "FlushBlockBySizePolicyFactory}}",
+      &cf_opts_));
+  auto const* options =
+      cf_opts_.table_factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(options, nullptr);
+  ASSERT_NE(options->flush_block_policy_factory, nullptr);
+  ASSERT_EQ(options->flush_block_policy_factory->Name(),
+            std::string("FlushBlockBySizePolicyFactory"));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(config_options_, "Test",
+                                                        &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_EQ(factory->Name(), std::string("Test"));
+
+    ASSERT_OK(GetColumnFamilyOptionsFromString(
+        config_options_, cf_opts_,
+        "block_based_table_factory={flush_block_policy_factory={id=Test}}",
+        &cf_opts_));
+    options = cf_opts_.table_factory->GetOptions<BlockBasedTableOptions>(
+        TableFactory::kBlockBasedTableOpts);
+    ASSERT_NE(options, nullptr);
+    ASSERT_NE(options->flush_block_policy_factory, nullptr);
+    ASSERT_EQ(options->flush_block_policy_factory->Name(), std::string("Test"));
+  }
+#endif  // ROCKSDB_LITE
+}
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -4,12 +4,15 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/flush_block_policy.h"
+
+#include <cassert>
+
+#include "options/customizable_helper.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "table/block_based/block_builder.h"
+#include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
-
-#include <cassert>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -70,6 +73,31 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
   const bool align_;
   const BlockBuilder& data_block_builder_;
 };
+
+const std::string FlushBlockPolicyFactory::kSizePolicyFactory =
+    "FlushBlockBySizePolicyFactory";
+const std::string FlushBlockPolicyFactory::kEveryKeyPolicyFactory =
+    "FlushBlockEveryKeyPolicyFactory";
+
+static bool LoadFlushPolicyFactory(
+    const std::string& id, std::shared_ptr<FlushBlockPolicyFactory>* result) {
+  bool success = true;
+  if (id.empty() || id == FlushBlockPolicyFactory::kSizePolicyFactory) {
+    result->reset(new FlushBlockBySizePolicyFactory());
+  } else if (id == FlushBlockPolicyFactory::kEveryKeyPolicyFactory) {
+    result->reset(new FlushBlockEveryKeyPolicyFactory());
+  } else {
+    success = false;
+  }
+  return success;
+}
+
+Status FlushBlockPolicyFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& value,
+    std::shared_ptr<FlushBlockPolicyFactory>* factory) {
+  return LoadSharedObject<FlushBlockPolicyFactory>(
+      config_options, value, LoadFlushPolicyFactory, factory);
+}
 
 FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
     const BlockBasedTableOptions& table_options,
