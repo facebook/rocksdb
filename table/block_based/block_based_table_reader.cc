@@ -52,6 +52,7 @@
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
 
+#include "test_util/testharness.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/lang.h"
 #include "test_util/sync_point.h"
@@ -728,6 +729,7 @@ Status BlockBasedTable::PrefetchTail(
         nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     s = (*prefetch_buffer)->Prefetch(file, prefetch_off, prefetch_len);
   }
+
   return s;
 }
 
@@ -788,10 +790,12 @@ Status BlockBasedTable::ReadPropertiesBlock(
           nullptr /* ret_block_handle */, nullptr /* ret_block_contents */,
           false /* compression_type_missing */, nullptr /* memory_allocator */);
     }
+    IGNORE_STATUS_IF_ERROR(s);
 
     if (s.IsCorruption()) {
       s = TryReadPropertiesWithGlobalSeqno(prefetch_buffer, meta_iter->value(),
                                            &table_properties);
+      IGNORE_STATUS_IF_ERROR(s);
     }
     std::unique_ptr<TableProperties> props_guard;
     if (table_properties != nullptr) {
@@ -890,6 +894,7 @@ Status BlockBasedTable::ReadRangeDelBlock(
           rep_->ioptions.info_log,
           "Encountered error while reading data from range del block %s",
           s.ToString().c_str());
+      IGNORE_STATUS_IF_ERROR(s);
     } else {
       rep_->fragmented_range_dels =
           std::make_shared<FragmentedRangeTombstoneList>(std::move(iter),
@@ -994,11 +999,6 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     auto filter = new_table->CreateFilterBlockReader(
         prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
-#ifndef NDEBUG
-    if (rep_->filter_type != Rep::FilterType::kNoFilter && !filter) {
-      TEST_SYNC_POINT("FilterReadError");
-    }
-#endif
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {

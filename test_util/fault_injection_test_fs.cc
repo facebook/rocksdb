@@ -473,13 +473,14 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
     switch (op) {
       case kRead:
       {
-        uint32_t type = ctx->rand.Uniform(3);
+        ErrorType type =
+          static_cast<ErrorType>(ctx->rand.Uniform(ErrorType::kErrorTypeMax));
         switch (type) {
           // Inject IO error
-          case 0:
+          case ErrorType::kErrorTypeStatus:
             return IOStatus::IOError();
           // Inject random corruption
-          case 1:
+          case ErrorType::kErrorTypeCorruption:
           {
             if (result->data() == scratch) {
               uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
@@ -496,7 +497,7 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
             }
           }
           // Truncate the result
-          case 2:
+          case ErrorType::kErrorTypeTruncated:
           {
             assert(result->size() > 0);
             uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
@@ -525,6 +526,7 @@ void FaultInjectionTestFS::PrintFaultBacktrace() {
   if (ctx == nullptr) {
     return;
   }
+  fprintf(stderr, "Injected error type = %d\n", ctx->type);
   port::PrintAndFreeStack(ctx->callstack, ctx->frames);
   ctx->callstack = nullptr;
 #endif

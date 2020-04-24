@@ -42,6 +42,19 @@ int RandomSeed();
 #define EXPECT_OK(s) \
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
-
 }  // namespace test
+
+// Callback sync point for any read IO errors that should be ignored by
+// the fault injection framework
+#ifdef NDEBUG
+// Disable in release mode
+#define IGNORE_STATUS_IF_ERROR(_status_)
+#else
+#define IGNORE_STATUS_IF_ERROR(_status_)          \
+{                                                 \
+  if (!_status_.ok()) {                           \
+    TEST_SYNC_POINT("FaultInjectionIgnoreError"); \
+  }                                               \
+}
+#endif // NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
