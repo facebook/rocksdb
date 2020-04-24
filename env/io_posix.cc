@@ -610,10 +610,9 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           IODebugContext* dbg) {
   if (use_direct_io()) {
     for (size_t i = 0; i < num_reqs; i++) {
-      const FSReadRequest& r = reqs[i];
-      assert(IsSectorAligned(r.offset, GetRequiredBufferAlignment()));
-      assert(IsSectorAligned(r.len, GetRequiredBufferAlignment()));
-      assert(IsSectorAligned(r.scratch, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].offset, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].len, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].scratch, GetRequiredBufferAlignment()));
     }
   }
 
