@@ -10,13 +10,14 @@
 #include "db/version_edit.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
-#include "options/options_type.h"
+#include "options/options_parser.h"
 #include "port/port.h"
-#include "rocksdb/cache.h"
+#include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "util/string_util.h"
 
@@ -45,8 +46,8 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::db_mutable_options_type_info = {
+static std::unordered_map<std::string, OptionTypeInfo>
+    db_mutable_options_type_info = {
         {"allow_os_buffer",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -120,8 +121,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
 };
 
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::db_immutable_options_type_info = {
+static std::unordered_map<std::string, OptionTypeInfo>
+    db_immutable_options_type_info = {
         /*
          // not yet supported
           std::shared_ptr<Cache> row_cache;
@@ -403,6 +404,74 @@ std::unordered_map<std::string, OptionTypeInfo>
             return s;
           }}},
 };
+
+const std::string OptionsHelper::kDBOptionsName = "DBOptions";
+const std::string OptionsHelper::kImmutableDBOptionsName = "ImmutableDBOptions";
+const std::string OptionsHelper::kMutableDBOptionsName = "MutableDBOptions";
+
+class MutableDBConfigurable : public Configurable {
+ public:
+  MutableDBConfigurable(const MutableDBOptions& mdb) {
+    mutable_ = mdb;
+    RegisterOptions(OptionsHelper::kMutableDBOptionsName, &mutable_,
+                    &db_mutable_options_type_info);
+  }
+
+ protected:
+  MutableDBOptions mutable_;
+};
+
+class DBOptionsConfigurable : public MutableDBConfigurable {
+ public:
+  DBOptionsConfigurable(const DBOptions& opts)
+      : MutableDBConfigurable(MutableDBOptions(opts)) {
+    // The ImmutableDBOptions currently requires the env to be non-null.  Make
+    // sure it is
+    if (opts.env != nullptr) {
+      immutable_ = ImmutableDBOptions(opts);
+    } else {
+      DBOptions copy = opts;
+      copy.env = Env::Default();
+      immutable_ = ImmutableDBOptions(copy);
+    }
+    RegisterOptions(OptionsHelper::kImmutableDBOptionsName, &immutable_,
+                    &db_immutable_options_type_info);
+  }
+  virtual const void* GetOptionsPtr(const std::string& name) const override {
+    if (name == OptionsHelper::kDBOptionsName) {
+      return &db_options_;
+    } else {
+      return MutableDBConfigurable::GetOptionsPtr(name);
+    }
+  }
+
+ protected:
+  Status DoConfigureFromMap(
+      const ConfigOptions& config_options,
+      const std::unordered_map<std::string, std::string>& opts_map,
+      std::unordered_map<std::string, std::string>* unused) override {
+    Status s = MutableDBConfigurable::DoConfigureFromMap(config_options,
+                                                         opts_map, unused);
+    if (s.ok()) {
+      db_options_ = BuildDBOptions(immutable_, mutable_);
+    }
+    return s;
+  }
+
+ private:
+  ImmutableDBOptions immutable_;
+  DBOptions db_options_;
+};
+
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const MutableDBOptions& opts) {
+  std::unique_ptr<Configurable> ptr(new MutableDBConfigurable(opts));
+  return ptr;
+}
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts) {
+  std::unique_ptr<Configurable> ptr(new DBOptionsConfigurable(opts));
+  return ptr;
+}
 #endif  // ROCKSDB_LITE
 
 ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}

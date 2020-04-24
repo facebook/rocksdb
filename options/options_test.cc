@@ -16,13 +16,13 @@
 #include "cache/sharded_cache.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "options/options_type.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -642,7 +642,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-      "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
+      "checksum=kxxHash;hash_index_allow_collision=1;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
@@ -652,7 +652,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
   ASSERT_TRUE(new_opt.hash_index_allow_collision);
-  ASSERT_TRUE(new_opt.no_block_cache);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
@@ -952,13 +951,14 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.bottommost_compression_opts.enabled, false);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
-  BlockBasedTableOptions new_block_based_table_options =
-      dynamic_cast<BlockBasedTableFactory*>(new_options.table_factory.get())
-          ->table_options();
-  ASSERT_EQ(new_block_based_table_options.block_cache->GetCapacity(), 1U << 20);
-  ASSERT_EQ(new_block_based_table_options.block_size, 4U);
+  const auto new_bbto =
+      new_options.table_factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(new_bbto, nullptr);
+  ASSERT_EQ(new_bbto->block_cache->GetCapacity(), 1U << 20);
+  ASSERT_EQ(new_bbto->block_size, 4U);
   // don't overwrite block based table options
-  ASSERT_TRUE(new_block_based_table_options.cache_index_and_filter_blocks);
+  ASSERT_TRUE(new_bbto->cache_index_and_filter_blocks);
 
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
@@ -1050,6 +1050,39 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }
+}
+
+TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
+  ColumnFamilyOptions cf_opts;
+  DBOptions db_opts;
+  ConfigOptions config_opts;
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_opts, cf_opts, "prefix_extractor=capped:8", &cf_opts));
+  ASSERT_OK(TableFactory::CreateFromString(config_opts, "BlockBasedTable",
+                                           &cf_opts.table_factory));
+  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
+  ASSERT_EQ(cf_opts.table_factory->Name(), TableFactory::kBlockBasedTableName);
+  auto bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_OK(cf_opts.table_factory->ConfigureFromString(
+      config_opts,
+      "block_cache={capacity=1M;num_shard_bits=4;};"
+      "block_size_deviation=101;"
+      "block_restart_interval=0;"
+      "index_block_restart_interval=5;"
+      "partition_filters=true;"
+      "index_type=kHashSearch;"
+      "no_block_cache=1;"));
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_EQ(bbto->block_cache.get(), nullptr);
+  ASSERT_EQ(bbto->block_size_deviation, 0);
+  ASSERT_EQ(bbto->block_restart_interval, 1);
+  ASSERT_EQ(bbto->index_block_restart_interval, 1);
+  ASSERT_FALSE(bbto->partition_filters);
+  ASSERT_OK(cf_opts.table_factory->ConfigureFromString(config_opts,
+                                                       "no_block_cache=0;"));
+  ASSERT_NE(bbto->block_cache.get(), nullptr);
+  ASSERT_OK(cf_opts.table_factory->ValidateOptions(db_opts, cf_opts));
 }
 
 #endif  // !ROCKSDB_LITE
@@ -1259,19 +1292,16 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   ASSERT_EQ(converted_opt.max_open_files, leveldb_opt.max_open_files);
   ASSERT_EQ(converted_opt.compression, leveldb_opt.compression);
 
-  std::shared_ptr<TableFactory> tb_guard = converted_opt.table_factory;
-  BlockBasedTableFactory* table_factory =
-      dynamic_cast<BlockBasedTableFactory*>(converted_opt.table_factory.get());
+  std::shared_ptr<TableFactory> table_factory = converted_opt.table_factory;
+  const auto table_opt = table_factory->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(table_opt, nullptr);
 
-  ASSERT_TRUE(table_factory != nullptr);
-
-  const BlockBasedTableOptions table_opt = table_factory->table_options();
-
-  ASSERT_EQ(table_opt.block_cache->GetCapacity(), 8UL << 20);
-  ASSERT_EQ(table_opt.block_size, leveldb_opt.block_size);
-  ASSERT_EQ(table_opt.block_restart_interval,
+  ASSERT_EQ(table_opt->block_cache->GetCapacity(), 8UL << 20);
+  ASSERT_EQ(table_opt->block_size, leveldb_opt.block_size);
+  ASSERT_EQ(table_opt->block_restart_interval,
             leveldb_opt.block_restart_interval);
-  ASSERT_EQ(table_opt.filter_policy.get(), leveldb_opt.filter_policy);
+  ASSERT_EQ(table_opt->filter_policy.get(), leveldb_opt.filter_policy);
 }
 
 #ifndef ROCKSDB_LITE
@@ -1999,13 +2029,15 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.bottommost_compression_opts.enabled, false);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
-  BlockBasedTableOptions new_block_based_table_options =
-      dynamic_cast<BlockBasedTableFactory*>(new_options.table_factory.get())
-          ->table_options();
-  ASSERT_EQ(new_block_based_table_options.block_cache->GetCapacity(), 1U << 20);
-  ASSERT_EQ(new_block_based_table_options.block_size, 4U);
+  auto new_block_based_table_options =
+      new_options.table_factory->GetOptions<BlockBasedTableOptions>(
+          TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(new_block_based_table_options, nullptr);
+  ASSERT_EQ(new_block_based_table_options->block_cache->GetCapacity(),
+            1U << 20);
+  ASSERT_EQ(new_block_based_table_options->block_size, 4U);
   // don't overwrite block based table options
-  ASSERT_TRUE(new_block_based_table_options.cache_index_and_filter_blocks);
+  ASSERT_TRUE(new_block_based_table_options->cache_index_and_filter_blocks);
 
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
@@ -2574,12 +2606,13 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   // Make sure block-based table factory options was deserialized correctly
   std::shared_ptr<TableFactory> ttf = (*parser.cf_opts())[4].table_factory;
-  ASSERT_EQ(BlockBasedTableFactory::kName, std::string(ttf->Name()));
-  const BlockBasedTableOptions& parsed_bbto =
-      static_cast<BlockBasedTableFactory*>(ttf.get())->table_options();
-  ASSERT_EQ(special_bbto.block_size, parsed_bbto.block_size);
+  ASSERT_EQ(TableFactory::kBlockBasedTableName, std::string(ttf->Name()));
+  const auto parsed_bbto = ttf->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(parsed_bbto, nullptr);
+  ASSERT_EQ(special_bbto.block_size, parsed_bbto->block_size);
   ASSERT_EQ(special_bbto.cache_index_and_filter_blocks,
-            parsed_bbto.cache_index_and_filter_blocks);
+            parsed_bbto->cache_index_and_filter_blocks);
 
   ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       config_options, base_db_opt, cf_names, base_cf_opts, kOptionsFileName,
@@ -3214,8 +3247,9 @@ TEST_F(OptionTypeInfoTest, TestOptionFlags) {
   std::string mismatch;
   std::string opts_str;
 
-  // If marked string none, the serialization returns okay but does nothing
-  ASSERT_OK(opt_none.SerializeOption(config_options, "None", &base, &opts_str));
+  // If marked string none, the serialization returns not supported
+  ASSERT_NOK(
+      opt_none.SerializeOption(config_options, "None", &base, &opts_str));
   // If marked never compare, they match even when they do not
   ASSERT_TRUE(opt_never.MatchesOption(config_options, "Never", &base, &comp,
                                       &mismatch));

@@ -11,9 +11,9 @@
 #include <memory>
 
 #include "db/dbformat.h"
-#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/plain/plain_table_builder.h"
 #include "table/plain/plain_table_reader.h"
 #include "util/string_util.h"
@@ -46,7 +46,13 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"store_index_in_file",
      {offsetof(struct PlainTableOptions, store_index_in_file),
       OptionType::kBoolean, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone}}};
+      OptionTypeFlags::kNone}},
+};
+
+PlainTableFactory::PlainTableFactory(const PlainTableOptions& options)
+    : table_options_(options) {
+  RegisterOptions(kPlainTableOpts, &table_options_, &plain_table_type_info);
+}
 
 Status PlainTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
@@ -79,7 +85,7 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
       table_options_.store_index_in_file);
 }
 
-std::string PlainTableFactory::GetPrintableTableOptions() const {
+std::string PlainTableFactory::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
   const int kBufferSize = 200;
@@ -112,16 +118,13 @@ std::string PlainTableFactory::GetPrintableTableOptions() const {
   return ret;
 }
 
-const PlainTableOptions& PlainTableFactory::table_options() const {
-  return table_options_;
-}
-
 Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
                                       const std::string& opts_str,
                                       PlainTableOptions* new_table_options) {
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
   return GetPlainTableOptionsFromString(config_options, table_options, opts_str,
                                         new_table_options);
 }
@@ -153,7 +156,7 @@ Status GetMemTableRepFactoryFromString(
 
   MemTableRepFactory* mem_factory = nullptr;
 
-  if (opts_list[0] == "skip_list") {
+  if (opts_list[0] == "skip_list" || opts_list[0] == "SkipListFactory") {
     // Expecting format
     // skip_list:<lookahead>
     if (2 == len) {
@@ -162,7 +165,8 @@ Status GetMemTableRepFactoryFromString(
     } else if (1 == len) {
       mem_factory = new SkipListFactory();
     }
-  } else if (opts_list[0] == "prefix_hash") {
+  } else if (opts_list[0] == "prefix_hash" ||
+             opts_list[0] == "HashSkipListRepFactory") {
     // Expecting format
     // prfix_hash:<hash_bucket_count>
     if (2 == len) {
@@ -171,7 +175,8 @@ Status GetMemTableRepFactoryFromString(
     } else if (1 == len) {
       mem_factory = NewHashSkipListRepFactory();
     }
-  } else if (opts_list[0] == "hash_linkedlist") {
+  } else if (opts_list[0] == "hash_linkedlist" ||
+             opts_list[0] == "HashLinkListRepFactory") {
     // Expecting format
     // hash_linkedlist:<hash_bucket_count>
     if (2 == len) {
@@ -180,7 +185,7 @@ Status GetMemTableRepFactoryFromString(
     } else if (1 == len) {
       mem_factory = NewHashLinkListRepFactory();
     }
-  } else if (opts_list[0] == "vector") {
+  } else if (opts_list[0] == "vector" || opts_list[0] == "VectorRepFactory") {
     // Expecting format
     // vector:<count>
     if (2 == len) {
@@ -221,10 +226,12 @@ Status GetPlainTableOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options) {
   assert(new_table_options);
-  *new_table_options = table_options;
-  Status s = ParseOptionsTypeFromMap(config_options, plain_table_type_info,
-                                     new_table_options, opts_map);
-  if (!s.ok()) {
+  PlainTableFactory ptf(table_options);
+  Status s = ptf.ConfigureFromMap(config_options, opts_map);
+  if (s.ok()) {
+    *new_table_options =
+        *(ptf.GetOptions<PlainTableOptions>(TableFactory::kPlainTableOpts));
+  } else {
     // Restore "new_options" to the default "base_options".
     *new_table_options = table_options;
   }

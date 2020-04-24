@@ -10,11 +10,12 @@
 #include <string>
 #include <vector>
 
-#include "options/options_type.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+class OptionTypeInfo;
 struct ColumnFamilyOptions;
 struct ConfigOptions;
 struct DBOptions;
@@ -22,6 +23,10 @@ struct ImmutableDBOptions;
 struct MutableDBOptions;
 struct MutableCFOptions;
 struct Options;
+
+// Checks that the combination of DBOptions and ColumnFamilyOptions are valid
+Status ValidateOptions(const DBOptions& db_opts,
+                       const ColumnFamilyOptions& cf_opts);
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
@@ -31,15 +36,14 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const MutableCFOptions& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
-Status ParseOptionsTypeFromMap(
-    const ConfigOptions& config_options,
-    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
-    void* opt_ptr, const std::unordered_map<std::string, std::string>& options);
-Status ParseOptionsTypeFromMap(
-    const ConfigOptions& config_options,
-    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
-    void* opt_ptr, const std::unordered_map<std::string, std::string>& options,
-    std::unordered_map<std::string, std::string>* unused);
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(
+    const MutableDBOptions& opts);
+std::unique_ptr<Configurable> DBOptionsAsConfigurable(const DBOptions& opts);
+std::unique_ptr<Configurable> CFOptionsAsConfigurable(
+    const MutableCFOptions& opts);
+std::unique_ptr<Configurable> CFOptionsAsConfigurable(
+    const ColumnFamilyOptions& opts,
+    const std::unordered_map<std::string, std::string>* opt_map = nullptr);
 
 Status GetStringFromMutableCFOptions(const ConfigOptions& cfg_opts,
                                      const MutableCFOptions& mutable_opts,
@@ -48,19 +52,6 @@ Status GetStringFromMutableCFOptions(const ConfigOptions& cfg_opts,
 Status GetStringFromMutableDBOptions(const ConfigOptions& cfg_opts,
                                      const MutableDBOptions& mutable_opts,
                                      std::string* opt_string);
-
-Status GetStringFromStruct(
-    const ConfigOptions& config_options, const void* const opt_ptr,
-    const std::unordered_map<std::string, OptionTypeInfo>& type_info,
-    std::string* opt_string);
-
-// Compare all of the options in the map and returns true if the values for
-// addr1 match those for addr2.  If they do not match, false is returned and
-// mismatch is set to the option that does not match.
-bool MatchesOptionsTypeFromMap(
-    const ConfigOptions& config_options,
-    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
-    const void* const addr1, const void* const addr2, std::string* mismatch);
 
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
@@ -71,31 +62,6 @@ Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     MutableDBOptions* new_options);
-
-Status GetTableFactoryFromMap(
-    const std::string& factory_name,
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory,
-    bool ignore_unknown_options = false);
-
-Status GetTableFactoryFromMap(
-    const ConfigOptions& config_options, const std::string& factory_name,
-    const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory);
-
-// A helper function that converts "opt_address" to a std::string
-// based on the specified OptionType.
-bool SerializeSingleOptionHelper(const char* opt_address,
-                                 const OptionType opt_type, std::string* value);
-
-// In addition to its public version defined in rocksdb/convenience.h,
-// this further takes an optional output vector "unsupported_options_names",
-// which stores the name of all the unsupported options specified in "opts_map".
-Status GetDBOptionsFromMapInternal(
-    const ConfigOptions& config_options, const DBOptions& base_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options,
-    std::unordered_map<std::string, std::string>* unused_opts);
 
 bool ParseSliceTransform(
     const std::string& value,
@@ -108,6 +74,11 @@ extern Status StringToMap(
 #endif  // !ROCKSDB_LITE
 
 struct OptionsHelper {
+  static const std::string kCFOptionsName /*= "ColumnFamilyOptions"*/;
+  static const std::string kMutableCFOptionsName /*= "MutableCFOptions"*/;
+  static const std::string kDBOptionsName /*= "DBOptions" */;
+  static const std::string kImmutableDBOptionsName /*= "ImmutableDBOptions"*/;
+  static const std::string kMutableDBOptionsName /*= "MutableDBOptions" */;
   static std::map<CompactionStyle, std::string> compaction_style_to_string;
   static std::map<CompactionPri, std::string> compaction_pri_to_string;
   static std::map<CompactionStopStyle, std::string>
@@ -116,16 +87,8 @@ struct OptionsHelper {
   static std::unordered_map<std::string, CompressionType>
       compression_type_string_map;
 #ifndef ROCKSDB_LITE
-  static std::unordered_map<std::string, OptionTypeInfo>
-      cf_immutable_options_type_info;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      cf_mutable_options_type_info;
   static std::unordered_map<std::string, CompactionStopStyle>
       compaction_stop_style_string_map;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      db_immutable_options_type_info;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      db_mutable_options_type_info;
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
   static std::unordered_map<std::string, CompactionStyle>
       compaction_style_string_map;
@@ -142,16 +105,8 @@ static auto& compaction_stop_style_to_string =
     OptionsHelper::compaction_stop_style_to_string;
 static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
 #ifndef ROCKSDB_LITE
-static auto& cf_immutable_options_type_info =
-    OptionsHelper::cf_immutable_options_type_info;
-static auto& cf_mutable_options_type_info =
-    OptionsHelper::cf_mutable_options_type_info;
 static auto& compaction_stop_style_string_map =
     OptionsHelper::compaction_stop_style_string_map;
-static auto& db_immutable_options_type_info =
-    OptionsHelper::db_immutable_options_type_info;
-static auto& db_mutable_options_type_info =
-    OptionsHelper::db_mutable_options_type_info;
 static auto& compression_type_string_map =
     OptionsHelper::compression_type_string_map;
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;

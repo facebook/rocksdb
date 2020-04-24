@@ -31,7 +31,6 @@ enum class OptionType {
   kCompactionPri,
   kSliceTransform,
   kCompressionType,
-  kTableFactory,
   kComparator,
   kCompactionFilter,
   kCompactionFilterFactory,
@@ -46,6 +45,7 @@ enum class OptionType {
   kEnum,
   kStruct,
   kVector,
+  kConfigurable,
   kUnknown,
 };
 
@@ -75,7 +75,12 @@ enum class OptionTypeFlags : uint32_t {
   kCompareExact = ConfigOptions::kSanityLevelExactMatch,
 
   kMutable = 0x0100,        // Option is mutable
+  kPointer = 0x0200,        // The option is stored as a pointer
+  kShared = 0x0400,         // The option is stored as a shared_ptr
+  kUnique = 0x0800,         // The option is stored as a unique_ptr
+  kAllowNull = 0x1000,      // The option can be null
   kDontSerialize = 0x2000,  // Don't serialize the option
+  kDontPrepare = 0x4000,    // Don't prepare or sanitize this option
 };
 
 inline OptionTypeFlags operator|(const OptionTypeFlags &a,
@@ -370,6 +375,17 @@ class OptionTypeInfo {
     }
   }
 
+  bool CanBeNull() const {
+    return (IsEnabled(OptionTypeFlags::kAllowNull) ||
+            IsEnabled(OptionVerificationType::kByNameAllowFromNull));
+  }
+
+  bool IsSharedPtr() const { return IsEnabled(OptionTypeFlags::kShared); }
+
+  bool IsUniquePtr() const { return IsEnabled(OptionTypeFlags::kUnique); }
+
+  bool IsRawPtr() const { return IsEnabled(OptionTypeFlags::kPointer); }
+
   bool IsByName() const {
     return (verification == OptionVerificationType::kByName ||
             verification == OptionVerificationType::kByNameAllowNull ||
@@ -377,6 +393,54 @@ class OptionTypeInfo {
   }
 
   bool IsStruct() const { return (type == OptionType::kStruct); }
+
+  bool IsConfigurable() const { return (type == OptionType::kConfigurable); }
+
+  // Returns the underlying pointer for the type at base_addr
+  // The value returned is the underlying "raw" pointer, offset from base.
+  template <typename T>
+  const T* AsRawPointer(const void* const base_addr) const {
+    if (base_addr == nullptr) {
+      return nullptr;
+    }
+    const auto opt_addr = reinterpret_cast<const char*>(base_addr) + offset;
+    if (IsUniquePtr()) {
+      const std::unique_ptr<T>* ptr =
+          reinterpret_cast<const std::unique_ptr<T>*>(opt_addr);
+      return ptr->get();
+    } else if (IsSharedPtr()) {
+      const std::shared_ptr<T>* ptr =
+          reinterpret_cast<const std::shared_ptr<T>*>(opt_addr);
+      return ptr->get();
+    } else if (IsRawPtr()) {
+      const T* const* ptr = reinterpret_cast<const T* const*>(opt_addr);
+      return *ptr;
+    } else {
+      return reinterpret_cast<const T*>(opt_addr);
+    }
+  }
+
+  // Returns the underlying pointer for the type at base_addr
+  // The value returned is the underlying "raw" pointer, offset from base.
+  template <typename T>
+  T* AsRawPointer(void* base_addr) const {
+    if (base_addr == nullptr) {
+      return nullptr;
+    }
+    auto opt_addr = reinterpret_cast<char*>(base_addr) + offset;
+    if (IsUniquePtr()) {
+      std::unique_ptr<T>* ptr = reinterpret_cast<std::unique_ptr<T>*>(opt_addr);
+      return ptr->get();
+    } else if (IsSharedPtr()) {
+      std::shared_ptr<T>* ptr = reinterpret_cast<std::shared_ptr<T>*>(opt_addr);
+      return ptr->get();
+    } else if (IsRawPtr()) {
+      T** ptr = reinterpret_cast<T**>(opt_addr);
+      return *ptr;
+    } else {
+      return reinterpret_cast<T*>(opt_addr);
+    }
+  }
 
   // Parses the option in "opt_value" according to the rules of this class
   // and updates the value at "opt_addr".

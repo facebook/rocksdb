@@ -566,6 +566,7 @@ TESTS = \
 	deletefile_test \
 	obsolete_files_test \
 	table_test \
+	configurable_test \
 	delete_scheduler_test \
 	options_test \
 	options_settable_test \
@@ -1248,7 +1249,7 @@ db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 
 arena_test: memory/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
-	
+
 memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)	
 
@@ -1636,6 +1637,9 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+configurable_test: options/configurable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)

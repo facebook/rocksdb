@@ -31,7 +31,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "rocksdb/table.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/compression.h"
@@ -346,7 +346,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   bool is_block_based_table =
-      (result.table_factory->Name() == BlockBasedTableFactory().Name());
+      (result.table_factory->Name() == TableFactory::kBlockBasedTableName);
 
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
@@ -1299,7 +1299,8 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0 && cf_options.ttl != kDefaultTtl) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() !=
+        TableFactory::kBlockBasedTableName) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
     }
@@ -1307,7 +1308,8 @@ Status ColumnFamilyData::ValidateOptions(
 
   if (cf_options.periodic_compaction_seconds > 0 &&
       cf_options.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() !=
+        TableFactory::kBlockBasedTableName) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
           "Block-Based Table format. ");
