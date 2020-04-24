@@ -529,6 +529,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "block_fetcher_test",
+        "table/block_fetcher_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "block_test",
         "table/block_based/block_test.cc",
         "serial",

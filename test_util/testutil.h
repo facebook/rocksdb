@@ -800,5 +800,10 @@ bool IsDirectIOSupported(Env* env, const std::string& dir);
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 
+// TEST_TMPDIR may be set to /dev/shm in Makefile,
+// but /dev/shm does not support direct IO.
+// Tries to set TEST_TMPDIR to a directory supporting direct IO.
+void ResetTmpDirForDirectIO();
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
