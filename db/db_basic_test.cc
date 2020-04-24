@@ -2398,12 +2398,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
       int delay;
       const std::chrono::microseconds deadline = fs_.GetDeadline();
       if (deadline.count()) {
-        // Give a leeway of +- 10us as it can take some time for the Get/
-        // MultiGet call to reach here, in order to avoid false alarms
-        EXPECT_GE(deadline.count() + 10 - Env::Default()->NowMicros(),
-                  opts.timeout.count());
-        EXPECT_LE(deadline.count() - 10 - Env::Default()->NowMicros(),
-                  opts.timeout.count());
+        AssertDeadline(deadline, opts);
       }
       if (fs_.ShouldDelay(&delay)) {
         Env::Default()->SleepForMicroseconds(delay);
@@ -2417,12 +2412,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
       int delay;
       const std::chrono::microseconds deadline = fs_.GetDeadline();
       if (deadline.count()) {
-        // Give a leeway of +- 10us as it can take some time for the Get/
-        // MultiGet call to reach here, in order to avoid false alarms
-        EXPECT_GE(deadline.count() + 10 - Env::Default()->NowMicros(),
-                  options.timeout.count());
-        EXPECT_LE(deadline.count() - 10 - Env::Default()->NowMicros(),
-                  options.timeout.count());
+        AssertDeadline(deadline, options);
       }
       if (fs_.ShouldDelay(&delay)) {
         Env::Default()->SleepForMicroseconds(delay);
@@ -2431,6 +2421,16 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
     }
 
    private:
+    void AssertDeadline(const std::chrono::microseconds deadline,
+                        const IOOptions& opts) const {
+      // Give a leeway of +- 10us as it can take some time for the Get/
+      // MultiGet call to reach here, in order to avoid false alarms
+      std::chrono::microseconds now =
+            std::chrono::microseconds(Env::Default()->NowMicros());
+      std::chrono::microseconds delta = std::chrono::microseconds(10);
+      EXPECT_GE(deadline + delta - now, opts.timeout);
+      EXPECT_LE(deadline - delta - now, opts.timeout);
+    }
     DeadlineFS& fs_;
     std::unique_ptr<FSRandomAccessFile> file_;
   };
