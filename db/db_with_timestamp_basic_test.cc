@@ -787,19 +787,36 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
   write_opts.timestamp = &ts;
   ASSERT_OK(db_->Put(write_opts, "foo", "value"));
   ASSERT_OK(db_->Put(write_opts, "bar", "value"));
+  ASSERT_OK(db_->Put(write_opts, "fooxxxxxxxxxxxxxxxx", "value"));
+  ASSERT_OK(db_->Put(write_opts, "barxxxxxxxxxxxxxxxx", "value"));
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   ts_str = Timestamp(2, 0);
   ts = ts_str;
   ReadOptions read_opts;
   read_opts.timestamp = &ts;
-  ColumnFamilyHandle* column_families[] = {cfh, cfh};
-  Slice keys[] = {"foo", "bar"};
-  PinnableSlice values[] = {PinnableSlice(), PinnableSlice()};
-  Status statuses[] = {Status::OK(), Status::OK()};
-  dbfull()->MultiGet(read_opts, 2, &column_families[0], &keys[0], &values[0],
-                     &statuses[0], false);
-  for (const auto& s : statuses) {
-    ASSERT_OK(s);
+  {
+    ColumnFamilyHandle* column_families[] = {cfh, cfh};
+    Slice keys[] = {"foo", "bar"};
+    PinnableSlice values[] = {PinnableSlice(), PinnableSlice()};
+    Status statuses[] = {Status::OK(), Status::OK()};
+    dbfull()->MultiGet(read_opts, /*num_keys=*/2, &column_families[0], &keys[0],
+                       &values[0], &statuses[0], /*sorted_input=*/false);
+    for (const auto& s : statuses) {
+      ASSERT_OK(s);
+    }
+  }
+  {
+    ColumnFamilyHandle* column_families[] = {cfh, cfh, cfh, cfh};
+    Slice keys[] = {"fooxxxxxxxxxxxxxxxx", "barxxxxxxxxxxxxxxxx", "foo", "bar"};
+    PinnableSlice values[] = {PinnableSlice(), PinnableSlice(), PinnableSlice(),
+                              PinnableSlice()};
+    Status statuses[] = {Status::OK(), Status::OK(), Status::OK(),
+                         Status::OK()};
+    dbfull()->MultiGet(read_opts, /*num_keys=*/4, &column_families[0], &keys[0],
+                       &values[0], &statuses[0], /*sorted_input=*/false);
+    for (const auto& s : statuses) {
+      ASSERT_OK(s);
+    }
   }
   Close();
 }
