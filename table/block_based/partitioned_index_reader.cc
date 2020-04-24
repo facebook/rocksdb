@@ -150,7 +150,6 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
   s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                 static_cast<size_t>(prefetch_len));
-  IGNORE_STATUS_IF_ERROR(s);
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();

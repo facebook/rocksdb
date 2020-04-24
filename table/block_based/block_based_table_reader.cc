@@ -729,7 +729,6 @@ Status BlockBasedTable::PrefetchTail(
         nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     s = (*prefetch_buffer)->Prefetch(file, prefetch_off, prefetch_len);
   }
-  IGNORE_STATUS_IF_ERROR(s);
 
   return s;
 }

@@ -93,7 +93,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
                    buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
 #ifndef NDEBUG
   if (!s.ok() || result.size() < read_len) {
-    // Fake an IO rror to force db_stress fault injection to ignore
+    // Fake an IO error to force db_stress fault injection to ignore
     // truncated read errors
     IGNORE_STATUS_IF_ERROR(Status::IOError());
   }
