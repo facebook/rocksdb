@@ -15,6 +15,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Env;
+class Logger;
+class ObjectRegistry;
 struct ColumnFamilyOptions;
 struct DBOptions;
 struct Options;
@@ -26,6 +28,15 @@ struct Options;
 // of the serialization (e.g. delimiter), and how to compare
 // options (sanity_level).
 struct ConfigOptions {
+  // Constructs a new ConfigOptions with a new object registry.
+  // This method should only be used when a DBOptions is not available,
+  // else registry settings may be lost
+  ConfigOptions();
+
+  // Constructs a new ConfigOptions using the object registry from
+  // the input options.
+  ConfigOptions(const DBOptions&);
+
   // Returns a ConfigOptions suitable for nested/embedded
   // options.
   ConfigOptions Embedded() const;
@@ -71,8 +82,16 @@ struct ConfigOptions {
   // `file_readahead_size` is used for readahead for the option file.
   size_t file_readahead_size = 512 * 1024;
 
+  // The logger for this options
+  std::shared_ptr<Logger> info_log = nullptr;
+
   // The environment to use for this option
-  Env* env = Env::Default();
+  Env* env = nullptr;
+
+#ifndef ROCKSDB_LITE
+  // The object registry to use for this options
+  std::shared_ptr<ObjectRegistry> registry;
+#endif
 
   bool IsShallow() const { return depth == Depth::kDepthShallow; }
   bool IsDetailed() const { return depth == Depth::kDepthDetailed; }

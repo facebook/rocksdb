@@ -6,8 +6,6 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "tools/sst_dump_tool_imp.h"
-
 #include <cinttypes>
 #include <iostream>
 #include <map>
@@ -20,6 +18,8 @@
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
 #include "options/cf_options.h"
+#include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -35,10 +35,9 @@
 #include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/compression.h"
 #include "util/random.h"
-
-#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -628,8 +627,9 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   // Otherwise, the caller is responsible for creating custom env.
   if (!options.env || options.env == ROCKSDB_NAMESPACE::Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
-    if (!s.ok() && !s.IsNotFound()) {
+    Status s = Env::CreateFromString(ConfigOptions(), env_uri ? env_uri : "",
+                                     &env, &env_guard);
+    if (!s.ok() && !s.IsNotSupported()) {
       fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
       exit(1);
     }

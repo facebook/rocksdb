@@ -3,13 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/sst_file_reader.h"
+
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
 
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "table/sst_file_writer_collectors.h"
 #include "test_util/testharness.h"
@@ -40,7 +42,8 @@ class SstFileReaderTest : public testing::Test {
     const char* test_env_uri = getenv("TEST_ENV_URI");
     if(test_env_uri) {
       Env* test_env = nullptr;
-      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
+      Status s = Env::CreateFromString(ConfigOptions(options_), test_env_uri,
+                                       &test_env, &env_guard_);
       base_env = test_env;
       EXPECT_OK(s);
       EXPECT_NE(Env::Default(), base_env);

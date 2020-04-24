@@ -124,6 +124,34 @@ class PosixDynamicLibrary : public DynamicLibrary {
   std::string name_;
   void* handle_;
 };
+
+// The set of libraries already loaded.  We need to keep these libraries
+// around because if one was loaded, some object created out of it, and then
+// the library was unloaded, bad things can happen
+static std::unordered_map<std::string, std::shared_ptr<DynamicLibrary> >
+    loaded_libraries;
+
+static bool OpenPosixLibrary(const std::string& name,
+                             std::shared_ptr<DynamicLibrary>* result) {
+  void* hndl = nullptr;
+  auto iter = loaded_libraries.find(name);
+  if (iter != loaded_libraries.end()) {
+    *result = iter->second;
+    return true;
+  } else if (name.empty()) {
+    hndl = dlopen(NULL, RTLD_NOW);
+  } else {
+    hndl = dlopen(name.c_str(), RTLD_NOW);
+  }
+  if (hndl != nullptr) {
+    result->reset(new PosixDynamicLibrary(name, hndl));
+    loaded_libraries[name] = *result;
+    return true;
+  } else {
+    return false;
+  }
+}
+
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
 class PosixEnv : public CompositeEnvWrapper {
@@ -169,14 +197,8 @@ class PosixEnv : public CompositeEnvWrapper {
                      std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
     assert(result != nullptr);
-    if (name.empty()) {
-      void* hndl = dlopen(NULL, RTLD_NOW);
-      if (hndl != nullptr) {
-        result->reset(new PosixDynamicLibrary(name, hndl));
-        return Status::OK();
-      }
-    } else {
-      std::string library_name = name;
+    std::string library_name = name;
+    if (!library_name.empty()) {
       if (library_name.find(kSharedLibExt) == std::string::npos) {
         library_name = library_name + kSharedLibExt;
       }
@@ -186,29 +208,28 @@ class PosixEnv : public CompositeEnvWrapper {
         library_name = "lib" + library_name;
       }
 #endif
-      if (path.empty()) {
-        void* hndl = dlopen(library_name.c_str(), RTLD_NOW);
-        if (hndl != nullptr) {
-          result->reset(new PosixDynamicLibrary(library_name, hndl));
-          return Status::OK();
-        }
-      } else {
-        std::string local_path;
-        std::stringstream ss(path);
-        while (getline(ss, local_path, kPathSeparator)) {
-          if (!path.empty()) {
-            std::string full_name = local_path + "/" + library_name;
-            void* hndl = dlopen(full_name.c_str(), RTLD_NOW);
-            if (hndl != nullptr) {
-              result->reset(new PosixDynamicLibrary(full_name, hndl));
-              return Status::OK();
-            }
+    }
+    // If there is no path or no library name
+    // Or if the library name already has a path in it...
+    if (path.empty() || library_name.empty() ||
+        library_name.find("/") != std::string::npos) {
+      if (OpenPosixLibrary(library_name, result)) {
+        return Status::OK();
+      }
+    } else {
+      std::string local_path;
+      std::stringstream ss(path);
+      while (getline(ss, local_path, kPathSeparator)) {
+        if (!local_path.empty()) {
+          std::string full_name = local_path + "/" + library_name;
+          if (OpenPosixLibrary(full_name, result)) {
+            return Status::OK();
           }
         }
       }
     }
-    return Status::IOError(
-        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
+    return Status::IOError(IOErrorMsg("Failed to open shared library: ", name),
+                           dlerror());
   }
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 

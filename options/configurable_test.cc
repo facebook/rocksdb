@@ -713,7 +713,7 @@ static Configurable* ThreeDeepFactory() {
 }
 
 static Configurable* DBOptionsFactory() {
-  auto config = DBOptionsAsConfigurable(DBOptions());
+  auto config = DBOptionsAsConfigurable(ConfigOptions(), DBOptions());
   return config.release();
 }
 

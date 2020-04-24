@@ -62,13 +62,14 @@ class TestCustomizable : public Customizable {
   static Status CreateFromString(const ConfigOptions& opts,
                                  const std::string& value,
                                  TestCustomizable** result);
-  const Customizable *FindInstance(const std::string& name) const override {
+  const Customizable* FindInstance(const std::string& name) const override {
     if (name == "TestCustomizable") {
       return this;
     } else {
       return Customizable::FindInstance(name);
     }
   }
+
  protected:
   const std::string name_;
 };
@@ -153,13 +154,14 @@ static bool LoadSharedB(const std::string& id,
   }
 }
 Status TestCustomizable::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value, 
+    const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<TestCustomizable>* result) {
-  return LoadSharedObject<TestCustomizable>(config_options, value, LoadSharedB, result);
+  return LoadSharedObject<TestCustomizable>(config_options, value, LoadSharedB,
+                                            result);
 }
 
 Status TestCustomizable::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value, 
+    const ConfigOptions& config_options, const std::string& value,
     std::unique_ptr<TestCustomizable>* result) {
   return LoadUniqueObject<TestCustomizable>(
       config_options, value,
@@ -264,13 +266,16 @@ TEST_F(CustomizableTest, CreateByNameTest) {
   std::unique_ptr<Configurable> configurable(new SimpleConfigurable());
   SimpleOptions* simple = configurable->GetOptions<SimpleOptions>("simple");
   ASSERT_NE(simple, nullptr);
-  ASSERT_OK(configurable->ConfigureFromString(config_options_, "unique={id=TEST_1}"));
+  ASSERT_OK(
+      configurable->ConfigureFromString(config_options_, "unique={id=TEST_1}"));
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_EQ(simple->cu->GetId(), "TEST_1");
-  ASSERT_OK(configurable->ConfigureFromString(config_options_, "unique.id=TEST_2"));
+  ASSERT_OK(
+      configurable->ConfigureFromString(config_options_, "unique.id=TEST_2"));
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_EQ(simple->cu->GetId(), "TEST_2");
-  ASSERT_OK(configurable->ConfigureFromString(config_options_, "unique=TEST_3"));
+  ASSERT_OK(
+      configurable->ConfigureFromString(config_options_, "unique=TEST_3"));
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_EQ(simple->cu->GetId(), "TEST_3");
 }
@@ -394,10 +399,13 @@ TEST_F(CustomizableTest, ConfigureStandaloneCustomTest) {
 TEST_F(CustomizableTest, BadNameTest) {
   config_options_.ignore_unknown_objects = false;
   std::unique_ptr<Configurable> c1(new SimpleConfigurable());
-  Status s = c1->ConfigureFromString(config_options_, "unique.shared.id=bad name");
-  ASSERT_NOK(c1->ConfigureFromString(config_options_, "unique.shared.id=bad name"));
+  Status s =
+      c1->ConfigureFromString(config_options_, "unique.shared.id=bad name");
+  ASSERT_NOK(
+      c1->ConfigureFromString(config_options_, "unique.shared.id=bad name"));
   config_options_.ignore_unknown_objects = true;
-  ASSERT_OK(c1->ConfigureFromString(config_options_, "unique.shared.id=bad name"));
+  ASSERT_OK(
+      c1->ConfigureFromString(config_options_, "unique.shared.id=bad name"));
 }
 
 // Tests that we fail appropriately if a bad option is passed to the underlying
@@ -415,14 +423,16 @@ TEST_F(CustomizableTest, BadOptionTest) {
   ASSERT_NOK(c1->ConfigureFromString(config_options_, "A.string=s"));
   ASSERT_OK(c1->ConfigureFromString(ignore, "A.string=s"));
   // Test as detached
-  ASSERT_NOK(c1->ConfigureFromString(config_options_, "shared.id=A;A.string=b}"));
+  ASSERT_NOK(
+      c1->ConfigureFromString(config_options_, "shared.id=A;A.string=b}"));
   ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=A;A.string=s}"));
 }
 
 // Tests that different IDs lead to different objects
 TEST_F(CustomizableTest, UniqueIdTest) {
   std::unique_ptr<Configurable> base(new SimpleConfigurable());
-  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=A_1;int=1;bool=true}"));
+  ASSERT_OK(base->ConfigureFromString(config_options_,
+                                      "unique={id=A_1;int=1;bool=true}"));
   SimpleOptions* simple = base->GetOptions<SimpleOptions>("simple");
   ASSERT_NE(simple, nullptr);
   ASSERT_NE(simple->cu, nullptr);
@@ -432,24 +442,28 @@ TEST_F(CustomizableTest, UniqueIdTest) {
   std::unique_ptr<Configurable> copy(new SimpleConfigurable());
   ASSERT_OK(copy->ConfigureFromString(config_options_, opt_str));
   ASSERT_TRUE(base->Matches(config_options_, copy.get()));
-  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=A_2;int=1;bool=true}"));
+  ASSERT_OK(base->ConfigureFromString(config_options_,
+                                      "unique={id=A_2;int=1;bool=true}"));
   ASSERT_FALSE(base->Matches(config_options_, copy.get()));
   ASSERT_EQ(simple->cu->GetId(), std::string("A_2"));
 }
 
 class WrappedCustomizable : public Customizable {
-public:
-  WrappedCustomizable(const std::shared_ptr<Customizable>& w) : inner(w) { }
-  const char *Name() const override { return "Wrapped"; }
-protected:
-  Configurable* Inner() const override { return inner.get(); }  
-private:
+ public:
+  WrappedCustomizable(const std::shared_ptr<Customizable>& w) : inner(w) {}
+  const char* Name() const override { return "Wrapped"; }
+
+ protected:
+  Configurable* Inner() const override { return inner.get(); }
+
+ private:
   std::shared_ptr<Customizable> inner;
 };
-  
+
 TEST_F(CustomizableTest, FindInstanceTest) {
-  std::shared_ptr<TestCustomizable> ac = std::make_shared<TestCustomizable>("A");
-  
+  std::shared_ptr<TestCustomizable> ac =
+      std::make_shared<TestCustomizable>("A");
+
   ASSERT_EQ(ac->FindInstance("A"), ac.get());
   ASSERT_EQ(ac->FindInstance("TestCustomizable"), ac.get());
   ASSERT_EQ(ac->FindInstance("B"), nullptr);
@@ -459,7 +473,7 @@ TEST_F(CustomizableTest, FindInstanceTest) {
   ASSERT_EQ(wc.FindInstance("TestCustomizable"), ac.get());
   ASSERT_EQ(wc.FindInstance("B"), nullptr);
 }
-  
+
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #ifndef ROCKSDB_LITE
     {"inner",
@@ -496,14 +510,17 @@ TEST_F(CustomizableTest, TestStringDepth) {
 TEST_F(CustomizableTest, NewCustomizableTest) {
   std::unique_ptr<Configurable> base(new SimpleConfigurable());
   A_count = 0;
-  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=A_1;int=1;bool=true}"));
+  ASSERT_OK(base->ConfigureFromString(config_options_,
+                                      "unique={id=A_1;int=1;bool=true}"));
   SimpleOptions* simple = base->GetOptions<SimpleOptions>("simple");
   ASSERT_NE(simple, nullptr);
   ASSERT_NE(simple->cu, nullptr);
   ASSERT_EQ(A_count, 1);  // Created one A
-  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=A_1;int=1;bool=false}"));
+  ASSERT_OK(base->ConfigureFromString(config_options_,
+                                      "unique={id=A_1;int=1;bool=false}"));
   ASSERT_EQ(A_count, 2);  // Create another A_1
-  ASSERT_OK(base->ConfigureFromString(config_options_, "unique={id=A_2;int=1;bool=false}"));
+  ASSERT_OK(base->ConfigureFromString(config_options_,
+                                      "unique={id=A_2;int=1;bool=false}"));
   ASSERT_EQ(A_count, 3);  // Created another A
   ASSERT_OK(base->ConfigureFromString(config_options_, "unique="));
   ASSERT_EQ(simple->cu, nullptr);
@@ -516,34 +533,40 @@ TEST_F(CustomizableTest, IgnoreUnknownObjects) {
   std::unique_ptr<TestCustomizable> unique;
   TestCustomizable* pointer = nullptr;
   ignore.ignore_unknown_objects = false;
-  ASSERT_NOK(LoadSharedObject<TestCustomizable>(ignore, "Unknown", nullptr, &shared));
-  ASSERT_NOK(LoadUniqueObject<TestCustomizable>(ignore, "Unknown", nullptr, &unique));
-  ASSERT_NOK(LoadStaticObject<TestCustomizable>(ignore, "Unknown", nullptr, &pointer));
+  ASSERT_NOK(
+      LoadSharedObject<TestCustomizable>(ignore, "Unknown", nullptr, &shared));
+  ASSERT_NOK(
+      LoadUniqueObject<TestCustomizable>(ignore, "Unknown", nullptr, &unique));
+  ASSERT_NOK(
+      LoadStaticObject<TestCustomizable>(ignore, "Unknown", nullptr, &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
   ignore.ignore_unknown_objects = true;
-  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "Unknown", nullptr, &shared));
-  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "Unknown", nullptr, &unique));
-  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "Unknown", nullptr, &pointer));
+  ASSERT_OK(
+      LoadSharedObject<TestCustomizable>(ignore, "Unknown", nullptr, &shared));
+  ASSERT_OK(
+      LoadUniqueObject<TestCustomizable>(ignore, "Unknown", nullptr, &unique));
+  ASSERT_OK(
+      LoadStaticObject<TestCustomizable>(ignore, "Unknown", nullptr, &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
-  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown", nullptr, 
+  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown", nullptr,
                                                &shared));
-  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown", nullptr, 
+  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown", nullptr,
                                                &unique));
-  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown", nullptr, 
+  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown", nullptr,
                                                &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
-  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown;option=bad", nullptr,
-                                               &shared));
-  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown;option=bad", nullptr,
-                                               &unique));
-  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown;option=bad", nullptr,
-                                               &pointer));
+  ASSERT_OK(LoadSharedObject<TestCustomizable>(ignore, "id=Unknown;option=bad",
+                                               nullptr, &shared));
+  ASSERT_OK(LoadUniqueObject<TestCustomizable>(ignore, "id=Unknown;option=bad",
+                                               nullptr, &unique));
+  ASSERT_OK(LoadStaticObject<TestCustomizable>(ignore, "id=Unknown;option=bad",
+                                               nullptr, &pointer));
   ASSERT_EQ(shared.get(), nullptr);
   ASSERT_EQ(unique.get(), nullptr);
   ASSERT_EQ(pointer, nullptr);
@@ -569,9 +592,72 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
   ASSERT_EQ(pointer, nullptr);
   ASSERT_NOK(TestCustomizable::CreateFromString(ignore, "option=bad", &shared));
   ASSERT_NOK(TestCustomizable::CreateFromString(ignore, "option=bad", &unique));
-  ASSERT_NOK(TestCustomizable::CreateFromString(ignore, "option=bad", &pointer));
+  ASSERT_NOK(
+      TestCustomizable::CreateFromString(ignore, "option=bad", &pointer));
 }
 
+#ifndef ROCKSDB_LITE
+// This method loads existing test classes into the ObjectRegistry
+static void RegisterTestObjects(ObjectLibrary& library,
+                                const std::string& /*arg*/) {
+  library.Register<TableFactory>(
+      "MockTable",
+      [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new mock::MockTableFactory());
+        return guard->get();
+      });
+}
+
+static void RegisterLocalObjects(ObjectLibrary& /*library*/,
+                                 const std::string& /*arg*/) {
+  // Load any locally defined objects here
+}
+#endif  // !ROCKSDB_LITE
+
+class LoadCustomizableTest : public testing::Test {
+ public:
+  LoadCustomizableTest() {
+    config_options_.ignore_unknown_objects = false;
+#ifndef ROCKSDB_LITE
+    config_options_.registry = db_opts_.object_registry;
+#endif  // !ROCKSDB_LITE
+  }
+  bool RegisterTests(const std::string& arg) {
+#ifndef ROCKSDB_LITE
+    config_options_.registry->AddLocalLibrary(RegisterTestObjects,
+                                              "RegisterTestObjects", arg);
+    config_options_.registry->AddLocalLibrary(RegisterLocalObjects,
+                                              "RegisterLocalObjects", arg);
+    return true;
+#else
+    (void)arg;
+    return false;
+#endif  // !ROCKSDB_LITE
+  }
+
+ protected:
+  DBOptions db_opts_;
+  ColumnFamilyOptions cf_opts_;
+  ConfigOptions config_options_;
+};
+
+TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
+  std::shared_ptr<TableFactory> factory;
+  ASSERT_NOK(
+      TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, TableFactory::kBlockBasedTableName, &factory));
+  ASSERT_NE(factory, nullptr);
+  ASSERT_EQ(factory->Name(), TableFactory::kBlockBasedTableName);
+
+  if (RegisterTests("Test")) {
+    ASSERT_OK(
+        TableFactory::CreateFromString(config_options_, "MockTable", &factory));
+    ASSERT_NE(factory, nullptr);
+    ASSERT_EQ(factory->Name(), std::string("MockTable"));
+  }
+}
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

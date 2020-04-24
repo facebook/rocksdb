@@ -85,14 +85,14 @@ enum class OptionTypeFlags : uint32_t {
   kDontPrepare = 0x4000,     // Don't prepare or sanitize this option
 };
 
-inline OptionTypeFlags operator|(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator|(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) |
                                       static_cast<uint32_t>(b));
 }
 
-inline OptionTypeFlags operator&(const OptionTypeFlags &a,
-                                 const OptionTypeFlags &b) {
+inline OptionTypeFlags operator&(const OptionTypeFlags& a,
+                                 const OptionTypeFlags& b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
 }

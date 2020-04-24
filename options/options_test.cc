@@ -1977,7 +1977,25 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
              "encoding_type=kPrefixXX",
              &new_opt));
 }
-  
+
+const static std::string kCustomEnvName = "Custom";
+const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
+class CustomEnv : public EnvWrapper {
+ public:
+  explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+};
+
+extern "C" {
+void RegisterCustomEnv(ObjectLibrary& library, const std::string& arg) {
+  library.Register<Env>(
+      arg, [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
+              std::string* /* errmsg */) {
+        static CustomEnv env(Env::Default());
+        return &env;
+      });
+}
+}  // extern "C"
+
 TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   Options base_options, new_options;
   base_options.write_buffer_size = 20;
@@ -1987,15 +2005,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   base_options.table_factory.reset(
       NewBlockBasedTableFactory(block_based_table_options));
 
-  // Register an Env with object registry.
-  const static char* kCustomEnvName = "CustomEnv";
-  class CustomEnv : public EnvWrapper {
-   public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-  };
-
+  // Register an Env with default object library.
   ObjectLibrary::Default()->Register<Env>(
-      kCustomEnvName,
+      "CustomEnvDefault",
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
          std::string* /* errmsg */) {
         static CustomEnv env(Env::Default());
@@ -2009,7 +2021,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
       "bottommost_compression_opts=5:6:7;create_if_missing=true;max_open_files="
       "1;"
-      "rate_limiter_bytes_per_sec=1024;env=CustomEnv",
+      "rate_limiter_bytes_per_sec=1024;env=CustomEnvDefault",
       &new_options));
 
   ASSERT_EQ(new_options.compression_opts.window_bits, 4);
@@ -2042,8 +2054,9 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
+
   Env* newEnv = new_options.env;
-  ASSERT_OK(Env::LoadEnv(kCustomEnvName, &newEnv));
+  ASSERT_OK(Env::LoadEnv("CustomEnvDefault", &newEnv));
   ASSERT_EQ(newEnv, new_options.env);
 }
 
@@ -3465,6 +3478,144 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
       {0, OptionType::kString}, '|');
   TestAndCompareOption(config_options, vec_info, "v", "x|y|z", &vec1, &vec2);
 }
+class ConfigOptionsTest : public testing::Test {};
+
+TEST_F(ConfigOptionsTest, EnvFromConfigOptions) {
+  ConfigOptions config_options;
+  DBOptions db_opts;
+  Options opts;
+  Env* mem_env = NewMemEnv(Env::Default());
+  config_options.registry->AddLocalLibrary(RegisterCustomEnv,
+                                           "RegisterCustomEnv", kCustomEnvName);
+  config_options.env = mem_env;
+  // First test that we can get the env as expected
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(), kCustomEnvProp,
+                                   &db_opts));
+  ASSERT_OK(
+      GetOptionsFromString(config_options, Options(), kCustomEnvProp, &opts));
+  ASSERT_NE(config_options.env, db_opts.env);
+  ASSERT_EQ(opts.env, db_opts.env);
+  Env* custom_env = db_opts.env;
+
+  // Now try a "bad" env" and check that nothing changed
+  config_options.ignore_unknown_objects = true;
+  ASSERT_OK(
+      GetDBOptionsFromString(config_options, db_opts, "env=unknown", &db_opts));
+  ASSERT_OK(GetOptionsFromString(config_options, opts, "env=unknown", &opts));
+  ASSERT_EQ(config_options.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  // Now try a "bad" env" ignoring unknown objects
+  config_options.ignore_unknown_objects = false;
+  ASSERT_NOK(
+      GetDBOptionsFromString(config_options, db_opts, "env=unknown", &db_opts));
+  ASSERT_EQ(config_options.env, mem_env);
+  ASSERT_EQ(db_opts.env, custom_env);
+  ASSERT_EQ(opts.env, db_opts.env);
+
+  delete mem_env;
+}
+
+TEST_F(ConfigOptionsTest, EnvFromDBOptions) {
+  DBOptions db_opts;
+  ConfigOptions config_options;
+  Env* mem_env = NewMemEnv(Env::Default());
+
+  size_t envs = db_opts.object_registry->GetRegisteredNames(Env::Type());
+
+  db_opts.object_registry->AddLocalLibrary(RegisterCustomEnv,
+                                           "RegisterCustomEnv", kCustomEnvName);
+  ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type()), envs + 1);
+  config_options.env = mem_env;
+  config_options.ignore_unknown_objects = false;
+
+  // The library is not registered with the ConfigOptions, so
+  // the Get should fail.
+  ASSERT_NOK(GetDBOptionsFromString(config_options, db_opts, kCustomEnvProp,
+                                    &db_opts));
+  ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type()), envs + 1);
+  ASSERT_NE(config_options.env, db_opts.env);
+
+  config_options.registry = db_opts.object_registry;
+  ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()), envs + 1);
+  ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(), kCustomEnvProp,
+                                   &db_opts));
+  ASSERT_NE(config_options.env, db_opts.env);
+
+  delete mem_env;
+}
+
+TEST_F(ConfigOptionsTest, DBOptionsFromRegistryString) {
+  DBOptions db_opts;
+
+  size_t envs = db_opts.object_registry->GetRegisteredNames(Env::Type());
+  if (db_opts.object_registry
+          ->AddLocalLibrary(db_opts.env, "RegisterCustomEnv", kCustomEnvName)
+          .ok()) {
+    std::string opts_str;
+    ConfigOptions config_options(db_opts);
+    config_options.ignore_unknown_objects = false;
+    ASSERT_OK(Env::CreateFromString(config_options, "Custom", &db_opts.env));
+    ASSERT_OK(GetStringFromDBOptions(config_options, db_opts, &opts_str));
+    ASSERT_OK(GetDBOptionsFromString(config_options, DBOptions(), opts_str,
+                                     &db_opts));
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 1);
+    ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type()),
+              envs + 1);
+
+    config_options.registry = db_opts.object_registry;
+    config_options.registry->AddLocalLibrary(
+        RegisterCustomEnv, "RegisterCustomEnvXXX", "customXX");
+    ASSERT_OK(GetStringFromDBOptions(config_options, db_opts, &opts_str));
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 2);
+
+    ASSERT_NOK(GetDBOptionsFromString(config_options, DBOptions(), opts_str,
+                                      &db_opts));
+    ASSERT_EQ(db_opts.object_registry->GetRegisteredNames(Env::Type()), envs);
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 2);
+  }
+}
+
+TEST_F(ConfigOptionsTest, OptionsFromRegistryString) {
+  Options opts;
+
+  size_t envs = opts.object_registry->GetRegisteredNames(Env::Type());
+  if (opts.object_registry
+          ->AddLocalLibrary(opts.env, "RegisterCustomEnv", kCustomEnvName)
+          .ok()) {
+    std::string opts_str;
+    ConfigOptions config_options(opts);
+    config_options.ignore_unknown_objects = false;
+    ASSERT_OK(Env::CreateFromString(config_options, kCustomEnvName, &opts.env));
+    ASSERT_OK(GetStringFromDBOptions(config_options, opts, &opts_str));
+    ASSERT_OK(GetOptionsFromString(config_options, Options(), opts_str, &opts));
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 1);
+    ASSERT_EQ(opts.object_registry->GetRegisteredNames(Env::Type()), envs + 1);
+    ASSERT_NOK(GetOptionsFromString(config_options, opts,
+                                    "table_factory=UnknownXXX", &opts));
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 1);
+    ASSERT_EQ(opts.object_registry->GetRegisteredNames(Env::Type()), envs + 1);
+
+    config_options.registry = opts.object_registry;
+    config_options.registry->AddLocalLibrary(
+        RegisterCustomEnv, "RegisterCustomEnvXXX", "customXX");
+    ASSERT_OK(GetStringFromDBOptions(config_options, opts, &opts_str));
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 2);
+    ASSERT_NOK(
+        GetOptionsFromString(config_options, Options(), opts_str, &opts));
+    ASSERT_EQ(opts.object_registry->GetRegisteredNames(Env::Type()), envs);
+    ASSERT_EQ(config_options.registry->GetRegisteredNames(Env::Type()),
+              envs + 2);
+  }
+}
+
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 

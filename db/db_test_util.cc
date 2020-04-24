@@ -49,12 +49,15 @@ ROT13BlockCipher rot13Cipher_(16);
 
 DBTestBase::DBTestBase(const std::string path)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
+  auto options = CurrentOptions();
   Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
   const char* test_env_uri = getenv("TEST_ENV_URI");
   if (test_env_uri) {
     Env* test_env = nullptr;
-    Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
+    ConfigOptions config_options(options);
+    Status s = Env::CreateFromString(config_options, test_env_uri, &test_env,
+                                     &env_guard_);
     base_env = test_env;
     EXPECT_OK(s);
     EXPECT_NE(Env::Default(), base_env);
@@ -77,7 +80,6 @@ DBTestBase::DBTestBase(const std::string path)
   dbname_ = test::PerThreadDBPath(env_, path);
   alternative_wal_dir_ = dbname_ + "/wal";
   alternative_db_log_dir_ = dbname_ + "/db_log_dir";
-  auto options = CurrentOptions();
   options.env = env_;
   auto delete_options = options;
   delete_options.wal_dir = alternative_wal_dir_;

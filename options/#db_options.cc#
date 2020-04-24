@@ -399,18 +399,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto old_env = reinterpret_cast<Env**>(addr);  // Get the old value
             Env* new_env = *old_env;                       // Set new to old
             Status s = Env::CreateFromString(opts, value,
-                                             &new_env);  // Update new value
-            if (s.ok()) {                                // It worked
-              *old_env = new_env;                        // Update the old one
+                                             &new_env);    // Update new value
+            if (s.ok()) {                                  // It worked
+              *old_env = new_env;                          // Update the old one
             }
             return s;
           }}},
 };
 
 // The ObjectRegistry is separated from the rest of the ImmutableDBOptions
-// to allow it to be processed first (higher precedence).  This is necessary
-// because the registry might set up factories and such that are required by
-// the later options.
+// to allo
 static std::unordered_map<std::string, OptionTypeInfo>
     object_registry_type_info = {
         {"object_registry",
@@ -418,7 +416,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kConfigurable, OptionVerificationType::kNormal,
           (OptionTypeFlags::kShared | OptionTypeFlags::kCompareNever)}},
 };
-
+  
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
 const std::string OptionsHelper::kImmutableDBOptionsName = "ImmutableDBOptions";
 const std::string OptionsHelper::kMutableDBOptionsName = "MutableDBOptions";

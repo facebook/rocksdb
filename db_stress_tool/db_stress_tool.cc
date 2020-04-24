@@ -23,6 +23,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "rocksdb/convenience.h"
 #ifndef NDEBUG
 #include "test_util/fault_injection_test_fs.h"
 #endif
@@ -65,7 +66,8 @@ int db_stress_tool(int argc, char** argv) {
     }
     raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &raw_env, &env_guard);
+    Status s = Env::CreateFromString(ConfigOptions(), FLAGS_env_uri, &raw_env,
+                                     &env_guard);
     if (raw_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);

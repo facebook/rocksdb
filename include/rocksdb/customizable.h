@@ -44,7 +44,8 @@ class Customizable : public Configurable {
   // Finds the named Customizable in the stack, or nullptr if not found.
   // This method will compare the input name to the name of the instance.
   // If it matches, the instance (e.g this) will be returned.  If they don't
-  // match, Inner() is also checked for match.  On no match, nullptr is returned.
+  // match, Inner() is also checked for match.  On no match, nullptr is
+  // returned.
   //
   // This method is typically used in conjunction with CastAs to find the
   // derived class instance from its base.  For example, if you have an Env
@@ -61,9 +62,9 @@ class Customizable : public Configurable {
   // @return The named instance (if found) or nullptr if not.
   virtual const Customizable* FindInstance(const std::string& name) const;
 
-  // Returns the named instance of the Customizable as a T*, or nullptr if not found.
-  // This method uses FindInstance to find the appropriate class instance and then
-  // casts it to the expected return type.
+  // Returns the named instance of the Customizable as a T*, or nullptr if not
+  // found. This method uses FindInstance to find the appropriate class instance
+  // and then casts it to the expected return type.
   template <typename T>
   const T* CastAs(const std::string& name) const {
     const auto c = FindInstance(name);
@@ -85,7 +86,8 @@ class Customizable : public Configurable {
   std::string AsString(const ConfigOptions& options,
                        const std::string& prefix) const override;
 #endif  // ROCKSDB_LITE
-  bool DoMatchesOptions(const ConfigOptions& config_options, const Configurable* other, 
+  bool DoMatchesOptions(const ConfigOptions& config_options,
+                        const Configurable* other,
                         std::string* name) const override;
 
  public:
@@ -99,17 +101,20 @@ class Customizable : public Configurable {
       const std::unordered_map<std::string, std::string>& new_opts);
 
   // Splits the input opt_value into the ID field and the remaining options.
-  // The input opt_value can be in the form of "name" or "name=value [;name=value]".
-  // The first form uses the "name" as an id with no options
-  // The latter form converts the input into a map of name=value pairs and sets
-  // "id" to the "id" value from the map.
+  // The input opt_value can be in the form of "name" or "name=value
+  // [;name=value]". The first form uses the "name" as an id with no options The
+  // latter form converts the input into a map of name=value pairs and sets "id"
+  // to the "id" value from the map.
   // @param opt_value The value to split into id and options
   // @param id The id field from the opt_value
   // @param options The remaining name/value pairs from the opt_value
-  // @param default_id If specified and there is no id field in the map, this value
+  // @param default_id If specified and there is no id field in the map, this
+  // value
   //      is returned as the ID
-  // @return OK if the value was converted to a map succesfully and an ID was found.
-  // @return InvalidArgument if the value could not be converted to a map or there was
+  // @return OK if the value was converted to a map succesfully and an ID was
+  // found.
+  // @return InvalidArgument if the value could not be converted to a map or
+  // there was
   //      or there is no id property in the map.
   static Status GetOptionsMap(
       const std::string& opt_value, std::string* id,

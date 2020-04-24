@@ -40,8 +40,8 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, FileSystem* fs) {
-  ConfigOptions
-      config_options;  // Use default for escaped(true) and check (exact)
+  // Use default for escaped(true) and check (exact)
+  ConfigOptions config_options(db_opt);
   config_options.delimiter = "\n  ";
   // If a readahead size was set in the input options, use it
   if (db_opt.log_readahead_size > 0) {
@@ -226,8 +226,8 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
 Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
                                    bool ignore_unknown_options,
                                    size_t file_readahead_size) {
-  ConfigOptions
-      config_options;  // Use default for escaped(true) and check (exact)
+  // Use default for escaped(true) and check (exact)
+  ConfigOptions config_options;
   config_options.ignore_unknown_options = ignore_unknown_options;
   if (file_readahead_size > 0) {
     config_options.file_readahead_size = file_readahead_size;
@@ -240,6 +240,7 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
                                    FileSystem* fs) {
   Reset();
   ConfigOptions config_options = config_options_in;
+  config_options.registry = db_opt_.object_registry;
 
   std::unique_ptr<FSSequentialFile> seq_file;
   Status s = fs->NewSequentialFile(file_name, FileOptions(), &seq_file,
@@ -599,8 +600,8 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const ConfigOptions& config_options, const DBOptions& base_opt,
     const DBOptions& file_opt,
     const std::unordered_map<std::string, std::string>* /*opt_map*/) {
-  auto base_config = DBOptionsAsConfigurable(base_opt);
-  auto file_config = DBOptionsAsConfigurable(file_opt);
+  auto base_config = DBOptionsAsConfigurable(config_options, base_opt);
+  auto file_config = DBOptionsAsConfigurable(config_options, file_opt);
   std::string mismatch;
   if (!base_config->Matches(config_options, file_config.get(), &mismatch)) {
     const size_t kBufferSize = 2048;

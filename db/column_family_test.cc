@@ -68,7 +68,9 @@ class ColumnFamilyTestBase : public testing::Test {
     const char* test_env_uri = getenv("TEST_ENV_URI");
     if (test_env_uri) {
       Env* test_env = nullptr;
-      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
+      ConfigOptions config_options(db_options_);
+      Status s = Env::CreateFromString(config_options, test_env_uri, &test_env,
+                                       &env_guard_);
       base_env = test_env;
       EXPECT_OK(s);
       EXPECT_NE(Env::Default(), base_env);

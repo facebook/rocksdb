@@ -42,6 +42,7 @@ class SstFileManager;
 class FilterPolicy;
 class Logger;
 class MergeOperator;
+class ObjectRegistry;
 class Snapshot;
 class MemTableRepFactory;
 class RateLimiter;
@@ -1018,6 +1019,9 @@ struct DBOptions {
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
   WalFilter* wal_filter = nullptr;
+
+  // The object registry to use to load objects for this database instance
+  std::shared_ptr<ObjectRegistry> object_registry;
 #endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily

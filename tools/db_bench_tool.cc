@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -38,6 +39,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -7027,7 +7029,9 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
+    ConfigOptions config_options;
+    Status s = Env::CreateFromString(config_options, FLAGS_env_uri, &FLAGS_env,
+                                     &env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);

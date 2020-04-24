@@ -47,7 +47,8 @@ std::string Customizable::AsString(const ConfigOptions& config_options,
   if (parent.empty()) {
     result = GetId();
   } else {
-    result.append(prefix + kIdPropName + "=" + GetId() + config_options.delimiter);
+    result.append(prefix + kIdPropName + "=" + GetId() +
+                  config_options.delimiter);
     result.append(parent);
   }
   return result;
@@ -69,14 +70,16 @@ Status Customizable::DoGetOption(const ConfigOptions& config_options,
 bool Customizable::DoMatchesOptions(const ConfigOptions& config_options,
                                     const Configurable* other,
                                     std::string* name) const {
-  if (config_options.sanity_level > ConfigOptions::kSanityLevelNone && this != other) {
+  if (config_options.sanity_level > ConfigOptions::kSanityLevelNone &&
+      this != other) {
     const Customizable* custom = reinterpret_cast<const Customizable*>(other);
     if (GetId() != custom->GetId()) {
       *name = kIdPropName;
       return false;
     } else if (config_options.sanity_level >
                ConfigOptions::kSanityLevelLooselyCompatible) {
-      bool matches = Configurable::DoMatchesOptions(config_options, other, name);
+      bool matches =
+          Configurable::DoMatchesOptions(config_options, other, name);
       return matches;
     }
   }
@@ -84,7 +87,7 @@ bool Customizable::DoMatchesOptions(const ConfigOptions& config_options,
 }
 
 Status Customizable::ConfigureNewObject(
-    const ConfigOptions& config_options, Customizable* object, 
+    const ConfigOptions& config_options, Customizable* object,
     const std::string& id, const std::string& base_opts,
     const std::unordered_map<std::string, std::string>& opts) {
   if (object != nullptr) {

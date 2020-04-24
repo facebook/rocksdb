@@ -166,8 +166,17 @@ class FileSystem {
   static const char* Type() { return "FileSystem"; }
 
   // Loads the FileSystem specified by the input value into the result
-  static Status Load(const std::string& value,
-                     std::shared_ptr<FileSystem>* result);
+  // @see Customizable for a more detailed description of the parameters and
+  // return codes
+  // @param config_options Controls how the FileSystem is loaded
+  // @param value The name and optional properties describing the file system
+  //      to load.
+  // @param result On success, returns the loaded FileSystem
+  // @return OK if the FileSystem was successfully loaded.
+  // @return not-OK if the load failed.
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& value,
+                                 std::shared_ptr<FileSystem>* result);
 
   // Return a default fie_system suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env
