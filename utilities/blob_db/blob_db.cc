@@ -38,6 +38,8 @@ Status BlobDB::Open(const DBOptions& db_options,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles,
                     BlobDB** blob_db) {
+  assert(handles);
+
   if (column_families.size() != 1 ||
       column_families[0].name != kDefaultColumnFamilyName) {
     return Status::NotSupported(
@@ -50,7 +52,7 @@ Status BlobDB::Open(const DBOptions& db_options,
   if (s.ok()) {
     *blob_db = static_cast<BlobDB*>(blob_db_impl);
   } else {
-    if (handles && !handles->empty()) {
+    if (!handles->empty()) {
       for (ColumnFamilyHandle* cfh : *handles) {
         blob_db_impl->DestroyColumnFamilyHandle(cfh);
       }
