@@ -153,7 +153,6 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
       options.prefix_extractor.reset(NewCappedPrefixTransform(9));
     }
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
     bbto.filter_policy.reset(NewBloomFilterPolicy(20));
     bbto.partition_filters = true;
