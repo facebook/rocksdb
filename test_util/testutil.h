@@ -805,5 +805,9 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 // Tries to set TEST_TMPDIR to a directory supporting direct IO.
 void ResetTmpDirForDirectIO();
 
+// Sets up sync points to mock direct IO instead of actually issuing direct IO
+// to the file system.
+void SetupSyncPointsToMockDirectIO();
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
