@@ -50,6 +50,12 @@ Status BlobDB::Open(const DBOptions& db_options,
   if (s.ok()) {
     *blob_db = static_cast<BlobDB*>(blob_db_impl);
   } else {
+    if (handles && !handles->empty()) {
+      for (ColumnFamilyHandle* cfh : *handles) {
+        blob_db_impl->DestroyColumnFamilyHandle(cfh);
+      }
+    }
+
     delete blob_db_impl;
     *blob_db = nullptr;
   }
