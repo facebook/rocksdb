@@ -609,6 +609,13 @@ static void RegisterTestObjects(ObjectLibrary& library,
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
+  library.Register<const Comparator>(
+      "SimpleSuffixReverseComparator",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<const Comparator>* /*guard*/,
+         std::string* /* errmsg */) {
+        return new test::SimpleSuffixReverseComparator();
+      });
 }
 
 class MockFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
@@ -773,6 +780,36 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
   ASSERT_NE(inner->get(), nullptr);
   ASSERT_EQ(inner->get()->Name(), std::string("BasicStatistics"));
 #endif
+}
+
+TEST_F(LoadCustomizableTest, LoadComparatorTest) {
+  const Comparator* comparator = nullptr;
+  ASSERT_NOK(Comparator::CreateFromString(
+      config_options_, "SimpleSuffixReverseComparator", &comparator));
+  ASSERT_OK(Comparator::CreateFromString(
+      config_options_, "leveldb.BytewiseComparator", &comparator));
+  ASSERT_NE(comparator, nullptr);
+  ASSERT_EQ(comparator->Name(), std::string("leveldb.BytewiseComparator"));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options_, cf_opts_,
+      "comparator={id=SimpleSuffixReverseComparator}", &cf_opts_));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options_, cf_opts_, "comparator={id=leveldb.BytewiseComparator}",
+      &cf_opts_));
+  RegisterTests("test");
+  ASSERT_OK(Comparator::CreateFromString(
+      config_options_, "SimpleSuffixReverseComparator", &comparator));
+  ASSERT_NE(comparator, nullptr);
+  ASSERT_EQ(comparator->Name(), std::string("SimpleSuffixReverseComparator"));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options_, cf_opts_,
+      "comparator={id=SimpleSuffixReverseComparator}", &cf_opts_));
+  ASSERT_NE(cf_opts_.comparator, nullptr);
+  ASSERT_EQ(cf_opts_.comparator->Name(),
+            std::string("SimpleSuffixReverseComparator"));
+#endif  // ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
