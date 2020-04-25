@@ -510,6 +510,19 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
+void ResetTmpDirForDirectIO() {
+#ifdef OS_LINUX
+  unsetenv("TEST_TMPDIR");
+  char* tmpdir = getenv("DISK_TEMP_DIR");
+  if (tmpdir == nullptr) {
+    tmpdir = getenv("HOME");
+  }
+  if (tmpdir != nullptr) {
+    setenv("TEST_TMPDIR", tmpdir, 1);
+  }
+#endif
+}
+
 void SetupSyncPointsToMockDirectIO() {
 #if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
     !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
@@ -524,19 +537,6 @@ void SetupSyncPointsToMockDirectIO() {
         *val &= ~O_DIRECT;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-#endif
-}
-
-void ResetTmpDirForDirectIO() {
-#ifdef OS_LINUX
-  unsetenv("TEST_TMPDIR");
-  char* tmpdir = getenv("DISK_TEMP_DIR");
-  if (tmpdir == nullptr) {
-    tmpdir = getenv("HOME");
-  }
-  if (tmpdir != nullptr) {
-    setenv("TEST_TMPDIR", tmpdir, 1);
-  }
 #endif
 }
 
