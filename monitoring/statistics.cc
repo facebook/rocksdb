@@ -8,8 +8,11 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
+
+#include "options/customizable_helper.h"
 #include "port/likely.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/utilities/options_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -233,8 +236,30 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr);
 }
 
+Status Statistics::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& id,
+                                    std::shared_ptr<Statistics>* result) {
+  Status s;
+  if (id == "" || id == "BasicStatistics") {
+    result->reset(new StatisticsImpl(nullptr));
+  } else {
+    s = LoadSharedObject<Statistics>(config_options, id, nullptr, result);
+  }
+  return s;
+}
+
+static std::unordered_map<std::string, OptionTypeInfo> stats_type_info = {
+#ifndef ROCKSDB_LITE
+    {"inner", OptionTypeInfo::AsCustomS<Statistics>(
+                  0, OptionVerificationType::kByNameAllowFromNull,
+                  OptionTypeFlags::kCompareNever)},
+#endif  // !ROCKSDB_LITE
+};
+
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)
-    : stats_(std::move(stats)) {}
+    : stats_(std::move(stats)) {
+  RegisterOptions("StatisticsOptions", &stats_, &stats_type_info);
+}
 
 StatisticsImpl::~StatisticsImpl() {}
 

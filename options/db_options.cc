@@ -17,6 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
@@ -130,7 +131,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<DeleteScheduler> delete_scheduler;
           std::shared_ptr<Logger> info_log;
           std::shared_ptr<RateLimiter> rate_limiter;
-          std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           std::vector<std::shared_ptr<EventListener>> listeners;
          */
@@ -405,6 +405,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
             return s;
           }}},
+        {"statistics",
+         OptionTypeInfo::AsCustomS<Statistics>(
+             offsetof(struct ImmutableDBOptions, statistics),
+             OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
 };
 
 // The ObjectRegistry is separated from the rest of the ImmutableDBOptions
