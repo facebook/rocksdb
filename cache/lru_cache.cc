@@ -12,11 +12,21 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string>
 
+#include "rocksdb/utilities/options_type.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, OptionTypeInfo>
+    lru_pri_options_type_info = {
+        {"high_pri_pool_ratio", {0, OptionType::kDouble}}};
+static std::unordered_map<std::string, OptionTypeInfo>
+    lru_adaptive_options_type_info = {
+        {"use_adaptive_mutex", {0, OptionType::kBoolean}}};
+#endif  // ROCKSDB_LITE
 
 LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
   Resize();
@@ -466,20 +476,21 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio,
-                   std::shared_ptr<MemoryAllocator> allocator,
+                   const std::shared_ptr<MemoryAllocator>& allocator,
                    bool use_adaptive_mutex,
                    CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
-                   std::move(allocator)) {
-  num_shards_ = 1 << num_shard_bits;
-  shards_ = reinterpret_cast<LRUCacheShard*>(
-      port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
-  size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
-  for (int i = 0; i < num_shards_; i++) {
-    new (&shards_[i])
-        LRUCacheShard(per_shard, strict_capacity_limit, high_pri_pool_ratio,
-                      use_adaptive_mutex, metadata_charge_policy);
-  }
+                   metadata_charge_policy, allocator),
+      high_pri_pool_ratio_(high_pri_pool_ratio),
+      use_adaptive_mutex_(use_adaptive_mutex),
+      shards_(nullptr),
+      num_shards_(0) {
+#ifndef ROCKSDB_LITE
+  RegisterOptions("HighPriorityOptions", &high_pri_pool_ratio_,
+                  &lru_pri_options_type_info);
+  RegisterOptions("UseAdaptiveOptions", &use_adaptive_mutex_,
+                  &lru_adaptive_options_type_info);
+#endif  // ROCKSDB_LITE
 }
 
 LRUCache::~LRUCache() {
@@ -489,6 +500,39 @@ LRUCache::~LRUCache() {
       shards_[i].~LRUCacheShard();
     }
     port::cacheline_aligned_free(shards_);
+  }
+}
+
+Status LRUCache::PrepareOptions(const ConfigOptions& opts) {
+  Status s;
+  if (shards_ == nullptr) {
+    s = ShardedCache::PrepareOptions(opts);
+    if (!s.ok()) {
+      return s;
+    } else if (high_pri_pool_ratio_ < 0.0 || high_pri_pool_ratio_ > 1.0) {
+      return Status::InvalidArgument(
+          "LRU Cache: High priority pool ratio oout of bounds");
+    } else {
+      num_shards_ = 1 << GetNumShardBits();
+      shards_ = reinterpret_cast<LRUCacheShard*>(
+          port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
+      size_t per_shard = (options_.capacity + (num_shards_ - 1)) / num_shards_;
+      for (int i = 0; i < num_shards_; i++) {
+        new (&shards_[i]) LRUCacheShard(
+            per_shard, options_.strict_capacity_limit, high_pri_pool_ratio_,
+            use_adaptive_mutex_, options_.metadata_charge_policy);
+      }
+    }
+  }
+  return s;
+}
+
+Status LRUCache::ValidateOptions(const DBOptions& db_opts,
+                                 const ColumnFamilyOptions& cf_opts) const {
+  if (shards_ != nullptr) {
+    return Cache::ValidateOptions(db_opts, cf_opts);
+  } else {
+    return Status::InvalidArgument("Cache not initialized");
   }
 }
 
@@ -554,21 +598,14 @@ std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
-    std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy) {
-  if (num_shard_bits >= 20) {
-    return nullptr;  // the cache cannot be sharded into too many fine pieces
-  }
-  if (high_pri_pool_ratio < 0.0 || high_pri_pool_ratio > 1.0) {
-    // invalid high_pri_pool_ratio
-    return nullptr;
-  }
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
-  }
-  return std::make_shared<LRUCache>(
+    const std::shared_ptr<MemoryAllocator>& memory_allocator,
+    bool use_adaptive_mutex, CacheMetadataChargePolicy metadata_charge_policy) {
+  auto cache = std::make_shared<LRUCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy);
+  Status s = cache->PrepareOptions(ConfigOptions());
+  assert(s.ok());
+  return cache;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

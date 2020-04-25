@@ -311,14 +311,14 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-           double high_pri_pool_ratio,
-           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+  LRUCache(size_t capacity, int num_shard_bits = -1,
+           bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
+           const std::shared_ptr<MemoryAllocator>& memory_allocator = nullptr,
            bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata);
   virtual ~LRUCache();
-  virtual const char* Name() const override { return "LRUCache"; }
+  virtual const char* Name() const override;
   virtual CacheShard* GetShard(int shard) override;
   virtual const CacheShard* GetShard(int shard) const override;
   virtual void* Value(Handle* handle) override;
@@ -330,8 +330,13 @@ class LRUCache
   size_t TEST_GetLRUSize();
   //  Retrives high pri pool ratio
   double GetHighPriPoolRatio();
+  Status PrepareOptions(const ConfigOptions& opts) override;
+  Status ValidateOptions(const DBOptions&,
+                         const ColumnFamilyOptions&) const override;
 
  private:
+  double high_pri_pool_ratio_;
+  bool use_adaptive_mutex_;
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
 };

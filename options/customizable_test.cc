@@ -14,6 +14,7 @@
 #include <cstring>
 #include <unordered_map>
 
+#include "cache/lru_cache.h"
 #include "options/customizable_helper.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
@@ -598,6 +599,7 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
   ASSERT_NOK(
       TestCustomizable::CreateFromString(ignore, "option=bad", &pointer));
 }
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 // This method loads existing test classes into the ObjectRegistry
@@ -639,6 +641,12 @@ class MockSkipListFactory : public SkipListFactory {
   const char* Name() const override { return "Test"; }
 };
 
+class MockCache : public LRUCache {
+ public:
+  MockCache() : LRUCache(0) {}
+  const char* Name() const override { return "Test"; }
+};
+
 static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   // Load any locally defined objects here
@@ -660,6 +668,12 @@ static void RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<MemTableRepFactory>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockSkipListFactory());
+        return guard->get();
+      });
+  library.Register<Cache>(
+      "Test", [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+                 std::string* /* errmsg */) {
+        guard->reset(new MockCache());
         return guard->get();
       });
 }
@@ -710,7 +724,6 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_EQ(factory->Name(), std::string("MockTable"));
   }
 }
-#endif  // !ROCKSDB_LITE
 
 TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyTest) {
   std::shared_ptr<FlushBlockPolicyFactory> factory;
@@ -842,6 +855,35 @@ TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
       config_options_, cf_opts_, "memtable_factory={id=Test}", &cf_opts_));
   ASSERT_NE(cf_opts_.memtable_factory, nullptr);
   ASSERT_EQ(cf_opts_.memtable_factory->Name(), std::string("Test"));
+#endif
+}
+
+TEST_F(LoadCustomizableTest, LoadCacheTest) {
+  std::shared_ptr<Cache> cache;
+  std::shared_ptr<TableFactory> tf;
+  ASSERT_NOK(Cache::CreateFromString(config_options_, "Test", &cache));
+  ASSERT_NOK(TableFactory::CreateFromString(
+      config_options_, "id=BlockBasedTable;block_cache=Test;", &tf));
+  ASSERT_OK(Cache::CreateFromString(config_options_, "1024", &cache));
+  ASSERT_EQ(cache->Name(), std::string("LRUCache"));
+  ASSERT_EQ(cache->GetCapacity(), 1024);
+
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(Cache::CreateFromString(config_options_, "capacity=1024", &cache));
+  ASSERT_EQ(cache->Name(), std::string("LRUCache"));
+  ASSERT_EQ(cache->GetCapacity(), 1024);
+
+  RegisterTests("Test");
+  ASSERT_OK(Cache::CreateFromString(config_options_, "Test", &cache));
+  ASSERT_NE(cache, nullptr);
+  ASSERT_EQ(cache->Name(), std::string("Test"));
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, "id=BlockBasedTable;block_cache=Test;", &tf));
+  auto bbto = tf->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_NE(bbto->block_cache.get(), nullptr);
+  ASSERT_EQ(bbto->block_cache->Name(), std::string("Test"));
 #endif
 }
 }  // namespace ROCKSDB_NAMESPACE

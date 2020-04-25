@@ -704,14 +704,28 @@ class ClockCache final : public ShardedCache {
  public:
   ClockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
              CacheMetadataChargePolicy metadata_charge_policy)
-      : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
-    int num_shards = 1 << num_shard_bits;
-    shards_ = new ClockCacheShard[num_shards];
-    for (int i = 0; i < num_shards; i++) {
-      shards_[i].set_metadata_charge_policy(metadata_charge_policy);
+             CacheMetadataChargePolicy metadata_charge_policy,
+             const std::shared_ptr<MemoryAllocator>& memory_allocator = nullptr)
+      : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
+                     metadata_charge_policy, memory_allocator),
+          shards_(nullptr) {}
+
+  Status PrepareOptions() override {
+    Status s;
+    if (shards_ == nullptr) {
+      s = ShardedCache::PrepareOptions();
+      if (s.ok()) {
+        int num_shards = GetNumShards();
+        shards_ = new ClockCacheShard[num_shards];
+        for (int i = 0; i < num_shards; i++) {
+          shards_[i].set_metadata_charge_policy(
+              options_.metadata_charge_policy);
+        }
+        SetCapacity(options_.capacity);
+        SetStrictCapacityLimit(options_.strict_capacity_limit);
+      }
     }
-    SetCapacity(capacity);
-    SetStrictCapacityLimit(strict_capacity_limit);
+    return s;
   }
 
   ~ClockCache() override { delete[] shards_; }
@@ -749,11 +763,11 @@ class ClockCache final : public ShardedCache {
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
-  }
-  return std::make_shared<ClockCache>(
+  auto cache = std::make_shared<ClockCache>(
       capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy);
+  Status s = cache->PrepareOptions(ConfigOptions());
+  assert(s.ok());
+  return cache;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

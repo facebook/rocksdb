@@ -707,7 +707,6 @@ Status GetBlockBasedTableOptionsFromString(
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
-  config_options.invoke_prepare_options = false;
   return GetBlockBasedTableOptionsFromString(config_options, table_options,
                                              opts_str, new_table_options);
 }

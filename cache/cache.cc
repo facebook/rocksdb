@@ -10,54 +10,56 @@
 #include "rocksdb/cache.h"
 
 #include "cache/lru_cache.h"
+#include "options/customizable_helper.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-#ifndef ROCKSDB_LITE
-static std::unordered_map<std::string, OptionTypeInfo>
-    lru_cache_options_type_info = {
-        {"capacity",
-         {offsetof(struct LRUCacheOptions, capacity), OptionType::kSizeT,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
-        {"num_shard_bits",
-         {offsetof(struct LRUCacheOptions, num_shard_bits), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
-        {"strict_capacity_limit",
-         {offsetof(struct LRUCacheOptions, strict_capacity_limit),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-        {"high_pri_pool_ratio",
-         {offsetof(struct LRUCacheOptions, high_pri_pool_ratio),
-          OptionType::kDouble, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
-};
-#endif  // ROCKSDB_LITE
+static const std::string kLRUCacheName = "LRUCache";
+const char* LRUCache::Name() const { return kLRUCacheName.c_str(); }
+
+static bool LoadCache(const std::string& id, std::shared_ptr<Cache>* cache) {
+  bool success = true;
+  if (id.empty()) {
+    cache->reset();
+  } else if (id == kLRUCacheName) {
+    cache->reset(new LRUCache(0));
+  } else if (isdigit(id.at(0))) {
+    auto lru = NewLRUCache(ParseSizeT(id));
+    cache->swap(lru);
+  } else {
+    success = false;
+  }
+  return success;
+}
+
+Cache::Cache(const std::shared_ptr<MemoryAllocator>& allocator)
+    : memory_allocator_(std::move(allocator)) {}
 
 Status Cache::CreateFromString(const ConfigOptions& config_options,
                                const std::string& value,
                                std::shared_ptr<Cache>* result) {
-  Status status;
-  std::shared_ptr<Cache> cache;
-  if (value.find('=') == std::string::npos) {
-    cache = NewLRUCache(ParseSizeT(value));
-  } else {
+  std::string id;
+  std::unordered_map<std::string, std::string> opt_map;
+  Status status =
+      Customizable::GetOptionsMap(value, kLRUCacheName, &id, &opt_map);
+  if (!status.ok()) {
+    return status;
+  } else if (!LoadCache(id, result)) {
 #ifndef ROCKSDB_LITE
-    LRUCacheOptions cache_opts;
-    status = OptionTypeInfo::ParseStruct(
-        config_options, "", &lru_cache_options_type_info, "", value,
-        reinterpret_cast<char*>(&cache_opts));
-    if (status.ok()) {
-      cache = NewLRUCache(cache_opts);
-    }
+    status = config_options.registry->NewSharedObject<Cache>(id, result);
 #else
-    (void)config_options;
     status = Status::NotSupported("Cannot load cache in LITE mode ", value);
 #endif  //! ROCKSDB_LITE
+    if (!status.ok()) {
+      if (config_options.ignore_unknown_objects && status.IsNotSupported()) {
+        return Status::OK();
+      } else {
+        return status;
+      }
+    }
   }
-  if (status.ok()) {
-    result->swap(cache);
-  }
-  return status;
+  return Customizable::ConfigureNewObject(config_options, result->get(), id, "",
+                                          opt_map);
 }
 }  // namespace ROCKSDB_NAMESPACE
