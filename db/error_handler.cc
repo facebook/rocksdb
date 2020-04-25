@@ -178,6 +178,7 @@ void ErrorHandler::CancelErrorRecovery() {
 // end whether recovery succeeded or not
 Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
+  std::cout << "set bg error: " << bg_err.ToString() << "\n";
   if (bg_err.ok()) {
     return Status::OK();
   }
@@ -432,6 +433,7 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
   if (recovery_io_error_.ok() && recovery_error_.ok()) {
     return Status::OK();
   } else {
+    TEST_SYNC_POINT("StartRecoverRetryableBGIOError:RecoverFail");
     return bg_error_;
   }
 }
@@ -479,6 +481,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     */
     if (s.IsShutdownInProgress() ||
         bg_error_.severity() >= Status::Severity::kFatalError) {
+      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail0");
       std::cout << "Do not continue auto resume\n";
       recovery_in_prog_ = false;
       return;
@@ -492,6 +495,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       int64_t wait_until = db_->env_->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
       std::cout << "The FS is set to active now\n";
+      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {
       std::cout << "recover is successful\n";
       // There are four possibility: 1) recover_io_error is set during resume
@@ -508,6 +512,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
                                                      old_bg_error, db_mutex_);
         return;
       } else {
+        TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail1");
         std::cout << "should not use auto recover\n";
         // In this case: 1) recovery_io_error is more serious or not retryable
         // 2) other recovery_error happens. The auto recovery stops.
@@ -517,6 +522,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     }
     resume_count--;
   }
+  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
+  std::cout << "Recover cout used\n";
   recovery_in_prog_ = false;
   return;
 #else
@@ -526,6 +533,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 
 void ErrorHandler::EndAutoRecovery() {
   db_mutex_->AssertHeld();
+  std::cout << "End recovery\n";
   if (end_recovery_) {
     return;
   }

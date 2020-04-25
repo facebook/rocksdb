@@ -116,6 +116,9 @@ struct CompactionJob::SubcompactionState {
   // The return status of this subcompaction
   Status status;
 
+  // The return IO Status of this subcompaction
+  IOStatus io_status;
+
   // Files produced by this subcompaction
   struct Output {
     FileMetaData meta;
@@ -179,6 +182,7 @@ struct CompactionJob::SubcompactionState {
     start = std::move(o.start);
     end = std::move(o.end);
     status = std::move(o.status);
+    io_status = std::move(o.io_status);
     outputs = std::move(o.outputs);
     outfile = std::move(o.outfile);
     builder = std::move(o.builder);
@@ -617,6 +621,18 @@ Status CompactionJob::Run() {
   }
 
   IOStatus io_s;
+  for (const auto& state : compact_->sub_compact_states) {
+    if (!state.io_status.ok()) {
+      io_s = state.io_status;
+      break;
+    }
+  }
+  if (!io_s.ok()) {
+    io_status_ = io_s;
+    status = io_s;
+  }
+  fprintf(stderr, "io error %s, run error %s\n", io_s.ToString().c_str(),
+          status.ToString().c_str());
   if (status.ok() && output_directory_) {
     io_s = output_directory_->Fsync(IOOptions(), nullptr);
   }
@@ -624,7 +640,8 @@ Status CompactionJob::Run() {
     io_status_ = io_s;
     status = io_s;
   }
-
+  fprintf(stderr, "io error %s, run error %s\n", io_s.ToString().c_str(),
+          status.ToString().c_str());
   if (status.ok()) {
     thread_pool.clear();
     std::vector<const FileMetaData*> files_meta;
@@ -999,6 +1016,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                         &sub_compact->compaction_job_stats);
     }
   }
+  fprintf(stderr, "status error 1 %s\n", status.ToString().c_str());
 
   sub_compact->compaction_job_stats.num_input_deletion_records =
       c_iter_stats.num_input_deletion_records;
@@ -1031,18 +1049,21 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
        manual_compaction_paused_->load(std::memory_order_relaxed))) {
     status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
+  fprintf(stderr, "status error 1.1 %s\n", status.ToString().c_str());
   if (status.ok()) {
     status = input->status();
   }
+  fprintf(stderr, "status error 1.2 %s\n", status.ToString().c_str());
   if (status.ok()) {
     status = c_iter->status();
   }
-
+  fprintf(stderr, "status error 1.3 %s\n", status.ToString().c_str());
   if (status.ok() && sub_compact->builder == nullptr &&
       sub_compact->outputs.size() == 0 && !range_del_agg.IsEmpty()) {
     // handle subcompaction containing only range deletions
     status = OpenCompactionOutputFile(sub_compact);
   }
+  fprintf(stderr, "status error 1.5 %s\n", status.ToString().c_str());
 
   // Call FinishCompactionOutputFile() even if status is not ok: it needs to
   // close the output file.
@@ -1050,12 +1071,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     CompactionIterationStats range_del_out_stats;
     Status s = FinishCompactionOutputFile(status, sub_compact, &range_del_agg,
                                           &range_del_out_stats);
+    fprintf(stderr, "status s error 1 %s\n", s.ToString().c_str());
     if (status.ok()) {
       status = s;
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
   }
-
+  fprintf(stderr, "status error 2 %s\n", status.ToString().c_str());
   sub_compact->compaction_job_stats.cpu_micros =
       env_->NowCPUNanos() / 1000 - prev_cpu_micros;
 
@@ -1080,6 +1102,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   sub_compact->c_iter.reset();
   input.reset();
   sub_compact->status = status;
+  fprintf(stderr, "status error 3 %s\n", status.ToString().c_str());
 }
 
 void CompactionJob::RecordDroppedKeys(
@@ -1209,6 +1232,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     } else {
       it->SeekToFirst();
     }
+    TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
       if (upper_bound != nullptr) {
@@ -1309,9 +1333,9 @@ Status CompactionJob::FinishCompactionOutputFile(
   } else {
     sub_compact->builder->Abandon();
   }
-  if (!sub_compact->builder->io_status().ok()) {
-    io_status_ = sub_compact->builder->io_status();
-    s = io_status_;
+  IOStatus io_s = sub_compact->builder->io_status();
+  if (!io_s.ok()) {
+    s = io_s;
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
@@ -1321,7 +1345,6 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
@@ -1336,7 +1359,7 @@ Status CompactionJob::FinishCompactionOutputFile(
         sub_compact->outfile->GetFileChecksumFuncName();
   }
   if (!io_s.ok()) {
-    io_status_ = io_s;
+    sub_compact->io_status = io_s;
     s = io_s;
   }
   sub_compact->outfile.reset();
@@ -1487,7 +1510,12 @@ Status CompactionJob::OpenCompactionOutputFile(
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
-  Status s = NewWritableFile(fs_, fname, &writable_file, file_options_);
+  Status s;
+  IOStatus io_s = NewWritableFile(fs_, fname, &writable_file, file_options_);
+  s = io_s;
+  if (!io_s.ok()) {
+    sub_compact->io_status = io_s;
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
