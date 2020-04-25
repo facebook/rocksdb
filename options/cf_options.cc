@@ -476,25 +476,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
           OptionTypeFlags::kNone}},
         {"memtable_factory",
-         {offset_of(&ColumnFamilyOptions::memtable_factory),
-          OptionType::kMemTableRepFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone}},
+         OptionTypeInfo::AsCustomS<MemTableRepFactory>(
+             offset_of(&ColumnFamilyOptions::memtable_factory),
+             OptionVerificationType::kByName, OptionTypeFlags::kNone)},
         {"memtable",
-         {offset_of(&ColumnFamilyOptions::memtable_factory),
-          OptionType::kMemTableRepFactory, OptionVerificationType::kAlias,
-          OptionTypeFlags::kNone,
-          // Parses the value string and updates the memtable_factory
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            std::unique_ptr<MemTableRepFactory> new_mem_factory;
-            Status s = GetMemTableRepFactoryFromString(value, &new_mem_factory);
-            if (s.ok()) {
-              auto memtable_factory =
-                  reinterpret_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
-              memtable_factory->reset(new_mem_factory.release());
-            }
-            return s;
-          }}},
+         OptionTypeInfo::AsCustomS<MemTableRepFactory>(
+             offset_of(&ColumnFamilyOptions::memtable_factory),
+             OptionVerificationType::kAlias, OptionTypeFlags::kNone)},
         {"table_factory", OptionTypeInfo::AsCustomS<TableFactory>(
                               offset_of(&ColumnFamilyOptions::table_factory),
                               OptionVerificationType::kByName,

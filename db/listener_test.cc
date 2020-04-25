@@ -11,7 +11,6 @@
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
 #include "logging/logging.h"
-#include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"

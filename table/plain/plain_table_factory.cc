@@ -3,7 +3,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #include "table/plain/plain_table_factory.h"
 
 #include <stdint.h>
@@ -11,6 +10,7 @@
 #include <memory>
 
 #include "db/dbformat.h"
+#include "options/customizable_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/options_type.h"
@@ -19,6 +19,60 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+static bool LoadMemTableRepFactory(
+    const std::string& opts_str, std::unique_ptr<MemTableRepFactory>* factory) {
+  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
+  size_t len = opts_list.size();
+
+  if (opts_list.empty() || opts_list.size() > 2) {
+    return false;
+  } else if (opts_list[0] == "skip_list" || opts_list[0] == "SkipListFactory") {
+    // Expecting format
+    // skip_list:<lookahead>
+    if (2 == len) {
+      size_t lookahead = ParseSizeT(opts_list[1]);
+      factory->reset(new SkipListFactory(lookahead));
+    } else {
+      factory->reset(new SkipListFactory());
+    }
+#ifndef ROCKSDB_LITE
+  } else if (opts_list[0] == "prefix_hash" ||
+             opts_list[0] == "HashSkipListRepFactory") {
+    // Expecting format
+    // prfix_hash:<hash_bucket_count>
+    if (2 == len) {
+      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+      factory->reset(NewHashSkipListRepFactory(hash_bucket_count));
+    } else {
+      factory->reset(NewHashSkipListRepFactory());
+    }
+  } else if (opts_list[0] == "hash_linkedlist" ||
+             opts_list[0] == "HashLinkListRepFactory") {
+    // Expecting format
+    // hash_linkedlist:<hash_bucket_count>
+    if (2 == len) {
+      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+      factory->reset(NewHashLinkListRepFactory(hash_bucket_count));
+    } else {
+      factory->reset(NewHashLinkListRepFactory());
+    }
+  } else if (opts_list[0] == "vector" || opts_list[0] == "VectorRepFactory") {
+    // Expecting format
+    // vector:<count>
+    if (2 == len) {
+      size_t count = ParseSizeT(opts_list[1]);
+      factory->reset(new VectorRepFactory(count));
+    } else {
+      factory->reset(new VectorRepFactory());
+    }
+#endif  // ROCKSDB_LITE
+  } else {
+    return false;
+  }
+  return true;
+}
+
+#ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"user_key_len",
      {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
@@ -146,67 +200,21 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
 Status GetMemTableRepFactoryFromString(
     const std::string& opts_str,
     std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
-  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
-  size_t len = opts_list.size();
-
-  if (opts_list.empty() || opts_list.size() > 2) {
-    return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                   opts_str);
-  }
-
-  MemTableRepFactory* mem_factory = nullptr;
-
-  if (opts_list[0] == "skip_list" || opts_list[0] == "SkipListFactory") {
-    // Expecting format
-    // skip_list:<lookahead>
-    if (2 == len) {
-      size_t lookahead = ParseSizeT(opts_list[1]);
-      mem_factory = new SkipListFactory(lookahead);
-    } else if (1 == len) {
-      mem_factory = new SkipListFactory();
-    }
-  } else if (opts_list[0] == "prefix_hash" ||
-             opts_list[0] == "HashSkipListRepFactory") {
-    // Expecting format
-    // prfix_hash:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashSkipListRepFactory();
-    }
-  } else if (opts_list[0] == "hash_linkedlist" ||
-             opts_list[0] == "HashLinkListRepFactory") {
-    // Expecting format
-    // hash_linkedlist:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashLinkListRepFactory();
-    }
-  } else if (opts_list[0] == "vector" || opts_list[0] == "VectorRepFactory") {
-    // Expecting format
-    // vector:<count>
-    if (2 == len) {
-      size_t count = ParseSizeT(opts_list[1]);
-      mem_factory = new VectorRepFactory(count);
-    } else if (1 == len) {
-      mem_factory = new VectorRepFactory();
-    }
-  } else if (opts_list[0] == "cuckoo") {
-    return Status::NotSupported(
-        "cuckoo hash memtable is not supported anymore.");
+  if (LoadMemTableRepFactory(opts_str, new_mem_factory)) {
+    return Status::OK();
   } else {
-    return Status::InvalidArgument("Unrecognized memtable_factory option ",
-                                   opts_str);
+    std::vector<std::string> opts_list = StringSplit(opts_str, ':');
+    if (opts_list.empty() || opts_list.size() > 2) {
+      return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+    } else if (opts_list[0] == "cuckoo") {
+      return Status::NotSupported(
+          "cuckoo hash memtable is not supported anymore.");
+    } else {
+      return Status::InvalidArgument("Unrecognized memtable_factory option ",
+                                     opts_str);
+    }
   }
-
-  if (mem_factory != nullptr) {
-    new_mem_factory->reset(mem_factory);
-  }
-
-  return Status::OK();
 }
 
 Status GetPlainTableOptionsFromMap(
@@ -251,5 +259,18 @@ const std::string PlainTablePropertyNames::kBloomVersion =
 const std::string PlainTablePropertyNames::kNumBloomBlocks =
     "rocksdb.plain.table.bloom.numblocks";
 
-}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
+
+Status MemTableRepFactory::CreateFromString(
+    const ConfigOptions& config_options, const std::string& opts_str,
+    std::shared_ptr<MemTableRepFactory>* result) {
+  std::unique_ptr<MemTableRepFactory> factory;
+  Status s;
+  s = LoadUniqueObject<MemTableRepFactory>(config_options, opts_str,
+                                           LoadMemTableRepFactory, &factory);
+  if (s.ok()) {
+    result->reset(factory.release());
+  }
+  return s;
+}
+}  // namespace ROCKSDB_NAMESPACE
