@@ -39,10 +39,10 @@ Status CompactionFilter::CreateFromString(const ConfigOptions& config_options,
 }
 
 Status CompactionFilterFactory::CreateFromString(
-    const ConfigOptions& config_options, const std::string& value, 
+    const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<CompactionFilterFactory>* result) {
-  Status status =
-    LoadSharedObject<CompactionFilterFactory>(config_options, value, nullptr, result);
+  Status status = LoadSharedObject<CompactionFilterFactory>(
+      config_options, value, nullptr, result);
   return status;
 }
 

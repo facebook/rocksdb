@@ -22,6 +22,8 @@ class NormalizingEnvWrapper : public EnvWrapper {
  public:
   explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
 
+  const char* Name() const override { return "NormalizingEnv"; }
+
   // Removes . and .. from directory listing
   Status GetChildren(const std::string& dir,
                      std::vector<std::string>* result) override {

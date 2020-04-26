@@ -26,6 +26,8 @@ class MockEnv : public EnvWrapper {
 
   ~MockEnv() override;
 
+  const char* Name() const override { return "Memory"; }
+
   // Partial implementation of the Env interface.
   Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) override {
     return Status::OK();

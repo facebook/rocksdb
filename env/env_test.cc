@@ -34,6 +34,7 @@
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/fault_injection_test_fs.h"
@@ -1900,28 +1901,30 @@ class TestEnv : public EnvWrapper {
   public:
     explicit TestEnv() : EnvWrapper(Env::Default()),
                 close_count(0) { }
+    const char* Name() const override { return "TestEnv"; }
 
-  class TestLogger : public Logger {
-   public:
-    using Logger::Logv;
-    TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-    ~TestLogger() override {
-      if (!closed_) {
-        CloseHelper();
+    class TestLogger : public Logger {
+     public:
+      using Logger::Logv;
+      TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+      ~TestLogger() override {
+        if (!closed_) {
+          CloseHelper();
+        }
       }
-    }
-    void Logv(const char* /*format*/, va_list /*ap*/) override{};
+      void Logv(const char* /*format*/, va_list /*ap*/) override{};
 
-   protected:
-    Status CloseImpl() override { return CloseHelper(); }
+     protected:
+      Status CloseImpl() override { return CloseHelper(); }
 
-   private:
-    Status CloseHelper() {
-      env->CloseCountInc();;
-      return Status::OK();
-    }
-    TestEnv* env;
-  };
+     private:
+      Status CloseHelper() {
+        env->CloseCountInc();
+        ;
+        return Status::OK();
+      }
+      TestEnv* env;
+    };
 
   void CloseCountInc() { close_count++; }
 
@@ -1966,6 +1969,43 @@ TEST_F(EnvTest, Close) {
   ASSERT_EQ(env->GetCloseCount(), 2);
 
   delete env;
+}
+
+TEST_F(EnvTest, CreateFromString) {
+  Env* env = nullptr;
+  std::shared_ptr<Env> shared;
+
+  ConfigOptions config_options;
+  config_options.ignore_unknown_objects = false;
+  ASSERT_OK(Env::CreateFromString(config_options, "Posix", &env));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_OK(Env::CreateFromString(config_options, "Default", &env));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_NOK(Env::CreateFromString(config_options, "Memory", &env));
+  ASSERT_NOK(Env::CreateFromString(config_options, "Timed", &env));
+
+  ASSERT_OK(Env::CreateFromString(config_options, "Posix", &env, &shared));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(shared.get(), nullptr);
+  ASSERT_OK(Env::CreateFromString(config_options, "Default", &env, &shared));
+  ASSERT_EQ(env, Env::Default());
+  ASSERT_EQ(shared.get(), nullptr);
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(Env::CreateFromString(config_options, "Memory", &env, &shared));
+  ASSERT_EQ(shared.get(), env);
+  ASSERT_NE(env, nullptr);
+  ASSERT_EQ(env->Name(), std::string("Memory"));
+  ASSERT_OK(Env::CreateFromString(config_options, "Timed", &env, &shared));
+  ASSERT_EQ(shared.get(), env);
+  ASSERT_NE(env, nullptr);
+  ASSERT_EQ(env->Name(), std::string("Timed"));
+  ASSERT_NOK(shared->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+  ASSERT_NOK(Env::CreateFromString(
+      config_options, "id=Timed; targetXXX=Default", &env, &shared));
+  ASSERT_OK(Env::CreateFromString(config_options, "id=Timed; target=Default",
+                                  &env, &shared));
+  ASSERT_OK(shared->ValidateOptions(DBOptions(), ColumnFamilyOptions()));
+#endif  // ROCKSDB_LITE
 }
 
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,

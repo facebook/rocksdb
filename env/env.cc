@@ -14,12 +14,14 @@
 #include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
+#include "options/customizable_helper.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -44,16 +46,39 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
   return CreateFromString(ConfigOptions(), value, result);
 }
 
+static bool LoadStaticEnv(const std::string& id, Env** result) {
+  bool success = true;
+  if (id.empty() || id == "Default") {
+    *result = Env::Default();
+  } else if (id == "Posix") {
+    *result = Env::Default();
+  } else {
+    success = false;
+  }
+  return success;
+}
+
+static bool LoadSharedEnv(const std::string& id, std::shared_ptr<Env>* result) {
+  bool success = true;
+  assert(result);
+  if (id.empty()) {
+    success = false;
+#ifndef ROCKSDB_LITE
+  } else if (id == "Memory") {
+    result->reset(NewMemEnv(nullptr));
+  } else if (id == "Timed") {
+    result->reset(NewTimedEnv(nullptr));
+#endif  // ROCKSDB_LITE
+  } else {
+    success = false;
+  }
+  return success;
+}
+
 Status Env::CreateFromString(const ConfigOptions& config_options,
                              const std::string& value, Env** result) {
   Env* env = *result;
-  Status s;
-#ifndef ROCKSDB_LITE
-  s = config_options.registry->NewStaticObject<Env>(value, &env);
-#else
-  (void)config_options;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
-#endif
+  Status s = LoadStaticObject<Env>(config_options, value, LoadStaticEnv, &env);
   if (s.ok()) {
     *result = env;
   }
@@ -68,32 +93,21 @@ Status Env::LoadEnv(const std::string& value, Env** result,
 Status Env::CreateFromString(const ConfigOptions& config_options,
                              const std::string& value, Env** result,
                              std::shared_ptr<Env>* guard) {
-  assert(result);
-  Status s;
-#ifndef ROCKSDB_LITE
-  Env* env = nullptr;
-  std::unique_ptr<Env> uniq_guard;
-  std::string err_msg;
-  assert(guard != nullptr);
-  env = config_options.registry->NewObject<Env>(value, &uniq_guard, &err_msg);
-  if (!env) {
-    s = Status::NotSupported(std::string("Cannot load ") + Env::Type() + ": " +
-                             value);
-    env = Env::Default();
+  assert(guard);
+  if (!value.empty()) {
+    // Since if we fail to load the object shared, we will try statically,
+    // turn off unknown objects
+    ConfigOptions copy = config_options;
+    copy.ignore_unknown_objects = false;
+    Status s = LoadSharedObject<Env>(copy, value, LoadSharedEnv, guard);
+    if (s.ok()) {
+      *result = guard->get();
+      return s;
+    } else if (!s.IsNotSupported()) {
+      return s;
+    }
   }
-  if (s.ok() && uniq_guard) {
-    guard->reset(uniq_guard.release());
-    *result = guard->get();
-  } else {
-    *result = env;
-  }
-#else
-  (void)config_options;
-  (void)result;
-  (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
-#endif
-  return s;
+  return CreateFromString(config_options, value, result);
 }
 
 std::string Env::PriorityToString(Env::Priority priority) {
@@ -392,7 +406,27 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   return ReadFileToString(&lfsw, fname, data);
 }
 
+static std::unordered_map<std::string, OptionTypeInfo> env_target_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target", OptionTypeInfo::AsCustomP<Env>(
+                   0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+#endif  // !ROCKSDB_LITE
+};
+
+EnvWrapper::EnvWrapper(Env* t) : target_(t) {
+  RegisterOptions("WrappedOptions", &target_, &env_target_type_info);
+}
+
 EnvWrapper::~EnvWrapper() {
+}
+
+Status EnvWrapper::ValidateOptions(const DBOptions& db_opts,
+                                   const ColumnFamilyOptions& cf_opts) const {
+  if (target_ != nullptr) {
+    return Env::ValidateOptions(db_opts, cf_opts);
+  } else {
+    return Status::InvalidArgument("Missing target env:", Name());
+  }
 }
 
 namespace {  // anonymous namespace

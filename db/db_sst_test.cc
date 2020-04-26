@@ -510,8 +510,9 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   class MyEnv : public EnvWrapper {
    public:
     MyEnv(Env* t) : EnvWrapper(t), fake_log_delete(false) {}
+    const char* Name() const override { return "MyEnv"; }
 
-    Status DeleteFile(const std::string& fname) {
+    Status DeleteFile(const std::string& fname) override {
       if (fname.find(".log.trash") != std::string::npos && fake_log_delete) {
         return Status::OK();
       }

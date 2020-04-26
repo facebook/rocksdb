@@ -52,8 +52,8 @@ std::shared_ptr<MergeOperator> MergeOperators::CreateFromStringId(
 Status MergeOperator::CreateFromString(const ConfigOptions& config_options,
                                        const std::string& value,
                                        std::shared_ptr<MergeOperator>* result) {
-  Status status =
-      LoadSharedObject<MergeOperator>(config_options, value, CreateMergeOperator, result);
+  Status status = LoadSharedObject<MergeOperator>(config_options, value,
+                                                  CreateMergeOperator, result);
   return status;
 }
 

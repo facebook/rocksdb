@@ -17,12 +17,15 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <cstdarg>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -132,7 +135,7 @@ struct EnvOptions {
   RateLimiter* rate_limiter = nullptr;
 };
 
-class Env {
+class Env : public Customizable {
  public:
   struct FileAttributes {
     // File name
@@ -1200,7 +1203,7 @@ extern Status ReadFileToString(Env* env, const std::string& fname,
 class EnvWrapper : public Env {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit EnvWrapper(Env* t) : target_(t) {}
+  explicit EnvWrapper(Env* t);
   ~EnvWrapper() override;
 
   // Return the target to which this Env forwards all calls
@@ -1434,6 +1437,13 @@ class EnvWrapper : public Env {
   void SanitizeEnvOptions(EnvOptions* env_opts) const override {
     target_->SanitizeEnvOptions(env_opts);
   }
+
+  // Checks to see if the settings are valid for this set of options
+  Status ValidateOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override;
+
+ protected:
+  Configurable* Inner() const override { return target_; }
 
  private:
   Env* target_;

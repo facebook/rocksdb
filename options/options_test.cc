@@ -142,7 +142,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"wal_bytes_per_sync", "48"},
       {"strict_bytes_per_sync", "true"},
   };
-
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
   ConfigOptions exact, loose;
@@ -914,6 +913,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   class CustomEnv : public EnvWrapper {
    public:
     explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+    const char* Name() const override { return "custom"; }
   };
 
   ObjectLibrary::Default()->Register<Env>(
@@ -1982,6 +1982,7 @@ const static std::string kCustomEnvProp = "env=" + kCustomEnvName;
 class CustomEnv : public EnvWrapper {
  public:
   explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
+  const char* Name() const { return "Custom"; }
 };
 
 extern "C" {

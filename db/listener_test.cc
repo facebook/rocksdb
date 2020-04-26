@@ -675,6 +675,8 @@ class TableFileCreationListener : public EventListener {
    public:
     TestEnv() : EnvWrapper(Env::Default()) {}
 
+    const char* Name() const override { return "TestEnv"; }
+
     void SetStatus(Status s) { status_ = s; }
 
     Status NewWritableFile(const std::string& fname,

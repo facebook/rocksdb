@@ -64,6 +64,7 @@ class ErrorEnv : public EnvWrapper {
   ErrorEnv() : EnvWrapper(Env::Default()),
                writable_file_error_(false),
                num_writable_file_errors_(0) { }
+  const char* Name() const override { return "ErrorEnv"; }
 
   virtual Status NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
@@ -604,6 +605,7 @@ inline std::string EncodeInt(uint64_t x) {
       return Status::OK();
     }
 
+    const char* Name() const override { return "StringEnv"; }
     // The following text is boilerplate that forwards all methods to target()
     Status NewSequentialFile(const std::string& f,
                              std::unique_ptr<SequentialFile>* r,

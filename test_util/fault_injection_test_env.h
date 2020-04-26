@@ -127,6 +127,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
   explicit FaultInjectionTestEnv(Env* base)
       : EnvWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestEnv() {}
+  const char* Name() const override { return "FaultInjectionEnv"; }
 
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override;

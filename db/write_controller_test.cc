@@ -17,6 +17,8 @@ class WriteControllerTest : public testing::Test {};
 class TimeSetEnv : public EnvWrapper {
  public:
   explicit TimeSetEnv() : EnvWrapper(nullptr) {}
+  const char* Name() const override { return "TimeSet"; }
+
   uint64_t now_micros_ = 6666;
   uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
 };

@@ -178,6 +178,16 @@ class PosixEnv : public CompositeEnvWrapper {
     }
   }
 
+  const char* Name() const override { return "Posix"; }
+  // Finds the named Customizable in the stack, or nullptr if not found
+  const Customizable* FindInstance(const std::string& name) const override {
+    if (name == "Default" || name == "Posix") {
+      return this;
+    } else {
+      return Env::FindInstance(name);
+    }
+  }
+
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
       fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);

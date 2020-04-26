@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class TimedEnv : public EnvWrapper {
  public:
   explicit TimedEnv(Env* base_env) : EnvWrapper(base_env) {}
+  const char* Name() const override { return "Timed"; }
 
   Status NewSequentialFile(const std::string& fname,
                            std::unique_ptr<SequentialFile>* result,

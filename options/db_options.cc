@@ -390,9 +390,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
             return Status::OK();
           }}},
         {"env",
-         {offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
+         {offsetof(struct ImmutableDBOptions, env), OptionType::kCustomizable,
           OptionVerificationType::kNormal,
-          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
+          (OptionTypeFlags::kPointer | OptionTypeFlags::kCompareNever),
           // Parse the input value as an Env
           [](const ConfigOptions& opts, const std::string& /*name*/,
              const std::string& value, char* addr) {
@@ -401,7 +401,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             Status s = Env::CreateFromString(opts, value,
                                              &new_env);  // Update new value
             if (s.ok()) {                                // It worked
-              *old_env = new_env;                        // Update the old one
+              // Update the one in ConfigOptions
+              auto* cfg = const_cast<ConfigOptions*>(&opts);
+              cfg->env = new_env;
+              *old_env = new_env;  // Update the old one
             }
             return s;
           }}},

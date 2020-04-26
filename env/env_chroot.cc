@@ -38,6 +38,8 @@ class ChrootEnv : public EnvWrapper {
 #endif
   }
 
+  const char* Name() const override { return "ChrootEnv"; }
+
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     std::vector<std::string> encoded_paths;
     encoded_paths.reserve(paths.size());
