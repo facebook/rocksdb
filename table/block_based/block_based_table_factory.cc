@@ -271,47 +271,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"filter_policy",
-         {offsetof(struct BlockBasedTableOptions, filter_policy),
-          OptionType::kUnknown, OptionVerificationType::kByNameAllowFromNull,
-          OptionTypeFlags::kNone,
-          // Parses the Filter policy
-          [](const ConfigOptions& opts, const std::string&,
-             const std::string& value, char* addr) {
-            auto* policy =
-                reinterpret_cast<std::shared_ptr<const FilterPolicy>*>(addr);
-            return FilterPolicy::CreateFromString(opts, value, policy);
-          },
-          // Converts the FilterPolicy to its string representation
-          [](const ConfigOptions&, const std::string&, const char* addr,
-             std::string* value) {
-            const auto* policy =
-                reinterpret_cast<const std::shared_ptr<const FilterPolicy>*>(
-                    addr);
-            if (policy->get()) {
-              *value = (*policy)->Name();
-            } else {
-              *value = kNullptrString;
-            }
-            return Status::OK();
-          },
-          // Compares two FilterPolicy objects for equality
-          [](const ConfigOptions&, const std::string&, const char* addr1,
-             const char* addr2, std::string*) {
-            const auto* thisOne =
-                reinterpret_cast<const std::shared_ptr<const FilterPolicy>*>(
-                    addr1)
-                    ->get();
-            const auto* thatOne =
-                reinterpret_cast<const std::shared_ptr<FilterPolicy>*>(addr2)
-                    ->get();
-            if (thisOne == thatOne) {
-              return true;
-            } else if (thisOne != nullptr && thatOne != nullptr) {
-              return (strcmp(thisOne->Name(), thatOne->Name()) == 0);
-            } else {
-              return false;
-            }
-          }}},
+         OptionTypeInfo::AsCustomS<const FilterPolicy>(
+             offsetof(struct BlockBasedTableOptions, filter_policy),
+             OptionVerificationType::kByNameAllowFromNull,
+             OptionTypeFlags::kNone)},
         {"whole_key_filtering",
          {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
           OptionType::kBoolean, OptionVerificationType::kNormal,

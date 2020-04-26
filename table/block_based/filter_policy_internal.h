@@ -35,11 +35,7 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   virtual double EstimatedFpRate(size_t keys, size_t bytes) = 0;
 };
 
-// RocksDB built-in filter policy for Bloom or Bloom-like filters.
-// This class is considered internal API and subject to change.
-// See NewBloomFilterPolicy.
-class BloomFilterPolicy : public FilterPolicy {
- public:
+struct BloomFilterOptions {
   // An internal marker for operating modes of BloomFilterPolicy, in terms
   // of selecting an implementation. This makes it easier for tests to track
   // or to walk over the built-in set of Bloom filter implementations. The
@@ -79,11 +75,28 @@ class BloomFilterPolicy : public FilterPolicy {
   // tests should prefer using NewBloomFilterPolicy (user-exposed).
   static const std::vector<Mode> kAllUserModes;
 
-  explicit BloomFilterPolicy(double bits_per_key, Mode mode);
+  double bits_per_key;
+
+  // Selected mode (a specific implementation or way of selecting an
+  // implementation) for building new SST filters.
+  Mode mode;
+
+  BloomFilterOptions(double bits_per_key, Mode mode);
+  void Sanitize();
+};
+
+// RocksDB built-in filter policy for Bloom or Bloom-like filters.
+// This class is considered internal API and subject to change.
+// See NewBloomFilterPolicy.
+class BloomFilterPolicy : public FilterPolicy {
+ public:
+  explicit BloomFilterPolicy(double bits_per_key,
+                             BloomFilterOptions::Mode mode);
 
   ~BloomFilterPolicy() override;
 
   const char* Name() const override;
+  Status PrepareOptions(const ConfigOptions& opts) override;
 
   // Deprecated block-based filter only
   void CreateFilter(const Slice* keys, int n, std::string* dst) const override;
@@ -111,25 +124,18 @@ class BloomFilterPolicy : public FilterPolicy {
   // chosen for this BloomFilterPolicy. Not compatible with CreateFilter.
   FilterBitsReader* GetFilterBitsReader(const Slice& contents) const override;
 
-  // Essentially for testing only: configured millibits/key
-  int GetMillibitsPerKey() const { return millibits_per_key_; }
-  // Essentially for testing only: legacy whole bits/key
-  int GetWholeBitsPerKey() const { return whole_bits_per_key_; }
-
- private:
   // Newer filters support fractional bits per key. For predictable behavior
   // of 0.001-precision values across floating point implementations, we
   // round to thousandths of a bit (on average) per key.
-  int millibits_per_key_;
+  int GetMillibitsPerKey() const;
 
   // Older filters round to whole number bits per key. (There *should* be no
   // compatibility issue with fractional bits per key, but preserving old
   // behavior with format_version < 5 just in case.)
-  int whole_bits_per_key_;
+  int GetWholeBitsPerKey() const;
 
-  // Selected mode (a specific implementation or way of selecting an
-  // implementation) for building new SST filters.
-  Mode mode_;
+ private:
+  BloomFilterOptions options;
 
   // Whether relevant warnings have been logged already. (Remember so we
   // only report once per BloomFilterPolicy instance, to keep the noise down.)

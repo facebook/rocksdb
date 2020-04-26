@@ -35,7 +35,6 @@ enum class OptionType {
   kCompactionFilterFactory,
   kCompactionStopStyle,
   kMergeOperator,
-  kFilterPolicy,
   kChecksumType,
   kEncodingType,
   kEnv,

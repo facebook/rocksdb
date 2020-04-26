@@ -269,7 +269,8 @@ struct FilterBench : public MockBlockBasedTableTester {
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(
             FLAGS_bits_per_key,
-            static_cast<BloomFilterPolicy::Mode>(FLAGS_impl))),
+            static_cast<ROCKSDB_NAMESPACE::BloomFilterOptions::Mode>(
+                FLAGS_impl))),
         random_(FLAGS_seed),
         m_queries_(0) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
