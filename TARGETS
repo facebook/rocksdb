@@ -437,32 +437,6 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [":rocksdb_lib"],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
-
-cpp_library(
-    name = "rocksdb_stress_lib_dbg",
-    srcs = [
-        "db_stress_tool/batched_ops_stress.cc",
-        "db_stress_tool/cf_consistency_stress.cc",
-        "db_stress_tool/db_stress_common.cc",
-        "db_stress_tool/db_stress_driver.cc",
-        "db_stress_tool/db_stress_gflags.cc",
-        "db_stress_tool/db_stress_shared_state.cc",
-        "db_stress_tool/db_stress_test_base.cc",
-        "db_stress_tool/db_stress_tool.cc",
-        "db_stress_tool/no_batched_ops_stress.cc",
-        "test_util/testutil.cc",
-        "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
-        "tools/trace_analyzer_tool.cc",
-    ],
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [
         ":rocksdb_lib",
         ":rocksdb_test_lib",
