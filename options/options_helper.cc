@@ -258,6 +258,18 @@ std::unordered_map<std::string, CompressionType>
         {"kZSTD", kZSTD},
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
         {"kDisableCompressionOption", kDisableCompressionOption}};
+
+std::vector<CompressionType> GetSupportedCompressions() {
+  std::vector<CompressionType> supported_compressions;
+  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
+    CompressionType t = comp_to_name.second;
+    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
+      supported_compressions.push_back(t);
+    }
+  }
+  return supported_compressions;
+}
+
 #ifndef ROCKSDB_LITE
 
 const std::string kNameEnv = "env";
@@ -1082,17 +1094,6 @@ Status GetStringFromCompressionType(std::string* compression_str,
   } else {
     return Status::InvalidArgument("Invalid compression types");
   }
-}
-
-std::vector<CompressionType> GetSupportedCompressions() {
-  std::vector<CompressionType> supported_compressions;
-  for (const auto& comp_to_name : compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
-      supported_compressions.push_back(t);
-    }
-  }
-  return supported_compressions;
 }
 
 static Status ParseDBOption(const ConfigOptions& config_options,
