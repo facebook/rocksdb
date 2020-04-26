@@ -5,18 +5,38 @@
 
 #include "merge_operator.h"
 
-#include <memory>
 #include <assert.h>
 
-#include "rocksdb/slice.h"
+#include <memory>
+
 #include "rocksdb/merge_operator.h"
-#include "utilities/merge_operators.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/utilities/options_type.h"
 #include "utilities/cassandra/format.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
+static std::unordered_map<std::string, OptionTypeInfo> merge_options_info = {
+#ifndef ROCKSDB_LITE
+    {"gc_grace_period_in_seconds",
+     {offsetof(struct CassandraOptions, gc_grace_period_in_seconds),
+      OptionType::kUInt32T, OptionVerificationType::kNormal,
+      OptionTypeFlags::kNone, 0}},
+    {"operands_limit",
+     {offsetof(struct CassandraOptions, operands_limit), OptionType::kSizeT,
+      OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+#endif  // ROCKSDB_LITE
+};
 
 // Implementation for the merge operation (merges two Cassandra values)
+CassandraValueMergeOperator::CassandraValueMergeOperator(
+    int32_t gc_grace_period_in_seconds, size_t operands_limit) {
+  options_.gc_grace_period_in_seconds = gc_grace_period_in_seconds;
+  options_.operands_limit = operands_limit;
+  RegisterOptions("CassandraMergeOptions", &options_, &merge_options_info);
+}
+
 bool CassandraValueMergeOperator::FullMergeV2(
     const MergeOperationInput& merge_in,
     MergeOperationOutput* merge_out) const {
@@ -34,7 +54,7 @@ bool CassandraValueMergeOperator::FullMergeV2(
   }
 
   RowValue merged = RowValue::Merge(std::move(row_values));
-  merged = merged.RemoveTombstones(gc_grace_period_in_seconds_);
+  merged = merged.RemoveTombstones(options_.gc_grace_period_in_seconds);
   merge_out->new_value.reserve(merged.Size());
   merged.Serialize(&(merge_out->new_value));
 

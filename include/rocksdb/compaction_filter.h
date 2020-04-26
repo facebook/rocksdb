@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,7 +33,7 @@ struct CompactionFilterContext {
 // CompactionFilter allows an application to modify/delete a key-value at
 // the time of compaction.
 
-class CompactionFilter {
+class CompactionFilter : public Customizable {
  public:
   enum ValueType {
     kValue,
@@ -59,6 +60,11 @@ class CompactionFilter {
     // Which column family this compaction is for.
     uint32_t column_family_id;
   };
+
+  static const char* Type() { return "CompactionFilter"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& name,
+                                 const CompactionFilter** result);
 
   virtual ~CompactionFilter() {}
 
@@ -193,13 +199,18 @@ class CompactionFilter {
 
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 };
 
 // Each compaction will create a new CompactionFilter allowing the
 // application to know about different compactions
-class CompactionFilterFactory {
+class CompactionFilterFactory : public Customizable {
  public:
+  static const char* Type() { return "CompactionFilterFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& config_options, const std::string& name,
+      std::shared_ptr<CompactionFilterFactory>* result);
+
   virtual ~CompactionFilterFactory() {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(

@@ -205,9 +205,11 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
   utilities/cassandra/cassandra_compaction_filter.cc            \
+  utilities/cassandra/cassandra_options.cc                      \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
   utilities/checkpoint/checkpoint_impl.cc                       \
+  utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
   utilities/debug.cc                                            \
@@ -215,6 +217,7 @@ LIB_SOURCES =                                                   \
   utilities/env_timed.cc                                        \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
+  utilities/merge_operators.cc                                  \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
   utilities/merge_operators/sortlist.cc                  		    \
