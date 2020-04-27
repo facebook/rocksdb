@@ -341,7 +341,8 @@ class ClockCacheShard final : public CacheShard {
   CacheHandle* Insert(const Slice& key, uint32_t hash, void* value,
                       size_t change,
                       void (*deleter)(const Slice& key, void* value),
-                      bool hold_reference, CleanupContext* context);
+                      bool hold_reference, CleanupContext* context,
+                      bool* overwritten);
 
   // Guards list_, head_, and recycle_. In addition, updating table_ also has
   // to hold the mutex, to avoid the cache being in inconsistent state.
@@ -564,7 +565,8 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 CacheHandle* ClockCacheShard::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
-    CleanupContext* context) {
+    CleanupContext* context, bool* overwritten) {
+  assert(overwritten != nullptr && *overwritten == false);
   size_t total_charge =
       CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
   MutexLock l(&mutex_);
@@ -597,6 +599,7 @@ CacheHandle* ClockCacheShard::Insert(
   handle->flags.store(flags, std::memory_order_relaxed);
   HashTable::accessor accessor;
   if (table_.find(accessor, CacheKey(key, hash))) {
+    *overwritten = true;
     CacheHandle* existing_handle = accessor->second;
     table_.erase(accessor);
     UnsetInCache(existing_handle, context);
@@ -619,8 +622,9 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   char* key_data = new char[key.size()];
   memcpy(key_data, key.data(), key.size());
   Slice key_copy(key_data, key.size());
+  bool overwritten = false;
   CacheHandle* handle = Insert(key_copy, hash, value, charge, deleter,
-                               out_handle != nullptr, &context);
+                               out_handle != nullptr, &context, &overwritten);
   Status s;
   if (out_handle != nullptr) {
     if (handle == nullptr) {
@@ -628,6 +632,10 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     } else {
       *out_handle = reinterpret_cast<Cache::Handle*>(handle);
     }
+  }
+  if (overwritten) {
+    assert(s.ok());
+    s = Status::OkOverwritten();
   }
   Cleanup(context);
   return s;

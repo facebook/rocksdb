@@ -2092,23 +2092,25 @@ class DBBasicTestMultiGet : public DBTestBase {
     const BlockBuilder& data_block_builder_;
   };
 
-  class MyBlockCache : public Cache {
+  class MyBlockCache : public CacheWrapper {
    public:
-    explicit MyBlockCache(std::shared_ptr<Cache>& target)
-        : target_(target), num_lookups_(0), num_found_(0), num_inserts_(0) {}
+    explicit MyBlockCache(std::shared_ptr<Cache> target)
+        : CacheWrapper(target),
+          num_lookups_(0),
+          num_found_(0),
+          num_inserts_(0) {}
 
-    virtual const char* Name() const override { return "MyBlockCache"; }
+    const char* Name() const override { return "MyBlockCache"; }
 
-    virtual Status Insert(const Slice& key, void* value, size_t charge,
-                          void (*deleter)(const Slice& key, void* value),
-                          Handle** handle = nullptr,
-                          Priority priority = Priority::LOW) override {
+    Status Insert(const Slice& key, void* value, size_t charge,
+                  void (*deleter)(const Slice& key, void* value),
+                  Handle** handle = nullptr,
+                  Priority priority = Priority::LOW) override {
       num_inserts_++;
       return target_->Insert(key, value, charge, deleter, handle, priority);
     }
 
-    virtual Handle* Lookup(const Slice& key,
-                           Statistics* stats = nullptr) override {
+    Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle = target_->Lookup(key, stats);
       if (handle != nullptr) {
@@ -2116,57 +2118,6 @@ class DBBasicTestMultiGet : public DBTestBase {
       }
       return handle;
     }
-
-    virtual bool Ref(Handle* handle) override { return target_->Ref(handle); }
-
-    virtual bool Release(Handle* handle, bool force_erase = false) override {
-      return target_->Release(handle, force_erase);
-    }
-
-    virtual void* Value(Handle* handle) override {
-      return target_->Value(handle);
-    }
-
-    virtual void Erase(const Slice& key) override { target_->Erase(key); }
-    virtual uint64_t NewId() override { return target_->NewId(); }
-
-    virtual void SetCapacity(size_t capacity) override {
-      target_->SetCapacity(capacity);
-    }
-
-    virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-      target_->SetStrictCapacityLimit(strict_capacity_limit);
-    }
-
-    virtual bool HasStrictCapacityLimit() const override {
-      return target_->HasStrictCapacityLimit();
-    }
-
-    virtual size_t GetCapacity() const override {
-      return target_->GetCapacity();
-    }
-
-    virtual size_t GetUsage() const override { return target_->GetUsage(); }
-
-    virtual size_t GetUsage(Handle* handle) const override {
-      return target_->GetUsage(handle);
-    }
-
-    virtual size_t GetPinnedUsage() const override {
-      return target_->GetPinnedUsage();
-    }
-
-    virtual size_t GetCharge(Handle* /*handle*/) const override { return 0; }
-
-    virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                        bool thread_safe) override {
-      return target_->ApplyToAllCacheEntries(callback, thread_safe);
-    }
-
-    virtual void EraseUnRefEntries() override {
-      return target_->EraseUnRefEntries();
-    }
-
     int num_lookups() { return num_lookups_; }
 
     int num_found() { return num_found_; }
@@ -2174,7 +2125,6 @@ class DBBasicTestMultiGet : public DBTestBase {
     int num_inserts() { return num_inserts_; }
 
    private:
-    std::shared_ptr<Cache> target_;
     int num_lookups_;
     int num_found_;
     int num_inserts_;

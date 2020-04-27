@@ -260,7 +260,8 @@ class BlockBasedTable : public TableReader {
   void UpdateCacheMissMetrics(BlockType block_type,
                               GetContext* get_context) const;
   void UpdateCacheInsertionMetrics(BlockType block_type,
-                                   GetContext* get_context, size_t usage) const;
+                                   GetContext* get_context, size_t usage,
+                                   bool redundant) const;
   Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                    BlockType block_type,
                                    GetContext* get_context) const;
