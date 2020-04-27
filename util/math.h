@@ -19,9 +19,9 @@ inline int BitsSetToOne(T v) {
 #ifdef _MSC_VER
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
   if (sizeof(T) > sizeof(uint32_t)) {
-    return static_cast<int>(__popcnt64(static_cast<uint64_t>(v)) );
+    return static_cast<int>(__popcnt64(static_cast<uint64_t>(v)));
   } else {
-    return static_cast<int>(__popcnt(static_cast<uint32_t>(v)) );
+    return static_cast<int>(__popcnt(static_cast<uint32_t>(v)));
   }
 #else
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");

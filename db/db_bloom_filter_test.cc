@@ -25,9 +25,7 @@ class DBBloomFilterTest : public DBTestBase {
  public:
   DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
 
-  static std::string UKey(uint32_t i) {
-    return Key(static_cast<int>(i));
-  }
+  static std::string UKey(uint32_t i) { return Key(static_cast<int>(i)); }
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,

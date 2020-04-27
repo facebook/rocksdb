@@ -181,10 +181,8 @@ void PartitionedFilterBlockReader::KeysMayMatch(
     return;  // Any/all may match
   }
 
-  MayMatch(
-      range, prefix_extractor, block_offset, no_io,
-      lookup_context,
-      &FullFilterBlockReader::KeysMayMatch);
+  MayMatch(range, prefix_extractor, block_offset, no_io, lookup_context,
+           &FullFilterBlockReader::KeysMayMatch);
 }
 
 bool PartitionedFilterBlockReader::PrefixMayMatch(
