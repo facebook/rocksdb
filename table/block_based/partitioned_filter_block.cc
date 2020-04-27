@@ -329,7 +329,11 @@ void PartitionedFilterBlockReader::MayMatch(
   auto start_iter_same_handle = range->begin();
   BlockHandle prev_filter_handle = BlockHandle::NullBlockHandle();
 
+  // For all keys mapping to same partition (must be adjacent in sorted order)
+  // share block cache lookup and use full filter multiget on the partition
+  // filter.
   for (auto iter = start_iter_same_handle; iter != range->end(); ++iter) {
+    // TODO: re-use one top-level index iterator
     BlockHandle this_filter_handle =
         GetFilterPartitionHandle(filter_block, iter->ikey);
     if (!prev_filter_handle.IsNull() &&
@@ -342,8 +346,10 @@ void PartitionedFilterBlockReader::MayMatch(
       start_iter_same_handle = iter;
     }
     if (UNLIKELY(this_filter_handle.size() == 0)) {  // key is out of range
+      // Not reachable with current behavior of GetFilterPartitionHandle
+      assert(false);
       range->SkipKey(iter);
-      prev_filter_handle = BlockHandle();
+      prev_filter_handle = BlockHandle::NullBlockHandle();
     } else {
       prev_filter_handle = this_filter_handle;
     }
