@@ -56,6 +56,8 @@ Status BlobDB::Open(const DBOptions& db_options,
       for (ColumnFamilyHandle* cfh : *handles) {
         blob_db_impl->DestroyColumnFamilyHandle(cfh);
       }
+
+      handles->clear();
     }
 
     delete blob_db_impl;
