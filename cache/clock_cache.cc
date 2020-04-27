@@ -566,6 +566,7 @@ CacheHandle* ClockCacheShard::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value), bool hold_reference,
     CleanupContext* context, bool* overwritten) {
+  assert(overwritten != nullptr && *overwritten == false);
   size_t total_charge =
       CacheHandle::CalcTotalCharge(key, charge, metadata_charge_policy_);
   MutexLock l(&mutex_);

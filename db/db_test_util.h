@@ -704,10 +704,10 @@ class CacheWrapper : public Cache {
 
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe) override {
-    return target_->ApplyToAllCacheEntries(callback, thread_safe);
+    target_->ApplyToAllCacheEntries(callback, thread_safe);
   }
 
-  void EraseUnRefEntries() override { return target_->EraseUnRefEntries(); }
+  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
 
  protected:
   std::shared_ptr<Cache> target_;
