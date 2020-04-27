@@ -23,6 +23,10 @@ using BFP = BloomFilterPolicy;
 class DBBloomFilterTest : public DBTestBase {
  public:
   DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
+
+  static std::string UKey(uint32_t i) {
+    return Key(static_cast<int>(i));
+  }
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -149,7 +153,7 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
   for (bool use_prefix : {false, true}) {
     Options options = CurrentOptions();
     if (use_prefix) {
-      // Entire key from Key()
+      // Entire key from UKey()
       options.prefix_extractor.reset(NewCappedPrefixTransform(9));
     }
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -163,15 +167,15 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
     DestroyAndReopen(options);
     ReadOptions ropts;
 
-    constexpr size_t N = 10000;
+    constexpr uint32_t N = 10000;
     // Add N/2 evens
-    for (size_t i = 0; i < N; i += 2) {
-      ASSERT_OK(Put(Key(i), Key(i)));
+    for (uint32_t i = 0; i < N; i += 2) {
+      ASSERT_OK(Put(UKey(i), UKey(i)));
     }
     ASSERT_OK(Flush());
     ASSERT_EQ(TotalTableFiles(), 1);
 
-    constexpr size_t Q = 29;
+    constexpr uint32_t Q = 29;
     // MultiGet In
     std::array<std::string, Q> keys;
     std::array<Slice, Q> key_slices;
@@ -192,9 +196,9 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
     // block cache.
     // And that spread out keys load many partition filters.
     // In both cases, mix present vs. not present keys.
-    for (size_t stride : {size_t{1}, (N / Q) | 1}) {
-      for (size_t i = 0; i < Q; ++i) {
-        keys[i] = Key(i * stride);
+    for (uint32_t stride : {uint32_t{1}, (N / Q) | 1}) {
+      for (uint32_t i = 0; i < Q; ++i) {
+        keys[i] = UKey(i * stride);
         key_slices[i] = Slice(keys[i]);
         column_families[i] = db_->DefaultColumnFamily();
         statuses[i] = Status();
@@ -205,8 +209,8 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
                     /*timestamps=*/nullptr, &statuses[0], true);
 
       // Confirm correct status results
-      size_t number_not_found = 0;
-      for (size_t i = 0; i < Q; ++i) {
+      uint32_t number_not_found = 0;
+      for (uint32_t i = 0; i < Q; ++i) {
         if ((i * stride % 2) == 0) {
           ASSERT_OK(statuses[i]);
         } else {
@@ -247,9 +251,9 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
     // Check that a clump of keys (present and not) works when spanning
     // two partitions
     int found_spanning = 0;
-    for (size_t start = 0; start < N / 2;) {
-      for (size_t i = 0; i < Q; ++i) {
-        keys[i] = Key(start + i);
+    for (uint32_t start = 0; start < N / 2;) {
+      for (uint32_t i = 0; i < Q; ++i) {
+        keys[i] = UKey(start + i);
         key_slices[i] = Slice(keys[i]);
         column_families[i] = db_->DefaultColumnFamily();
         statuses[i] = Status();
@@ -260,8 +264,8 @@ TEST_F(DBBloomFilterTest, PartitionedMultiGet) {
                     /*timestamps=*/nullptr, &statuses[0], true);
 
       // Confirm correct status results
-      size_t number_not_found = 0;
-      for (size_t i = 0; i < Q; ++i) {
+      uint32_t number_not_found = 0;
+      for (uint32_t i = 0; i < Q; ++i) {
         if (((start + i) % 2) == 0) {
           ASSERT_OK(statuses[i]);
         } else {
