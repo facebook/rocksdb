@@ -647,6 +647,72 @@ class TestPutOperator : public MergeOperator {
   virtual const char* Name() const override { return "TestPutOperator"; }
 };
 
+// A wrapper around Cache that can easily be extended with instrumentation,
+// etc.
+class CacheWrapper : public Cache {
+ public:
+  explicit CacheWrapper(std::shared_ptr<Cache> target)
+      : target_(std::move(target)) {}
+
+  const char* Name() const override { return target_->Name(); }
+
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
+    return target_->Insert(key, value, charge, deleter, handle, priority);
+  }
+
+  Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
+    return target_->Lookup(key, stats);
+  }
+
+  bool Ref(Handle* handle) override { return target_->Ref(handle); }
+
+  bool Release(Handle* handle, bool force_erase = false) override {
+    return target_->Release(handle, force_erase);
+  }
+
+  void* Value(Handle* handle) override { return target_->Value(handle); }
+
+  void Erase(const Slice& key) override { target_->Erase(key); }
+  uint64_t NewId() override { return target_->NewId(); }
+
+  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
+
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
+    target_->SetStrictCapacityLimit(strict_capacity_limit);
+  }
+
+  bool HasStrictCapacityLimit() const override {
+    return target_->HasStrictCapacityLimit();
+  }
+
+  size_t GetCapacity() const override { return target_->GetCapacity(); }
+
+  size_t GetUsage() const override { return target_->GetUsage(); }
+
+  size_t GetUsage(Handle* handle) const override {
+    return target_->GetUsage(handle);
+  }
+
+  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
+
+  size_t GetCharge(Handle* handle) const override {
+    return target_->GetCharge(handle);
+  }
+
+  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                              bool thread_safe) override {
+    target_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
+
+ protected:
+  std::shared_ptr<Cache> target_;
+};
+
 class DBTestBase : public testing::Test {
  public:
   // Sequence of option configurations to try

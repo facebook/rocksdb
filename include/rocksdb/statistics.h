@@ -342,6 +342,24 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_COMPRESSION_DICT_ADD,
   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
   BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
+
+  // # of blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_ADD_REDUNDANT <= BLOCK_CACHE_ADD
+  BLOCK_CACHE_ADD_REDUNDANT,
+  // # of index blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_INDEX_ADD_REDUNDANT <= BLOCK_CACHE_INDEX_ADD
+  BLOCK_CACHE_INDEX_ADD_REDUNDANT,
+  // # of filter blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_FILTER_ADD_REDUNDANT <= BLOCK_CACHE_FILTER_ADD
+  BLOCK_CACHE_FILTER_ADD_REDUNDANT,
+  // # of data blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_DATA_ADD_REDUNDANT <= BLOCK_CACHE_DATA_ADD
+  BLOCK_CACHE_DATA_ADD_REDUNDANT,
+  // # of dict blocks redundantly inserted into block cache.
+  // REQUIRES: BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT
+  //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
+  BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
+
   TICKER_ENUM_MAX
 };
 

@@ -1312,6 +1312,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
       {"max_compaction_bytes", "21"},
+      {"deletion_ratio_compaction_trigger", "0.8"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
       {"hard_pending_compaction_bytes_limit", "211"},
