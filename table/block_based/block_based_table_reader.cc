@@ -1216,9 +1216,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
         block->SetCachedValue(block_holder.release(), block_cache,
                               cache_handle);
 
-        UpdateCacheInsertionMetrics(
-            block_type, get_context, charge,
-            ShardedCache::IsInsertStatusOkOverwritten(s));
+        UpdateCacheInsertionMetrics(block_type, get_context, charge,
+                                    s.IsOkOverwritten());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       }
@@ -1324,7 +1323,7 @@ Status BlockBasedTable::PutDataBlockToCache(
                                    cache_handle);
 
       UpdateCacheInsertionMetrics(block_type, get_context, charge,
-                                  ShardedCache::IsInsertStatusOkOverwritten(s));
+                                  s.IsOkOverwritten());
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
     }

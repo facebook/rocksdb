@@ -634,7 +634,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   }
   if (overwritten) {
     assert(s.ok());
-    s = ShardedCache::kInsertStatusOkOverwritten;
+    s = Status::OkOverwritten();
   }
   Cleanup(context);
   return s;
