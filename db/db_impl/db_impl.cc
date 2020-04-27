@@ -1535,6 +1535,19 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     return Status::NotSupported("ReadOptions deadline is not supported");
   }
 
+#ifndef NDEBUG
+  assert(get_impl_options.column_family);
+  ColumnFamilyHandle* cf = get_impl_options.column_family;
+  const Comparator* const ucmp = cf->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    assert(read_options.timestamp);
+    assert(read_options.timestamp->size() == ucmp->timestamp_size());
+  } else {
+    assert(!read_options.timestamp);
+  }
+#endif  // NDEBUG
+
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -1721,6 +1734,20 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
+
+#ifndef NDEBUG
+  for (const auto* cfh : column_family) {
+    assert(cfh);
+    const Comparator* const ucmp = cfh->GetComparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      assert(read_options.timestamp);
+      assert(ucmp->timestamp_size() == read_options.timestamp->size());
+    } else {
+      assert(!read_options.timestamp);
+    }
+  }
+#endif  // NDEBUG
 
   SequenceNumber consistent_seqnum;
 
@@ -1991,6 +2018,22 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   if (num_keys == 0) {
     return;
   }
+
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_keys; ++i) {
+    ColumnFamilyHandle* cfh = column_families[i];
+    assert(cfh);
+    const Comparator* const ucmp = cfh->GetComparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      assert(read_options.timestamp);
+      assert(read_options.timestamp->size() == ucmp->timestamp_size());
+    } else {
+      assert(!read_options.timestamp);
+    }
+  }
+#endif  // NDEBUG
+
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
