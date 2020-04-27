@@ -807,6 +807,8 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
   }
   {
     ColumnFamilyHandle* column_families[] = {cfh, cfh, cfh, cfh};
+    // Make user keys longer than configured timestamp size (16 bytes) to
+    // verify RocksDB does not use the trailing bytes 'x' as timestamp.
     Slice keys[] = {"fooxxxxxxxxxxxxxxxx", "barxxxxxxxxxxxxxxxx", "foo", "bar"};
     PinnableSlice values[] = {PinnableSlice(), PinnableSlice(), PinnableSlice(),
                               PinnableSlice()};
