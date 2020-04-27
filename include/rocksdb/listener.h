@@ -93,6 +93,9 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
+  // Ratio of number of deletion entries to number of total entries >=
+  // deletion_ratio_compaction_trigger
+  kDeletionRatio,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

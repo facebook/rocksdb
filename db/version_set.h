@@ -160,6 +160,11 @@ class VersionStorageInfo {
   void ComputeExpiredTtlFiles(const ImmutableCFOptions& ioptions,
                               const uint64_t ttl);
 
+  // This computes deletion_ratio_triggered_files_ and is called by
+  // ComputeCompactionScore()
+  void ComputeDeletionRatioTriggeredFiles(
+      double deletion_ratio_compaction_trigger);
+
   // This computes files_marked_for_periodic_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForPeriodicCompaction(
@@ -311,6 +316,14 @@ class VersionStorageInfo {
   const autovector<std::pair<int, FileMetaData*>>& ExpiredTtlFiles() const {
     assert(finalized_);
     return expired_ttl_files_;
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>&
+      DeletionRatioTriggeredFiles() const {
+    assert(finalized_);
+    return deletion_ratio_triggered_files_;
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -496,6 +509,10 @@ class VersionStorageInfo {
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> expired_ttl_files_;
+
+  // Files whose deletion ratio exceeds deletion_ratio_compaction_trigger.
+  // Computed in ComputeDeletionRatioTriggeredFiles.
+  autovector<std::pair<int, FileMetaData*>> deletion_ratio_triggered_files_;
 
   autovector<std::pair<int, FileMetaData*>>
       files_marked_for_periodic_compaction_;

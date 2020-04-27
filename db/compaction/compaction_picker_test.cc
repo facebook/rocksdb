@@ -85,10 +85,11 @@ class CompactionPickerTest : public testing::Test {
     input_files_.clear();
   }
 
-  void Add(int level, uint32_t file_number, const char* smallest,
-           const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
-           SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
-           size_t compensated_file_size = 0) {
+  FileMetaData* Add(int level, uint32_t file_number, const char* smallest,
+                    const char* largest, uint64_t file_size = 1,
+                    uint32_t path_id = 0, SequenceNumber smallest_seq = 100,
+                    SequenceNumber largest_seq = 100,
+                    size_t compensated_file_size = 0) {
     assert(level < vstorage_->num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, path_id, file_size,
@@ -102,6 +103,7 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->AddFile(level, f);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
+    return f;
   }
 
   void SetCompactionInputFilesLevels(int level_count, int start_level) {
@@ -254,6 +256,40 @@ TEST_F(CompactionPickerTest, NeedsCompactionLevel) {
                 vstorage_->CompactionScore(0) >= 1);
       // release the version storage
       DeleteVersionStorage();
+    }
+  }
+}
+
+TEST_F(CompactionPickerTest, LevelTriggerDeletionRatio) {
+  for (double ratio : {-1.0, -0.5, 0.0, 0.3, 0.5, 0.8, 1.0, 1.5}) {
+    NewVersionStorage(ioptions_.num_levels, kCompactionStyleLevel);
+    // Level 1: 1 small file, half of the entries are deletions.
+    FileMetaData* f1 = Add(1, 1U, "150", "200", 1U);
+    f1->num_entries = 100;
+    f1->num_deletions = 50;
+    // Level 2: 1 large file, no deletions.
+    FileMetaData* f2 = Add(2, 2U, "150", "200", 1000000U);
+    f2->num_entries = 10000;
+    f2->num_deletions = 0;
+    mutable_cf_options_.deletion_ratio_compaction_trigger = ratio;
+    UpdateVersionStorageInfo();
+
+    if (ratio > 0 && ratio <= 0.5) {
+      ASSERT_EQ(vstorage_->DeletionRatioTriggeredFiles().size(), 1);
+      ASSERT_EQ(vstorage_->DeletionRatioTriggeredFiles()[0].second, f1);
+      ASSERT_TRUE(level_compaction_picker.NeedsCompaction(vstorage_.get()));
+      std::unique_ptr<Compaction> compaction(
+          level_compaction_picker.PickCompaction(
+              cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+      ASSERT_TRUE(compaction.get() != nullptr);
+      ASSERT_EQ(compaction->compaction_reason(),
+                CompactionReason::kDeletionRatio);
+      ASSERT_EQ(compaction->num_input_files(0), 1U);
+      ASSERT_EQ(compaction->input(0, 0)->fd.GetNumber(), 1U);
+      level_compaction_picker.UnregisterCompaction(compaction.get());
+    } else {
+      ASSERT_TRUE(vstorage_->DeletionRatioTriggeredFiles().empty());
+      ASSERT_FALSE(level_compaction_picker.NeedsCompaction(vstorage_.get()));
     }
   }
 }

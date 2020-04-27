@@ -2460,6 +2460,11 @@ void VersionStorageInfo::ComputeCompactionScore(
     ComputeFilesMarkedForPeriodicCompaction(
         immutable_cf_options, mutable_cf_options.periodic_compaction_seconds);
   }
+  if (mutable_cf_options.deletion_ratio_compaction_trigger > 0 &&
+      mutable_cf_options.deletion_ratio_compaction_trigger <= 1) {
+    ComputeDeletionRatioTriggeredFiles(
+        mutable_cf_options.deletion_ratio_compaction_trigger);
+  }
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -2506,6 +2511,24 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
         if (oldest_ancester_time > 0 &&
             oldest_ancester_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
+        }
+      }
+    }
+  }
+}
+
+void VersionStorageInfo::ComputeDeletionRatioTriggeredFiles(
+    double deletion_ratio_compaction_trigger) {
+  assert(deletion_ratio_compaction_trigger > 0 &&
+         deletion_ratio_compaction_trigger <= 1);
+  deletion_ratio_triggered_files_.clear();
+  for (int level = 0; level < num_levels() - 1; level++) {
+    for (FileMetaData* f : files_[level]) {
+      if (!f->being_compacted) {
+        double deletion_ratio =
+            static_cast<double>(f->num_deletions) / f->num_entries;
+        if (deletion_ratio >= deletion_ratio_compaction_trigger) {
+          deletion_ratio_triggered_files_.emplace_back(level, f);
         }
       }
     }

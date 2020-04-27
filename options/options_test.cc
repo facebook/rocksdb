@@ -76,6 +76,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
       {"max_compaction_bytes", "21"},
+      {"deletion_ratio_compaction_trigger", "0.8"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
       {"hard_pending_compaction_bytes_limit", "211"},
@@ -1427,6 +1428,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[1], 17);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[2], 18);
   ASSERT_EQ(new_cf_opt.max_compaction_bytes, 21);
+  ASSERT_EQ(new_cf_opt.deletion_ratio_compaction_trigger, 0.8);
   ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);

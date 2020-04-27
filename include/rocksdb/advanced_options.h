@@ -563,6 +563,15 @@ struct AdvancedColumnFamilyOptions {
   // Default: kMinOverlappingRatio
   CompactionPri compaction_pri = kMinOverlappingRatio;
 
+  // If a file's ratio of number of deletion entries to its total
+  // number of entries >= this ratio, compact it.
+  // If the vlaue <= 0 or > 1, the trigger is disabled.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through SetOptions() API
+  double deletion_ratio_compaction_trigger = 0;
+
   // The options needed to support Universal Style compactions
   //
   // Dynamically changeable through SetOptions() API
