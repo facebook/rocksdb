@@ -550,6 +550,7 @@ set(SOURCES
         db/db_impl/db_impl_secondary.cc
         db/db_info_dumper.cc
         db/db_iter.cc
+        db/db_plugin.cc
         db/dbformat.cc
         db/error_handler.cc
         db/event_helpers.cc
@@ -994,6 +995,7 @@ if(WITH_TESTS)
         db/db_merge_operator_test.cc
         db/db_merge_operand_test.cc
         db/db_options_test.cc
+        db/db_plugin_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
         db/db_impl/db_secondary_test.cc

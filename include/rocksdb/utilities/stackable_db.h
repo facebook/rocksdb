@@ -117,35 +117,6 @@ class StackableDB : public DB {
                          values, statuses, sorted_input);
   }
 
-  using DB::IngestExternalFile;
-  virtual Status IngestExternalFile(
-      ColumnFamilyHandle* column_family,
-      const std::vector<std::string>& external_files,
-      const IngestExternalFileOptions& options) override {
-    return db_->IngestExternalFile(column_family, external_files, options);
-  }
-
-  using DB::IngestExternalFiles;
-  virtual Status IngestExternalFiles(
-      const std::vector<IngestExternalFileArg>& args) override {
-    return db_->IngestExternalFiles(args);
-  }
-
-  using DB::CreateColumnFamilyWithImport;
-  virtual Status CreateColumnFamilyWithImport(
-      const ColumnFamilyOptions& options, const std::string& column_family_name,
-      const ImportColumnFamilyOptions& import_options,
-      const ExportImportFilesMetaData& metadata,
-      ColumnFamilyHandle** handle) override {
-    return db_->CreateColumnFamilyWithImport(options, column_family_name,
-                                             import_options, metadata, handle);
-  }
-
-  virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
-
-  virtual Status VerifyChecksum(const ReadOptions& options) override {
-    return db_->VerifyChecksum(options);
-  }
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
@@ -342,16 +313,6 @@ class StackableDB : public DB {
     return db_->EnableFileDeletions(force);
   }
 
-  virtual void GetLiveFilesMetaData(
-      std::vector<LiveFileMetaData>* metadata) override {
-    db_->GetLiveFilesMetaData(metadata);
-  }
-
-  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
-                                       ColumnFamilyMetaData* cf_meta) override {
-    db_->GetColumnFamilyMetaData(column_family, cf_meta);
-  }
-
   using DB::StartBlockCacheTrace;
   Status StartBlockCacheTrace(
       const TraceOptions& options,
@@ -362,13 +323,13 @@ class StackableDB : public DB {
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
 
-#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
     return db_->GetLiveFiles(vec, mfs, flush_memtable);
   }
 
+#endif  // ROCKSDB_LITE
   virtual SequenceNumber GetLatestSequenceNumber() const override {
     return db_->GetLatestSequenceNumber();
   }
@@ -378,6 +339,7 @@ class StackableDB : public DB {
     return db_->SetPreserveDeletesSequenceNumber(seqnum);
   }
 
+#ifndef ROCKSDB_LITE
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }
@@ -392,9 +354,56 @@ class StackableDB : public DB {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
+  virtual Status GetUpdatesSince(
+      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions& read_options) override {
+    return db_->GetUpdatesSince(seq_number, iter, read_options);
+  }
+
   virtual Status DeleteFile(std::string name) override {
     return db_->DeleteFile(name);
   }
+
+  virtual void GetLiveFilesMetaData(
+      std::vector<LiveFileMetaData>* metadata) override {
+    db_->GetLiveFilesMetaData(metadata);
+  }
+
+  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                                       ColumnFamilyMetaData* cf_meta) override {
+    db_->GetColumnFamilyMetaData(column_family, cf_meta);
+  }
+
+  using DB::IngestExternalFile;
+  virtual Status IngestExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& options) override {
+    return db_->IngestExternalFile(column_family, external_files, options);
+  }
+
+  using DB::IngestExternalFiles;
+  virtual Status IngestExternalFiles(
+      const std::vector<IngestExternalFileArg>& args) override {
+    return db_->IngestExternalFiles(args);
+  }
+
+  using DB::CreateColumnFamilyWithImport;
+  virtual Status CreateColumnFamilyWithImport(
+      const ColumnFamilyOptions& options, const std::string& column_family_name,
+      const ImportColumnFamilyOptions& import_options,
+      const ExportImportFilesMetaData& metadata,
+      ColumnFamilyHandle** handle) override {
+    return db_->CreateColumnFamilyWithImport(options, column_family_name,
+                                             import_options, metadata, handle);
+  }
+
+  virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
+
+  virtual Status VerifyChecksum(const ReadOptions& options) override {
+    return db_->VerifyChecksum(options);
+  }
+#endif  // ROCKSDB_LITE
 
   virtual Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
@@ -416,6 +425,7 @@ class StackableDB : public DB {
   using DB::ResetStats;
   virtual Status ResetStats() override { return db_->ResetStats(); }
 
+#ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,
@@ -430,12 +440,6 @@ class StackableDB : public DB {
     return db_->GetPropertiesOfTablesInRange(column_family, range, n, props);
   }
 
-  virtual Status GetUpdatesSince(
-      SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions& read_options) override {
-    return db_->GetUpdatesSince(seq_number, iter, read_options);
-  }
-
   virtual Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                                      const Slice* begin,
                                      const Slice* end) override {
@@ -446,6 +450,7 @@ class StackableDB : public DB {
                            int target_level) override {
     return db_->PromoteL0(column_family, target_level);
   }
+#endif  // ROCKSDB_LITE
 
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
     return db_->DefaultColumnFamily();

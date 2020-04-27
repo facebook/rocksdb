@@ -13,6 +13,7 @@
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/configurable.h"
+#include "rocksdb/db_plugin.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
@@ -413,6 +414,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct ImmutableDBOptions, statistics),
              OptionVerificationType::kNormal,
              OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
+        {"plugins", OptionTypeInfo::Vector<std::shared_ptr<DBPlugin> >(
+                        offsetof(struct ImmutableDBOptions, plugins),
+                        OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+                        OptionTypeInfo::AsCustomS<DBPlugin>(
+                            0, OptionVerificationType::kNormal,
+                            OptionTypeFlags::kShared))},
 };
 
 // The ObjectRegistry is separated from the rest of the ImmutableDBOptions
@@ -553,6 +560,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
+      plugins(options.plugins),
       enable_thread_tracking(options.enable_thread_tracking),
       enable_pipelined_write(options.enable_pipelined_write),
       unordered_write(options.unordered_write),

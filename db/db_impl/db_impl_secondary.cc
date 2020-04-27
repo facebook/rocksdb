@@ -17,8 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
-                                 const std::string& dbname)
-    : DBImpl(db_options, dbname) {
+                                 const std::string& dbname, bool owns_info_log)
+    : DBImpl(db_options, dbname, owns_info_log) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in secondary mode");
   LogFlush(immutable_db_options_.info_log);
@@ -599,15 +599,18 @@ Status DB::OpenAsSecondary(
 
   DBOptions tmp_opts(db_options);
   Status s;
+  bool owns_info_log = false;
   if (nullptr == tmp_opts.info_log) {
     s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
     if (!s.ok()) {
       tmp_opts.info_log = nullptr;
+    } else {
+      owns_info_log = true;
     }
   }
 
   handles->clear();
-  DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
+  DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname, owns_info_log);
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,

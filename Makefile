@@ -494,6 +494,7 @@ TESTS = \
 	db_merge_operator_test \
 	db_merge_operand_test \
 	db_options_test \
+	db_plugin_test \
 	db_range_del_test \
 	db_secondary_test \
 	db_sst_test \
@@ -1387,6 +1388,9 @@ db_merge_operand_test: db/db_merge_operand_test.o db/db_test_util.o $(LIBOBJECTS
 	$(AM_LINK)
 
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_plugin_test: db/db_plugin_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

@@ -10,11 +10,14 @@
 
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/db_plugin.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testharness.h"
 #include "util/string_util.h"
+#include "utilities/ttl/db_ttl_impl.h"
+
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -384,9 +387,9 @@ class TtlTest : public testing::Test {
   std::string dbname_;
   DBWithTTL* db_ttl_;
   std::unique_ptr<SpecialTimeEnv> env_;
+  Options options_;
 
  private:
-  Options options_;
   KVMap kvmap_;
   KVMap::iterator kv_it_;
   const std::string kNewValue_ = "new_value";
@@ -679,6 +682,24 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
   CloseTtl();
 }
 
+// Checks presence during ttl in read_only mode
+TEST_F(TtlTest, OpenWithTtlPlugin) {
+  MakeKVMap(kSampleSize_);
+  Options ttl_options = options_;
+  ttl_options.plugins.push_back(
+      std::make_shared<TtlDBPlugin>(std::vector<int>({1})));
+  DB* db;
+  ASSERT_OK(DB::Open(ttl_options, dbname_, &db));
+  db_ttl_ = static_cast<DBWithTTL*>(db);
+  PutValues(0, kSampleSize_);  // T=0:Insert Set1. Delete at t=1
+  CloseTtl();
+
+  ASSERT_OK(DB::OpenForReadOnly(ttl_options, dbname_, &db));
+  db_ttl_ = static_cast<DBWithTTL*>(db);
+  SleepCompactCheck(2, 0, kSampleSize_);  // T=2:Set1 should still be there
+  CloseTtl();
+}
+
 class DummyFilter : public CompactionFilter {
  public:
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
@@ -824,6 +845,19 @@ TEST_F(TtlOptionsTest, LoadTtlMergeOperator) {
   std::shared_ptr<MergeOperator> copy;
   ASSERT_OK(MergeOperator::CreateFromString(config_options_, opts_str, &copy));
   ASSERT_TRUE(mo->Matches(config_options_, copy.get()));
+}
+
+TEST_F(TtlOptionsTest, LoadTtlPlugin) {
+  DBOptions db_opts;
+  std::shared_ptr<DBPlugin> plugin;
+
+  ASSERT_OK(DBPlugin::CreateFromString(config_options_, "Ttl", &plugin));
+  ASSERT_NE(plugin.get(), nullptr);
+  ASSERT_EQ(plugin->Name(), std::string("Ttl"));
+  ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts, "plugins={Ttl};",
+                                   &db_opts));
+  ASSERT_EQ(db_opts.plugins.size(), 1);
+  ASSERT_EQ(db_opts.plugins[0]->Name(), std::string("Ttl"));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -60,6 +60,7 @@ struct ImmutableDBOptions {
   size_t random_access_max_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
+  std::vector<std::shared_ptr<DBPlugin>> plugins;
   bool enable_thread_tracking;
   bool enable_pipelined_write;
   bool unordered_write;

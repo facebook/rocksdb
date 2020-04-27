@@ -10,6 +10,7 @@
 #include "file/filename.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/db_plugin.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
@@ -22,6 +23,102 @@ namespace ROCKSDB_NAMESPACE {
 static const std::string kTtlName = "Ttl";
 static const std::string kTtlOpts = "TTL";
 
+/* ***************  TtlDBPlugin Methods *************** */
+TtlDBPlugin::TtlDBPlugin() {}
+
+TtlDBPlugin::TtlDBPlugin(const std::vector<int>& ttls) : ttls_(ttls) {}
+
+const char* TtlDBPlugin::Name() const { return kTtlName.c_str(); }
+
+Status TtlDBPlugin::PrepareTtlOptions(int ttl, Env* env,
+                                      ColumnFamilyOptions* cf_opts) const {
+  if (cf_opts->compaction_filter != nullptr) {
+    // We have a compaction filter.  Wrap it if not already wrapped
+    auto ttl_filter = cf_opts->compaction_filter->FindInstance(kTtlName);
+    if (ttl_filter == nullptr) {
+      cf_opts->compaction_filter =
+          new TtlCompactionFilter(ttl, env, cf_opts->compaction_filter);
+    }
+  } else if (!cf_opts->compaction_filter_factory ||
+             cf_opts->compaction_filter_factory->FindInstance(kTtlName) ==
+                 nullptr) {
+    // No compaction filter factory or no wrapped one.  Create a wrapped one
+    cf_opts->compaction_filter_factory =
+        std::make_shared<TtlCompactionFilterFactory>(
+            ttl, env, cf_opts->compaction_filter_factory);
+  }
+
+  if (cf_opts->merge_operator != nullptr &&
+      cf_opts->merge_operator->FindInstance(kTtlName) == nullptr) {
+    cf_opts->merge_operator =
+        std::make_shared<TtlMergeOperator>(cf_opts->merge_operator, env);
+  }
+  return Status::OK();
+}
+
+Status TtlDBPlugin::SanitizeCB(OpenMode mode, const std::string& db_name,
+                               DBOptions* db_opts,
+                               std::vector<ColumnFamilyDescriptor>* cfds) {
+  if (db_opts->env == nullptr) {
+    db_opts->env = Env::Default();
+  }
+  Status s = ValidateCB(mode, db_name, *db_opts, *cfds);
+  if (!s.ok()) {
+    if (ttls_.size() != cfds->size()) {
+      s = Status::InvalidArgument(
+          "ttls size has to be the same as number of column families");
+    } else {
+      for (size_t i = 0; i < cfds->size(); ++i) {
+        s = PrepareTtlOptions(ttls_[i], db_opts->env, &((*cfds)[i].options));
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    }
+  }
+  if (s.ok()) {
+    return DBPlugin::SanitizeCB(mode, db_name, db_opts, cfds);
+  } else {
+    return s;
+  }
+}
+
+Status TtlDBPlugin::ValidateCB(
+    OpenMode mode, const std::string& db_name, const DBOptions& db_opts,
+    const std::vector<ColumnFamilyDescriptor>& cfds) const {
+  if (db_opts.env == nullptr) {
+    return Status::InvalidArgument("Env is required for DbTtl", db_name);
+  }
+  for (const auto& cfd : cfds) {
+    if (cfd.options.compaction_filter != nullptr) {
+      // We have a compaction filter.  Check that it is wrapped
+      if (cfd.options.compaction_filter->FindInstance(kTtlName) == nullptr) {
+        return Status::InvalidArgument(
+            "TtlCompactionFilter is required for DbTtl", db_name);
+      }
+    } else if (!cfd.options.compaction_filter_factory ||
+               cfd.options.compaction_filter_factory->FindInstance(kTtlName) ==
+                   nullptr) {
+      return Status::InvalidArgument(
+          "TtlCompactionFilterFactory is required for DbTtl", db_name);
+    }
+    if (cfd.options.merge_operator != nullptr &&
+        cfd.options.merge_operator->FindInstance(kTtlName) == nullptr) {
+      return Status::InvalidArgument("TtlMergeOperator is required for DbTtl",
+                                     db_name);
+    }
+  }
+  return DBPlugin::ValidateCB(mode, db_name, db_opts, cfds);
+}
+
+Status TtlDBPlugin::OpenCB(OpenMode /*mode*/, DB* db,
+                           const std::vector<ColumnFamilyHandle*>& /*handles*/,
+                           DB** wrapped) {
+  *wrapped = new DBWithTTLImpl(db);
+  return Status::OK();
+}
+
+/* ***************  TtlCompactionFilter Methods *************** */
 static std::unordered_map<std::string, OptionTypeInfo> ttl_type_info = {
     {"ttl", {0, OptionType::kInt32T}},
 };
@@ -96,6 +193,8 @@ Status TtlCompactionFilter::ValidateOptions(
   }
 }
 
+/* ***************  TtlCompactionFilterFactory Methods *************** */
+
 static std::unordered_map<std::string, OptionTypeInfo> ttl_cff_type_info = {
     {"user_filter_factory", OptionTypeInfo::AsCustomS<CompactionFilterFactory>(
                                 0, OptionVerificationType::kByNameAllowFromNull,
@@ -146,6 +245,8 @@ Status TtlCompactionFilterFactory::ValidateOptions(
     return CompactionFilterFactory::ValidateOptions(db_opts, cf_opts);
   }
 }
+
+/* ***************  TtlMergeOperator Methods *************** */
 
 static std::unordered_map<std::string, OptionTypeInfo> ttl_mo_type_info = {
     {"user_operator",
@@ -290,23 +391,6 @@ Status TtlMergeOperator::ValidateOptions(
   }
 }
 
-void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
-                                    Env* env) {
-  if (options->compaction_filter) {
-    options->compaction_filter =
-        new TtlCompactionFilter(ttl, env, options->compaction_filter);
-  } else {
-    options->compaction_filter_factory =
-        std::shared_ptr<CompactionFilterFactory>(new TtlCompactionFilterFactory(
-            ttl, env, options->compaction_filter_factory));
-  }
-
-  if (options->merge_operator) {
-    options->merge_operator.reset(
-        new TtlMergeOperator(options->merge_operator, env));
-  }
-}
-
 void RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
   library.Register<MergeOperator>(
       kTtlName,
@@ -328,7 +412,15 @@ void RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
                    std::string* /* errmsg */) {
         return new TtlCompactionFilter(0, nullptr, nullptr);
       });
+  library.Register<DBPlugin>(
+      kTtlName, [](const std::string& /*uri*/, std::unique_ptr<DBPlugin>* guard,
+                   std::string* /* errmsg */) {
+        guard->reset(new TtlDBPlugin());
+        return guard->get();
+      });
 }
+
+/* ***************  DBWithTTLImpl Methods *************** */
 
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
 DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
@@ -385,34 +477,26 @@ Status DBWithTTL::Open(const Options& options, const std::string& dbname,
 }
 
 Status DBWithTTL::Open(
-    const DBOptions& db_options, const std::string& dbname,
-    const std::vector<ColumnFamilyDescriptor>& column_families,
+    const DBOptions& db_options_in, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families_in,
     std::vector<ColumnFamilyHandle*>* handles, DBWithTTL** dbptr,
     std::vector<int32_t> ttls, bool read_only) {
-
-  if (ttls.size() != column_families.size()) {
-    return Status::InvalidArgument(
-        "ttls size has to be the same as number of column families");
+  DBOptions db_options = db_options_in;
+  std::vector<ColumnFamilyDescriptor> column_families = column_families_in;
+  if (DBPlugin::Find(kTtlName, db_options.plugins) == nullptr) {
+    db_options.plugins.push_back(std::make_shared<TtlDBPlugin>(ttls));
   }
 
-  std::vector<ColumnFamilyDescriptor> column_families_sanitized =
-      column_families;
-  for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
-    DBWithTTLImpl::SanitizeOptions(
-        ttls[i], &column_families_sanitized[i].options,
-        db_options.env == nullptr ? Env::Default() : db_options.env);
-  }
   DB* db;
 
   Status st;
   if (read_only) {
-    st = DB::OpenForReadOnly(db_options, dbname, column_families_sanitized,
-                             handles, &db);
+    st = DB::OpenForReadOnly(db_options, dbname, column_families, handles, &db);
   } else {
-    st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
+    st = DB::Open(db_options, dbname, column_families, handles, &db);
   }
   if (st.ok()) {
-    *dbptr = new DBWithTTLImpl(db);
+    *dbptr = static_cast<DBWithTTL*>(db);
   } else {
     *dbptr = nullptr;
   }
@@ -423,7 +507,10 @@ Status DBWithTTLImpl::CreateColumnFamilyWithTtl(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     ColumnFamilyHandle** handle, int ttl) {
   ColumnFamilyOptions sanitized_options = options;
-  DBWithTTLImpl::SanitizeOptions(ttl, &sanitized_options, GetEnv());
+  const auto ttl_plugin =
+      DBPlugin::FindAs<TtlDBPlugin>(kTtlName, GetOptions().plugins);
+  assert(ttl_plugin);
+  ttl_plugin->PrepareTtlOptions(ttl, GetEnv(), &sanitized_options);
 
   return DBWithTTL::CreateColumnFamily(sanitized_options, column_family_name,
                                        handle);

@@ -19,6 +19,7 @@
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/db_plugin.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/memtablerep.h"
@@ -701,6 +702,15 @@ class MockMemoryAllocator : public MemoryAllocator {
   void Deallocate(void* p) override { free(p); }
 };
 
+class MockDBPlugin : public DBPlugin {
+ public:
+  MockDBPlugin(const std::string& name) : name_(name) {}
+  const char* Name() const override { return name_.c_str(); }
+
+ private:
+  const std::string name_;
+};
+
 static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   // Load any locally defined objects here
@@ -742,6 +752,12 @@ static void RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockMemoryAllocator());
+        return guard->get();
+      });
+  library.Register<DBPlugin>(
+      "Test_.*", [](const std::string& uri, std::unique_ptr<DBPlugin>* guard,
+                    std::string* /* errmsg */) {
+        guard->reset(new MockDBPlugin(uri));
         return guard->get();
       });
 }
@@ -1134,6 +1150,32 @@ TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
   ASSERT_NOK(MemoryAllocator::CreateFromString(
       config_options_, "MemkindkMemAllocator", &allocator));
 #endif
+}
+
+TEST_F(LoadCustomizableTest, LoadPluginTest) {
+  std::shared_ptr<DBPlugin> plugin;
+  ASSERT_NOK(DBPlugin::CreateFromString(config_options_, "Test_1", &plugin));
+#ifndef ROCKSDB_LITE
+  ASSERT_NOK(GetDBOptionsFromString(config_options_, db_opts_,
+                                    "plugins={Test_1}", &db_opts_));
+  RegisterTests("test");
+  ASSERT_OK(DBPlugin::CreateFromString(config_options_, "Test_1", &plugin));
+  ASSERT_NE(plugin, nullptr);
+  ASSERT_EQ(plugin->Name(), std::string("Test_1"));
+  ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
+                                   "plugins={Test_1}", &db_opts_));
+  ASSERT_EQ(db_opts_.plugins.size(), 1);
+  ASSERT_EQ(db_opts_.plugins[0]->Name(), std::string("Test_1"));
+  ASSERT_NOK(GetDBOptionsFromString(config_options_, db_opts_,
+                                    "plugins={Test_2:Bad_1}", &db_opts_));
+  ASSERT_EQ(db_opts_.plugins.size(), 1);
+  ASSERT_EQ(db_opts_.plugins[0]->Name(), std::string("Test_1"));
+  ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
+                                   "plugins={Test_1:Test_2}", &db_opts_));
+  ASSERT_EQ(db_opts_.plugins.size(), 2);
+  ASSERT_EQ(db_opts_.plugins[0]->Name(), std::string("Test_1"));
+  ASSERT_EQ(db_opts_.plugins[1]->Name(), std::string("Test_2"));
+#endif  // ROCKSDB_LITE
 }
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {

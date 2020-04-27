@@ -5,8 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 #include "db/compacted_db_impl.h"
-#include "db/db_impl/db_impl.h"
+
 #include "db/version_set.h"
+#include "rocksdb/db_plugin.h"
 #include "table/get_context.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -15,11 +16,12 @@ extern void MarkKeyMayExist(void* arg);
 extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
                       const Slice& v, bool hit_and_return);
 
-CompactedDBImpl::CompactedDBImpl(
-  const DBOptions& options, const std::string& dbname)
-  : DBImpl(options, dbname), cfd_(nullptr), version_(nullptr),
-    user_comparator_(nullptr) {
-}
+CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
+                                 const std::string& dbname, bool owns_info_log)
+    : DBImpl(options, dbname, owns_info_log),
+      cfd_(nullptr),
+      version_(nullptr),
+      user_comparator_(nullptr) {}
 
 CompactedDBImpl::~CompactedDBImpl() {
 }
@@ -143,15 +145,50 @@ Status CompactedDBImpl::Open(const Options& options,
   if (options.merge_operator.get() != nullptr) {
     return Status::InvalidArgument("merge operator is not supported");
   }
+  bool owns_info_log = (options.info_log == nullptr);
   DBOptions db_options(options);
-  std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
-  Status s = db->Init(options);
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  Status s = DBPlugin::SanitizeOptionsForDB(DBPlugin::ReadOnly, dbname,
+                                            &db_options, &column_families);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<CompactedDBImpl> db(
+      new CompactedDBImpl(db_options, dbname, owns_info_log));
+  s = db->Init(options);
   if (s.ok()) {
     db->StartTimedTasks();
     ROCKS_LOG_INFO(db->immutable_db_options_.info_log,
                    "Opened the db as fully compacted mode");
     LogFlush(db->immutable_db_options_.info_log);
-    *dbptr = db.release();
+  }
+  if (s.ok()) {
+    if (db_options.plugins.empty()) {  // If there are no handles
+      *dbptr = db.release();
+    } else {
+      std::vector<ColumnFamilyHandle*> handles;
+      auto cfd = db->versions_->GetColumnFamilySet()->GetColumnFamily(
+          kDefaultColumnFamilyName);
+      if (cfd == nullptr) {
+        s = Status::InvalidArgument("Column family not found: ",
+                                    kDefaultColumnFamilyName);
+      } else {
+        handles.push_back(
+            new ColumnFamilyHandleImpl(cfd, db.get(), &db->mutex_));
+        *dbptr = db.release();
+        s = DBPlugin::Open(DBPlugin::ReadOnly, *dbptr, handles, dbptr);
+        delete handles[0];
+        if (!s.ok()) {
+          // Failure, delete the dbptr
+          delete *dbptr;
+          *dbptr = nullptr;
+        }
+      }
+    }
   }
   return s;
 }

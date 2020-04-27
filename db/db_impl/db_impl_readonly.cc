@@ -4,21 +4,22 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl/db_impl_readonly.h"
-#include "db/arena_wrapped_db_iter.h"
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/merge_context.h"
 #include "monitoring/perf_context_imp.h"
+#include "rocksdb/db_plugin.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
-                               const std::string& dbname)
-    : DBImpl(db_options, dbname) {
+                               const std::string& dbname, bool owns_info_log)
+    : DBImpl(db_options, dbname, owns_info_log) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in read only mode");
   LogFlush(immutable_db_options_.info_log);
@@ -157,18 +158,31 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 }
 
 Status DB::OpenForReadOnly(
-    const DBOptions& db_options, const std::string& dbname,
-    const std::vector<ColumnFamilyDescriptor>& column_families,
+    const DBOptions& db_options_in, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families_in,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
     bool error_if_log_file_exist) {
   *dbptr = nullptr;
   handles->clear();
 
+  DBOptions db_options = db_options_in;
+  std::vector<ColumnFamilyDescriptor> column_families = column_families_in;
+  bool owns_info_log = (db_options.info_log == nullptr);
+  Status s = DBPlugin::SanitizeOptionsForDB(DBPlugin::ReadOnly, dbname,
+                                            &db_options, &column_families);
+  if (s.ok()) {
+    s = DBPlugin::ValidateOptionsForDB(DBPlugin::ReadOnly, dbname, db_options,
+                                       column_families);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
   SuperVersionContext sv_context(/* create_superversion */ true);
-  DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
+  DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname, owns_info_log);
   impl->mutex_.Lock();
-  Status s = impl->Recover(column_families, true /* read only */,
-                           error_if_log_file_exist);
+  s = impl->Recover(column_families, true /* read only */,
+                    error_if_log_file_exist);
   if (s.ok()) {
     // set column family handles
     for (auto cf : column_families) {
@@ -195,12 +209,21 @@ Status DB::OpenForReadOnly(
       impl->NewThreadStatusCfInfo(
           reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
     }
-  } else {
+  }
+  if (s.ok()) {
+    s = DBPlugin::Open(DBPlugin::ReadOnly, impl, *handles, dbptr);
+  }
+  if (!s.ok()) {
     for (auto h : *handles) {
       delete h;
     }
     handles->clear();
-    delete impl;
+    if (*dbptr != nullptr) {
+      delete *dbptr;
+    } else {
+      delete impl;
+    }
+    *dbptr = nullptr;
   }
   return s;
 }
