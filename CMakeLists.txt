@@ -1063,6 +1063,7 @@ if(WITH_TESTS)
         table/merger_test.cc
         table/sst_file_reader_test.cc
         table/table_test.cc
+        table/block_fetcher_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc

@@ -1149,13 +1149,11 @@ class DBImpl : public DB {
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
   // returns.
-  // Currently, this function should be called only in best-efforts recovery
-  // mode.
   // After best-efforts recovery, there may be SST files in db/cf paths that are
   // not referenced in the MANIFEST. We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  Status CleanupFilesAfterRecovery();
+  Status FinishBestEffortsRecovery();
 
  private:
   friend class DB;
@@ -1769,7 +1767,7 @@ class DBImpl : public DB {
   // to have acquired the SuperVersion and pass in a snapshot sequence number
   // in order to construct the LookupKeys. The start_key and num_keys specify
   // the range of keys in the sorted_keys vector for a single column family.
-  void MultiGetImpl(
+  Status MultiGetImpl(
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,

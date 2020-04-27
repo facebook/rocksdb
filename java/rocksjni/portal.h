@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/rate_limiter.h"
@@ -7527,6 +7528,42 @@ class ReusedSynchronisationTypeJni {
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+    }
+  }
+};
+// The portal class for org.rocksdb.SanityLevel
+class SanityLevelJni {
+ public:
+  // Returns the equivalent org.rocksdb.SanityLevel for the provided
+  // C++ ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel enum
+  static jbyte toJavaSanityLevel(
+      const ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel &sanity_level) {
+    switch (sanity_level) {
+      case ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel::kSanityLevelNone:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel::
+          kSanityLevelLooselyCompatible:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel::
+          kSanityLevelExactMatch:
+        return -0x01;
+      default:
+        return -0x01;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel enum for
+  // the provided Java org.rocksdb.SanityLevel
+  static ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel toCppSanityLevel(
+      jbyte sanity_level) {
+    switch (sanity_level) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelNone;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelLooselyCompatible;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelExactMatch;
     }
   }
 };
