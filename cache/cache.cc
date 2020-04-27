@@ -33,8 +33,21 @@ static bool LoadCache(const std::string& id, std::shared_ptr<Cache>* cache) {
   return success;
 }
 
+static std::unordered_map<std::string, OptionTypeInfo> cache_options_type_info =
+    {
+#ifndef ROCKSDB_LITE
+        {"allocator",
+         OptionTypeInfo::AsCustomS<MemoryAllocator>(
+             0, OptionVerificationType::kNormal,
+             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
+#endif  // ROCKSDB_LITE
+};
+
 Cache::Cache(const std::shared_ptr<MemoryAllocator>& allocator)
-    : memory_allocator_(std::move(allocator)) {}
+    : memory_allocator_(std::move(allocator)) {
+  RegisterOptions("MemoryAllocator", &memory_allocator_,
+                  &cache_options_type_info);
+}
 
 Status Cache::CreateFromString(const ConfigOptions& config_options,
                                const std::string& value,

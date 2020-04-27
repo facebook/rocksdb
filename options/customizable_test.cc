@@ -20,6 +20,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/memory_allocator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -693,6 +694,13 @@ class MockFilterPolicy : public FilterPolicy {
   bool KeyMayMatch(const Slice&, const Slice&) const override { return false; }
 };
 
+class MockMemoryAllocator : public MemoryAllocator {
+ public:
+  const char* Name() const override { return "Test"; }
+  void* Allocate(size_t size) override { return malloc(size); }
+  void Deallocate(void* p) override { free(p); }
+};
+
 static void RegisterLocalObjects(ObjectLibrary& library,
                                  const std::string& /*arg*/) {
   // Load any locally defined objects here
@@ -727,6 +735,13 @@ static void RegisterLocalObjects(ObjectLibrary& library,
       [](const std::string& /*uri*/, std::unique_ptr<FilterPolicy>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockFilterPolicy());
+        return guard->get();
+      });
+  library.Register<MemoryAllocator>(
+      "Test",
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockMemoryAllocator());
         return guard->get();
       });
 }
@@ -1096,6 +1111,28 @@ TEST_F(LoadCustomizableTest, LoadEnvTest) {
   ASSERT_NE(db_opts_.env, nullptr);
   ASSERT_EQ(db_opts_.env->GetId(), "ErrorEnv");
   delete db_opts_.env;
+#endif
+}
+
+TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
+  std::shared_ptr<MemoryAllocator> allocator;
+  std::shared_ptr<Cache> cache;
+  ASSERT_NOK(
+      MemoryAllocator::CreateFromString(config_options_, "Test", &allocator));
+  ASSERT_NOK(Cache::CreateFromString(config_options_,
+                                     "id=LRUCache; allocator=Test", &cache));
+#ifndef ROCKSDB_LITE
+  RegisterTests("test");
+  ASSERT_OK(
+      MemoryAllocator::CreateFromString(config_options_, "Test", &allocator));
+  ASSERT_EQ(allocator->GetId(), "Test");
+  ASSERT_OK(Cache::CreateFromString(config_options_,
+                                    "id=LRUCache; allocator=Test", &cache));
+  ASSERT_EQ(cache->memory_allocator(), allocator.get());
+#endif  // ROCKSDB_LITE
+#ifdef MEMKIND
+  ASSERT_NOK(MemoryAllocator::CreateFromString(
+      config_options_, "MemkindkMemAllocator", &allocator));
 #endif
 }
 }  // namespace ROCKSDB_NAMESPACE

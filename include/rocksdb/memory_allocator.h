@@ -5,22 +5,26 @@
 
 #pragma once
 
-#include "rocksdb/status.h"
-
 #include <memory>
 
+#include "rocksdb/customizable.h"
+#include "rocksdb/status.h"
+
 namespace ROCKSDB_NAMESPACE {
+struct ConfigOptions;
 
 // MemoryAllocator is an interface that a client can implement to supply custom
 // memory allocation and deallocation methods. See rocksdb/cache.h for more
 // information.
 // All methods should be thread-safe.
-class MemoryAllocator {
+class MemoryAllocator : public Customizable {
  public:
   virtual ~MemoryAllocator() = default;
 
-  // Name of the cache allocator, printed in the log
-  virtual const char* Name() const = 0;
+  static const char* Type() { return "MemoryAllocator"; }
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<MemoryAllocator>* allocator);
 
   // Allocate a block of at least size. Has to be thread-safe.
   virtual void* Allocate(size_t size) = 0;
