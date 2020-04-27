@@ -45,6 +45,10 @@ int db_stress_tool(int argc, char** argv) {
   SanitizeDoubleParam(&FLAGS_memtable_prefix_bloom_size_ratio);
   SanitizeDoubleParam(&FLAGS_max_bytes_for_level_multiplier);
 
+  if (FLAGS_mock_direct_io) {
+    test::SetupSyncPointsToMockDirectIO();
+  }
+
   if (FLAGS_statistics) {
     dbstats = ROCKSDB_NAMESPACE::CreateDBStatistics();
     if (FLAGS_test_secondary) {

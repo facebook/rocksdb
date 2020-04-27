@@ -566,6 +566,7 @@ TESTS = \
 	deletefile_test \
 	obsolete_files_test \
 	table_test \
+	block_fetcher_test \
 	delete_scheduler_test \
 	options_test \
 	options_settable_test \
@@ -1549,6 +1550,9 @@ cleanable_test: table/cleanable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+block_fetcher_test: table/block_fetcher_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 block_test: table/block_based/block_test.o $(LIBOBJECTS) $(TESTHARNESS)

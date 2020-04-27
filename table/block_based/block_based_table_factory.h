@@ -14,13 +14,11 @@
 #include <string>
 
 #include "db/dbformat.h"
-#include "options/options_helper.h"
-#include "options/options_parser.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+struct ConfigOptions;
 struct EnvOptions;
 
 class BlockBasedTableBuilder;
@@ -66,8 +64,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   std::string GetPrintableTableOptions() const override;
 
-  Status GetOptionString(std::string* opt_string,
-                         const std::string& delimiter) const override;
+  Status GetOptionString(const ConfigOptions& config_options,
+                         std::string* opt_string) const override;
 
   const BlockBasedTableOptions& table_options() const;
 
@@ -89,9 +87,7 @@ extern const std::string kPropFalse;
 
 #ifndef ROCKSDB_LITE
 extern Status VerifyBlockBasedTableFactory(
-    const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf,
-    OptionsSanityCheckLevel sanity_check_level);
-
+    const ConfigOptions& config_options, const BlockBasedTableFactory* base_tf,
+    const BlockBasedTableFactory* file_tf);
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

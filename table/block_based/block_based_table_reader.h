@@ -455,7 +455,7 @@ class BlockBasedTable : public TableReader {
   friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
-// Maitaning state of a two-level iteration on a partitioned index structure.
+// Maintaining state of a two-level iteration on a partitioned index structure.
 class BlockBasedTable::PartitionedIndexIteratorState
     : public TwoLevelIteratorState {
  public:

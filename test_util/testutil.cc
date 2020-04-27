@@ -9,6 +9,7 @@
 
 #include "test_util/testutil.h"
 
+#include <fcntl.h>
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -20,6 +21,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace test {
@@ -506,6 +508,36 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   }
 
   return count;
+}
+
+void ResetTmpDirForDirectIO() {
+#ifdef OS_LINUX
+  unsetenv("TEST_TMPDIR");
+  char* tmpdir = getenv("DISK_TEMP_DIR");
+  if (tmpdir == nullptr) {
+    tmpdir = getenv("HOME");
+  }
+  if (tmpdir != nullptr) {
+    setenv("TEST_TMPDIR", tmpdir, 1);
+  }
+#endif
+}
+
+void SetupSyncPointsToMockDirectIO() {
+#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
+    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+#endif
 }
 
 }  // namespace test

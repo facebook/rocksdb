@@ -52,7 +52,7 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Insufficient capacity for merge operands",
     // kManualCompactionPaused
     "Manual compaction paused",
-    " (redundant)",  // kRedundant
+    " (overwritten)",  // kOverwritten, subcode of OK
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

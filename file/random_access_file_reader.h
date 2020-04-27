@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
 
-using AlignedBuf = std::unique_ptr<const char[]>;
+using AlignedBuf = std::unique_ptr<char[]>;
 
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:

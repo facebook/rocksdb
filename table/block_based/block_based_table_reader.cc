@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_reader.h"
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -18,10 +19,10 @@
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
-
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
-
+#include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -32,7 +33,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
@@ -54,13 +54,14 @@
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
 
+#include "test_util/testharness.h"
 #include "monitoring/perf_context_imp.h"
+#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -762,6 +763,7 @@ Status BlockBasedTable::PrefetchTail(
         nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     s = (*prefetch_buffer)->Prefetch(file, prefetch_off, prefetch_len);
   }
+
   return s;
 }
 
@@ -822,10 +824,12 @@ Status BlockBasedTable::ReadPropertiesBlock(
           nullptr /* ret_block_handle */, nullptr /* ret_block_contents */,
           false /* compression_type_missing */, nullptr /* memory_allocator */);
     }
+    IGNORE_STATUS_IF_ERROR(s);
 
     if (s.IsCorruption()) {
       s = TryReadPropertiesWithGlobalSeqno(prefetch_buffer, meta_iter->value(),
                                            &table_properties);
+      IGNORE_STATUS_IF_ERROR(s);
     }
     std::unique_ptr<TableProperties> props_guard;
     if (table_properties != nullptr) {
@@ -924,6 +928,7 @@ Status BlockBasedTable::ReadRangeDelBlock(
           rep_->ioptions.info_log,
           "Encountered error while reading data from range del block %s",
           s.ToString().c_str());
+      IGNORE_STATUS_IF_ERROR(s);
     } else {
       rep_->fragmented_range_dels =
           std::make_shared<FragmentedRangeTombstoneList>(std::move(iter),
@@ -1028,11 +1033,6 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     auto filter = new_table->CreateFilterBlockReader(
         prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
-#ifndef NDEBUG
-    if (rep_->filter_type != Rep::FilterType::kNoFilter && !filter) {
-      TEST_SYNC_POINT("FilterReadError");
-    }
-#endif
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {
@@ -2207,7 +2207,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     size_t ts_sz =
         rep_->internal_comparator.user_comparator()->timestamp_size();
-    bool matched = false;  // if such user key mathced a key in SST
+    bool matched = false;  // if such user key matched a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
