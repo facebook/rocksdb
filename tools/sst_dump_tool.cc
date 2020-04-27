@@ -9,6 +9,7 @@
 #include "tools/sst_dump_tool_imp.h"
 
 #include <cinttypes>
+#include <chrono>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -207,7 +208,32 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
 int SstFileDumper::ShowAllCompressionSizes(
     size_t block_size,
     const std::vector<std::pair<CompressionType, const char*>>&
-        compression_types) {
+      compression_types,
+    int32_t compress_level_from,
+    int32_t compress_level_to) {
+
+  fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
+  for (auto& i : compression_types) {
+    if (CompressionTypeSupported(i.first)) {
+      fprintf(stdout, "Compression: %-24s\n", i.second);
+      CompressionOptions compress_opt;
+      for(int32_t j = compress_level_from; j <= compress_level_to;
+          j++) {
+        fprintf(stdout, "Compression level: %d", j);
+        compress_opt.level = j;
+        ShowCompressionSize(block_size, i.first, compress_opt);
+      }
+    } else {
+      fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
+    }
+  }
+  return 0;
+}
+
+int SstFileDumper::ShowCompressionSize(
+    size_t block_size,
+    CompressionType compress_type,
+    const CompressionOptions& compress_opt) {
   ReadOptions read_options;
   Options opts;
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -219,63 +245,60 @@ int SstFileDumper::ShowAllCompressionSizes(
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       block_based_table_factories;
 
-  fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
-
-  for (auto& i : compression_types) {
-    if (CompressionTypeSupported(i.first)) {
-      CompressionOptions compress_opt;
-      std::string column_family_name;
-      int unknown_level = -1;
-      TableBuilderOptions tb_opts(
-          imoptions, moptions, ikc, &block_based_table_factories, i.first,
-          0 /* sample_for_compression */, compress_opt,
-          false /* skip_filters */, column_family_name, unknown_level);
-      uint64_t num_data_blocks = 0;
-      uint64_t file_size =
-          CalculateCompressedTableSize(tb_opts, block_size, &num_data_blocks);
-      fprintf(stdout, "Compression: %-24s", i.second);
-      fprintf(stdout, " Size: %10" PRIu64, file_size);
-      fprintf(stdout, " Blocks: %6" PRIu64, num_data_blocks);
-      const uint64_t compressed_blocks =
-          opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
-      const uint64_t not_compressed_blocks =
-          opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
-      // When the option enable_index_compression is true,
-      // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
-      if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
-        num_data_blocks = compressed_blocks + not_compressed_blocks;
-      }
-      const uint64_t ratio_not_compressed_blocks =
-          (num_data_blocks - compressed_blocks) - not_compressed_blocks;
-      const double compressed_pcnt =
-          (0 == num_data_blocks) ? 0.0
-                                 : ((static_cast<double>(compressed_blocks) /
-                                     static_cast<double>(num_data_blocks)) *
-                                    100.0);
-      const double ratio_not_compressed_pcnt =
-          (0 == num_data_blocks)
-              ? 0.0
-              : ((static_cast<double>(ratio_not_compressed_blocks) /
-                  static_cast<double>(num_data_blocks)) *
-                 100.0);
-      const double not_compressed_pcnt =
-          (0 == num_data_blocks)
-              ? 0.0
-              : ((static_cast<double>(not_compressed_blocks) /
-                  static_cast<double>(num_data_blocks)) *
-                 100.0);
-      fprintf(stdout, " Compressed: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
-              compressed_pcnt);
-      fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
-              ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
-      fprintf(stdout, " Not compressed (abort): %6" PRIu64 " (%5.1f%%)\n",
-              not_compressed_blocks, not_compressed_pcnt);
-    } else {
-      fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
-    }
+  std::string column_family_name;
+  int unknown_level = -1;
+  TableBuilderOptions tb_opts(
+      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
+      0 /* sample_for_compression */, compress_opt,
+      false /* skip_filters */, column_family_name, unknown_level);
+  uint64_t num_data_blocks = 0;
+  std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+  uint64_t file_size =
+      CalculateCompressedTableSize(tb_opts, block_size, &num_data_blocks);
+  std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+  fprintf(stdout, " Size: %10" PRIu64, file_size);
+  fprintf(stdout, " Blocks: %6" PRIu64, num_data_blocks);
+  fprintf(stdout, " Time Taken: %10s microsecs",
+          std::to_string(std::chrono::duration_cast<std::chrono::microseconds>
+                         (end-start).count()).c_str());
+  const uint64_t compressed_blocks =
+       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_COMPRESSED);
+  const uint64_t not_compressed_blocks =
+       opts.statistics->getAndResetTickerCount(NUMBER_BLOCK_NOT_COMPRESSED);
+  // When the option enable_index_compression is true,
+  // NUMBER_BLOCK_COMPRESSED is incremented for index block(s).
+  if ((compressed_blocks + not_compressed_blocks) > num_data_blocks) {
+     num_data_blocks = compressed_blocks + not_compressed_blocks;
   }
+
+  const uint64_t ratio_not_compressed_blocks =
+       (num_data_blocks - compressed_blocks) - not_compressed_blocks;
+  const double compressed_pcnt =
+       (0 == num_data_blocks) ? 0.0
+                              : ((static_cast<double>(compressed_blocks) /
+                                  static_cast<double>(num_data_blocks)) *
+                                100.0);
+  const double ratio_not_compressed_pcnt =
+       (0 == num_data_blocks)
+          ? 0.0
+          : ((static_cast<double>(ratio_not_compressed_blocks) /
+              static_cast<double>(num_data_blocks)) *
+              100.0);
+  const double not_compressed_pcnt =
+       (0 == num_data_blocks)
+           ? 0.0
+          : ((static_cast<double>(not_compressed_blocks) /
+              static_cast<double>(num_data_blocks)) *
+             100.0);
+  fprintf(stdout, " Compressed: %6" PRIu64 " (%5.1f%%)", compressed_blocks,
+          compressed_pcnt);
+  fprintf(stdout, " Not compressed (ratio): %6" PRIu64 " (%5.1f%%)",
+          ratio_not_compressed_blocks, ratio_not_compressed_pcnt);
+  fprintf(stdout, " Not compressed (abort): %6" PRIu64 " (%5.1f%%)\n",
+          not_compressed_blocks, not_compressed_pcnt);
   return 0;
 }
+
 Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size) {
@@ -484,6 +507,14 @@ void print_help() {
     --parse_internal_key=<0xKEY>
       Convenience option to parse an internal key on the command line. Dumps the
       internal key in hex format {'key' @ SN: type}
+
+    --compression_level_from=<compression_level>
+      Compression level to start compressing when executing recompress. One compression type
+      and compression_level_to must also be specified
+
+    --compression_level_to=<compression_level>
+      Compression level to stop compressing when executing recompress. One compression type
+      and compression_level_from must also be specified
 )");
 }
 
@@ -507,9 +538,14 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   bool show_properties = false;
   bool show_summary = false;
   bool set_block_size = false;
+  bool has_compression_level_from = false;
+  bool has_compression_level_to = false;
+  bool has_specified_compression_types = false;
   std::string from_key;
   std::string to_key;
   std::string block_size_str;
+  std::string compression_level_from_str;
+  std::string compression_level_to_str;
   size_t block_size = 0;
   std::vector<std::pair<CompressionType, const char*>> compression_types;
   uint64_t total_num_files = 0;
@@ -517,6 +553,8 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   uint64_t total_data_block_size = 0;
   uint64_t total_index_block_size = 0;
   uint64_t total_filter_block_size = 0;
+  int32_t compress_level_from = CompressionOptions::kDefaultCompressionLevel;
+  int32_t compress_level_to = CompressionOptions::kDefaultCompressionLevel;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
       env_uri = argv[i] + 10;
@@ -561,6 +599,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       std::string compression_types_csv = argv[i] + 20;
       std::istringstream iss(compression_types_csv);
       std::string compression_type;
+      has_specified_compression_types = true;
       while (std::getline(iss, compression_type, ',')) {
         auto iter = std::find_if(
             kCompressions.begin(), kCompressions.end(),
@@ -594,11 +633,40 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       }
       fprintf(stdout, "key=%s\n", ikey.DebugString(true).c_str());
       return retc;
-    } else {
+    } else if (strncmp(argv[i], "--compression_level_from=", 25) == 0) {
+      compression_level_from_str = argv[i] + 25;
+      has_compression_level_from = true;
+      std::istringstream iss(compression_level_from_str);
+      iss >> compress_level_from;
+      if (iss.fail()) {
+        fprintf(stderr, "compression_level_from must be numeric\n");
+        exit(1);
+      }
+    } else if (strncmp(argv[i], "--compression_level_to=", 22) == 0) {
+      compression_level_to_str = argv[i]+23 ;
+      has_compression_level_to = true;
+      std::istringstream iss(compression_level_to_str);
+      iss >> compress_level_to;
+      if (iss.fail()) {
+        fprintf(stderr, "compression_level_to must be numeric\n");
+        exit(1);
+      }
+    }else {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
       print_help();
       exit(1);
     }
+  }
+
+  if(has_compression_level_from && has_compression_level_to) {
+    if(!has_specified_compression_types || compression_types.size() != 1) {
+      fprintf(stderr, "Specify one compression type.\n\n");
+      exit(1);
+    }
+  } else if(has_compression_level_from || has_compression_level_to) {
+    fprintf(stderr, "Specify both --compression_level_from and "
+                     "--compression_level_to.\n\n");
+    exit(1);
   }
 
   if (use_from_as_prefix && has_from) {
@@ -675,7 +743,8 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     if (command == "recompress") {
       dumper.ShowAllCompressionSizes(
           set_block_size ? block_size : 16384,
-          compression_types.empty() ? kCompressions : compression_types);
+          compression_types.empty() ? kCompressions : compression_types,
+          compress_level_from, compress_level_to);
       return 0;
     }
 
