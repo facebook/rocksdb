@@ -106,12 +106,12 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
 
   CloudStorageProviderImpl();
   virtual ~CloudStorageProviderImpl();
-  Status GetObject(const std::string& bucket_name,
-                   const std::string& object_path,
-                   const std::string& local_destination) override;
-  Status PutObject(const std::string& local_file,
-                   const std::string& bucket_name,
-                   const std::string& object_path) override;
+  Status GetCloudObject(const std::string& bucket_name,
+                        const std::string& object_path,
+                        const std::string& local_destination) override;
+  Status PutCloudObject(const std::string& local_file,
+                        const std::string& bucket_name,
+                        const std::string& object_path) override;
   Status NewCloudReadableFile(const std::string& bucket,
                               const std::string& fname,
                               std::unique_ptr<CloudStorageReadableFile>* result,
@@ -127,14 +127,14 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
       const EnvOptions& options) = 0;
 
   // Downloads object from the cloud into a local directory
-  virtual Status DoGetObject(const std::string& bucket_name,
-                             const std::string& object_path,
-                             const std::string& local_path,
-                             uint64_t* remote_size) = 0;
-  virtual Status DoPutObject(const std::string& local_file,
-                             const std::string& object_path,
-                             const std::string& bucket_name,
-                             uint64_t file_size) = 0;
+  virtual Status DoGetCloudObject(const std::string& bucket_name,
+                                  const std::string& object_path,
+                                  const std::string& local_path,
+                                  uint64_t* remote_size) = 0;
+  virtual Status DoPutCloudObject(const std::string& local_file,
+                                  const std::string& object_path,
+                                  const std::string& bucket_name,
+                                  uint64_t file_size) = 0;
 
   CloudEnv* env_;
   Status status_;
