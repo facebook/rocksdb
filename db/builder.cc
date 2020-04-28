@@ -220,16 +220,16 @@ Status BuildTable(
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
-    if (io_status->ok() && !empty) {
+    if (s.ok() && io_status->ok() && !empty) {
       *io_status = file_writer->Close();
     }
-    if (io_status->ok() && !empty) {
+    if (s.ok() && io_status->ok() && !empty) {
       // Add the checksum information to file metadata.
       meta->file_checksum = file_writer->GetFileChecksum();
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
     }
 
-    if (!io_status->ok()) {
+    if (s.ok()) {
       s = *io_status;
     }
 

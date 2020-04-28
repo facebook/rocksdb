@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "db/error_handler.h"
-#include <iostream>
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
@@ -178,7 +177,6 @@ void ErrorHandler::CancelErrorRecovery() {
 // end whether recovery succeeded or not
 Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
-  std::cout << "set bg error: " << bg_err.ToString() << "\n";
   if (bg_err.ok()) {
     return Status::OK();
   }
@@ -218,7 +216,6 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   // Check if recovery is currently in progress. If it is, we will save this
   // error so we can check it at the end to see if recovery succeeded or not
   if (recovery_in_prog_ && recovery_error_.ok()) {
-    std::cout << bg_err.ToString() << "; set recover error\n";
     recovery_error_ = new_bg_err;
   }
 
@@ -262,9 +259,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (bg_io_err.ok()) {
     return Status::OK();
   }
-  std::cout << bg_io_err.ToString() << "; set io error\n";
   if (recovery_in_prog_ && recovery_io_error_.ok()) {
-    std::cout << "set recovery io error\n";
     recovery_io_error_ = bg_io_err;
   }
   if (BackgroundErrorReason::kManifestWrite == reason) {
@@ -413,6 +408,7 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
 }
 
 Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
+#ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
   if (bg_error_.ok() || io_error.ok()) {
     return Status::OK();
@@ -436,6 +432,10 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
     TEST_SYNC_POINT("StartRecoverRetryableBGIOError:RecoverFail");
     return bg_error_;
   }
+#else
+  (void)io_error;
+  return bg_error_;
+#endif
 }
 
 // Automatic recover from Retryable BG IO error. Must be called after db
@@ -458,31 +458,16 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     if (end_recovery_) {
       return;
     }
-    std::cout << "start to resume\n";
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
     recovery_io_error_ = IOStatus::OK();
     recovery_error_ = Status::OK();
     Status s = db_->ResumeImpl();
-    std::cout << "After resume is called\n";
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume0");
-    std::cout << "end resume" << s.ToString()
-              << " io:" << recovery_io_error_.ToString()
-              << " recover: " << recovery_error_.ToString() << "\n";
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
-    /*
-    recovery_io_error_ = IOStatus::OK();
-    recovery_error_ = Status::OK();
-    s = db_->ResumeImpl();
-    std::cout<<"end resume"<<s.ToString()<<"
-    io:"<<recovery_io_error_.ToString()<<" recover:
-    "<<recovery_error_.ToString()<<"\n";
-    TEST_SYNC_POINT("BGErrorAutoRecoveryFinished:2");
-    */
     if (s.IsShutdownInProgress() ||
         bg_error_.severity() >= Status::Severity::kFatalError) {
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail0");
-      std::cout << "Do not continue auto resume\n";
       recovery_in_prog_ = false;
       return;
     }
@@ -494,10 +479,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
       int64_t wait_until = db_->env_->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
-      std::cout << "The FS is set to active now\n";
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {
-      std::cout << "recover is successful\n";
       // There are four possibility: 1) recover_io_error is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
       // error happens during resume and cannot be resumed here
@@ -513,7 +496,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         return;
       } else {
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail1");
-        std::cout << "should not use auto recover\n";
         // In this case: 1) recovery_io_error is more serious or not retryable
         // 2) other recovery_error happens. The auto recovery stops.
         recovery_in_prog_ = false;
@@ -523,7 +505,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     resume_count--;
   }
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
-  std::cout << "Recover cout used\n";
   recovery_in_prog_ = false;
   return;
 #else
@@ -533,7 +514,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 
 void ErrorHandler::EndAutoRecovery() {
   db_mutex_->AssertHeld();
-  std::cout << "End recovery\n";
   if (end_recovery_) {
     return;
   }

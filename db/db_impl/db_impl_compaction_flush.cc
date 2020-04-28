@@ -2859,13 +2859,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     compaction_job.Run();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
-    fprintf(stderr, "io error %s, other error%s\n", io_s.ToString().c_str(),
-            status.ToString().c_str());
 
     status = compaction_job.Install(*c->mutable_cf_options());
     io_s = compaction_job.io_status();
-    fprintf(stderr, "io error %s, other error%s\n", io_s.ToString().c_str(),
-            status.ToString().c_str());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                          &job_context->superversion_contexts[0],
