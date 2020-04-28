@@ -316,7 +316,7 @@ void PartitionedFilterBlockReader::MayMatch(
   Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                   lookup_context, &filter_block);
   if (UNLIKELY(!s.ok())) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
   }
 
@@ -371,7 +371,7 @@ void PartitionedFilterBlockReader::MayMatchPartition(
       nullptr /* prefetch_buffer */, filter_handle, no_io,
       range->begin()->get_context, lookup_context, &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
   }
 

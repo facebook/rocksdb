@@ -219,7 +219,7 @@ class MultiGetContext {
 
     Iterator end() const { return Iterator(this, end_); }
 
-    bool empty() { return RemainingMask() == 0; }
+    bool empty() const { return RemainingMask() == 0; }
 
     void SkipKey(const Iterator& iter) {
       skip_mask_ |= uint64_t{1} << iter.index_;
@@ -231,11 +231,11 @@ class MultiGetContext {
       ctx_->value_mask_ |= (uint64_t{1} << iter.index_);
     }
 
-    bool CheckKeyDone(Iterator& iter) {
+    bool CheckKeyDone(Iterator& iter) const {
       return ctx_->value_mask_ & (uint64_t{1} << iter.index_);
     }
 
-    uint64_t KeysLeft() { return BitsSetToOne(RemainingMask()); }
+    uint64_t KeysLeft() const { return BitsSetToOne(RemainingMask()); }
 
     void AddSkipsFrom(const Range& other) {
       assert(ctx_ == other.ctx_);
@@ -254,7 +254,7 @@ class MultiGetContext {
       assert(num_keys < 64);
     }
 
-    uint64_t RemainingMask() {
+    uint64_t RemainingMask() const {
       return (((uint64_t{1} << end_) - 1) & ~((uint64_t{1} << start_) - 1) &
               ~(ctx_->value_mask_ | skip_mask_));
     }

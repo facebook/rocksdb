@@ -2112,10 +2112,7 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     return;
   }
   uint64_t before_keys = range->KeysLeft();
-  if (before_keys == 0) {
-    // Nothing left to filter
-    return;
-  }
+  assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
     filter->KeysMayMatch(range, prefix_extractor, kNotValid, no_io,
                          lookup_context);
@@ -2332,6 +2329,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                const MultiGetRange* mget_range,
                                const SliceTransform* prefix_extractor,
                                bool skip_filters) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return;  // Nothing to do
+  }
+
   FilterBlockReader* const filter =
       !skip_filters ? rep_->filter.get() : nullptr;
   MultiGetRange sst_file_range(*mget_range, mget_range->begin(),
@@ -2341,7 +2344,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   // If full filter not useful, Then go into each block
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
-  if (!sst_file_range.empty() && sst_file_range.begin()->get_context) {
+  if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
   }
   BlockCacheLookupContext lookup_context{
@@ -2350,7 +2353,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
                          prefix_extractor, &lookup_context);
 
-  if (skip_filters || !sst_file_range.empty()) {
+  if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
