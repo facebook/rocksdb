@@ -1,15 +1,13 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.9.3 (04/28/2020)
 ### Bug Fixes
 * Upgraded version of bzip library (1.0.6 -> 1.0.8) used with RocksJava to address potential vulnerabilities if an attacker can manipulate compressed data saved and loaded by RocksDB (not normal). See issue #6703.
 * Fix a bug by updating CURRENT file so that it points to the correct MANIFEST file after best-efforts recovery.
 * Fix a potential undefined behavior caused by trying to dereference nullable pointer (timestamp argument) in DB::MultiGet.
 * Fix a bug caused by not including user timestamp in MultiGet LookupKey construction. This can lead to wrong query result since the trailing bytes of a user key, if not shorter than timestamp, will be mistaken for user timestamp.
 * Fix a bug caused by using wrong compare function when sorting the input keys of MultiGet with timestamps.
-
-## 6.9.3 (04/28/2020)
-### Bug Fixes
-
 
 ## 6.9.2 (04/16/2020)
 ### Public API Change
