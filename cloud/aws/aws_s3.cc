@@ -124,7 +124,7 @@ class AwsS3ClientWrapper {
     }
   }
 
-  Aws::S3::Model::ListObjectsOutcome ListObjects(
+  Aws::S3::Model::ListObjectsOutcome ListCloudObjects(
       const Aws::S3::Model::ListObjectsRequest& request) {
     CloudRequestCallbackGuard t(cloud_request_callback_.get(),
                                 CloudRequestOpType::kListOp);
@@ -150,7 +150,7 @@ class AwsS3ClientWrapper {
     t.SetSuccess(outcome.IsSuccess());
     return outcome;
   }
-  Aws::S3::Model::DeleteObjectOutcome DeleteObject(
+  Aws::S3::Model::DeleteObjectOutcome DeleteCloudObject(
       const Aws::S3::Model::DeleteObjectRequest& request) {
     CloudRequestCallbackGuard t(cloud_request_callback_.get(),
                                 CloudRequestOpType::kDeleteOp);
@@ -159,7 +159,7 @@ class AwsS3ClientWrapper {
     return outcome;
   }
 
-  Aws::S3::Model::CopyObjectOutcome CopyObject(
+  Aws::S3::Model::CopyObjectOutcome CopyCloudObject(
       const Aws::S3::Model::CopyObjectRequest& request) {
     CloudRequestCallbackGuard t(cloud_request_callback_.get(),
                                 CloudRequestOpType::kCopyOp);
@@ -168,7 +168,7 @@ class AwsS3ClientWrapper {
     return outcome;
   }
 
-  Aws::S3::Model::GetObjectOutcome GetObject(
+  Aws::S3::Model::GetObjectOutcome GetCloudObject(
       const Aws::S3::Model::GetObjectRequest& request) {
     CloudRequestCallbackGuard t(cloud_request_callback_.get(),
                                 CloudRequestOpType::kReadOp);
@@ -197,7 +197,7 @@ class AwsS3ClientWrapper {
     return handle;
   }
 
-  Aws::S3::Model::PutObjectOutcome PutObject(
+  Aws::S3::Model::PutObjectOutcome PutCloudObject(
       const Aws::S3::Model::PutObjectRequest& request, uint64_t size_hint = 0) {
     CloudRequestCallbackGuard t(cloud_request_callback_.get(),
                                 CloudRequestOpType::kWriteOp, size_hint);
@@ -289,7 +289,8 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
     request.SetKey(ToAwsString(fname_));
     request.SetRange(range);
 
-    Aws::S3::Model::GetObjectOutcome outcome = s3client_->GetObject(request);
+    Aws::S3::Model::GetObjectOutcome outcome =
+        s3client_->GetCloudObject(request);
     bool isSuccess = outcome.IsSuccess();
     if (!isSuccess) {
       const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
@@ -354,32 +355,32 @@ class S3StorageProvider : public CloudStorageProviderImpl {
   // Status EmptyBucket(const std::string& bucket_name,
   //                   const std::string& object_path) override;
   // Delete the specified object from the specified cloud bucket
-  Status DeleteObject(const std::string& bucket_name,
-                      const std::string& object_path) override;
-  Status ListObjects(const std::string& bucket_name,
-                     const std::string& object_path,
-                     std::vector<std::string>* result) override;
-  Status ExistsObject(const std::string& bucket_name,
-                      const std::string& object_path) override;
-  Status GetObjectSize(const std::string& bucket_name,
-                       const std::string& object_path,
-                       uint64_t* filesize) override;
+  Status DeleteCloudObject(const std::string& bucket_name,
+                           const std::string& object_path) override;
+  Status ListCloudObjects(const std::string& bucket_name,
+                          const std::string& object_path,
+                          std::vector<std::string>* result) override;
+  Status ExistsCloudObject(const std::string& bucket_name,
+                           const std::string& object_path) override;
+  Status GetCloudObjectSize(const std::string& bucket_name,
+                            const std::string& object_path,
+                            uint64_t* filesize) override;
   // Get the modification time of the object in cloud storage
-  Status GetObjectModificationTime(const std::string& bucket_name,
-                                   const std::string& object_path,
-                                   uint64_t* time) override;
+  Status GetCloudObjectModificationTime(const std::string& bucket_name,
+                                        const std::string& object_path,
+                                        uint64_t* time) override;
 
   // Get the metadata of the object in cloud storage
-  Status GetObjectMetadata(
+  Status GetCloudObjectMetadata(
       const std::string& bucket_name, const std::string& object_path,
       std::unordered_map<std::string, std::string>* metadata) override;
-  Status PutObjectMetadata(
+  Status PutCloudObjectMetadata(
       const std::string& bucket_name, const std::string& object_path,
       const std::unordered_map<std::string, std::string>& metadata) override;
-  Status CopyObject(const std::string& bucket_name_src,
-                    const std::string& object_path_src,
-                    const std::string& bucket_name_dest,
-                    const std::string& object_path_dest) override;
+  Status CopyCloudObject(const std::string& bucket_name_src,
+                         const std::string& object_path_src,
+                         const std::string& bucket_name_dest,
+                         const std::string& object_path_dest) override;
   Status DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
       std::unique_ptr<CloudStorageReadableFile>* result,
@@ -391,14 +392,14 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                               const EnvOptions& options) override;
  protected:
   Status Initialize(CloudEnv* env) override;
-  Status DoGetObject(const std::string& bucket_name,
-                     const std::string& object_path,
-                     const std::string& destination,
-                     uint64_t* remote_size) override;
-  Status DoPutObject(const std::string& local_file,
-                     const std::string& bucket_name,
-                     const std::string& object_path,
-                     uint64_t file_size) override;
+  Status DoGetCloudObject(const std::string& bucket_name,
+                          const std::string& object_path,
+                          const std::string& destination,
+                          uint64_t* remote_size) override;
+  Status DoPutCloudObject(const std::string& local_file,
+                          const std::string& bucket_name,
+                          const std::string& object_path,
+                          uint64_t file_size) override;
 
  private:
   // If metadata, size or modtime is non-nullptr, returns requested data
@@ -498,7 +499,7 @@ Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
   std::vector<std::string> results;
 
   // Get all the objects in the  bucket
-  Status st = ListObjects(bucket_name, object_path, &results);
+  Status st = ListCloudObjects(bucket_name, object_path, &results);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] EmptyBucket unable to find objects in bucket %s %s",
@@ -512,7 +513,7 @@ Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
 
   // Delete all objects from bucket
   for (auto path : results) {
-    st = DeleteObject(bucket_name, path);
+    st = DeleteCloudObject(bucket_name, path);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] EmptyBucket Unable to delete %s in bucket %s %s", path.c_str(),
@@ -522,8 +523,8 @@ Status S3StorageProvider::EmptyBucket(const std::string& bucket_name,
   return st;
 }
 
-Status S3StorageProvider::DeleteObject(const std::string& bucket_name,
-                                       const std::string& object_path) {
+Status S3StorageProvider::DeleteCloudObject(const std::string& bucket_name,
+                                            const std::string& object_path) {
   Status st;
 
   // create request
@@ -533,7 +534,7 @@ Status S3StorageProvider::DeleteObject(const std::string& bucket_name,
       object_path));  // The filename is the object name in the bucket
 
   Aws::S3::Model::DeleteObjectOutcome outcome =
-      s3client_->DeleteObject(request);
+      s3client_->DeleteCloudObject(request);
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
@@ -556,9 +557,9 @@ Status S3StorageProvider::DeleteObject(const std::string& bucket_name,
 // Appends the names of all children of the specified path from S3
 // into the result set.
 //
-Status S3StorageProvider::ListObjects(const std::string& bucket_name,
-                                      const std::string& object_path,
-                                      std::vector<std::string>* result) {
+Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
+                                           const std::string& object_path,
+                                           std::vector<std::string>* result) {
   // S3 paths don't start with '/'
   auto prefix = ltrim_if(object_path, '/');
   // S3 paths better end with '/', otherwise we might also get a list of files
@@ -579,7 +580,7 @@ Status S3StorageProvider::ListObjects(const std::string& bucket_name,
     request.SetMarker(marker);
 
     Aws::S3::Model::ListObjectsOutcome outcome =
-        s3client_->ListObjects(request);
+        s3client_->ListCloudObjects(request);
     bool isSuccess = outcome.IsSuccess();
     if (!isSuccess) {
       const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
@@ -624,33 +625,33 @@ Status S3StorageProvider::ListObjects(const std::string& bucket_name,
   return Status::OK();
 }
 // Delete the specified object from the specified cloud bucket
-Status S3StorageProvider::ExistsObject(const std::string& bucket_name,
-                                       const std::string& object_path) {
+Status S3StorageProvider::ExistsCloudObject(const std::string& bucket_name,
+                                            const std::string& object_path) {
   Status s = HeadObject(bucket_name, object_path);
   return s;
 }
 
 // Return size of cloud object
-Status S3StorageProvider::GetObjectSize(const std::string& bucket_name,
-                                        const std::string& object_path,
-                                        uint64_t* filesize) {
+Status S3StorageProvider::GetCloudObjectSize(const std::string& bucket_name,
+                                             const std::string& object_path,
+                                             uint64_t* filesize) {
   Status s = HeadObject(bucket_name, object_path, nullptr, filesize, nullptr);
   return s;
 }
 
-Status S3StorageProvider::GetObjectModificationTime(
+Status S3StorageProvider::GetCloudObjectModificationTime(
     const std::string& bucket_name, const std::string& object_path,
     uint64_t* time) {
   return HeadObject(bucket_name, object_path, nullptr, nullptr, time);
 }
 
-Status S3StorageProvider::GetObjectMetadata(
+Status S3StorageProvider::GetCloudObjectMetadata(
     const std::string& bucket_name, const std::string& object_path,
     std::unordered_map<std::string, std::string>* metadata) {
   return HeadObject(bucket_name, object_path, metadata, nullptr, nullptr);
 }
 
-Status S3StorageProvider::PutObjectMetadata(
+Status S3StorageProvider::PutCloudObjectMetadata(
     const std::string& bucket_name, const std::string& object_path,
     const std::unordered_map<std::string, std::string>& metadata) {
   Aws::S3::Model::PutObjectRequest request;
@@ -663,7 +664,7 @@ Status S3StorageProvider::PutObjectMetadata(
   request.SetMetadata(aws_metadata);
   SetEncryptionParameters(env_->GetCloudEnvOptions(), request);
 
-  auto outcome = s3client_->PutObject(request);
+  auto outcome = s3client_->PutCloudObject(request);
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
     const auto& error = outcome.GetError();
@@ -730,10 +731,10 @@ Status S3StorageProvider::HeadObject(
 
 // Copy the specified cloud object from one location in the cloud
 // storage to another location in cloud storage
-Status S3StorageProvider::CopyObject(const std::string& bucket_name_src,
-                                     const std::string& object_path_src,
-                                     const std::string& bucket_name_dest,
-                                     const std::string& object_path_dest) {
+Status S3StorageProvider::CopyCloudObject(const std::string& bucket_name_src,
+                                          const std::string& object_path_src,
+                                          const std::string& bucket_name_dest,
+                                          const std::string& object_path_dest) {
   Status st;
   Aws::String src_bucket = ToAwsString(bucket_name_src);
   Aws::String dest_bucket = ToAwsString(bucket_name_dest);
@@ -752,7 +753,8 @@ Status S3StorageProvider::CopyObject(const std::string& bucket_name_src,
   SetEncryptionParameters(env_->GetCloudEnvOptions(), request);
 
   // execute request
-  Aws::S3::Model::CopyObjectOutcome outcome = s3client_->CopyObject(request);
+  Aws::S3::Model::CopyObjectOutcome outcome =
+      s3client_->CopyCloudObject(request);
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
@@ -768,10 +770,10 @@ Status S3StorageProvider::CopyObject(const std::string& bucket_name_src,
   return st;
 }
 
-Status S3StorageProvider::DoGetObject(const std::string& bucket_name,
-                                      const std::string& object_path,
-                                      const std::string& destination,
-                                      uint64_t* remote_size) {
+Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
+                                           const std::string& object_path,
+                                           const std::string& destination,
+                                           uint64_t* remote_size) {
   if (s3client_->HasTransferManager()) {
     auto handle = s3client_->DownloadFile(ToAwsString(bucket_name),
                                           ToAwsString(object_path),
@@ -800,7 +802,7 @@ Status S3StorageProvider::DoGetObject(const std::string& bucket_name,
       return Aws::New<Aws::FStream>(Aws::Utils::ARRAY_ALLOCATION_TAG,
                                     destination, std::ios_base::out);
     });
-    auto outcome = s3client_->GetObject(request);
+    auto outcome = s3client_->GetCloudObject(request);
     if (outcome.IsSuccess()) {
       *remote_size = outcome.GetResult().GetContentLength();
     } else {
@@ -818,10 +820,10 @@ Status S3StorageProvider::DoGetObject(const std::string& bucket_name,
   return Status::OK();
 }
 
-Status S3StorageProvider::DoPutObject(const std::string& local_file,
-                                      const std::string& bucket_name,
-                                      const std::string& object_path,
-                                      uint64_t file_size) {
+Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
+                                           const std::string& bucket_name,
+                                           const std::string& object_path,
+                                           uint64_t file_size) {
   if (s3client_->HasTransferManager()) {
     auto handle =
         s3client_->UploadFile(ToAwsString(local_file), ToAwsString(bucket_name),
@@ -845,18 +847,18 @@ Status S3StorageProvider::DoPutObject(const std::string& local_file,
     putRequest.SetBody(inputData);
     SetEncryptionParameters(env_->GetCloudEnvOptions(), putRequest);
 
-    auto outcome = s3client_->PutObject(putRequest, file_size);
+    auto outcome = s3client_->PutCloudObject(putRequest, file_size);
     if (!outcome.IsSuccess()) {
       auto error = outcome.GetError();
       std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-          "[s3] PutObject %s/%s, size %" PRIu64 ", ERROR %s",
+          "[s3] PutCloudObject %s/%s, size %" PRIu64 ", ERROR %s",
           bucket_name.c_str(), object_path.c_str(), file_size, errmsg.c_str());
       return Status::IOError(local_file, errmsg);
     }
   }
   Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
-      "[s3] PutObject %s/%s, size %" PRIu64 ", OK", bucket_name.c_str(),
+      "[s3] PutCloudObject %s/%s, size %" PRIu64 ", OK", bucket_name.c_str(),
       object_path.c_str(), file_size);
   return Status::OK();
 }

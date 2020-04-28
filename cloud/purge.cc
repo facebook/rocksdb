@@ -57,7 +57,7 @@ void CloudEnvImpl::Purger() {
     // delete obsolete paths
     for (const auto& p : to_be_deleted_paths) {
       // TODO more unit tests before we delete data
-      // st = DeleteObject(GetDestBucketName(), p);
+      // st = DeleteCloudObject(GetDestBucketName(), p);
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
           "[pg] bucket prefix %s obsolete dbpath %s deleted. %s",
           GetDestBucketName().c_str(), p.c_str(), st.ToString().c_str());
@@ -133,8 +133,8 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
     std::string mpath = iter->second;
 
     std::vector<std::string> objects;
-    st = cloud_env_options.storage_provider->ListObjects(bucket_name_prefix,
-                                                         mpath, &objects);
+    st = cloud_env_options.storage_provider->ListCloudObjects(
+        bucket_name_prefix, mpath, &objects);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] Unable to list objects in bucketprefix %s path_prefix %s. %s",
@@ -171,7 +171,7 @@ Status CloudEnvImpl::FindObsoleteDbid(
     for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
       std::unique_ptr<SequentialFile> result;
       std::string path = CloudManifestFile(iter->second);
-      st = GetCloudEnvOptions().storage_provider->ExistsObject(
+      st = GetCloudEnvOptions().storage_provider->ExistsCloudObject(
           GetDestBucketName(), path);
       // this dbid can be cleaned up
       if (st.IsNotFound()) {
@@ -204,8 +204,8 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
     // download IDENTITY
     std::string cloudfile = iter->second + "/IDENTITY";
     std::string localfile = scratch + "/.rockset_IDENTITY." + random;
-    st = GetCloudEnvOptions().storage_provider->GetObject(bucket_name_prefix,
-                                                          cloudfile, localfile);
+    st = GetCloudEnvOptions().storage_provider->GetCloudObject(
+        bucket_name_prefix, cloudfile, localfile);
     if (!st.ok() && !st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] Unable to download IDENTITY file from "

@@ -363,11 +363,11 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
       if (cloud_env_options.keep_local_sst_files || !sstfile) {
         // copy the file to the local storage if keep_local_sst_files is true
         if (HasDestBucket()) {
-          st = cloud_env_options.storage_provider->GetObject(
+          st = cloud_env_options.storage_provider->GetCloudObject(
               GetDestBucketName(), destname(fname), fname);
         }
         if (!st.ok() && HasSrcBucket() && !SrcMatchesDest()) {
-          st = cloud_env_options.storage_provider->GetObject(
+          st = cloud_env_options.storage_provider->GetCloudObject(
               GetSrcBucketName(), srcname(fname), fname);
         }
         if (st.ok()) {
@@ -436,11 +436,11 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       if (!st.ok()) {
         // copy the file to the local storage if keep_local_sst_files is true
         if (HasDestBucket()) {
-          st = cloud_env_options.storage_provider->GetObject(
+          st = cloud_env_options.storage_provider->GetCloudObject(
               GetDestBucketName(), destname(fname), fname);
         }
         if (!st.ok() && HasSrcBucket() && !SrcMatchesDest()) {
-          st = cloud_env_options.storage_provider->GetObject(
+          st = cloud_env_options.storage_provider->GetCloudObject(
               GetSrcBucketName(), srcname(fname), fname);
         }
         if (st.ok()) {
@@ -459,11 +459,11 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
         }
         stax = Status::NotFound();
         if (HasDestBucket()) {
-          stax = cloud_env_options.storage_provider->GetObjectSize(
+          stax = cloud_env_options.storage_provider->GetCloudObjectSize(
               GetDestBucketName(), destname(fname), &remote_size);
         }
         if (stax.IsNotFound() && HasSrcBucket()) {
-          stax = cloud_env_options.storage_provider->GetObjectSize(
+          stax = cloud_env_options.storage_provider->GetCloudObjectSize(
               GetSrcBucketName(), srcname(fname), &remote_size);
         }
         if (stax.IsNotFound() && !HasDestBucket()) {
@@ -638,12 +638,12 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
     // We read first from local storage and then from cloud storage.
     st = base_env_->FileExists(fname);
     if (st.IsNotFound() && HasDestBucket()) {
-      st = cloud_env_options.storage_provider->ExistsObject(GetDestBucketName(),
-                                                            destname(fname));
+      st = cloud_env_options.storage_provider->ExistsCloudObject(
+          GetDestBucketName(), destname(fname));
     }
     if (!st.ok() && HasSrcBucket()) {
-      st = cloud_env_options.storage_provider->ExistsObject(GetSrcBucketName(),
-                                                            srcname(fname));
+      st = cloud_env_options.storage_provider->ExistsCloudObject(
+          GetSrcBucketName(), srcname(fname));
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
@@ -666,7 +666,7 @@ Status AwsEnv::GetChildren(const std::string& path,
   // Fetch the list of children from both buckets in S3
   Status st;
   if (HasSrcBucket() && !cloud_env_options.skip_cloud_files_in_getchildren) {
-    st = cloud_env_options.storage_provider->ListObjects(
+    st = cloud_env_options.storage_provider->ListCloudObjects(
         GetSrcBucketName(), GetSrcObjectPath(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -677,7 +677,7 @@ Status AwsEnv::GetChildren(const std::string& path,
   }
   if (HasDestBucket() && !SrcMatchesDest() &&
       !cloud_env_options.skip_cloud_files_in_getchildren) {
-    st = cloud_env_options.storage_provider->ListObjects(
+    st = cloud_env_options.storage_provider->ListCloudObjects(
         GetDestBucketName(), GetDestObjectPath(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -809,7 +809,7 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
 Status AwsEnv::CopyLocalFileToDest(const std::string& local_name,
                                    const std::string& dest_name) {
   RemoveFileFromDeletionQueue(basename(local_name));
-  return cloud_env_options.storage_provider->PutObject(
+  return cloud_env_options.storage_provider->PutCloudObject(
       local_name, GetDestBucketName(), dest_name);
 }
 
@@ -829,7 +829,7 @@ Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
     }
     auto path = GetDestObjectPath() + "/" + base;
     // we are ready to delete the file!
-    auto st = cloud_env_options.storage_provider->DeleteObject(
+    auto st = cloud_env_options.storage_provider->DeleteCloudObject(
         GetDestBucketName(), path);
     if (!st.ok() && !st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -916,11 +916,11 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
       st = Status::NotFound();
       // Get file length from S3
       if (HasDestBucket()) {
-        st = cloud_env_options.storage_provider->GetObjectSize(
+        st = cloud_env_options.storage_provider->GetCloudObjectSize(
             GetDestBucketName(), destname(fname), size);
       }
       if (st.IsNotFound() && HasSrcBucket()) {
-        st = cloud_env_options.storage_provider->GetObjectSize(
+        st = cloud_env_options.storage_provider->GetCloudObjectSize(
             GetSrcBucketName(), srcname(fname), size);
       }
     }
@@ -952,11 +952,11 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
     } else {
       st = Status::NotFound();
       if (HasDestBucket()) {
-        st = cloud_env_options.storage_provider->GetObjectModificationTime(
+        st = cloud_env_options.storage_provider->GetCloudObjectModificationTime(
             GetDestBucketName(), destname(fname), time);
       }
       if (st.IsNotFound() && HasSrcBucket()) {
-        st = cloud_env_options.storage_provider->GetObjectModificationTime(
+        st = cloud_env_options.storage_provider->GetCloudObjectModificationTime(
             GetSrcBucketName(), srcname(fname), time);
       }
     }
@@ -1054,7 +1054,7 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
 
   // Upload ID file to  S3
   if (st.ok()) {
-    st = cloud_env_options.storage_provider->PutObject(
+    st = cloud_env_options.storage_provider->PutCloudObject(
         localfile, GetDestBucketName(), idfile);
   }
 
@@ -1079,7 +1079,7 @@ Status AwsEnv::SaveDbid(const std::string& bucket_name, const std::string& dbid,
   std::unordered_map<std::string, std::string> metadata;
   metadata["dirname"] = dirname;
 
-  Status st = cloud_env_options.storage_provider->PutObjectMetadata(
+  Status st = cloud_env_options.storage_provider->PutCloudObjectMetadata(
       bucket_name, dbidkey, metadata);
 
   if (!st.ok()) {
@@ -1107,7 +1107,7 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket,
       dbid.c_str());
 
   std::unordered_map<std::string, std::string> metadata;
-  Status st = cloud_env_options.storage_provider->GetObjectMetadata(
+  Status st = cloud_env_options.storage_provider->GetCloudObjectMetadata(
       bucket, dbidkey, &metadata);
   if (!st.ok()) {
     if (st.IsNotFound()) {
@@ -1142,7 +1142,7 @@ Status AwsEnv::GetDbidList(const std::string& bucket, DbidList* dblist) {
 
   // fetch the list all all dbids
   std::vector<std::string> dbid_list;
-  Status st = cloud_env_options.storage_provider->ListObjects(
+  Status st = cloud_env_options.storage_provider->ListCloudObjects(
       bucket, dbid_registry_, &dbid_list);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -1174,7 +1174,8 @@ Status AwsEnv::DeleteDbid(const std::string& bucket,
 
   // fetch the list all all dbids
   std::string dbidkey = dbid_registry_ + dbid;
-  Status st = cloud_env_options.storage_provider->DeleteObject(bucket, dbidkey);
+  Status st =
+      cloud_env_options.storage_provider->DeleteCloudObject(bucket, dbidkey);
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] %s DeleteDbid DeleteDbid(%s) %s", bucket.c_str(), dbid.c_str(),
       st.ToString().c_str());
