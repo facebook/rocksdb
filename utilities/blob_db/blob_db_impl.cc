@@ -211,7 +211,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
   db_impl_ = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
-  // Sanitize the blob_dir provided. Using the same directory where the
+  // Sanitize the blob_dir provided. Using a directory where the
   // base DB stores its files for the default CF is not supported.
   const ColumnFamilyData* const cfd =
       static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
@@ -220,22 +220,22 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   const ImmutableCFOptions* const ioptions = cfd->ioptions();
   assert(ioptions);
 
-  assert(!ioptions->cf_paths.empty());
-  const std::string& cf_dir = ioptions->cf_paths.front().path;
+  for (const auto& cf_path : ioptions->cf_paths) {
+    assert(env_);
+    bool blob_dir_same_as_cf_dir = false;
+    s = env_->AreFilesSame(blob_dir_, cf_path.path, &blob_dir_same_as_cf_dir);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Error while sanitizing blob_dir %s, status: %s",
+                      blob_dir_.c_str(), s.ToString().c_str());
+      return s;
+    }
 
-  assert(env_);
-  bool blob_dir_same_as_cf_dir = false;
-  s = env_->AreFilesSame(blob_dir_, cf_dir, &blob_dir_same_as_cf_dir);
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "Error while sanitizing blob_dir %s, status: %s",
-                    blob_dir_.c_str(), s.ToString().c_str());
-    return s;
-  }
-
-  if (blob_dir_same_as_cf_dir) {
-    return Status::NotSupported(
-        "Using the base DB's directory to store blob files is not supported.");
+    if (blob_dir_same_as_cf_dir) {
+      return Status::NotSupported(
+          "Using the base DB's directory to store blob files is not "
+          "supported.");
+    }
   }
 
   // Initialize SST file <-> oldest blob file mapping if garbage collection
