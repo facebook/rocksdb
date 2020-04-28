@@ -25,8 +25,10 @@
 ### Bug Fixes
 * Fix a bug when making options.bottommost_compression, options.compression_opts and options.bottommost_compression_opts dynamically changeable: the modified values are not written to option files or returned back to users when being queried.
 * Fix a bug where index key comparisons were unaccounted in `PerfContext::user_key_comparison_count` for lookups in files written with `format_version >= 3`.
+* Fix many bloom.filter statistics not being updated in batch MultiGet.
 
 ### Performance Improvements
+* Improve performance of batch MultiGet with partitioned filters, by sharing block cache lookups to applicable filter blocks.
 * Reduced memory copies when fetching and uncompressing compressed blocks from sst files.
 
 ## 6.9.0 (03/29/2020)

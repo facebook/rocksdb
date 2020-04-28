@@ -2147,14 +2147,37 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   if (filter == nullptr || filter->IsBlockBased()) {
     return;
   }
+  uint64_t before_keys = range->KeysLeft();
+  assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
     filter->KeysMayMatch(range, prefix_extractor, kNotValid, no_io,
                          lookup_context);
+    uint64_t after_keys = range->KeysLeft();
+    if (after_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE,
+                 after_keys);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, after_keys,
+                                rep_->level);
+    }
+    uint64_t filtered_keys = before_keys - after_keys;
+    if (filtered_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL, filtered_keys);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, filtered_keys,
+                                rep_->level);
+    }
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0) {
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
+    RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_PREFIX_CHECKED,
+               before_keys);
+    uint64_t after_keys = range->KeysLeft();
+    uint64_t filtered_keys = before_keys - after_keys;
+    if (filtered_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_PREFIX_USEFUL,
+                 filtered_keys);
+    }
   }
 }
 
@@ -2342,6 +2365,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                const MultiGetRange* mget_range,
                                const SliceTransform* prefix_extractor,
                                bool skip_filters) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return;  // Nothing to do
+  }
+
   FilterBlockReader* const filter =
       !skip_filters ? rep_->filter.get() : nullptr;
   MultiGetRange sst_file_range(*mget_range, mget_range->begin(),
@@ -2351,7 +2380,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   // If full filter not useful, Then go into each block
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
-  if (!sst_file_range.empty() && sst_file_range.begin()->get_context) {
+  if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
   }
   BlockCacheLookupContext lookup_context{
@@ -2360,7 +2389,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
                          prefix_extractor, &lookup_context);
 
-  if (skip_filters || !sst_file_range.empty()) {
+  if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.
