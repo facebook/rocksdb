@@ -8,15 +8,16 @@
 #include "cloud/cloud_env_wrapper.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
+#include "file/writable_file_writer.h"
 #include "port/likely.h"
 #include "rocksdb/cloud/cloud_log_controller.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "util/file_reader_writer.h"
 #include "util/xxhash.h"
 
 namespace rocksdb {
@@ -65,7 +66,7 @@ Status CloudEnvImpl::LoadLocalCloudManifest(
   }
   return CloudManifest::LoadFromLog(
       std::unique_ptr<SequentialFileReader>(
-          new SequentialFileReader(std::move(file), cloud_manifest_file_name)),
+          new SequentialFileReader(NewLegacySequentialFileWrapper(file), cloud_manifest_file_name)),
       cloud_manifest);
 }
 
@@ -207,7 +208,8 @@ Status CloudEnvImpl::writeCloudManifest(CloudManifest* manifest,
   Status s = local_env->NewWritableFile(tmp_fname, &file, EnvOptions());
   if (s.ok()) {
     s = manifest->WriteToLog(std::unique_ptr<WritableFileWriter>(
-        new WritableFileWriter(std::move(file), tmp_fname, EnvOptions())));
+        new WritableFileWriter(
+            NewLegacyWritableFileWrapper(std::move(file)), tmp_fname, EnvOptions())));
   }
   if (s.ok()) {
     s = local_env->RenameFile(tmp_fname, fname);
@@ -964,7 +966,8 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
     // However, we don't move here, we copy. If we moved and crashed immediately
     // after (before writing CLOUDMANIFEST), we'd corrupt our database. The old
     // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
-    st = CopyFile(GetBaseEnv(), ManifestFileWithEpoch(local_dbname, oldEpoch),
+    LegacyFileSystemWrapper fs(GetBaseEnv());    
+    st = CopyFile(&fs, ManifestFileWithEpoch(local_dbname, oldEpoch),
                   ManifestFileWithEpoch(local_dbname, newEpoch), 0, true);
     if (!st.ok()) {
       return st;

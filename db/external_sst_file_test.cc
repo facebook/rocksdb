@@ -1700,6 +1700,35 @@ TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
   ASSERT_OK(DeprecatedAddFile({file_path}));
 }
 
+TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL",
+        "ExternalSSTFileTest::WithUnorderedWrite:WaitWriteWAL"},
+       {"DBImpl::WaitForPendingWrites:BeforeBlock",
+        "DBImpl::WriteImpl:BeforeUnorderedWriteMemtable"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::IngestExternalFile:NeedFlush", [&](void* need_flush) {
+        ASSERT_TRUE(*reinterpret_cast<bool*>(need_flush));
+      });
+
+  Options options = CurrentOptions();
+  options.unordered_write = true;
+  DestroyAndReopen(options);
+  Put("foo", "v1");
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer([&]() { Put("bar", "v2"); });
+
+  TEST_SYNC_POINT("ExternalSSTFileTest::WithUnorderedWrite:WaitWriteWAL");
+  ASSERT_OK(GenerateAndAddExternalFile(options, {{"bar", "v3"}}, -1,
+                                       true /* allow_global_seqno */));
+  ASSERT_EQ(Get("bar"), "v3");
+
+  writer.join();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
   Options options = CurrentOptions();
   options.IncreaseParallelism(20);
@@ -2748,6 +2777,26 @@ TEST_P(ExternalSSTFileTest,
   }
   Close();
   Destroy(options, true /* delete_cf_paths */);
+}
+
+TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
+  Options options = CurrentOptions();
+  // Use large buffer to avoid memtable flush
+  options.write_buffer_size = 1024 * 1024;
+  options.two_write_queues = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "1000", "v1"));
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "1001", "v1"));
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "9999", "v1"));
+
+  // Put one key which is overlap with keys in memtable.
+  // It will trigger flushing memtable and require this thread is
+  // currently at the front of the 2nd writer queue. We must make
+  // sure that it won't enter the 2nd writer queue for the second time.
+  std::vector<std::pair<std::string, std::string>> data;
+  data.push_back(std::make_pair("1001", "v2"));
+  GenerateAndAddExternalFile(options, data);
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,

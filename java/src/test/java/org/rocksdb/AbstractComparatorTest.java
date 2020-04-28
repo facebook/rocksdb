@@ -19,7 +19,7 @@ import static org.rocksdb.Types.intToByte;
 /**
  * Abstract tests for both Comparator and DirectComparator
  */
-public abstract class AbstractComparatorTest {
+public abstract class AbstractComparatorTest<T extends AbstractSlice<?>> {
 
   /**
    * Get a comparator which will expect Integer keys
@@ -27,7 +27,7 @@ public abstract class AbstractComparatorTest {
    *
    * @return An integer ascending order key comparator
    */
-  public abstract AbstractComparator getAscendingIntKeyComparator();
+  public abstract AbstractComparator<T> getAscendingIntKeyComparator();
 
   /**
    * Test which stores random keys into the database
@@ -42,7 +42,7 @@ public abstract class AbstractComparatorTest {
    */
   public void testRoundtrip(final Path db_path) throws IOException,
       RocksDBException {
-    try (final AbstractComparator comparator = getAscendingIntKeyComparator();
+    try (final AbstractComparator<T> comparator = getAscendingIntKeyComparator();
          final Options opt = new Options()
              .setCreateIfMissing(true)
              .setComparator(comparator)) {
@@ -52,7 +52,7 @@ public abstract class AbstractComparatorTest {
       try (final RocksDB db = RocksDB.open(opt, db_path.toString())) {
         final Random random = new Random();
         for (int i = 0; i < ITERATIONS; i++) {
-          final byte key[] = intToByte(random.nextInt());
+          final byte[] key = intToByte(random.nextInt());
           // does key already exist (avoid duplicates)
           if (i > 0 && db.get(key) != null) {
             i--; // generate a different key
@@ -96,7 +96,7 @@ public abstract class AbstractComparatorTest {
   public void testRoundtripCf(final Path db_path) throws IOException,
       RocksDBException {
 
-    try(final AbstractComparator comparator = getAscendingIntKeyComparator()) {
+    try(final AbstractComparator<T> comparator = getAscendingIntKeyComparator()) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
           new ColumnFamilyDescriptor("new_cf".getBytes(),

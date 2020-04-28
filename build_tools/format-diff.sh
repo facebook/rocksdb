@@ -13,9 +13,14 @@ then
   echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
   echo "You can download clang-format-diff.py by running: "
   echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
-  echo "You can download clang-format by running: "
+  echo "You can download clang-format by running:"
   echo "    brew install clang-format"
+  echo "  Or"
+  echo "    apt install clang-format"
+  echo "  This might work too:"
+  echo "    yum install git-clang-format"
   echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
+  echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
   exit 128
 fi
 
@@ -54,15 +59,25 @@ fi
 set -e
 
 uncommitted_code=`git diff HEAD`
-LAST_MASTER=`git merge-base master HEAD`
 
 # If there's no uncommitted changes, we assume user are doing post-commit
-# format check, in which case we'll check the modified lines since last commit
-# from master. Otherwise, we'll check format of the uncommitted code only.
+# format check, in which case we'll try to check the modified lines vs. the
+# facebook/rocksdb.git master branch. Otherwise, we'll check format of the
+# uncommitted code only.
 if [ -z "$uncommitted_code" ]
 then
-  # Check the format of last commit
-  diffs=$(git diff -U0 $LAST_MASTER^ | $CLANG_FORMAT_DIFF -p 1)
+  # Attempt to get name of facebook/rocksdb.git remote.
+  [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
+  # Fall back on 'origin' if that fails
+  [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE=origin
+  # Use master branch from that remote
+  [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/master"
+  # Get the common ancestor with that remote branch. Everything after that
+  # common ancestor would be considered the contents of a pull request, so
+  # should be relevant for formatting fixes.
+  FORMAT_UPSTREAM_MERGE_BASE="$(git merge-base "$FORMAT_UPSTREAM" HEAD)"
+  # Get the differences
+  diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -p 1)
 else
   # Check the format of uncommitted lines,
   diffs=$(git diff -U0 HEAD | $CLANG_FORMAT_DIFF -p 1)
@@ -76,12 +91,12 @@ fi
 
 # Highlight the insertion/deletion from the clang-format-diff.py's output
 COLOR_END="\033[0m"
-COLOR_RED="\033[0;31m" 
-COLOR_GREEN="\033[0;32m" 
+COLOR_RED="\033[0;31m"
+COLOR_GREEN="\033[0;32m"
 
 echo -e "Detect lines that doesn't follow the format rules:\r"
 # Add the color to the diff. lines added will be green; lines removed will be red.
-echo "$diffs" | 
+echo "$diffs" |
   sed -e "s/\(^-.*$\)/`echo -e \"$COLOR_RED\1$COLOR_END\"`/" |
   sed -e "s/\(^+.*$\)/`echo -e \"$COLOR_GREEN\1$COLOR_END\"`/"
 
@@ -104,7 +119,7 @@ fi
 # Do in-place format adjustment.
 if [ -z "$uncommitted_code" ]
 then
-  git diff -U0 $LAST_MASTER^ | $CLANG_FORMAT_DIFF -i -p 1
+  git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -i -p 1
 else
   git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -i -p 1
 fi

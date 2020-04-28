@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/block_based/block_based_filter_block.h"
-
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/mock_block_based_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
@@ -48,28 +48,10 @@ class MockBlockBasedTable : public BlockBasedTable {
       : BlockBasedTable(rep, nullptr /* block_cache_tracer */) {}
 };
 
-class FilterBlockTest : public testing::Test {
+class FilterBlockTest : public mock::MockBlockBasedTableTester,
+                        public testing::Test {
  public:
-  Options options_;
-  ImmutableCFOptions ioptions_;
-  EnvOptions env_options_;
-  BlockBasedTableOptions table_options_;
-  InternalKeyComparator icomp_;
-  std::unique_ptr<BlockBasedTable> table_;
-
-  FilterBlockTest()
-      : ioptions_(options_),
-        env_options_(options_),
-        icomp_(options_.comparator) {
-    table_options_.filter_policy.reset(new TestHashFilter);
-
-    constexpr bool skip_filters = false;
-    constexpr int level = 0;
-    constexpr bool immortal_table = false;
-    table_.reset(new MockBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table)));
-  }
+  FilterBlockTest() : mock::MockBlockBasedTableTester(new TestHashFilter) {}
 };
 
 TEST_F(FilterBlockTest, EmptyBuilder) {
@@ -254,28 +236,11 @@ TEST_F(FilterBlockTest, MultiChunk) {
 
 // Test for block based filter block
 // use new interface in FilterPolicy to create filter builder/reader
-class BlockBasedFilterBlockTest : public testing::Test {
+class BlockBasedFilterBlockTest : public mock::MockBlockBasedTableTester,
+                                  public testing::Test {
  public:
-  Options options_;
-  ImmutableCFOptions ioptions_;
-  EnvOptions env_options_;
-  BlockBasedTableOptions table_options_;
-  InternalKeyComparator icomp_;
-  std::unique_ptr<BlockBasedTable> table_;
-
   BlockBasedFilterBlockTest()
-      : ioptions_(options_),
-        env_options_(options_),
-        icomp_(options_.comparator) {
-    table_options_.filter_policy.reset(NewBloomFilterPolicy(10));
-
-    constexpr bool skip_filters = false;
-    constexpr int level = 0;
-    constexpr bool immortal_table = false;
-    table_.reset(new MockBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table)));
-  }
+      : mock::MockBlockBasedTableTester(NewBloomFilterPolicy(10, true)) {}
 };
 
 TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {

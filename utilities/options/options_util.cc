@@ -7,6 +7,7 @@
 
 #include "rocksdb/utilities/options_util.h"
 
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "options/options_parser.h"
 #include "rocksdb/options.h"
@@ -18,7 +19,8 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            bool ignore_unknown_options,
                            std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
-  Status s = parser.Parse(file_name, env, ignore_unknown_options);
+  LegacyFileSystemWrapper fs(env);
+  Status s = parser.Parse(file_name, &fs, ignore_unknown_options);
   if (!s.ok()) {
     return s;
   }
@@ -100,9 +102,10 @@ Status CheckOptionsCompatibility(
   }
 
   const OptionsSanityCheckLevel kDefaultLevel = kSanityLevelLooselyCompatible;
+  LegacyFileSystemWrapper fs(env);
 
   return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      db_options, cf_names, cf_opts, dbpath + "/" + options_file_name, env,
+      db_options, cf_names, cf_opts, dbpath + "/" + options_file_name, &fs,
       kDefaultLevel, ignore_unknown_options);
 }
 

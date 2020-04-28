@@ -98,24 +98,23 @@ struct ThreadPoolImpl::Impl {
   void SetThreadPriority(Env::Priority priority) { priority_ = priority; }
 
 private:
+ static void BGThreadWrapper(void* arg);
 
-  static void BGThreadWrapper(void* arg);
+ bool low_io_priority_;
+ bool low_cpu_priority_;
+ Env::Priority priority_;
+ Env* env_;
 
-  bool low_io_priority_;
-  bool low_cpu_priority_;
-  Env::Priority priority_;
-  Env*         env_;
+ int total_threads_limit_;
+ std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
+ bool exit_all_threads_;
+ bool wait_for_jobs_to_complete_;
 
-  int total_threads_limit_;
-  std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
-  bool exit_all_threads_;
-  bool wait_for_jobs_to_complete_;
-
-  // Entry per Schedule()/Submit() call
-  struct BGItem {
-    void* tag = nullptr;
-    std::function<void()> function;
-    std::function<void()> unschedFunction;
+ // Entry per Schedule()/Submit() call
+ struct BGItem {
+   void* tag = nullptr;
+   std::function<void()> function;
+   std::function<void()> unschedFunction;
   };
 
   using BGQueue = std::deque<BGItem>;
@@ -313,9 +312,8 @@ void ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
 
 void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,
   bool allow_reduce) {
-  std::unique_lock<std::mutex> lock(mu_);
+  std::lock_guard<std::mutex> lock(mu_);
   if (exit_all_threads_) {
-    lock.unlock();
     return;
   }
   if (num > total_threads_limit_ ||

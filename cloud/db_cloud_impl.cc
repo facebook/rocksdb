@@ -12,6 +12,7 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/auto_roll_logger.h"
@@ -37,8 +38,9 @@ class ConstantSizeSstFileManager : public SstFileManagerImpl {
                              int64_t rate_bytes_per_sec,
                              double max_trash_db_ratio,
                              uint64_t bytes_max_delete_chunk)
-      : SstFileManagerImpl(env, std::move(logger), rate_bytes_per_sec,
-                           max_trash_db_ratio, bytes_max_delete_chunk),
+    : SstFileManagerImpl(env, std::make_shared<LegacyFileSystemWrapper>(env),
+                         std::move(logger), rate_bytes_per_sec,
+                         max_trash_db_ratio, bytes_max_delete_chunk),
         constant_file_size_(constant_file_size) {
     assert(constant_file_size_ >= 0);
   }
@@ -320,9 +322,9 @@ Status DBCloudImpl::DoCheckpointToCloud(
   auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch().ToString();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
-  st =
-      CopyFile(base_env, GetName() + "/" + manifest_fname,
-               GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
+  LegacyFileSystemWrapper fs(base_env);    
+  st = CopyFile(&fs, GetName() + "/" + manifest_fname,
+                GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
   if (!st.ok()) {
     return st;
   }

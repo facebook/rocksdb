@@ -23,8 +23,8 @@
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_SstFileReader_newSstFileReader(JNIEnv * /*env*/,
-                                                         jclass /*jcls*/,
-                                                          jlong joptions) {
+                                                      jclass /*jcls*/,
+                                                      jlong joptions) {
   auto *options = reinterpret_cast<const rocksdb::Options *>(joptions);
   rocksdb::SstFileReader *sst_file_reader =
       new rocksdb::SstFileReader(*options);
@@ -53,18 +53,18 @@ void Java_org_rocksdb_SstFileReader_open(JNIEnv *env, jobject /*jobj*/,
 }
 
 /*
-* Class:     org_rocksdb_SstFileReader
-* Method:    newIterator
-* Signature: (JJ)J
-*/
-jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv* /*env*/,
+ * Class:     org_rocksdb_SstFileReader
+ * Method:    newIterator
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv * /*env*/,
                                                  jobject /*jobj*/,
                                                  jlong jhandle,
                                                  jlong jread_options_handle) {
-    auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
-    auto* read_options =
-        reinterpret_cast<rocksdb::ReadOptions*>(jread_options_handle);
-    return reinterpret_cast<jlong>(sst_file_reader->NewIterator(*read_options));
+  auto *sst_file_reader = reinterpret_cast<rocksdb::SstFileReader *>(jhandle);
+  auto *read_options =
+      reinterpret_cast<rocksdb::ReadOptions *>(jread_options_handle);
+  return reinterpret_cast<jlong>(sst_file_reader->NewIterator(*read_options));
 }
 
 /*
@@ -75,7 +75,7 @@ jlong Java_org_rocksdb_SstFileReader_newIterator(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
                                                     jobject /*jobj*/,
                                                     jlong jhandle) {
-    delete reinterpret_cast<rocksdb::SstFileReader *>(jhandle);
+  delete reinterpret_cast<rocksdb::SstFileReader *>(jhandle);
 }
 
 /*
@@ -84,9 +84,9 @@ void Java_org_rocksdb_SstFileReader_disposeInternal(JNIEnv * /*env*/,
  * Signature: (J)V
  */
 void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
-                                             jobject /*jobj*/,
-                                              jlong jhandle) {
-  auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
+                                                   jobject /*jobj*/,
+                                                   jlong jhandle) {
+  auto *sst_file_reader = reinterpret_cast<rocksdb::SstFileReader *>(jhandle);
   auto s = sst_file_reader->VerifyChecksum();
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
@@ -99,12 +99,12 @@ void Java_org_rocksdb_SstFileReader_verifyChecksum(JNIEnv *env,
  * Signature: (J)J
  */
 jobject Java_org_rocksdb_SstFileReader_getTableProperties(JNIEnv *env,
-                                                  jobject /*jobj*/,
-                                                  jlong jhandle) {
-  auto* sst_file_reader = reinterpret_cast<rocksdb::SstFileReader*>(jhandle);
-  std::shared_ptr<const rocksdb::TableProperties> tp = sst_file_reader->GetTableProperties();
-  jobject jtable_properties = rocksdb::TablePropertiesJni::fromCppTableProperties(
-      env, *(tp.get()));
+                                                          jobject /*jobj*/,
+                                                          jlong jhandle) {
+  auto *sst_file_reader = reinterpret_cast<rocksdb::SstFileReader *>(jhandle);
+  std::shared_ptr<const rocksdb::TableProperties> tp =
+      sst_file_reader->GetTableProperties();
+  jobject jtable_properties =
+      rocksdb::TablePropertiesJni::fromCppTableProperties(env, *(tp.get()));
   return jtable_properties;
 }
-

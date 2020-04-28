@@ -18,6 +18,8 @@
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/transactions/transaction_util.h"
+#include "utilities/transactions/optimistic_transaction.h"
+#include "utilities/transactions/optimistic_transaction_db_impl.h"
 
 namespace rocksdb {
 
@@ -54,6 +56,22 @@ Status OptimisticTransaction::Prepare() {
 }
 
 Status OptimisticTransaction::Commit() {
+  auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
+                                            OptimisticTransactionDB>(txn_db_);
+  assert(txn_db_impl);
+  OccValidationPolicy policy = txn_db_impl->GetValidatePolicy();
+  if (policy == OccValidationPolicy::kValidateParallel) {
+    return CommitWithParallelValidate();
+  } else if (policy == OccValidationPolicy::kValidateSerial) {
+    return CommitWithSerialValidate();
+  } else {
+    assert(0);
+  }
+  // unreachable, just void compiler complain
+  return Status::OK();
+}
+
+Status OptimisticTransaction::CommitWithSerialValidate() {
   // Set up callback which will call CheckTransactionForConflicts() to
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
@@ -63,6 +81,41 @@ Status OptimisticTransaction::Commit() {
   Status s = db_impl->WriteWithCallback(
       write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
 
+  if (s.ok()) {
+    Clear();
+  }
+
+  return s;
+}
+
+Status OptimisticTransaction::CommitWithParallelValidate() {
+  auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
+                                            OptimisticTransactionDB>(txn_db_);
+  assert(txn_db_impl);
+  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  assert(db_impl);
+  const size_t space = txn_db_impl->GetLockBucketsSize();
+  std::set<size_t> lk_idxes;
+  std::vector<std::unique_lock<std::mutex>> lks;
+  for (auto& cfit : GetTrackedKeys()) {
+    for (auto& keyit : cfit.second) {
+      lk_idxes.insert(fastrange64(GetSliceNPHash64(keyit.first), space));
+    }
+  }
+  // NOTE: in a single txn, all bucket-locks are taken in ascending order.
+  // In this way, txns from different threads all obey this rule so that
+  // deadlock can be avoided.
+  for (auto v : lk_idxes) {
+    lks.emplace_back(txn_db_impl->LockBucket(v));
+  }
+
+  Status s = TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
+                                                    true /* cache_only */);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = db_impl->Write(write_options_, GetWriteBatch()->GetWriteBatch());
   if (s.ok()) {
     Clear();
   }

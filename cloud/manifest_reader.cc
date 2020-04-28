@@ -7,6 +7,7 @@
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "db/version_set.h"
+#include "env/composite_env_wrapper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -37,7 +38,7 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
     }
     s = CloudManifest::LoadFromLog(
         std::unique_ptr<SequentialFileReader>(
-            new SequentialFileReader(std::move(file), cloudManifestFile)),
+            new SequentialFileReader(NewLegacySequentialFileWrapper(file), cloudManifestFile)),
         &cloud_manifest);
     if (!s.ok()) {
       return s;
@@ -53,7 +54,7 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(std::move(file), manifestFile));
+    file_reader.reset(new SequentialFileReader(NewLegacySequentialFileWrapper(file), manifestFile));
   }
 
   // create a callback that gets invoked whil looping through the log records
@@ -114,7 +115,7 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   reporter.status = &s;
   log::Reader reader(NULL,
                      std::unique_ptr<SequentialFileReader>(
-                         new SequentialFileReader(std::move(file), fname)),
+                         new SequentialFileReader(NewLegacySequentialFileWrapper(file), fname)),
                      &reporter, true /*checksum*/, 0);
 
   Slice record;

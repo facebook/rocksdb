@@ -25,8 +25,8 @@ public class MemoryUtilTest {
   private final byte[] value = "some-value".getBytes(StandardCharsets.UTF_8);
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule public TemporaryFolder dbFolder1 = new TemporaryFolder();
   @Rule public TemporaryFolder dbFolder2 = new TemporaryFolder();

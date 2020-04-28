@@ -102,12 +102,12 @@ size_t UncompressionDictReader::ApproximateMemoryUsage() const {
                      : 0;
 
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    usage += malloc_usable_size(const_cast<UncompressionDictReader*>(this));
+  usage += malloc_usable_size(const_cast<UncompressionDictReader*>(this));
 #else
-    usage += sizeof(*this);
+  usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
 
-    return usage;
+  return usage;
 }
 
 bool UncompressionDictReader::cache_dictionary_blocks() const {

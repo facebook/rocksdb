@@ -9,7 +9,6 @@
 #include <string>
 #include <thread>
 
-
 #include "db/db_impl/db_impl.h"
 #include "logging/logging.h"
 #include "port/port.h"
@@ -27,7 +26,9 @@ using std::string;
 
 namespace rocksdb {
 
-class OptimisticTransactionTest : public testing::Test {
+class OptimisticTransactionTest
+    : public testing::Test,
+      public testing::WithParamInterface<OccValidationPolicy> {
  public:
   OptimisticTransactionDB* txn_db;
   string dbname;
@@ -55,13 +56,25 @@ class OptimisticTransactionTest : public testing::Test {
 
 private:
   void Open() {
-    Status s = OptimisticTransactionDB::Open(options, dbname, &txn_db);
+    ColumnFamilyOptions cf_options(options);
+    OptimisticTransactionDBOptions occ_opts;
+    occ_opts.validate_policy = GetParam();
+    std::vector<ColumnFamilyDescriptor> column_families;
+    std::vector<ColumnFamilyHandle*> handles;
+    column_families.push_back(
+        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+    Status s =
+        OptimisticTransactionDB::Open(DBOptions(options), occ_opts, dbname,
+                                      column_families, &handles, &txn_db);
+
     assert(s.ok());
     assert(txn_db != nullptr);
+    assert(handles.size() == 1);
+    delete handles[0];
   }
 };
 
-TEST_F(OptimisticTransactionTest, SuccessTest) {
+TEST_P(OptimisticTransactionTest, SuccessTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -90,7 +103,7 @@ TEST_F(OptimisticTransactionTest, SuccessTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, WriteConflictTest) {
+TEST_P(OptimisticTransactionTest, WriteConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -124,7 +137,7 @@ TEST_F(OptimisticTransactionTest, WriteConflictTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, WriteConflictTest2) {
+TEST_P(OptimisticTransactionTest, WriteConflictTest2) {
   WriteOptions write_options;
   ReadOptions read_options;
   OptimisticTransactionOptions txn_options;
@@ -159,7 +172,7 @@ TEST_F(OptimisticTransactionTest, WriteConflictTest2) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, ReadConflictTest) {
+TEST_P(OptimisticTransactionTest, ReadConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
@@ -198,7 +211,7 @@ TEST_F(OptimisticTransactionTest, ReadConflictTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, TxnOnlyTest) {
+TEST_P(OptimisticTransactionTest, TxnOnlyTest) {
   // Test to make sure transactions work when there are no other writes in an
   // empty db.
 
@@ -218,7 +231,7 @@ TEST_F(OptimisticTransactionTest, TxnOnlyTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, FlushTest) {
+TEST_P(OptimisticTransactionTest, FlushTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   string value;
@@ -258,7 +271,7 @@ TEST_F(OptimisticTransactionTest, FlushTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, FlushTest2) {
+TEST_P(OptimisticTransactionTest, FlushTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   string value;
@@ -315,7 +328,7 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
 
 // Trigger the condition where some old memtables are skipped when doing
 // TransactionUtil::CheckKey(), and make sure the result is still correct.
-TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
+TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
   const int kAttemptHistoryMemtable = 0;
   const int kAttemptImmMemTable = 1;
   for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
@@ -427,7 +440,7 @@ TEST_F(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
   }
 }
 
-TEST_F(OptimisticTransactionTest, NoSnapshotTest) {
+TEST_P(OptimisticTransactionTest, NoSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -456,7 +469,7 @@ TEST_F(OptimisticTransactionTest, NoSnapshotTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
+TEST_P(OptimisticTransactionTest, MultipleSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   string value;
@@ -563,7 +576,7 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
   delete txn2;
 }
 
-TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
+TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
@@ -721,7 +734,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   }
 }
 
-TEST_F(OptimisticTransactionTest, EmptyTest) {
+TEST_P(OptimisticTransactionTest, EmptyTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -758,7 +771,7 @@ TEST_F(OptimisticTransactionTest, EmptyTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, PredicateManyPreceders) {
+TEST_P(OptimisticTransactionTest, PredicateManyPreceders) {
   WriteOptions write_options;
   ReadOptions read_options1, read_options2;
   OptimisticTransactionOptions txn_options;
@@ -822,7 +835,7 @@ TEST_F(OptimisticTransactionTest, PredicateManyPreceders) {
   delete txn2;
 }
 
-TEST_F(OptimisticTransactionTest, LostUpdate) {
+TEST_P(OptimisticTransactionTest, LostUpdate) {
   WriteOptions write_options;
   ReadOptions read_options, read_options1, read_options2;
   OptimisticTransactionOptions txn_options;
@@ -920,7 +933,7 @@ TEST_F(OptimisticTransactionTest, LostUpdate) {
   ASSERT_EQ(value, "8");
 }
 
-TEST_F(OptimisticTransactionTest, UntrackedWrites) {
+TEST_P(OptimisticTransactionTest, UntrackedWrites) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -971,7 +984,7 @@ TEST_F(OptimisticTransactionTest, UntrackedWrites) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, IteratorTest) {
+TEST_P(OptimisticTransactionTest, IteratorTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
@@ -1086,7 +1099,7 @@ TEST_F(OptimisticTransactionTest, IteratorTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, SavepointTest) {
+TEST_P(OptimisticTransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
@@ -1250,7 +1263,7 @@ TEST_F(OptimisticTransactionTest, SavepointTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, UndoGetForUpdateTest) {
+TEST_P(OptimisticTransactionTest, UndoGetForUpdateTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
@@ -1439,7 +1452,7 @@ Status OptimisticTransactionStressTestInserter(OptimisticTransactionDB* db,
 }
 }  // namespace
 
-TEST_F(OptimisticTransactionTest, OptimisticTransactionStressTest) {
+TEST_P(OptimisticTransactionTest, OptimisticTransactionStressTest) {
   const size_t num_threads = 4;
   const size_t num_transactions_per_thread = 10000;
   const size_t num_sets = 3;
@@ -1470,7 +1483,7 @@ TEST_F(OptimisticTransactionTest, OptimisticTransactionStressTest) {
   ASSERT_OK(s);
 }
 
-TEST_F(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
+TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   WriteOptions write_options;
   OptimisticTransactionOptions transaction_options;
 
@@ -1496,6 +1509,11 @@ TEST_F(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
 
   delete transaction;
 }
+
+INSTANTIATE_TEST_CASE_P(
+    InstanceOccGroup, OptimisticTransactionTest,
+    testing::Values(OccValidationPolicy::kValidateSerial,
+                    OccValidationPolicy::kValidateParallel));
 
 }  // namespace rocksdb
 

@@ -36,6 +36,13 @@ class Cache;
 
 extern const bool kDefaultToAdaptiveMutex;
 
+enum CacheMetadataChargePolicy {
+  kDontChargeCacheMetadata,
+  kFullChargeCacheMetadata
+};
+const CacheMetadataChargePolicy kDefaultCacheMetadataChargePolicy =
+    kFullChargeCacheMetadata;
+
 struct LRUCacheOptions {
   // Capacity of the cache.
   size_t capacity = 0;
@@ -76,17 +83,23 @@ struct LRUCacheOptions {
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
   bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
 
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
+
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex)
+                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+                  CacheMetadataChargePolicy _metadata_charge_policy =
+                      kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
         memory_allocator(std::move(_memory_allocator)),
-        use_adaptive_mutex(_use_adaptive_mutex) {}
+        use_adaptive_mutex(_use_adaptive_mutex),
+        metadata_charge_policy(_metadata_charge_policy) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -101,7 +114,9 @@ extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-    bool use_adaptive_mutex = kDefaultToAdaptiveMutex);
+    bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -110,10 +125,11 @@ extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 // more detail.
 //
 // Return nullptr if it is not supported.
-extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
-                                            int num_shard_bits = -1,
-                                            bool strict_capacity_limit = false);
-
+extern std::shared_ptr<Cache> NewClockCache(
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less
@@ -239,7 +255,7 @@ class Cache {
   // Always delete the DB object before calling this method!
   virtual void DisownData(){
       // default implementation is noop
-  };
+  }
 
   // Apply callback to all entries in the cache
   // If thread_safe is true, it will also lock the accesses. Otherwise, it will

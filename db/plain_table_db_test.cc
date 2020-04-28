@@ -302,6 +302,7 @@ class TestPlainTableReader : public PlainTableReader {
         EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
       }
     }
+    table_properties_.reset(props);
   }
 
   ~TestPlainTableReader() override {}
@@ -392,11 +393,72 @@ class TestPlainTableFactory : public PlainTableFactory {
   const std::string column_family_name_;
 };
 
+TEST_P(PlainTableDBTest, BadOptions1) {
+  // Build with a prefix extractor
+  ASSERT_OK(Put("1000000000000foo", "v1"));
+  dbfull()->TEST_FlushMemTable();
+
+  // Bad attempt to re-open without a prefix extractor
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset();
+  Reopen(&options);
+  ASSERT_EQ(
+      "Invalid argument: Prefix extractor is missing when opening a PlainTable "
+      "built using a prefix extractor",
+      Get("1000000000000foo"));
+
+  // Bad attempt to re-open with different prefix extractor
+  options.prefix_extractor.reset(NewFixedPrefixTransform(6));
+  Reopen(&options);
+  ASSERT_EQ(
+      "Invalid argument: Prefix extractor given doesn't match the one used to "
+      "build PlainTable",
+      Get("1000000000000foo"));
+
+  // Correct prefix extractor
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("1000000000000foo"));
+}
+
+TEST_P(PlainTableDBTest, BadOptions2) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset();
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+  // Build without a prefix extractor
+  // (apparently works even if hash_table_ratio > 0)
+  ASSERT_OK(Put("1000000000000foo", "v1"));
+  dbfull()->TEST_FlushMemTable();
+
+  // Bad attempt to re-open with hash_table_ratio > 0 and no prefix extractor
+  Status s = TryReopen(&options);
+  ASSERT_EQ(
+      "Not implemented: PlainTable requires a prefix extractor enable prefix "
+      "hash mode.",
+      s.ToString());
+
+  // OK to open with hash_table_ratio == 0 and no prefix extractor
+  PlainTableOptions plain_table_options;
+  plain_table_options.hash_table_ratio = 0;
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("1000000000000foo"));
+
+  // OK to open newly with a prefix_extractor and hash table; builds index
+  // in memory.
+  options = CurrentOptions();
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("1000000000000foo"));
+}
+
 TEST_P(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
-    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+    for (int bloom = -1; bloom <= 117; bloom += 117) {
+      const int bloom_bits = std::max(bloom, 0);
+      const bool full_scan_mode = bloom < 0;
       for (int total_order = 0; total_order <= 1; total_order++) {
         for (int store_index_in_file = 0; store_index_in_file <= 1;
              ++store_index_in_file) {
@@ -414,7 +476,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.index_sparseness = 2;
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = false;
+            plain_table_options.full_scan_mode = full_scan_mode;
             plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
@@ -427,7 +489,7 @@ TEST_P(PlainTableDBTest, Flush) {
             plain_table_options.index_sparseness = 16;
             plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
             plain_table_options.encoding_type = encoding_type;
-            plain_table_options.full_scan_mode = false;
+            plain_table_options.full_scan_mode = full_scan_mode;
             plain_table_options.store_index_in_file = store_index_in_file;
 
             options.table_factory.reset(
@@ -454,20 +516,36 @@ TEST_P(PlainTableDBTest, Flush) {
           auto row = ptc.begin();
           auto tp = row->second;
 
-          if (!store_index_in_file) {
-            ASSERT_EQ(total_order ? "4" : "12",
-                      (tp->user_collected_properties)
-                          .at("plain_table_hash_table_size"));
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_sub_index_size"));
+          if (full_scan_mode) {
+            // Does not support Get/Seek
+            std::unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+            iter->SeekToFirst();
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("0000000000000bar", iter->key().ToString());
+            ASSERT_EQ("v2", iter->value().ToString());
+            iter->Next();
+            ASSERT_TRUE(iter->Valid());
+            ASSERT_EQ("1000000000000foo", iter->key().ToString());
+            ASSERT_EQ("v3", iter->value().ToString());
+            iter->Next();
+            ASSERT_TRUE(!iter->Valid());
+            ASSERT_TRUE(iter->status().ok());
           } else {
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_hash_table_size"));
-            ASSERT_EQ("0", (tp->user_collected_properties)
-                               .at("plain_table_sub_index_size"));
+            if (!store_index_in_file) {
+              ASSERT_EQ(total_order ? "4" : "12",
+                        (tp->user_collected_properties)
+                            .at("plain_table_hash_table_size"));
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_sub_index_size"));
+            } else {
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_hash_table_size"));
+              ASSERT_EQ("0", (tp->user_collected_properties)
+                                 .at("plain_table_sub_index_size"));
+            }
+            ASSERT_EQ("v3", Get("1000000000000foo"));
+            ASSERT_EQ("v2", Get("0000000000000bar"));
           }
-          ASSERT_EQ("v3", Get("1000000000000foo"));
-          ASSERT_EQ("v2", Get("0000000000000bar"));
         }
         }
       }
@@ -745,20 +823,19 @@ TEST_P(PlainTableDBTest, BloomSchema) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   for (int bloom_locality = 0; bloom_locality <= 1; bloom_locality++) {
-   options.bloom_locality = bloom_locality;
+    options.bloom_locality = bloom_locality;
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 16;
-    plain_table_options.bloom_bits_per_key = 3; // high FP rate for test
+    plain_table_options.bloom_bits_per_key = 3;  // high FP rate for test
     plain_table_options.hash_table_ratio = 0.75;
     plain_table_options.index_sparseness = 16;
     plain_table_options.huge_page_tlb_size = 0;
     plain_table_options.encoding_type = kPlain;
 
-
     bool expect_bloom_not_match = false;
     options.table_factory.reset(new TestPlainTableFactory(
-        &expect_bloom_not_match, plain_table_options,
-        0 /* column_family_id */, kDefaultColumnFamilyName));
+        &expect_bloom_not_match, plain_table_options, 0 /* column_family_id */,
+        kDefaultColumnFamilyName));
     DestroyAndReopen(&options);
 
     for (unsigned i = 0; i < 2345; ++i) {
@@ -782,7 +859,7 @@ TEST_P(PlainTableDBTest, BloomSchema) {
         pattern = 163905UL;
       }
       bool expect_fp = pattern & (1UL << i);
-      //fprintf(stderr, "expect_fp@%u: %d\n", i, (int)expect_fp);
+      // fprintf(stderr, "expect_fp@%u: %d\n", i, (int)expect_fp);
       expect_bloom_not_match = !expect_fp;
       ASSERT_EQ("NOT_FOUND", Get(NthKey(i, 'n')));
     }

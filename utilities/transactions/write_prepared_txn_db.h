@@ -544,7 +544,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       } else {
         assert(heap_top_.load() < v);
       }
-      heap_.push_back(v); 
+      heap_.push_back(v);
     }
     void pop(bool locked = false) {
       if (!locked) {

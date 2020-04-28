@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class ComparatorTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -27,9 +27,9 @@ public class ComparatorTest {
   @Test
      public void javaComparator() throws IOException, RocksDBException {
 
-    final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
+    final AbstractComparatorTest<Slice> comparatorTest = new AbstractComparatorTest<Slice>() {
       @Override
-      public AbstractComparator getAscendingIntKeyComparator() {
+      public AbstractComparator<Slice> getAscendingIntKeyComparator() {
         return new Comparator(new ComparatorOptions()) {
 
           @Override
@@ -53,9 +53,9 @@ public class ComparatorTest {
   @Test
   public void javaComparatorCf() throws IOException, RocksDBException {
 
-    final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
+    final AbstractComparatorTest<Slice> comparatorTest = new AbstractComparatorTest<Slice>() {
       @Override
-      public AbstractComparator getAscendingIntKeyComparator() {
+      public AbstractComparator<Slice> getAscendingIntKeyComparator() {
         return new Comparator(new ComparatorOptions()) {
 
           @Override

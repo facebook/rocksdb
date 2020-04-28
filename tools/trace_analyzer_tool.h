@@ -218,7 +218,6 @@ class TraceAnalyzer {
   std::unique_ptr<rocksdb::WritableFile> trace_sequence_f_;  // readable trace
   std::unique_ptr<rocksdb::WritableFile> qps_f_;             // overall qps
   std::unique_ptr<rocksdb::WritableFile> cf_qps_f_;  // The qps of each CF>
-  std::unique_ptr<rocksdb::SequentialFile> wkey_input_f_;
   std::vector<TypeUnit> ta_;  // The main statistic collecting data structure
   std::map<uint32_t, CfUnit> cfs_;  // All the cf_id appears in this trace;
   std::vector<uint32_t> qps_peak_;

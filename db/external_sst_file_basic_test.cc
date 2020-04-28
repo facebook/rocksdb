@@ -1070,6 +1070,47 @@ TEST_P(ExternalSSTFileBasicTest, IngestExternalFileWithCorruptedPropsBlock) {
   } while (ChangeOptionsForFileIngestionTest());
 }
 
+TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
+  Options options = CurrentOptions();
+
+  std::vector<std::string> files;
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file1 = sst_files_dir_ + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    ASSERT_OK(sst_file_writer.Put("a", "z"));
+    ASSERT_OK(sst_file_writer.Put("i", "m"));
+    ExternalSstFileInfo file1_info;
+    ASSERT_OK(sst_file_writer.Finish(&file1_info));
+    files.push_back(std::move(file1));
+  }
+  {
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    std::string file2 = sst_files_dir_ + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    ASSERT_OK(sst_file_writer.Put("i", "k"));
+    ExternalSstFileInfo file2_info;
+    ASSERT_OK(sst_file_writer.Finish(&file2_info));
+    files.push_back(std::move(file2));
+  }
+
+  IngestExternalFileOptions ifo;
+  ASSERT_OK(db_->IngestExternalFile(files, ifo));
+  ASSERT_EQ(Get("a"), "z");
+  ASSERT_EQ(Get("i"), "k");
+
+  int total_keys = 0;
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    total_keys++;
+  }
+  delete iter;
+  ASSERT_EQ(total_keys, 2);
+
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),

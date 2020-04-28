@@ -563,6 +563,8 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "ZSTD";
     case kZSTDNotFinalCompression:
       return "ZSTDNotFinal";
+    case kDisableCompressionOption:
+      return "DisableOption";
     default:
       assert(false);
       return "";

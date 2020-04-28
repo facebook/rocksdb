@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -376,6 +378,13 @@ class StringSource: public RandomAccessFile {
   bool mmap_;
   mutable int total_reads_;
 };
+
+inline StringSink* GetStringSinkFromLegacyWriter(
+    const WritableFileWriter* writer) {
+  LegacyWritableFileWrapper* file =
+      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
+  return static_cast<StringSink*>(file->target());
+}
 
 class NullLogger : public Logger {
  public:
