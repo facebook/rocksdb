@@ -389,7 +389,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   VersionStorageInfo::LevelSummaryStorage tmp;
   ROCKS_LOG_BUFFER_MAX_SZ(
       log_buffer_, 3072,
-      "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
+      "[%s] Universal: sorted runs: %" ROCKSDB_PRIszt " files: %s\n",
       cf_name_.c_str(), sorted_runs_.size(), vstorage_->LevelSummary(&tmp));
 
   Compaction* c = nullptr;
