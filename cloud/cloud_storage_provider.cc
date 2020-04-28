@@ -309,14 +309,14 @@ Status CloudStorageProviderImpl::NewCloudReadableFile(
   // First, check if the file exists and also find its size. We use size in
   // CloudReadableFile to make sure we always read the valid ranges of the file
   uint64_t size;
-  Status st = GetObjectSize(bucket, fname, &size);
+  Status st = GetCloudObjectSize(bucket, fname, &size);
   if (!st.ok()) {
     return st;
   }
   return DoNewCloudReadableFile(bucket, fname, size, result, options);
 }
 
-Status CloudStorageProviderImpl::GetObject(
+Status CloudStorageProviderImpl::GetCloudObject(
     const std::string& bucket_name, const std::string& object_path,
     const std::string& local_destination) {
   Env* localenv = env_->GetBaseEnv();
@@ -325,7 +325,7 @@ Status CloudStorageProviderImpl::GetObject(
 
   uint64_t remote_size;
   Status s =
-      DoGetObject(bucket_name, object_path, tmp_destination, &remote_size);
+      DoGetCloudObject(bucket_name, object_path, tmp_destination, &remote_size);
   if (!s.ok()) {
     localenv->DeleteFile(tmp_destination);
     return s;
@@ -341,7 +341,7 @@ Status CloudStorageProviderImpl::GetObject(
     localenv->DeleteFile(tmp_destination);
     s = Status::IOError("Partial download of a file " + local_destination);
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[%s] GetObject %s/%s local size %" PRIu64
+        "[%s] GetCloudObject %s/%s local size %" PRIu64
         " != cloud size "
         "%" PRIu64 ". %s",
         Name(), bucket_name.c_str(), object_path.c_str(), local_size,
@@ -352,31 +352,31 @@ Status CloudStorageProviderImpl::GetObject(
     s = localenv->RenameFile(tmp_destination, local_destination);
   }
   Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
-      "[%s] GetObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(), Name(),
-      object_path.c_str(), local_size, s.ToString().c_str());
+      "[%s] GetCloudObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(),
+      Name(), object_path.c_str(), local_size, s.ToString().c_str());
   return s;
 }
 
-Status CloudStorageProviderImpl::PutObject(const std::string& local_file,
-                                           const std::string& bucket_name,
-                                           const std::string& object_path) {
+Status CloudStorageProviderImpl::PutCloudObject(
+    const std::string& local_file, const std::string& bucket_name,
+    const std::string& object_path) {
   uint64_t fsize = 0;
   // debugging paranoia. Files uploaded to Cloud can never be zero size.
   auto st = env_->GetBaseEnv()->GetFileSize(local_file, &fsize);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[%s] PutObject localpath %s error getting size %s", Name(),
+        "[%s] PutCloudObject localpath %s error getting size %s", Name(),
         local_file.c_str(), st.ToString().c_str());
     return st;
   }
   if (fsize == 0) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[%s] PutObject localpath %s error zero size", Name(),
+        "[%s] PutCloudObject localpath %s error zero size", Name(),
         local_file.c_str());
     return Status::IOError(local_file + " Zero size.");
   }
 
-  return DoPutObject(local_file, bucket_name, object_path, fsize);
+  return DoPutCloudObject(local_file, bucket_name, object_path, fsize);
 }
 
 }  // namespace rocksdb

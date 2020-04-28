@@ -257,8 +257,9 @@ class CloudTest : public testing::Test {
     // loop through all the local files and validate
     for (std::string path: localFiles) {
       std::string cpath = aenv_->GetSrcObjectPath() + "/" + path;
-      ASSERT_OK(aenv_->GetCloudEnvOptions().storage_provider->GetObjectSize(
-          aenv_->GetSrcBucketName(), cpath, &cloudSize));
+      ASSERT_OK(
+          aenv_->GetCloudEnvOptions().storage_provider->GetCloudObjectSize(
+              aenv_->GetSrcBucketName(), cpath, &cloudSize));
 
       // find the size of the file on local storage
       std::string lpath = dbname_ + "/" + path;
@@ -702,14 +703,15 @@ TEST_F(CloudTest, Savepoint) {
         ((CloudEnvImpl*)cloud_env.get())->RemapFilename(flist[0].name);
     // source path
     std::string spath = cloud_env->GetSrcObjectPath() + "/" + remapped_fname;
-    ASSERT_OK(cloud_env->GetCloudEnvOptions().storage_provider->ExistsObject(
-        cloud_env->GetSrcBucketName(), spath));
+    ASSERT_OK(
+        cloud_env->GetCloudEnvOptions().storage_provider->ExistsCloudObject(
+            cloud_env->GetSrcBucketName(), spath));
 
     // Verify that the destination path does not have any sst files
     std::string dpath = dest_path + "/" + remapped_fname;
     ASSERT_TRUE(cloud_env->GetCloudEnvOptions()
                     .storage_provider
-                    ->ExistsObject(cloud_env->GetSrcBucketName(), dpath)
+                    ->ExistsCloudObject(cloud_env->GetSrcBucketName(), dpath)
                     .IsNotFound());
 
     // write a new value to the clone
@@ -722,8 +724,9 @@ TEST_F(CloudTest, Savepoint) {
     ASSERT_OK(cloud_db->Savepoint());
 
     // check that the sst file is copied to dest path
-    ASSERT_OK(cloud_env->GetCloudEnvOptions().storage_provider->ExistsObject(
-        cloud_env->GetSrcBucketName(), dpath));
+    ASSERT_OK(
+        cloud_env->GetCloudEnvOptions().storage_provider->ExistsCloudObject(
+            cloud_env->GetSrcBucketName(), dpath));
     ASSERT_OK(cloud_db->Flush(FlushOptions()));
   }
   {
@@ -880,7 +883,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   auto firstManifestFile =
     aenv_->GetDestObjectPath() + "/" +
       ((CloudEnvImpl*)aenv_.get())->RemapFilename("MANIFEST-1");
-  EXPECT_OK(aenv_->GetCloudEnvOptions().storage_provider->ExistsObject(
+  EXPECT_OK(aenv_->GetCloudEnvOptions().storage_provider->ExistsCloudObject(
       aenv_->GetDestBucketName(), firstManifestFile));
   // Create two files
   ASSERT_OK(db_->Put(WriteOptions(), "First", "File"));
@@ -942,10 +945,11 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // We need to sleep a bit because file deletion happens in a different thread,
   // so it might not be immediately deleted.
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  EXPECT_TRUE(aenv_->GetCloudEnvOptions()
-                  .storage_provider
-                  ->ExistsObject(aenv_->GetDestBucketName(), firstManifestFile)
-                  .IsNotFound());
+  EXPECT_TRUE(
+      aenv_->GetCloudEnvOptions()
+          .storage_provider
+          ->ExistsCloudObject(aenv_->GetDestBucketName(), firstManifestFile)
+          .IsNotFound());
   CloseDB();
 }
 
@@ -1247,7 +1251,7 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
   // MANIFEST is not yet uploaded from the durable shard.
   auto aws_env = dynamic_cast<AwsEnv*>(aenv_.get());
   ASSERT_TRUE(aws_env != nullptr);
-  aws_env->GetCloudEnvOptions().storage_provider->DeleteObject(
+  aws_env->GetCloudEnvOptions().storage_provider->DeleteCloudObject(
       aws_env->GetSrcBucketName(),
       aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
 
@@ -1258,7 +1262,7 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
   ASSERT_NOK(st);
 
   // Put the MANIFEST file back
-  aws_env->GetCloudEnvOptions().storage_provider->PutObject(
+  aws_env->GetCloudEnvOptions().storage_provider->PutCloudObject(
       dbname_ + "/" + manifest_file_name, aws_env->GetSrcBucketName(),
       aws_env->GetSrcObjectPath() + "/" + manifest_file_name);
 
