@@ -13,6 +13,9 @@ jobs:
         git remote add upstream https://github.com/facebook/rocksdb.git && git fetch upstream
         git fetch origin
 
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v2
+
     - name: Where am I
       run: |
         echo git status && git status
