@@ -304,12 +304,9 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // FindObsoleteFiles() should've populated this so nonzero
   assert(state.manifest_file_number != 0);
 
-  // Now, convert live list to an unordered map, WITHOUT mutex held;
-  // set is slow.
-  std::unordered_set<uint64_t> sst_live_set;
-  for (uint64_t file_number : state.sst_live) {
-    sst_live_set.emplace(file_number);
-  }
+  // Now, convert lists to unordered sets, WITHOUT mutex held; set is slow.
+  std::unordered_set<uint64_t> sst_live_set(state.sst_live.begin(),
+                                            state.sst_live.end());
   std::unordered_set<uint64_t> log_recycle_files_set(
       state.log_recycle_files.begin(), state.log_recycle_files.end());
 
