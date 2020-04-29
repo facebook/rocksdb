@@ -121,7 +121,7 @@ if [ -z "$uncommitted_code" ]
 then
   git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -i -p 1
 else
-  git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -i -p 1
+  git diff -U0 HEAD | $CLANG_FORMAT_DIFF -i -p 1
 fi
 echo "Files reformatted!"
 
