@@ -3287,10 +3287,9 @@ class Benchmark {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
     if (FLAGS_simcache_size >= 0) {
-      fprintf(stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
-              static_cast_with_check<SimCache, Cache>(cache_.get())
-                  ->ToString()
-                  .c_str());
+      fprintf(
+          stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
+          static_cast_with_check<SimCache>(cache_.get())->ToString().c_str());
     }
 
 #ifndef ROCKSDB_LITE

@@ -1748,7 +1748,7 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(iter);
       rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2575,7 +2575,7 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(it);
       int rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -3416,7 +3416,7 @@ void ListFileRangeDeletesCommand::DoCommand() {
     return;
   }
 
-  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
   std::string out_str;
 

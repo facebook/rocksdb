@@ -209,7 +209,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   if (!s.ok()) {
     return s;
   }
-  db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  db_impl_ = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
   // Initialize SST file <-> oldest blob file mapping if garbage collection
   // is enabled.
