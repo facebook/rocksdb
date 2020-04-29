@@ -60,6 +60,7 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
+    kInvalidPrecondition = 16,
     kMaxCode
   };
 
@@ -79,6 +80,7 @@ class Status {
     KMergeOperandsInsufficientCapacity = 10,
     kManualCompactionPaused = 11,
     kOverwritten = 12,
+    kTxnNotPrepared = 13,
     kMaxSubCode
   };
 
@@ -134,6 +136,14 @@ class Status {
   }
   static Status InvalidArgument(SubCode msg = kNone) {
     return Status(kInvalidArgument, msg);
+  }
+
+  static Status InvalidPrecondition(SubCode msg = kNone) {
+    return Status(kInvalidPrecondition, msg);
+  }
+  static Status InvalidPrecondition(
+      const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kInvalidPrecondition, msg, msg2);
   }
 
   static Status IOError(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -224,6 +234,13 @@ class Status {
     return Status(kIOError, kPathNotFound, msg, msg2);
   }
 
+  static Status TxnNotPrepared() {
+    return Status(kInvalidPrecondition, kTxnNotPrepared);
+  }
+  static Status TxnNotPrepared(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kInvalidPrecondition, kTxnNotPrepared, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -244,6 +261,9 @@ class Status {
 
   // Returns true iff the status indicates an InvalidArgument error.
   bool IsInvalidArgument() const { return code() == kInvalidArgument; }
+
+  // Returns true iff the status indicates an InvalidPrecondition error.
+  bool IsInvalidPrecondition() const { return code() == kInvalidPrecondition; }
 
   // Returns true iff the status indicates an IOError.
   bool IsIOError() const { return code() == kIOError; }
@@ -313,6 +333,11 @@ class Status {
   // is caused by a call to PauseManualCompaction
   bool IsManualCompactionPaused() const {
     return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
+  }
+
+  // Returns true iff the status indicates a TxnNotPrepared error.
+  bool IsTxnNotPrepared() const {
+    return (code() == kInvalidPrecondition) && (subcode() == kTxnNotPrepared);
   }
 
   // Return a string representation of this status suitable for printing.
