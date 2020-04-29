@@ -110,9 +110,11 @@ then
   [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/master"
   echo FORMAT_UPSTREAM is $FORMAT_UPSTREAM
   echo CLANG_FORMAT_DIFF is $CLANG_FORMAT_DIFF
-  if [ -f ./clang-format-diff.py]
+  if [ -f ./clang-format-diff.py ]
   then
     echo found file
+  else
+    echo not found
   fi
   # Get the common ancestor with that remote branch. Everything after that
   # common ancestor would be considered the contents of a pull request, so
