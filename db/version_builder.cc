@@ -90,7 +90,8 @@ class VersionBuilder::Rep {
    public:
     bool IsEmpty() const {
       return !shared_meta_ && !additional_garbage_count_ &&
-             !additional_garbage_bytes_;
+             !additional_garbage_bytes_ && newly_linked_ssts_.empty() &&
+             newly_unlinked_ssts_.empty();
     }
 
     std::shared_ptr<SharedBlobFileMetaData> GetSharedMeta() const {
@@ -105,6 +106,14 @@ class VersionBuilder::Rep {
       return additional_garbage_bytes_;
     }
 
+    const std::vector<uint64_t>& GetNewlyLinkedSsts() const {
+      return newly_linked_ssts_;
+    }
+
+    const std::vector<uint64_t>& GetNewlyUnlinkedSsts() const {
+      return newly_unlinked_ssts_;
+    }
+
     void SetSharedMeta(std::shared_ptr<SharedBlobFileMetaData> shared_meta) {
       assert(!shared_meta_);
       assert(shared_meta);
@@ -117,10 +126,20 @@ class VersionBuilder::Rep {
       additional_garbage_bytes_ += bytes;
     }
 
+    void LinkSst(uint64_t sst_file_number) {
+      newly_linked_ssts_.emplace_back(sst_file_number);
+    }
+
+    void UnlinkSst(uint64_t sst_file_number) {
+      newly_unlinked_ssts_.emplace_back(sst_file_number);
+    }
+
    private:
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
     uint64_t additional_garbage_count_ = 0;
     uint64_t additional_garbage_bytes_ = 0;
+    std::vector<uint64_t> newly_linked_ssts_;
+    std::vector<uint64_t> newly_unlinked_ssts_;
   };
 
   const FileOptions& file_options_;
