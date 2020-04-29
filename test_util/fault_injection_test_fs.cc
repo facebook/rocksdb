@@ -213,7 +213,7 @@ IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
   IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
   if (s.ok()) {
     s = fs_->InjectError(FaultInjectionTestFS::ErrorOperation::kRead, result,
-                         scratch);
+                         use_direct_io(), scratch);
   }
   return s;
 }
@@ -311,7 +311,7 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  IOStatus io_s = InjectError(ErrorOperation::kOpen, nullptr, nullptr);
+  IOStatus io_s = InjectError(ErrorOperation::kOpen, nullptr, false, nullptr);
   if (io_s.ok()) {
     io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
   }
@@ -457,6 +457,7 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
 
 IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
                                            Slice* result,
+                                           bool direct_io,
                                            char* scratch) {
   ErrorContext* ctx =
         static_cast<ErrorContext*>(thread_local_error_->Get());
@@ -473,9 +474,17 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
     switch (op) {
       case kRead:
       {
-        ErrorType type =
-          static_cast<ErrorType>(ctx->rand.Uniform(ErrorType::kErrorTypeMax));
-        switch (type) {
+        if (!direct_io) {
+          ctx->type =
+            static_cast<ErrorType>(ctx->rand.Uniform(ErrorType::kErrorTypeMax));
+        } else {
+          // In Direct IO mode, the actual read will read extra data due to
+          // alignment restrictions. So don't inject corruption or
+          // truncated reads as we don't know if it will actually cause a
+          // detectable error
+          ctx->type = ErrorType::kErrorTypeStatus;
+        }
+        switch (ctx->type) {
           // Inject IO error
           case ErrorType::kErrorTypeStatus:
             return IOStatus::IOError();
@@ -488,8 +497,13 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
                 std::min<uint64_t>(result->size() - offset, 64UL);
               assert(offset < result->size());
               assert(offset + len <= result->size());
-              std::string str = DBTestBase::RandomString(&ctx->rand,
+              std::string str;
+              // The randomly generated string could be identical to the
+              // original one, so retry
+              do {
+                str = DBTestBase::RandomString(&ctx->rand,
                                     static_cast<int>(len));
+              } while (str == std::string(scratch + offset, len));
               memcpy(scratch + offset, str.data(), len);
               break;
             } else {
