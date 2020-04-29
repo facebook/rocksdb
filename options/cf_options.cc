@@ -47,8 +47,79 @@ int offset_of(T1 AdvancedColumnFamilyOptions::*member) {
              size_t(&OptionsHelper::dummy_cf_options));
 }
 
-const std::string kNameComparator = "comparator";
-const std::string kNameMergeOperator = "merge_operator";
+static Status ParseCompressionOptions(const std::string& value,
+                                      const std::string& name,
+                                      CompressionOptions& compression_opts) {
+  size_t start = 0;
+  size_t end = value.find(':');
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.window_bits = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  end = value.find(':', start);
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.level = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  if (start >= value.size()) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  end = value.find(':', start);
+  compression_opts.strategy =
+      ParseInt(value.substr(start, value.size() - start));
+  // max_dict_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_dict_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // zstd_max_train_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.zstd_max_train_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // parallel_threads is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.parallel_threads =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // enabled is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.enabled =
+        ParseBoolean("", value.substr(start, value.size() - start));
+  }
+  return Status::OK();
+}
+
+const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
+const std::string kOptNameCompOpts = "compression_opts";
 
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::cf_options_type_info = {
@@ -280,9 +351,22 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, bottommost_compression)}},
-        {kNameComparator,
+        {"comparator",
          {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
-          OptionVerificationType::kByName, OptionTypeFlags::kNone, 0}},
+          OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose, 0,
+          // Parses the string and sets the corresponding comparator
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            auto old_comparator = reinterpret_cast<const Comparator**>(addr);
+            const Comparator* new_comparator = *old_comparator;
+            Status status = ObjectRegistry::NewInstance()->NewStaticObject(
+                value, &new_comparator);
+            if (status.ok()) {
+              *old_comparator = new_comparator;
+              return status;
+            }
+            return Status::OK();
+          }}},
         {"prefix_extractor",
          {offset_of(&ColumnFamilyOptions::prefix_extractor),
           OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
@@ -297,10 +381,74 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::memtable_factory),
           OptionType::kMemTableRepFactory, OptionVerificationType::kByName,
           OptionTypeFlags::kNone, 0}},
+        {"memtable",
+         {offset_of(&ColumnFamilyOptions::memtable_factory),
+          OptionType::kMemTableRepFactory, OptionVerificationType::kAlias,
+          OptionTypeFlags::kNone, 0,
+          // Parses the value string and updates the memtable_factory
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            std::unique_ptr<MemTableRepFactory> new_mem_factory;
+            Status s = GetMemTableRepFactoryFromString(value, &new_mem_factory);
+            if (s.ok()) {
+              auto memtable_factory =
+                  reinterpret_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+              memtable_factory->reset(new_mem_factory.release());
+            }
+            return s;
+          }}},
         {"table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
           OptionType::kTableFactory, OptionVerificationType::kByName,
-          OptionTypeFlags::kNone, 0}},
+          OptionTypeFlags::kCompareLoose, 0}},
+        {"block_based_table_factory",
+         {offset_of(&ColumnFamilyOptions::table_factory),
+          OptionType::kTableFactory, OptionVerificationType::kAlias,
+          OptionTypeFlags::kCompareLoose, 0,
+          // Parses the input value and creates a BlockBasedTableFactory
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            // Nested options
+            auto old_table_factory =
+                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+            BlockBasedTableOptions table_opts, base_opts;
+            BlockBasedTableFactory* block_based_table_factory =
+                static_cast_with_check<BlockBasedTableFactory, TableFactory>(
+                    old_table_factory->get());
+            if (block_based_table_factory != nullptr) {
+              base_opts = block_based_table_factory->table_options();
+            }
+            Status s = GetBlockBasedTableOptionsFromString(base_opts, value,
+                                                           &table_opts);
+            if (s.ok()) {
+              old_table_factory->reset(NewBlockBasedTableFactory(table_opts));
+            }
+            return s;
+          }}},
+        {"plain_table_factory",
+         {offset_of(&ColumnFamilyOptions::table_factory),
+          OptionType::kTableFactory, OptionVerificationType::kAlias,
+          OptionTypeFlags::kCompareLoose, 0,
+          // Parses the input value and creates a PlainTableFactory
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            // Nested options
+            auto old_table_factory =
+                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+            PlainTableOptions table_opts, base_opts;
+            PlainTableFactory* plain_table_factory =
+                static_cast_with_check<PlainTableFactory, TableFactory>(
+                    old_table_factory->get());
+            if (plain_table_factory != nullptr) {
+              base_opts = plain_table_factory->table_options();
+            }
+            Status s =
+                GetPlainTableOptionsFromString(base_opts, value, &table_opts);
+            if (s.ok()) {
+              old_table_factory->reset(NewPlainTableFactory(table_opts));
+            }
+            return s;
+          }}},
         {"compaction_filter",
          {offset_of(&ColumnFamilyOptions::compaction_filter),
           OptionType::kCompactionFilter, OptionVerificationType::kByName,
@@ -309,11 +457,19 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
           OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
           OptionTypeFlags::kNone, 0}},
-        {kNameMergeOperator,
+        {"merge_operator",
          {offset_of(&ColumnFamilyOptions::merge_operator),
           OptionType::kMergeOperator,
-          OptionVerificationType::kByNameAllowFromNull, OptionTypeFlags::kNone,
-          0}},
+          OptionVerificationType::kByNameAllowFromNull,
+          OptionTypeFlags::kCompareLoose, 0,
+          // Parses the input value as a MergeOperator, updating the value
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            auto mop = reinterpret_cast<std::shared_ptr<MergeOperator>*>(addr);
+            ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(value,
+                                                                          mop);
+            return Status::OK();
+          }}},
         {"compaction_style",
          {offset_of(&ColumnFamilyOptions::compaction_style),
           OptionType::kCompactionStyle, OptionVerificationType::kNormal,
@@ -345,7 +501,36 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
-          offsetof(struct MutableCFOptions, sample_for_compression)}}};
+          offsetof(struct MutableCFOptions, sample_for_compression)}},
+        // The following properties were handled as special cases in ParseOption
+        // This means that the properties could be read from the options file
+        // but never written to the file or compared to each other.
+        {kOptNameCompOpts,
+         {offset_of(&ColumnFamilyOptions::compression_opts),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever |
+           OptionTypeFlags::kMutable),
+          offsetof(struct MutableCFOptions, compression_opts),
+          // Parses the value as a CompressionOptions
+          [](const ConfigOptions& /*opts*/, const std::string& name,
+             const std::string& value, char* addr) {
+            auto* compression = reinterpret_cast<CompressionOptions*>(addr);
+            return ParseCompressionOptions(value, name, *compression);
+          }}},
+        {kOptNameBMCompOpts,
+         {offset_of(&ColumnFamilyOptions::bottommost_compression_opts),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever |
+           OptionTypeFlags::kMutable),
+          offsetof(struct MutableCFOptions, bottommost_compression_opts),
+          // Parses the value as a CompressionOptions
+          [](const ConfigOptions& /*opts*/, const std::string& name,
+             const std::string& value, char* addr) {
+            auto* compression = reinterpret_cast<CompressionOptions*>(addr);
+            return ParseCompressionOptions(value, name, *compression);
+          }}},
+        // End special case properties
+};
 
 Status ParseColumnFamilyOption(const ConfigOptions& config_options,
                                const std::string& name,
@@ -355,104 +540,19 @@ Status ParseColumnFamilyOption(const ConfigOptions& config_options,
                                  ? UnescapeOptionString(org_value)
                                  : org_value;
   try {
-    if (name == "block_based_table_factory") {
-      // Nested options
-      BlockBasedTableOptions table_opt, base_table_options;
-      BlockBasedTableFactory* block_based_table_factory =
-          static_cast_with_check<BlockBasedTableFactory, TableFactory>(
-              new_options->table_factory.get());
-      if (block_based_table_factory != nullptr) {
-        base_table_options = block_based_table_factory->table_options();
-      }
-      Status table_opt_s = GetBlockBasedTableOptionsFromString(
-          base_table_options, value, &table_opt);
-      if (!table_opt_s.ok()) {
-        return Status::InvalidArgument(
-            "unable to parse the specified CF option " + name);
-      }
-      new_options->table_factory.reset(NewBlockBasedTableFactory(table_opt));
-    } else if (name == "plain_table_factory") {
-      // Nested options
-      PlainTableOptions table_opt, base_table_options;
-      PlainTableFactory* plain_table_factory =
-          static_cast_with_check<PlainTableFactory, TableFactory>(
-              new_options->table_factory.get());
-      if (plain_table_factory != nullptr) {
-        base_table_options = plain_table_factory->table_options();
-      }
-      Status table_opt_s =
-          GetPlainTableOptionsFromString(base_table_options, value, &table_opt);
-      if (!table_opt_s.ok()) {
-        return Status::InvalidArgument(
-            "unable to parse the specified CF option " + name);
-      }
-      new_options->table_factory.reset(NewPlainTableFactory(table_opt));
-    } else if (name == "memtable") {
-      std::unique_ptr<MemTableRepFactory> new_mem_factory;
-      Status mem_factory_s =
-          GetMemTableRepFactoryFromString(value, &new_mem_factory);
-      if (!mem_factory_s.ok()) {
-        return Status::InvalidArgument(
-            "unable to parse the specified CF option " + name);
-      }
-      new_options->memtable_factory.reset(new_mem_factory.release());
-    } else if (name == "bottommost_compression_opts") {
-      Status s = ParseCompressionOptions(
-          value, name, new_options->bottommost_compression_opts);
-      if (!s.ok()) {
-        return s;
-      }
-    } else if (name == "compression_opts") {
-      Status s =
-          ParseCompressionOptions(value, name, new_options->compression_opts);
-      if (!s.ok()) {
-        return s;
-      }
+    auto iter = cf_options_type_info.find(name);
+    if (iter == cf_options_type_info.end()) {
+      return Status::InvalidArgument(
+          "Unable to parse the specified CF option " + name);
     } else {
-      if (name == kNameComparator) {
-        // Try to get comparator from object registry first.
-        // Only support static comparator for now.
-        Status status = ObjectRegistry::NewInstance()->NewStaticObject(
-            value, &new_options->comparator);
-        if (status.ok()) {
-          return status;
-        }
-      } else if (name == kNameMergeOperator) {
-        // Try to get merge operator from object registry first.
-        std::shared_ptr<MergeOperator> mo;
-        Status status =
-            ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(
-                value, &new_options->merge_operator);
-        // Only support static comparator for now.
-        if (status.ok()) {
-          return status;
-        }
-      }
-
-      auto iter = cf_options_type_info.find(name);
-      if (iter == cf_options_type_info.end()) {
-        return Status::InvalidArgument(
-            "Unable to parse the specified CF option " + name);
-      }
-      const auto& opt_info = iter->second;
-      if (opt_info.IsDeprecated() ||
-          ParseOptionHelper(
-              reinterpret_cast<char*>(new_options) + opt_info.offset,
-              opt_info.type, value)) {
-        return Status::OK();
-      } else if (opt_info.IsByName()) {
-        return Status::NotSupported("Deserializing the specified CF option " +
-                                    name + " is not supported");
-      } else {
-        return Status::InvalidArgument(
-            "Unable to parse the specified CF option " + name);
-      }
+      return iter->second.ParseOption(
+          config_options, name, value,
+          reinterpret_cast<char*>(new_options) + iter->second.offset);
     }
   } catch (const std::exception&) {
     return Status::InvalidArgument("unable to parse the specified option " +
                                    name);
   }
-  return Status::OK();
 }
 #endif  // ROCKSDB_LITE
 

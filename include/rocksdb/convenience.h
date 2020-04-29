@@ -226,6 +226,12 @@ struct ConfigOptions {
 //     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
+// @return Status::NotFound means the one (or more) of the option name in
+//     the opts_map is not valid for this option
+// @return Status::NotSupported means we do not know how to parse one of the
+//     value for this option
+// @return Status::InvalidArgument means the one of the option values is not
+//     valid for this option.
 Status GetColumnFamilyOptionsFromMap(
     const ConfigOptions& config_options,
     const ColumnFamilyOptions& base_options,
@@ -268,6 +274,12 @@ Status GetColumnFamilyOptionsFromMap(
 //     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
+// @return Status::NotFound means the one (or more) of the option name in
+//     the opts_map is not valid for this option
+// @return Status::NotSupported means we do not know how to parse one of the
+//     value for this option
+// @return Status::InvalidArgument means the one of the option values is not
+//     valid for this option.
 Status GetDBOptionsFromMap(
     const ConfigOptions& cfg_options, const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,

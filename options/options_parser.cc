@@ -16,7 +16,6 @@
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "options/options_helper.h"
-#include "options/options_sanity_check.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -518,170 +517,6 @@ std::string RocksDBOptionsParser::TrimAndRemoveComment(const std::string& line,
   return "";
 }
 
-namespace {
-bool AreEqualDoubles(const double a, const double b) {
-  return (fabs(a - b) < 0.00001);
-}
-}  // namespace
-
-bool AreEqualOptions(
-    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
-    const std::string& opt_name,
-    const std::unordered_map<std::string, std::string>* opt_map) {
-  const char* offset1 = opt1 + type_info.offset;
-  const char* offset2 = opt2 + type_info.offset;
-
-  switch (type_info.type) {
-    case OptionType::kBoolean:
-      return (*reinterpret_cast<const bool*>(offset1) ==
-              *reinterpret_cast<const bool*>(offset2));
-    case OptionType::kInt:
-      return (*reinterpret_cast<const int*>(offset1) ==
-              *reinterpret_cast<const int*>(offset2));
-    case OptionType::kInt32T:
-      return (*reinterpret_cast<const int32_t*>(offset1) ==
-              *reinterpret_cast<const int32_t*>(offset2));
-    case OptionType::kInt64T:
-      {
-        int64_t v1, v2;
-        GetUnaligned(reinterpret_cast<const int64_t*>(offset1), &v1);
-        GetUnaligned(reinterpret_cast<const int64_t*>(offset2), &v2);
-        return (v1 == v2);
-      }
-    case OptionType::kVectorInt:
-      return (*reinterpret_cast<const std::vector<int>*>(offset1) ==
-              *reinterpret_cast<const std::vector<int>*>(offset2));
-    case OptionType::kUInt:
-      return (*reinterpret_cast<const unsigned int*>(offset1) ==
-              *reinterpret_cast<const unsigned int*>(offset2));
-    case OptionType::kUInt32T:
-      return (*reinterpret_cast<const uint32_t*>(offset1) ==
-              *reinterpret_cast<const uint32_t*>(offset2));
-    case OptionType::kUInt64T:
-      {
-        uint64_t v1, v2;
-        GetUnaligned(reinterpret_cast<const uint64_t*>(offset1), &v1);
-        GetUnaligned(reinterpret_cast<const uint64_t*>(offset2), &v2);
-        return (v1 == v2);
-      }
-    case OptionType::kSizeT:
-      {
-        size_t v1, v2;
-        GetUnaligned(reinterpret_cast<const size_t*>(offset1), &v1);
-        GetUnaligned(reinterpret_cast<const size_t*>(offset2), &v2);
-        return (v1 == v2);
-      }
-    case OptionType::kString:
-      return (*reinterpret_cast<const std::string*>(offset1) ==
-              *reinterpret_cast<const std::string*>(offset2));
-    case OptionType::kDouble:
-      return AreEqualDoubles(*reinterpret_cast<const double*>(offset1),
-                             *reinterpret_cast<const double*>(offset2));
-    case OptionType::kCompactionStyle:
-      return (*reinterpret_cast<const CompactionStyle*>(offset1) ==
-              *reinterpret_cast<const CompactionStyle*>(offset2));
-    case OptionType::kCompactionPri:
-      return (*reinterpret_cast<const CompactionPri*>(offset1) ==
-              *reinterpret_cast<const CompactionPri*>(offset2));
-    case OptionType::kCompressionType:
-      return (*reinterpret_cast<const CompressionType*>(offset1) ==
-              *reinterpret_cast<const CompressionType*>(offset2));
-    case OptionType::kVectorCompressionType: {
-      const auto* vec1 =
-          reinterpret_cast<const std::vector<CompressionType>*>(offset1);
-      const auto* vec2 =
-          reinterpret_cast<const std::vector<CompressionType>*>(offset2);
-      return (*vec1 == *vec2);
-    }
-    case OptionType::kChecksumType:
-      return (*reinterpret_cast<const ChecksumType*>(offset1) ==
-              *reinterpret_cast<const ChecksumType*>(offset2));
-    case OptionType::kBlockBasedTableIndexType:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(offset2));
-    case OptionType::kBlockBasedTableDataBlockIndexType:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
-              offset2));
-    case OptionType::kBlockBasedTableIndexShorteningMode:
-      return (
-          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
-              offset1) ==
-          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
-              offset2));
-    case OptionType::kWALRecoveryMode:
-      return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==
-              *reinterpret_cast<const WALRecoveryMode*>(offset2));
-    case OptionType::kAccessHint:
-      return (*reinterpret_cast<const DBOptions::AccessHint*>(offset1) ==
-              *reinterpret_cast<const DBOptions::AccessHint*>(offset2));
-    case OptionType::kInfoLogLevel:
-      return (*reinterpret_cast<const InfoLogLevel*>(offset1) ==
-              *reinterpret_cast<const InfoLogLevel*>(offset2));
-    case OptionType::kCompactionOptionsFIFO: {
-      CompactionOptionsFIFO lhs =
-          *reinterpret_cast<const CompactionOptionsFIFO*>(offset1);
-      CompactionOptionsFIFO rhs =
-          *reinterpret_cast<const CompactionOptionsFIFO*>(offset2);
-      if (lhs.max_table_files_size == rhs.max_table_files_size &&
-          lhs.allow_compaction == rhs.allow_compaction) {
-        return true;
-      }
-      return false;
-    }
-    case OptionType::kCompactionOptionsUniversal: {
-      CompactionOptionsUniversal lhs =
-          *reinterpret_cast<const CompactionOptionsUniversal*>(offset1);
-      CompactionOptionsUniversal rhs =
-          *reinterpret_cast<const CompactionOptionsUniversal*>(offset2);
-      if (lhs.size_ratio == rhs.size_ratio &&
-          lhs.min_merge_width == rhs.min_merge_width &&
-          lhs.max_merge_width == rhs.max_merge_width &&
-          lhs.max_size_amplification_percent ==
-              rhs.max_size_amplification_percent &&
-          lhs.compression_size_percent == rhs.compression_size_percent &&
-          lhs.stop_style == rhs.stop_style &&
-          lhs.allow_trivial_move == rhs.allow_trivial_move) {
-        return true;
-      }
-      return false;
-    }
-    default:
-      if (type_info.IsByName()) {
-        std::string value1;
-        bool result =
-            SerializeSingleOptionHelper(offset1, type_info.type, &value1);
-        if (result == false) {
-          return false;
-        }
-        if (opt_map == nullptr) {
-          return true;
-        }
-        auto iter = opt_map->find(opt_name);
-        if (iter == opt_map->end()) {
-          return true;
-        } else {
-          if (type_info.IsEnabled(OptionVerificationType::kByNameAllowNull)) {
-            if (iter->second == kNullptrString || value1 == kNullptrString) {
-              return true;
-            }
-          } else if (type_info.IsEnabled(
-                         OptionVerificationType::kByNameAllowFromNull)) {
-            if (iter->second == kNullptrString) {
-              return true;
-            }
-          }
-          return (value1 == iter->second);
-        }
-      }
-      return false;
-  }
-}
-
 Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const ConfigOptions& config_options, const DBOptions& db_opt,
     const std::vector<std::string>& cf_names,
@@ -756,34 +591,33 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 
 Status RocksDBOptionsParser::VerifyDBOptions(
     const ConfigOptions& config_options, const DBOptions& base_opt,
-    const DBOptions& persisted_opt,
+    const DBOptions& file_opt,
     const std::unordered_map<std::string, std::string>* /*opt_map*/) {
   for (const auto& pair : db_options_type_info) {
-    if (pair.second.IsDeprecated()) {
-      // We skip checking deprecated variables as they might
-      // contain random values since they might not be initialized
-      continue;
-    }
-    if (DBOptionSanityCheckLevel(pair.first) <= config_options.sanity_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                           reinterpret_cast<const char*>(&persisted_opt),
-                           pair.second, pair.first, nullptr)) {
-        constexpr size_t kBufferSize = 2048;
+    const auto& opt_info = pair.second;
+    if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
+      const char* base_addr =
+          reinterpret_cast<const char*>(&base_opt) + opt_info.offset;
+      const char* file_addr =
+          reinterpret_cast<const char*>(&file_opt) + opt_info.offset;
+      std::string mismatch;
+      if (!opt_info.MatchesOption(config_options, pair.first, base_addr,
+                                  file_addr, &mismatch) &&
+          !opt_info.MatchesByName(config_options, pair.first, base_addr,
+                                  file_addr)) {
+        const size_t kBufferSize = 2048;
         char buffer[kBufferSize];
         std::string base_value;
-        std::string persisted_value;
-        SerializeSingleOptionHelper(
-            reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
-            pair.second.type, &base_value);
-        SerializeSingleOptionHelper(
-            reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
-            pair.second.type, &persisted_value);
+        std::string file_value;
+        opt_info.SerializeOption(config_options, pair.first, base_addr,
+                                 &base_value);
+        opt_info.SerializeOption(config_options, pair.first, file_addr,
+                                 &file_value);
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
                  "failed the verification on DBOptions::%s --- "
                  "The specified one is %s while the persisted one is %s.\n",
-                 pair.first.c_str(), base_value.c_str(),
-                 persisted_value.c_str());
+                 pair.first.c_str(), base_value.c_str(), file_value.c_str());
         return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
       }
     }
@@ -793,38 +627,51 @@ Status RocksDBOptionsParser::VerifyDBOptions(
 
 Status RocksDBOptionsParser::VerifyCFOptions(
     const ConfigOptions& config_options, const ColumnFamilyOptions& base_opt,
-    const ColumnFamilyOptions& persisted_opt,
-    const std::unordered_map<std::string, std::string>* persisted_opt_map) {
+    const ColumnFamilyOptions& file_opt,
+    const std::unordered_map<std::string, std::string>* opt_map) {
   for (const auto& pair : cf_options_type_info) {
-    if (pair.second.IsDeprecated()) {
-      // We skip checking deprecated variables as they might
-      // contain random values since they might not be initialized
-      continue;
-    }
-    if (CFOptionSanityCheckLevel(pair.first) <= config_options.sanity_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                           reinterpret_cast<const char*>(&persisted_opt),
-                           pair.second, pair.first, persisted_opt_map)) {
-        constexpr size_t kBufferSize = 2048;
+    const auto& opt_info = pair.second;
+
+    if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
+      std::string mismatch;
+      const char* base_addr =
+          reinterpret_cast<const char*>(&base_opt) + opt_info.offset;
+      const char* file_addr =
+          reinterpret_cast<const char*>(&file_opt) + opt_info.offset;
+      bool matches = opt_info.MatchesOption(config_options, pair.first,
+                                            base_addr, file_addr, &mismatch);
+      if (!matches && opt_info.IsByName()) {
+        if (opt_map == nullptr) {
+          matches = true;
+        } else {
+          auto iter = opt_map->find(pair.first);
+          if (iter == opt_map->end()) {
+            matches = true;
+          } else {
+            matches = opt_info.MatchesByName(config_options, pair.first,
+                                             base_addr, iter->second);
+          }
+        }
+      }
+      if (!matches) {
+        // The options do not match
+        const size_t kBufferSize = 2048;
         char buffer[kBufferSize];
         std::string base_value;
-        std::string persisted_value;
-        SerializeSingleOptionHelper(
-            reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
-            pair.second.type, &base_value);
-        SerializeSingleOptionHelper(
-            reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
-            pair.second.type, &persisted_value);
+        std::string file_value;
+        opt_info.SerializeOption(config_options, pair.first, base_addr,
+                                 &base_value);
+        opt_info.SerializeOption(config_options, pair.first, file_addr,
+                                 &file_value);
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
                  "failed the verification on ColumnFamilyOptions::%s --- "
                  "The specified one is %s while the persisted one is %s.\n",
-                 pair.first.c_str(), base_value.c_str(),
-                 persisted_value.c_str());
+                 pair.first.c_str(), base_value.c_str(), file_value.c_str());
         return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
-      }
-    }
-  }
+      }  // if (! matches)
+    }    // CheckSanityLevel
+  }      // For each option
   return Status::OK();
 }
 
