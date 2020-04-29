@@ -32,7 +32,7 @@ CLANG_FORMAT_DIFF="clang-format-diff.py"
 fi
 
 # Check clang-format-diff.py
-if [ ! which $CLANG_FORMAT_DIFF &> /dev/null ]
+if ! which $CLANG_FORMAT_DIFF &> /dev/null
 then
   if [ ! -f ./clang-format-diff.py ]
   then
@@ -49,7 +49,7 @@ then
     echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
     exit 128
   else
-    if [ -x ./clang-format-diff.py]
+    if [ -x ./clang-format-diff.py ]
     then
       PATH=$PATH:.
     else
