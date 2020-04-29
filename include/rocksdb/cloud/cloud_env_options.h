@@ -1,12 +1,12 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #pragma once
-#include "rocksdb/env.h"
-#include "rocksdb/status.h"
-
 #include <functional>
 #include <memory>
 #include <unordered_map>
+
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
 
 namespace Aws {
 namespace Auth {
@@ -43,7 +43,7 @@ enum LogType : unsigned char {
 
 // Type of AWS access credentials
 enum class AwsAccessType {
-  kUndefined, // Use AWS SDK's default credential chain
+  kUndefined,  // Use AWS SDK's default credential chain
   kSimple,
   kInstance,
   kTaskRole,
@@ -107,23 +107,24 @@ using CloudRequestCallback =
     std::function<void(CloudRequestOpType, uint64_t, uint64_t, bool)>;
 
 class BucketOptions {
-private:
-  std::string bucket_; // The suffix for the bucket name
-  std::string prefix_; // The prefix for the bucket name.  Defaults to "rockset."
-  std::string object_; // The object path for the bucket
-  std::string region_; // The region for the bucket
-  std::string name_;   // The name of the bucket (prefix_ + bucket_)
-public:
+ private:
+  std::string bucket_;  // The suffix for the bucket name
+  std::string
+      prefix_;  // The prefix for the bucket name.  Defaults to "rockset."
+  std::string object_;  // The object path for the bucket
+  std::string region_;  // The region for the bucket
+  std::string name_;    // The name of the bucket (prefix_ + bucket_)
+ public:
   BucketOptions();
   // Sets the name of the bucket to be the new bucket name.
   // If prefix is specified, the new bucket name will be [prefix][bucket]
   // If no prefix is specified, the bucket name will use the existing prefix
   void SetBucketName(const std::string& bucket, const std::string& prefix = "");
-  const std::string & GetBucketName() const { return name_; }
-  const std::string & GetObjectPath() const { return object_; }
+  const std::string& GetBucketName() const { return name_; }
+  const std::string& GetObjectPath() const { return object_; }
   void SetObjectPath(const std::string& object) { object_ = object; }
-  const std::string & GetRegion() const { return region_; }
-  void SetRegion(const std::string& region)  { region_ = region; }
+  const std::string& GetRegion() const { return region_; }
+  void SetRegion(const std::string& region) { region_ = region; }
 
   // Initializes the bucket properties for test purposes
   void TEST_Initialize(const std::string& name_prefix,
@@ -152,10 +153,10 @@ inline bool operator!=(const BucketOptions& lhs, const BucketOptions& rhs) {
 }
 
 class AwsCloudOptions {
-public:
-  static Status GetClientConfiguration(CloudEnv *env,
-                                       const std::string& region,
-                                       Aws::Client::ClientConfiguration* config);
+ public:
+  static Status GetClientConfiguration(
+      CloudEnv* env, const std::string& region,
+      Aws::Client::ClientConfiguration* config);
 };
 
 //
@@ -163,7 +164,7 @@ public:
 // Environent used for the cloud.
 //
 class CloudEnvOptions {
-private:
+ private:
  public:
   BucketOptions src_bucket;
   BucketOptions dest_bucket;
@@ -270,9 +271,8 @@ private:
   // Default: false
   bool use_aws_transfer_manager;
 
-  // The number of object's metadata that are fetched in every iteration when listing
-  // the results of a directory
-  // Default: 5000
+  // The number of object's metadata that are fetched in every iteration when
+  // listing the results of a directory Default: 5000
   int number_objects_listed_in_one_iteration;
 
   // During opening, we get the size of all SST files currently in the
@@ -341,7 +341,8 @@ private:
 
   // Sets result based on the value of name or alt in the environment
   // Returns true if the name/alt exists in the environment, false otherwise
-  static bool GetNameFromEnvironment(const char *name, const char *alt, std::string * result);
+  static bool GetNameFromEnvironment(const char* name, const char* alt,
+                                     std::string* result);
   void TEST_Initialize(const std::string& name_prefix,
                        const std::string& object_path,
                        const std::string& region = "");
@@ -361,16 +362,16 @@ typedef std::map<std::string, std::string> DbidList;
 class CloudEnv : public Env {
  protected:
   CloudEnvOptions cloud_env_options;
-  Env* base_env_; // The underlying env
+  Env* base_env_;  // The underlying env
 
-  CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger);
-public:
+  CloudEnv(const CloudEnvOptions& options, Env* base,
+           const std::shared_ptr<Logger>& logger);
+
+ public:
   std::shared_ptr<Logger> info_log_;  // informational messages
   virtual ~CloudEnv();
   // Returns the underlying env
-  Env* GetBaseEnv() {
-    return base_env_;
-  }
+  Env* GetBaseEnv() { return base_env_; }
   virtual const char* Name() const { return "cloud"; }
 
   virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;

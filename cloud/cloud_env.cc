@@ -17,17 +17,18 @@
 
 namespace rocksdb {
 
-bool CloudEnvOptions::GetNameFromEnvironment(const char *name, const char *alt, std::string * result) {
-
-  char *value = getenv(name);               // See if name is set in the environment
-  if (value == nullptr && alt != nullptr) { // Not set.  Do we have an alt name?
-    value = getenv(alt);                    // See if alt is in the environment
+bool CloudEnvOptions::GetNameFromEnvironment(const char* name, const char* alt,
+                                             std::string* result) {
+  char* value = getenv(name);  // See if name is set in the environment
+  if (value == nullptr &&
+      alt != nullptr) {   // Not set.  Do we have an alt name?
+    value = getenv(alt);  // See if alt is in the environment
   }
-  if (value != nullptr) {                   // Did we find the either name/alt in the env?
-    result->assign(value);                  // Yes, update result
-    return true;                            // And return success
+  if (value != nullptr) {   // Did we find the either name/alt in the env?
+    result->assign(value);  // Yes, update result
+    return true;            // And return success
   } else {
-    return false;                           // No, return not found
+    return false;  // No, return not found
   }
 }
 void CloudEnvOptions::TEST_Initialize(const std::string& bucket,
@@ -38,9 +39,7 @@ void CloudEnvOptions::TEST_Initialize(const std::string& bucket,
   credentials.TEST_Initialize();
 }
 
-BucketOptions::BucketOptions() {
-    prefix_ = "rockset.";
-}
+BucketOptions::BucketOptions() { prefix_ = "rockset."; }
 
 void BucketOptions::SetBucketName(const std::string& bucket,
                                   const std::string& prefix) {
@@ -86,12 +85,10 @@ void BucketOptions::TEST_Initialize(const std::string& bucket,
   }
 }
 
-CloudEnv::CloudEnv(const CloudEnvOptions& options, Env *base, const std::shared_ptr<Logger>& logger)
-  : cloud_env_options(options),
-    base_env_(base),
-    info_log_(logger) {
-}
-  
+CloudEnv::CloudEnv(const CloudEnvOptions& options, Env* base,
+                   const std::shared_ptr<Logger>& logger)
+    : cloud_env_options(options), base_env_(base), info_log_(logger) {}
+
 CloudEnv::~CloudEnv() {}
 
 Status CloudEnv::NewAwsEnv(
@@ -101,12 +98,17 @@ Status CloudEnv::NewAwsEnv(
     const std::string& dest_cloud_region, const CloudEnvOptions& cloud_options,
     const std::shared_ptr<Logger>& logger, CloudEnv** cenv) {
   CloudEnvOptions options = cloud_options;
-  if (!src_cloud_bucket.empty()) options.src_bucket.SetBucketName(src_cloud_bucket);
-  if (!src_cloud_object.empty()) options.src_bucket.SetObjectPath(src_cloud_object);
+  if (!src_cloud_bucket.empty())
+    options.src_bucket.SetBucketName(src_cloud_bucket);
+  if (!src_cloud_object.empty())
+    options.src_bucket.SetObjectPath(src_cloud_object);
   if (!src_cloud_region.empty()) options.src_bucket.SetRegion(src_cloud_region);
-  if (!dest_cloud_bucket.empty()) options.dest_bucket.SetBucketName(dest_cloud_bucket);
-  if (!dest_cloud_object.empty()) options.dest_bucket.SetObjectPath(dest_cloud_object);
-  if (!dest_cloud_region.empty()) options.dest_bucket.SetRegion(dest_cloud_region);
+  if (!dest_cloud_bucket.empty())
+    options.dest_bucket.SetBucketName(dest_cloud_bucket);
+  if (!dest_cloud_object.empty())
+    options.dest_bucket.SetObjectPath(dest_cloud_object);
+  if (!dest_cloud_region.empty())
+    options.dest_bucket.SetRegion(dest_cloud_region);
   return NewAwsEnv(base_env, options, logger, cenv);
 }
 
@@ -118,9 +120,9 @@ Status CloudEnv::NewAwsEnv(Env* /*base_env*/,
   return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
 }
 #else
-Status CloudEnv::NewAwsEnv(Env* base_env,
-                           const CloudEnvOptions& options,
-                           const std::shared_ptr<Logger> & logger, CloudEnv** cenv) {
+Status CloudEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& options,
+                           const std::shared_ptr<Logger>& logger,
+                           CloudEnv** cenv) {
   // Dump out cloud env options
   options.Dump(logger.get());
 

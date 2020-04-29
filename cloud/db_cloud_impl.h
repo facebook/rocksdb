@@ -29,8 +29,7 @@ class DBCloudImpl : public DBCloud {
 
   Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result,
-      bool sanitize) override;
+      PluggableCompactionResult* result, bool sanitize) override;
 
  protected:
   // The CloudEnv used by this open instance.
@@ -45,5 +44,5 @@ class DBCloudImpl : public DBCloud {
 
   explicit DBCloudImpl(DB* db);
 };
-}
+}  // namespace rocksdb
 #endif  // ROCKSDB_LITE

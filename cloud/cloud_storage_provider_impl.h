@@ -117,6 +117,7 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
                               std::unique_ptr<CloudStorageReadableFile>* result,
                               const EnvOptions& options) override;
   virtual Status Prepare(CloudEnv* env) override;
+
  protected:
   Random64 rng_;
   virtual Status Initialize(CloudEnv* env);

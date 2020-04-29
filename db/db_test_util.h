@@ -736,7 +736,7 @@ class DBTestBase : public testing::Test {
   };
 
 #ifdef USE_AWS
-  Env* CreateNewAwsEnv(const std::string& pathPrefix);
+  Env* CreateNewAwsEnv(const std::string& pathPrefix, Env *env);
   std::shared_ptr<Logger> info_log_;
 #endif
 

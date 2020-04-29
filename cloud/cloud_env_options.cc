@@ -2,6 +2,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+
 #include "cloud/cloud_env_impl.h"
 #include "cloud/cloud_env_wrapper.h"
 #include "cloud/db_cloud_impl.h"
