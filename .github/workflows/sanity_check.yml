@@ -7,6 +7,8 @@ jobs:
     steps:
     - name: Checkout feature branch
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
 
     - name: Fetch from upstream
       run: |
