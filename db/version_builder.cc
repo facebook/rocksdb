@@ -86,6 +86,28 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
+  class BlobFileChanges {
+   public:
+    BlobFileChanges()
+        : additional_garbage_count_(0), additional_garbage_bytes_(0) {}
+
+    uint64_t AdditionalGarbageCount() const {
+      return additional_garbage_count_;
+    }
+    uint64_t AdditionalGarbageBytes() const {
+      return additional_garbage_bytes_;
+    }
+
+    void AddGarbage(uint64_t count, uint64_t bytes) {
+      additional_garbage_count_ += count;
+      additional_garbage_bytes_ += bytes;
+    }
+
+   private:
+    uint64_t additional_garbage_count_;
+    uint64_t additional_garbage_bytes_;
+  };
+
   const FileOptions& file_options_;
   const ImmutableCFOptions* const ioptions_;
   TableCache* table_cache_;
