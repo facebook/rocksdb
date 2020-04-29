@@ -30,19 +30,8 @@ jobs:
       with:
         args: https://raw.githubusercontent.com/llvm-mirror/clang/master/tools/clang-format/clang-format-diff.py
 
-    - name: Compute merge base between PR and upstream/master
-      id: merge_base
-      run: |
-        echo "::set-output name=MERGE_BASE::$(git merge-base upstream/master HEAD)"
-
-    - name: Format diff
-      id: format_diff
-      run: |
-        echo "::set-output name=FORMAT_DIFF_OUTPUT::$(git diff -U0 ${{steps.merge_base.outputs.MERGE_BASE}} | python clang-format-diff.py -p 1 | head -n 1)"
-
     - name: Check format
-      run: |
-        if [ -z "${{steps.format_diff.outputs.FORMAT_DIFF_OUTPUT}}" ]; then exit 0; else exit 1; fi
+      run: make check-format
 
     - name: Compare buckify output
       run: make check-buck-targets
