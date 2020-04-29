@@ -13,6 +13,7 @@
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "test_util/testharness.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -143,6 +144,7 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 
@@ -170,13 +172,23 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
                   &FullFilterBlockReader::KeyMayMatch);
 }
 
+void PartitionedFilterBlockReader::KeysMayMatch(
+    MultiGetRange* range, const SliceTransform* prefix_extractor,
+    uint64_t block_offset, const bool no_io,
+    BlockCacheLookupContext* lookup_context) {
+  assert(block_offset == kNotValid);
+  if (!whole_key_filtering()) {
+    return;  // Any/all may match
+  }
+
+  MayMatch(range, prefix_extractor, block_offset, no_io, lookup_context,
+           &FullFilterBlockReader::KeysMayMatch);
+}
+
 bool PartitionedFilterBlockReader::PrefixMayMatch(
     const Slice& prefix, const SliceTransform* prefix_extractor,
     uint64_t block_offset, const bool no_io, const Slice* const const_ikey_ptr,
     GetContext* get_context, BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
   assert(const_ikey_ptr != nullptr);
   assert(block_offset == kNotValid);
   if (!table_prefix_extractor() && !prefix_extractor) {
@@ -186,6 +198,19 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
   return MayMatch(prefix, prefix_extractor, block_offset, no_io, const_ikey_ptr,
                   get_context, lookup_context,
                   &FullFilterBlockReader::PrefixMayMatch);
+}
+
+void PartitionedFilterBlockReader::PrefixesMayMatch(
+    MultiGetRange* range, const SliceTransform* prefix_extractor,
+    uint64_t block_offset, const bool no_io,
+    BlockCacheLookupContext* lookup_context) {
+  assert(block_offset == kNotValid);
+  if (!table_prefix_extractor() && !prefix_extractor) {
+    return;  // Any/all may match
+  }
+
+  MayMatch(range, prefix_extractor, block_offset, no_io, lookup_context,
+           &FullFilterBlockReader::PrefixesMayMatch);
 }
 
 BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
@@ -254,7 +279,7 @@ bool PartitionedFilterBlockReader::MayMatch(
   Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (UNLIKELY(!s.ok())) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -272,7 +297,7 @@ bool PartitionedFilterBlockReader::MayMatch(
                               no_io, get_context, lookup_context,
                               &filter_partition_block);
   if (UNLIKELY(!s.ok())) {
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -281,6 +306,79 @@ bool PartitionedFilterBlockReader::MayMatch(
   return (filter_partition.*filter_function)(
       slice, prefix_extractor, block_offset, no_io, const_ikey_ptr, get_context,
       lookup_context);
+}
+
+void PartitionedFilterBlockReader::MayMatch(
+    MultiGetRange* range, const SliceTransform* prefix_extractor,
+    uint64_t block_offset, bool no_io, BlockCacheLookupContext* lookup_context,
+    FilterManyFunction filter_function) const {
+  CachableEntry<Block> filter_block;
+  Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
+                                  lookup_context, &filter_block);
+  if (UNLIKELY(!s.ok())) {
+    IGNORE_STATUS_IF_ERROR(s);
+    return;  // Any/all may match
+  }
+
+  if (UNLIKELY(filter_block.GetValue()->size() == 0)) {
+    return;  // Any/all may match
+  }
+
+  auto start_iter_same_handle = range->begin();
+  BlockHandle prev_filter_handle = BlockHandle::NullBlockHandle();
+
+  // For all keys mapping to same partition (must be adjacent in sorted order)
+  // share block cache lookup and use full filter multiget on the partition
+  // filter.
+  for (auto iter = start_iter_same_handle; iter != range->end(); ++iter) {
+    // TODO: re-use one top-level index iterator
+    BlockHandle this_filter_handle =
+        GetFilterPartitionHandle(filter_block, iter->ikey);
+    if (!prev_filter_handle.IsNull() &&
+        this_filter_handle != prev_filter_handle) {
+      MultiGetRange subrange(*range, start_iter_same_handle, iter);
+      MayMatchPartition(&subrange, prefix_extractor, block_offset,
+                        prev_filter_handle, no_io, lookup_context,
+                        filter_function);
+      range->AddSkipsFrom(subrange);
+      start_iter_same_handle = iter;
+    }
+    if (UNLIKELY(this_filter_handle.size() == 0)) {  // key is out of range
+      // Not reachable with current behavior of GetFilterPartitionHandle
+      assert(false);
+      range->SkipKey(iter);
+      prev_filter_handle = BlockHandle::NullBlockHandle();
+    } else {
+      prev_filter_handle = this_filter_handle;
+    }
+  }
+  if (!prev_filter_handle.IsNull()) {
+    MultiGetRange subrange(*range, start_iter_same_handle, range->end());
+    MayMatchPartition(&subrange, prefix_extractor, block_offset,
+                      prev_filter_handle, no_io, lookup_context,
+                      filter_function);
+    range->AddSkipsFrom(subrange);
+  }
+}
+
+void PartitionedFilterBlockReader::MayMatchPartition(
+    MultiGetRange* range, const SliceTransform* prefix_extractor,
+    uint64_t block_offset, BlockHandle filter_handle, bool no_io,
+    BlockCacheLookupContext* lookup_context,
+    FilterManyFunction filter_function) const {
+  CachableEntry<ParsedFullFilterBlock> filter_partition_block;
+  Status s = GetFilterPartitionBlock(
+      nullptr /* prefetch_buffer */, filter_handle, no_io,
+      range->begin()->get_context, lookup_context, &filter_partition_block);
+  if (UNLIKELY(!s.ok())) {
+    IGNORE_STATUS_IF_ERROR(s);
+    return;  // Any/all may match
+  }
+
+  FullFilterBlockReader filter_partition(table(),
+                                         std::move(filter_partition_block));
+  (filter_partition.*filter_function)(range, prefix_extractor, block_offset,
+                                      no_io, lookup_context);
 }
 
 size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
@@ -312,7 +410,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
                    "Error retrieving top-level filter block while trying to "
                    "cache filter partitions: %s",
                    s.ToString().c_str());
-    TEST_SYNC_POINT("FilterReadError");
+    IGNORE_STATUS_IF_ERROR(s);
     return;
   }
 
@@ -343,11 +441,6 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   prefetch_buffer.reset(new FilePrefetchBuffer());
   s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
                                 static_cast<size_t>(prefetch_len));
-#ifndef NDEBUG
-  if (!s.ok()) {
-    TEST_SYNC_POINT("FilterReadError");
-  }
-#endif
 
   // After prefetch, read the partitions one by one
   ReadOptions read_options;
@@ -370,11 +463,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
         }
       }
     }
-#ifndef NDEBUG
-    if (!s.ok()) {
-      TEST_SYNC_POINT("FilterReadError");
-    }
-#endif
+    IGNORE_STATUS_IF_ERROR(s);
   }
 }
 

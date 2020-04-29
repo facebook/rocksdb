@@ -1010,12 +1010,12 @@ Status DBImpl::SetDBOptions(
     }
     if (s.ok()) {
       const BGJobLimits current_bg_job_limits =
-          GetBGJobLimits(immutable_db_options_.max_background_flushes,
+          GetBGJobLimits(mutable_db_options_.max_background_flushes,
                          mutable_db_options_.max_background_compactions,
                          mutable_db_options_.max_background_jobs,
                          /* parallelize_compactions */ true);
       const BGJobLimits new_bg_job_limits = GetBGJobLimits(
-          immutable_db_options_.max_background_flushes,
+          new_options.max_background_flushes,
           new_options.max_background_compactions,
           new_options.max_background_jobs, /* parallelize_compactions */ true);
 
@@ -1529,6 +1529,25 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
+  // We will eventually support deadline for Get requests too, but safeguard
+  // for now
+  if (read_options.deadline != std::chrono::microseconds::zero()) {
+    return Status::NotSupported("ReadOptions deadline is not supported");
+  }
+
+#ifndef NDEBUG
+  assert(get_impl_options.column_family);
+  ColumnFamilyHandle* cf = get_impl_options.column_family;
+  const Comparator* const ucmp = cf->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    assert(read_options.timestamp);
+    assert(read_options.timestamp->size() == ucmp->timestamp_size());
+  } else {
+    assert(!read_options.timestamp);
+  }
+#endif  // NDEBUG
+
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -1704,7 +1723,7 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
   return MultiGet(read_options, column_family, keys, values,
-                  /*timestamps*/ nullptr);
+                  /*timestamps=*/nullptr);
 }
 
 std::vector<Status> DBImpl::MultiGet(
@@ -1715,6 +1734,20 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
+
+#ifndef NDEBUG
+  for (const auto* cfh : column_family) {
+    assert(cfh);
+    const Comparator* const ucmp = cfh->GetComparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      assert(read_options.timestamp);
+      assert(ucmp->timestamp_size() == read_options.timestamp->size());
+    } else {
+      assert(!read_options.timestamp);
+    }
+  }
+#endif  // NDEBUG
 
   SequenceNumber consistent_seqnum;
 
@@ -1760,14 +1793,16 @@ std::vector<Status> DBImpl::MultiGet(
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   size_t num_found = 0;
-  for (size_t i = 0; i < num_keys; ++i) {
+  size_t keys_read;
+  for (keys_read = 0; keys_read < num_keys; ++keys_read) {
     merge_context.Clear();
-    Status& s = stat_list[i];
-    std::string* value = &(*values)[i];
-    std::string* timestamp = timestamps ? &(*timestamps)[i] : nullptr;
+    Status& s = stat_list[keys_read];
+    std::string* value = &(*values)[keys_read];
+    std::string* timestamp = timestamps ? &(*timestamps)[keys_read] : nullptr;
 
-    LookupKey lkey(keys[i], consistent_seqnum, read_options.timestamp);
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
+    LookupKey lkey(keys[keys_read], consistent_seqnum, read_options.timestamp);
+    auto cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_family[keys_read]);
     SequenceNumber max_covering_tombstone_seq = 0;
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
@@ -1802,6 +1837,22 @@ std::vector<Status> DBImpl::MultiGet(
     if (s.ok()) {
       bytes_read += value->size();
       num_found++;
+    }
+
+    if (read_options.deadline.count() &&
+        env_->NowMicros() >
+            static_cast<uint64_t>(read_options.deadline.count())) {
+      break;
+    }
+  }
+
+  if (keys_read < num_keys) {
+    // The only reason to break out of the loop is when the deadline is
+    // exceeded
+    assert(env_->NowMicros() >
+        static_cast<uint64_t>(read_options.deadline.count()));
+    for (++keys_read; keys_read < num_keys; ++keys_read) {
+      stat_list[keys_read] = Status::TimedOut();
     }
   }
 
@@ -1957,7 +2008,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
                       PinnableSlice* values, Status* statuses,
                       const bool sorted_input) {
   return MultiGet(read_options, num_keys, column_families, keys, values,
-                  /*timestamps*/ nullptr, statuses, sorted_input);
+                  /*timestamps=*/nullptr, statuses, sorted_input);
 }
 
 void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
@@ -1967,12 +2018,29 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   if (num_keys == 0) {
     return;
   }
+
+#ifndef NDEBUG
+  for (size_t i = 0; i < num_keys; ++i) {
+    ColumnFamilyHandle* cfh = column_families[i];
+    assert(cfh);
+    const Comparator* const ucmp = cfh->GetComparator();
+    assert(ucmp);
+    if (ucmp->timestamp_size() > 0) {
+      assert(read_options.timestamp);
+      assert(read_options.timestamp->size() == ucmp->timestamp_size());
+    } else {
+      assert(!read_options.timestamp);
+    }
+  }
+#endif  // NDEBUG
+
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
     key_context.emplace_back(column_families[i], keys[i], &values[i],
-                             &timestamps[i], &statuses[i]);
+                             timestamps ? &timestamps[i] : nullptr,
+                             &statuses[i]);
   }
   for (size_t i = 0; i < num_keys; ++i) {
     sorted_keys[i] = &key_context[i];
@@ -2012,14 +2080,31 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
       read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
       &consistent_seqnum);
 
-  for (auto cf_iter = multiget_cf_data.begin();
-       cf_iter != multiget_cf_data.end(); ++cf_iter) {
-    MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys, &sorted_keys,
-                 cf_iter->super_version, consistent_seqnum, nullptr, nullptr);
+  Status s;
+  auto cf_iter = multiget_cf_data.begin();
+  for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
+    s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
+                     &sorted_keys, cf_iter->super_version, consistent_seqnum,
+                     nullptr, nullptr);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  if (!s.ok()) {
+    assert(s.IsTimedOut());
+    for (++cf_iter; cf_iter != multiget_cf_data.end(); ++cf_iter) {
+      for (size_t i = cf_iter->start; i < cf_iter->start + cf_iter->num_keys;
+           ++i) {
+        *sorted_keys[i]->s = Status::TimedOut();
+      }
+    }
+  }
+
+  for (const auto& iter : multiget_cf_data) {
     if (!unref_only) {
-      ReturnAndCleanupSuperVersion(cf_iter->cfd, cf_iter->super_version);
+      ReturnAndCleanupSuperVersion(iter.cfd, iter.super_version);
     } else {
-      cf_iter->cfd->GetSuperVersion()->Unref();
+      iter.cfd->GetSuperVersion()->Unref();
     }
   }
 }
@@ -2042,7 +2127,8 @@ struct CompareKeyContext {
     }
 
     // Both keys are from the same column family
-    int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+    int cmp = comparator->CompareWithoutTimestamp(
+        *(lhs->key), /*a_has_ts=*/false, *(rhs->key), /*b_has_ts=*/false);
     if (cmp < 0) {
       return true;
     }
@@ -2074,7 +2160,8 @@ void DBImpl::PrepareMultiGetKeys(
         }
 
         // Both keys are from the same column family
-        int cmp = comparator->Compare(*(lhs->key), *(rhs->key));
+        int cmp = comparator->CompareWithoutTimestamp(
+            *(lhs->key), /*a_has_ts=*/false, *(rhs->key), /*b_has_ts=*/false);
         assert(cmp <= 0);
       }
       index++;
@@ -2160,14 +2247,24 @@ void DBImpl::MultiGetWithCallback(
     consistent_seqnum = callback->max_visible_seq();
   }
 
-  MultiGetImpl(read_options, 0, num_keys, sorted_keys,
-               multiget_cf_data[0].super_version, consistent_seqnum, nullptr,
-               nullptr);
+  Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
+                          multiget_cf_data[0].super_version, consistent_seqnum,
+                          nullptr, nullptr);
+  assert(s.ok() || s.IsTimedOut());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
 }
 
-void DBImpl::MultiGetImpl(
+// The actual implementation of batched MultiGet. Parameters -
+// start_key - Index in the sorted_keys vector to start processing from
+// num_keys - Number of keys to lookup, starting with sorted_keys[start_key]
+// sorted_keys - The entire batch of sorted keys for this CF
+//
+// The per key status is returned in the KeyContext structures pointed to by
+// sorted_keys. An overall Status is also returned, with the only possible
+// values being Status::OK() and Status::TimedOut(). The latter indicates
+// that the call exceeded read_options.deadline
+Status DBImpl::MultiGetImpl(
     const ReadOptions& read_options, size_t start_key, size_t num_keys,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
@@ -2180,12 +2277,20 @@ void DBImpl::MultiGetImpl(
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   size_t keys_left = num_keys;
+  Status s;
   while (keys_left) {
+    if (read_options.deadline.count() &&
+        env_->NowMicros() >
+            static_cast<uint64_t>(read_options.deadline.count())) {
+      s = Status::TimedOut();
+      break;
+    }
+
     size_t batch_size = (keys_left > MultiGetContext::MAX_BATCH_SIZE)
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
     MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
-                        batch_size, snapshot);
+                        batch_size, snapshot, read_options);
     MultiGetRange range = ctx.GetMultiGetRange();
     bool lookup_current = false;
 
@@ -2223,11 +2328,19 @@ void DBImpl::MultiGetImpl(
   PERF_TIMER_GUARD(get_post_process_time);
   size_t num_found = 0;
   uint64_t bytes_read = 0;
-  for (size_t i = start_key; i < start_key + num_keys; ++i) {
+  for (size_t i = start_key; i < start_key + num_keys - keys_left; ++i) {
     KeyContext* key = (*sorted_keys)[i];
     if (key->s->ok()) {
       bytes_read += key->value->size();
       num_found++;
+    }
+  }
+  if (keys_left) {
+    assert(s.IsTimedOut());
+    for (size_t i = start_key + num_keys - keys_left; i < start_key + num_keys;
+         ++i) {
+      KeyContext* key = (*sorted_keys)[i];
+      *key->s = Status::TimedOut();
     }
   }
 
@@ -2238,6 +2351,8 @@ void DBImpl::MultiGetImpl(
   RecordInHistogram(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
+
+  return s;
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
@@ -2525,6 +2640,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   if (read_options.managed) {
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
+  }
+  // We will eventually support deadline for iterators too, but safeguard
+  // for now
+  if (read_options.deadline != std::chrono::microseconds::zero()) {
+    return NewErrorIterator(
+        Status::NotSupported("ReadOptions deadline is not supported"));
   }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {

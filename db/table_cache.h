@@ -221,6 +221,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   BlockCacheTracer* const block_cache_tracer_;
+  Striped<port::Mutex, Slice> loader_mutex_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

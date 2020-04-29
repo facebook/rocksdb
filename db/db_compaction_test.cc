@@ -4762,7 +4762,7 @@ TEST_P(CompactionPriTest, Test) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  std::random_shuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys), rnd.Next());
 
   for (int i = 0; i < kNKeys; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 102)));

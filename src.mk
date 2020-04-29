@@ -1,5 +1,6 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
+  cache/cache.cc                                                \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
@@ -118,7 +119,6 @@ LIB_SOURCES =                                                   \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
-  options/options_sanity_check.cc                               \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
@@ -426,6 +426,7 @@ MAIN_SOURCES =                                                          \
   table/sst_file_reader_test.cc                                         \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
+  table/block_fetcher_test.cc                                           \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
@@ -496,6 +497,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/compression_options.cc                        \
+  java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
   java/rocksjni/ingest_external_file_options.cc               \

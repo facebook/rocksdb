@@ -127,9 +127,11 @@ struct GetMergeOperandsOptions {
 typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
     TablePropertiesCollection;
 
-// A DB is a persistent ordered map from keys to values.
+// A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
 // any external synchronization.
+// DB is an abstract base class with one primary implementation (DBImpl)
+// and a number of wrapper implementations.
 class DB {
  public:
   // Open the database with the specified "name".
@@ -255,6 +257,7 @@ class DB {
                                    const std::string& name,
                                    std::vector<std::string>* column_families);
 
+  // Abstract class ctor
   DB() {}
   // No copying allowed
   DB(const DB&) = delete;
@@ -457,6 +460,11 @@ class DB {
       GetMergeOperandsOptions* get_merge_operands_options,
       int* number_of_operands) = 0;
 
+  // Consistent Get of many keys across column families without the need
+  // for an explicit snapshot. NOTE: the implementation of this MultiGet API
+  // does not have the performance benefits of the void-returning MultiGet
+  // functions.
+  //
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
   // (*values)[i] will be set to some arbitrary value (often ""). Otherwise,
@@ -1139,7 +1147,8 @@ class DB {
 
   // This function will wait until all currently running background processes
   // finish. After it returns, no background process will be run until
-  // ContinueBackgroundWork is called
+  // ContinueBackgroundWork is called, once for each preceding OK-returning
+  // call to PauseBackgroundWork.
   virtual Status PauseBackgroundWork() = 0;
   virtual Status ContinueBackgroundWork() = 0;
 

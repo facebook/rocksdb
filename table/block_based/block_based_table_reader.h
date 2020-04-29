@@ -260,7 +260,8 @@ class BlockBasedTable : public TableReader {
   void UpdateCacheMissMetrics(BlockType block_type,
                               GetContext* get_context) const;
   void UpdateCacheInsertionMetrics(BlockType block_type,
-                                   GetContext* get_context, size_t usage) const;
+                                   GetContext* get_context, size_t usage,
+                                   bool redundant) const;
   Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                    BlockType block_type,
                                    GetContext* get_context) const;
@@ -454,7 +455,7 @@ class BlockBasedTable : public TableReader {
   friend class DBBasicTest_MultiGetIOBufferOverrun_Test;
 };
 
-// Maitaning state of a two-level iteration on a partitioned index structure.
+// Maintaining state of a two-level iteration on a partitioned index structure.
 class BlockBasedTable::PartitionedIndexIteratorState
     : public TwoLevelIteratorState {
  public:

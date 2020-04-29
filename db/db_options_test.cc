@@ -33,12 +33,14 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
-    GetStringFromDBOptions(&options_str, options);
+    ConfigOptions config_options;
+    config_options.delimiter = "; ";
+    GetStringFromDBOptions(config_options, options, &options_str);
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
     for (const auto opt : db_options_type_info) {
-      if (opt.second.IsMutable() && !opt.second.IsDeprecated()) {
+      if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
     }
@@ -48,12 +50,15 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetMutableCFOptionsMap(
       const ColumnFamilyOptions& options) {
     std::string options_str;
-    GetStringFromColumnFamilyOptions(&options_str, options);
+    ConfigOptions config_options;
+    config_options.delimiter = "; ";
+
+    GetStringFromColumnFamilyOptions(config_options, options, &options_str);
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
     for (const auto opt : cf_options_type_info) {
-      if (opt.second.IsMutable() && !opt.second.IsDeprecated()) {
+      if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
     }
@@ -401,6 +406,20 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
+
+TEST_F(DBOptionsTest, SetBackgroundFlushThreads) {
+  Options options;
+  options.create_if_missing = true;
+  options.max_background_flushes = 1;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(1, dbfull()->TEST_BGFlushesAllowed());
+  ASSERT_EQ(1, env_->GetBackgroundThreads(Env::Priority::HIGH));
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_background_flushes", "3"}}));
+  ASSERT_EQ(3, env_->GetBackgroundThreads(Env::Priority::HIGH));
+  ASSERT_EQ(3, dbfull()->TEST_BGFlushesAllowed());
+}
+
 
 TEST_F(DBOptionsTest, SetBackgroundJobs) {
   Options options;

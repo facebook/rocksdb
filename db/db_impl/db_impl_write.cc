@@ -1820,6 +1820,8 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Slice* ts = opt.timestamp;
   assert(nullptr != ts);
   size_t ts_sz = ts->size();
+  assert(column_family->GetComparator());
+  assert(ts_sz == column_family->GetComparator()->timestamp_size());
   WriteBatch batch(key.size() + ts_sz + value.size() + 24, /*max_bytes=*/0,
                    ts_sz);
   Status s = batch.Put(column_family, key, value);

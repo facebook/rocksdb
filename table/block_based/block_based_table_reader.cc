@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_based_table_reader.h"
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -14,12 +15,14 @@
 #include <utility>
 #include <vector>
 
+#include "cache/sharded_cache.h"
+
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
-
 #include "file/file_prefetch_buffer.h"
 #include "file/random_access_file_reader.h"
-
+#include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -30,7 +33,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
@@ -52,13 +54,14 @@
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
 
+#include "test_util/testharness.h"
 #include "monitoring/perf_context_imp.h"
+#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/util.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -337,15 +340,22 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
 
 void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
                                                   GetContext* get_context,
-                                                  size_t usage) const {
+                                                  size_t usage,
+                                                  bool redundant) const {
   Statistics* const statistics = rep_->ioptions.statistics;
 
   // TODO: introduce perf counters for block cache insertions
   if (get_context) {
     ++get_context->get_context_stats_.num_cache_add;
+    if (redundant) {
+      ++get_context->get_context_stats_.num_cache_add_redundant;
+    }
     get_context->get_context_stats_.num_cache_bytes_write += usage;
   } else {
     RecordTick(statistics, BLOCK_CACHE_ADD);
+    if (redundant) {
+      RecordTick(statistics, BLOCK_CACHE_ADD_REDUNDANT);
+    }
     RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usage);
   }
 
@@ -353,9 +363,15 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
     case BlockType::kFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_filter_add_redundant;
+        }
         get_context->get_context_stats_.num_cache_filter_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
+        if (redundant) {
+          RecordTick(statistics, BLOCK_CACHE_FILTER_ADD_REDUNDANT);
+        }
         RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, usage);
       }
       break;
@@ -363,10 +379,17 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
     case BlockType::kCompressionDictionary:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_compression_dict_add;
+        if (redundant) {
+          ++get_context->get_context_stats_
+                .num_cache_compression_dict_add_redundant;
+        }
         get_context->get_context_stats_
             .num_cache_compression_dict_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_ADD);
+        if (redundant) {
+          RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT);
+        }
         RecordTick(statistics, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT,
                    usage);
       }
@@ -375,9 +398,15 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
     case BlockType::kIndex:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_index_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_index_add_redundant;
+        }
         get_context->get_context_stats_.num_cache_index_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
+        if (redundant) {
+          RecordTick(statistics, BLOCK_CACHE_INDEX_ADD_REDUNDANT);
+        }
         RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, usage);
       }
       break;
@@ -387,9 +416,15 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
       // for range tombstones
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_data_add;
+        if (redundant) {
+          ++get_context->get_context_stats_.num_cache_data_add_redundant;
+        }
         get_context->get_context_stats_.num_cache_data_bytes_insert += usage;
       } else {
         RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
+        if (redundant) {
+          RecordTick(statistics, BLOCK_CACHE_DATA_ADD_REDUNDANT);
+        }
         RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT, usage);
       }
       break;
@@ -728,6 +763,7 @@ Status BlockBasedTable::PrefetchTail(
         nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     s = (*prefetch_buffer)->Prefetch(file, prefetch_off, prefetch_len);
   }
+
   return s;
 }
 
@@ -788,10 +824,12 @@ Status BlockBasedTable::ReadPropertiesBlock(
           nullptr /* ret_block_handle */, nullptr /* ret_block_contents */,
           false /* compression_type_missing */, nullptr /* memory_allocator */);
     }
+    IGNORE_STATUS_IF_ERROR(s);
 
     if (s.IsCorruption()) {
       s = TryReadPropertiesWithGlobalSeqno(prefetch_buffer, meta_iter->value(),
                                            &table_properties);
+      IGNORE_STATUS_IF_ERROR(s);
     }
     std::unique_ptr<TableProperties> props_guard;
     if (table_properties != nullptr) {
@@ -890,6 +928,7 @@ Status BlockBasedTable::ReadRangeDelBlock(
           rep_->ioptions.info_log,
           "Encountered error while reading data from range del block %s",
           s.ToString().c_str());
+      IGNORE_STATUS_IF_ERROR(s);
     } else {
       rep_->fragmented_range_dels =
           std::make_shared<FragmentedRangeTombstoneList>(std::move(iter),
@@ -994,11 +1033,6 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     auto filter = new_table->CreateFilterBlockReader(
         prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
-#ifndef NDEBUG
-    if (rep_->filter_type != Rep::FilterType::kNoFilter && !filter) {
-      TEST_SYNC_POINT("FilterReadError");
-    }
-#endif
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {
@@ -1182,7 +1216,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
         block->SetCachedValue(block_holder.release(), block_cache,
                               cache_handle);
 
-        UpdateCacheInsertionMetrics(block_type, get_context, charge);
+        UpdateCacheInsertionMetrics(block_type, get_context, charge,
+                                    s.IsOkOverwritten());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       }
@@ -1287,7 +1322,8 @@ Status BlockBasedTable::PutDataBlockToCache(
       cached_block->SetCachedValue(block_holder.release(), block_cache,
                                    cache_handle);
 
-      UpdateCacheInsertionMetrics(block_type, get_context, charge);
+      UpdateCacheInsertionMetrics(block_type, get_context, charge,
+                                  s.IsOkOverwritten());
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
     }
@@ -2111,14 +2147,37 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   if (filter == nullptr || filter->IsBlockBased()) {
     return;
   }
+  uint64_t before_keys = range->KeysLeft();
+  assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
     filter->KeysMayMatch(range, prefix_extractor, kNotValid, no_io,
                          lookup_context);
+    uint64_t after_keys = range->KeysLeft();
+    if (after_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_FULL_POSITIVE,
+                 after_keys);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_positive, after_keys,
+                                rep_->level);
+    }
+    uint64_t filtered_keys = before_keys - after_keys;
+    if (filtered_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL, filtered_keys);
+      PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, filtered_keys,
+                                rep_->level);
+    }
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0) {
     filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
                              lookup_context);
+    RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_PREFIX_CHECKED,
+               before_keys);
+    uint64_t after_keys = range->KeysLeft();
+    uint64_t filtered_keys = before_keys - after_keys;
+    if (filtered_keys) {
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_PREFIX_USEFUL,
+                 filtered_keys);
+    }
   }
 }
 
@@ -2171,7 +2230,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     size_t ts_sz =
         rep_->internal_comparator.user_comparator()->timestamp_size();
-    bool matched = false;  // if such user key mathced a key in SST
+    bool matched = false;  // if such user key matched a key in SST
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
@@ -2306,6 +2365,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                                const MultiGetRange* mget_range,
                                const SliceTransform* prefix_extractor,
                                bool skip_filters) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return;  // Nothing to do
+  }
+
   FilterBlockReader* const filter =
       !skip_filters ? rep_->filter.get() : nullptr;
   MultiGetRange sst_file_range(*mget_range, mget_range->begin(),
@@ -2315,7 +2380,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   // If full filter not useful, Then go into each block
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
-  if (!sst_file_range.empty() && sst_file_range.begin()->get_context) {
+  if (sst_file_range.begin()->get_context) {
     tracing_mget_id = sst_file_range.begin()->get_context->get_tracing_get_id();
   }
   BlockCacheLookupContext lookup_context{
@@ -2324,7 +2389,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
   FullFilterKeysMayMatch(read_options, filter, &sst_file_range, no_io,
                          prefix_extractor, &lookup_context);
 
-  if (skip_filters || !sst_file_range.empty()) {
+  if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
     // if prefix_extractor found in block differs from options, disable
     // BlockPrefixIndex. Only do this check when index_type is kHashSearch.

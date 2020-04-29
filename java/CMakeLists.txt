@@ -26,6 +26,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
+        rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
         rocksjni/filter.cc
@@ -128,6 +129,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/ConfigOptions.java
   src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
@@ -191,6 +193,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RocksMemEnv.java
   src/main/java/org/rocksdb/RocksMutableObject.java
   src/main/java/org/rocksdb/RocksObject.java
+  src/main/java/org/rocksdb/SanityLevel.java
   src/main/java/org/rocksdb/SizeApproximationFlag.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java

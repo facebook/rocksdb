@@ -173,7 +173,7 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"],
-        [":rocksdb_lib"])
+        [":rocksdb_lib", ":rocksdb_test_lib"])
 
     print("Extra dependencies:\n{0}".format(str(deps_map)))
     # test for every test we found in the Makefile
