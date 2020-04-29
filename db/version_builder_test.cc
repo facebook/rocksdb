@@ -86,7 +86,8 @@ class VersionBuilderTest : public testing::Test {
         blob_file_number, total_blob_count, total_blob_bytes,
         std::move(checksum_method), std::move(checksum_value));
     auto meta = BlobFileMetaData::Create(
-        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
+        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+        garbage_blob_count, garbage_blob_bytes);
 
     vstorage_.AddBlobFile(std::move(meta));
   }

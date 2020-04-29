@@ -583,9 +583,9 @@ class VersionBuilder::Rep {
     auto shared_meta = delta.GetSharedMeta();
     assert(shared_meta);
 
-    auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                         delta.GetAdditionalGarbageCount(),
-                                         delta.GetAdditionalGarbageBytes());
+    auto meta = BlobFileMetaData::Create(
+        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+        delta.GetAdditionalGarbageCount(), delta.GetAdditionalGarbageBytes());
 
     return meta;
   }
@@ -605,7 +605,7 @@ class VersionBuilder::Rep {
     assert(shared_meta);
 
     auto meta = BlobFileMetaData::Create(
-        std::move(shared_meta),
+        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
         base_meta->GetGarbageBlobCount() + delta.GetAdditionalGarbageCount(),
         base_meta->GetGarbageBlobBytes() + delta.GetAdditionalGarbageBytes());
 
