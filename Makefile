@@ -967,6 +967,8 @@ ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
+	$(MAKE) check-format
+	$(MAKE) check-buck-targets
 
 # TODO add ldb_tests
 check_some: $(SUBSET)
@@ -1187,6 +1189,9 @@ tags0:
 format:
 	build_tools/format-diff.sh
 
+check-format:
+	build_tools/format-diff.sh -c
+
 buck-targets:
 	python buckifier/buckify_rocksdb.py
 
@@ -1197,6 +1202,8 @@ check-buck-targets: buck-targets
 	@if [ -z "$(TMP)" ]; then \
 		exit 0; \
 	else \
+		echo You need to run make buck-targets to update the TARGETS file
+		echo Do not modify TARGETS file manually.
 		exit 1; \
 	fi
 
