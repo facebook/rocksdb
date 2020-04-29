@@ -1074,7 +1074,9 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
     ASSERT_OK(Put(UKey(i), UKey(i)));
   }
   ASSERT_OK(Flush());
+#ifndef ROCKSDB_LITE
   ASSERT_EQ(TotalTableFiles(), 1);
+#endif
 
   constexpr uint32_t Q = 29;
   // MultiGet In
