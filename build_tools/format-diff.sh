@@ -119,6 +119,7 @@ then
   # Get the common ancestor with that remote branch. Everything after that
   # common ancestor would be considered the contents of a pull request, so
   # should be relevant for formatting fixes.
+  git merge-base "$FORMAT_UPSTREAM" HEAD
   FORMAT_UPSTREAM_MERGE_BASE="$(git merge-base "$FORMAT_UPSTREAM" HEAD)"
   echo FORMAT_UPSTREAM_MERGE_BASE is $FORMAT_UPSTREAM_MERGE_BASE
   # Get the differences
