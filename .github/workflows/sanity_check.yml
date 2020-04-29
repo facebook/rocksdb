@@ -17,6 +17,7 @@ jobs:
         echo git status && git status
         echo "git remote -v" && git remote -v
         echo git branch && git branch
+        git merge-base upstream/master HEAD
 
     - name: Setup Python
       uses: actions/setup-python@v1
