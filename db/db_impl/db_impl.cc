@@ -870,9 +870,7 @@ void DBImpl::DumpStats() {
 Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
                                            int max_entries_to_print,
                                            std::string* out_str) {
-  auto* cfh =
-      static_cast_with_check<ColumnFamilyHandleImpl, ColumnFamilyHandle>(
-          column_family);
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
 
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);

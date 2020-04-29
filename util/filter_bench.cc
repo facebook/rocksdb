@@ -122,7 +122,6 @@ using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::fastrange32;
-using ROCKSDB_NAMESPACE::FilterBitsBuilder;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
 using ROCKSDB_NAMESPACE::FullFilterBlockReader;
@@ -381,7 +380,8 @@ void FilterBench::Go() {
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
       if (!builder) {
-        builder.reset(static_cast_with_check<BuiltinFilterBitsBuilder, FilterBitsBuilder>(GetBuilder()));
+        builder.reset(
+            static_cast_with_check<BuiltinFilterBitsBuilder>(GetBuilder()));
       }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));

@@ -413,7 +413,7 @@ std::unordered_map<std::string, OptionTypeInfo>
                 reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
             BlockBasedTableOptions table_opts, base_opts;
             BlockBasedTableFactory* block_based_table_factory =
-                static_cast_with_check<BlockBasedTableFactory, TableFactory>(
+                static_cast_with_check<BlockBasedTableFactory>(
                     old_table_factory->get());
             if (block_based_table_factory != nullptr) {
               base_opts = block_based_table_factory->table_options();
@@ -437,7 +437,7 @@ std::unordered_map<std::string, OptionTypeInfo>
                 reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
             PlainTableOptions table_opts, base_opts;
             PlainTableFactory* plain_table_factory =
-                static_cast_with_check<PlainTableFactory, TableFactory>(
+                static_cast_with_check<PlainTableFactory>(
                     old_table_factory->get());
             if (plain_table_factory != nullptr) {
               base_opts = plain_table_factory->table_options();

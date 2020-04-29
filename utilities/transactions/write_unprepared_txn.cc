@@ -847,8 +847,7 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   ReadOptions roptions;
   roptions.snapshot = top.snapshot_->snapshot();
   SequenceNumber min_uncommitted =
-      static_cast_with_check<const SnapshotImpl, const Snapshot>(
-          roptions.snapshot)
+      static_cast_with_check<const SnapshotImpl>(roptions.snapshot)
           ->min_uncommitted_;
   SequenceNumber snap_seq = roptions.snapshot->GetSequenceNumber();
   WriteUnpreparedTxnReadCallback callback(wupt_db_, snap_seq, min_uncommitted,
@@ -976,8 +975,7 @@ Status WriteUnpreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   assert(snapshot_);
 
   SequenceNumber min_uncommitted =
-      static_cast_with_check<const SnapshotImpl, const Snapshot>(
-          snapshot_.get())
+      static_cast_with_check<const SnapshotImpl>(snapshot_.get())
           ->min_uncommitted_;
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
   // tracked_at_seq is either max or the last snapshot with which this key was

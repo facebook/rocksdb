@@ -2143,8 +2143,7 @@ void DBImpl::BGWorkFlush(void* arg) {
 
   IOSTATS_SET_THREAD_POOL_ID(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
-  static_cast_with_check<DBImpl, DB>(fta.db_)->BackgroundCallFlush(
-      fta.thread_pri_);
+  static_cast_with_check<DBImpl>(fta.db_)->BackgroundCallFlush(fta.thread_pri_);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
@@ -2155,7 +2154,7 @@ void DBImpl::BGWorkCompaction(void* arg) {
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
-  static_cast_with_check<DBImpl, DB>(ca.db)->BackgroundCallCompaction(
+  static_cast_with_check<DBImpl>(ca.db)->BackgroundCallCompaction(
       prepicked_compaction, Env::Priority::LOW);
   delete prepicked_compaction;
 }

@@ -166,8 +166,7 @@ TransactionLockMgr::TransactionLockMgr(
       dlock_buffer_(max_num_deadlocks),
       mutex_factory_(mutex_factory) {
   assert(txn_db);
-  txn_db_impl_ =
-      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
+  txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}

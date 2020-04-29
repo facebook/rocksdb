@@ -75,8 +75,7 @@ class PessimisticTransactionDB : public TransactionDB {
     Transaction* txn = BeginInternalTransaction(opts);
     txn->DisableIndexing();
 
-    auto txn_impl =
-        static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+    auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
 
     // Since commitBatch sorts the keys before locking, concurrent Write()
     // operations will not cause a deadlock.

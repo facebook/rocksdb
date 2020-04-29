@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 TransactionBaseImpl::TransactionBaseImpl(DB* db,
                                          const WriteOptions& write_options)
     : db_(db),
-      dbimpl_(static_cast_with_check<DBImpl, DB>(db)),
+      dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),

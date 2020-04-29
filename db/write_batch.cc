@@ -1281,7 +1281,7 @@ class MemTableInserter : public WriteBatch::Handler {
         ignore_missing_column_families_(ignore_missing_column_families),
         recovering_log_number_(recovering_log_number),
         log_number_ref_(0),
-        db_(static_cast_with_check<DBImpl, DB>(db)),
+        db_(static_cast_with_check<DBImpl>(db)),
         concurrent_memtable_writes_(concurrent_memtable_writes),
         post_info_created_(false),
         has_valid_writes_(has_valid_writes),
