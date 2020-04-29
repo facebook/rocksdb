@@ -1202,8 +1202,6 @@ check-buck-targets: buck-targets
 	@if [ -z "$(TMP)" ]; then \
 		exit 0; \
 	else \
-		echo You need to run make buck-targets to update the TARGETS file
-		echo Do not modify TARGETS file manually.
 		exit 1; \
 	fi
 
