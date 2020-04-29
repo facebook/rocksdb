@@ -30,6 +30,10 @@ jobs:
       with:
         args: https://raw.githubusercontent.com/llvm-mirror/clang/master/tools/clang-format/clang-format-diff.py
 
+    - name: Check format 1
+      run: |
+        build_tools/format-diff.sh -c
+
     - name: Check format
       run: make check-format
 
