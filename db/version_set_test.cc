@@ -960,6 +960,88 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(VersionSetTest, ObsoleteBlobFile) {
+  // Initialize the database and add a blob file (with no garbage just yet).
+  NewDB();
+
+  VersionEdit addition;
+
+  constexpr uint64_t blob_file_number = 234;
+  constexpr uint64_t total_blob_count = 555;
+  constexpr uint64_t total_blob_bytes = 66666;
+  constexpr char checksum_method[] = "CRC32";
+  constexpr char checksum_value[] = "3d87ff57";
+
+  addition.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                       checksum_method, checksum_value);
+
+  assert(versions_);
+  assert(versions_->GetColumnFamilySet());
+
+  mutex_.Lock();
+  Status s =
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &addition, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_OK(s);
+
+  // Mark the entire blob file garbage.
+  VersionEdit garbage;
+
+  garbage.AddBlobFileGarbage(blob_file_number, total_blob_count,
+                             total_blob_bytes);
+
+  mutex_.Lock();
+  s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &garbage, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_OK(s);
+
+  // Make sure blob files from the pending number range are not returned
+  // as obsolete.
+  {
+    std::vector<ObsoleteFileInfo> table_files;
+    std::vector<ObsoleteBlobFileInfo> blob_files;
+    std::vector<std::string> manifest_files;
+    constexpr uint64_t min_pending_output = blob_file_number;
+
+    versions_->GetObsoleteFiles(&table_files, &blob_files, &manifest_files,
+                                min_pending_output);
+
+    ASSERT_TRUE(blob_files.empty());
+  }
+
+  // Make sure the blob file is returned as obsolete if it's not in the pending
+  // range.
+  {
+    std::vector<ObsoleteFileInfo> table_files;
+    std::vector<ObsoleteBlobFileInfo> blob_files;
+    std::vector<std::string> manifest_files;
+    constexpr uint64_t min_pending_output = blob_file_number + 1;
+
+    versions_->GetObsoleteFiles(&table_files, &blob_files, &manifest_files,
+                                min_pending_output);
+
+    ASSERT_EQ(blob_files.size(), 1);
+    ASSERT_EQ(blob_files[0].GetBlobFileNumber(), blob_file_number);
+  }
+
+  // Make sure it's not returned a second time.
+  {
+    std::vector<ObsoleteFileInfo> table_files;
+    std::vector<ObsoleteBlobFileInfo> blob_files;
+    std::vector<std::string> manifest_files;
+    constexpr uint64_t min_pending_output = blob_file_number + 1;
+
+    versions_->GetObsoleteFiles(&table_files, &blob_files, &manifest_files,
+                                min_pending_output);
+
+    ASSERT_TRUE(blob_files.empty());
+  }
+}
+
 class VersionSetAtomicGroupTest : public VersionSetTestBase,
                                   public testing::Test {
  public:

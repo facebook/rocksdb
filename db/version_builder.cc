@@ -87,9 +87,10 @@ class VersionBuilder::Rep {
   };
 
   const FileOptions& file_options_;
-  Logger* info_log_;
+  const ImmutableCFOptions* const ioptions_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
+  VersionSet* version_set_;
   int num_levels_;
   LevelState* levels_;
   // Store states of levels larger than num_levels_. We do this instead of
@@ -107,15 +108,18 @@ class VersionBuilder::Rep {
   std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> changed_blob_files_;
 
  public:
-  Rep(const FileOptions& file_options, Logger* info_log,
-      TableCache* table_cache,
-      VersionStorageInfo* base_vstorage)
+  Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
+      TableCache* table_cache, VersionStorageInfo* base_vstorage,
+      VersionSet* version_set)
       : file_options_(file_options),
-        info_log_(info_log),
+        ioptions_(ioptions),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage),
+        version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
         has_invalid_levels_(false) {
+    assert(ioptions_);
+
     levels_ = new LevelState[num_levels_];
     level_zero_cmp_.sort_method = FileComparator::kLevel0;
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
@@ -388,11 +392,29 @@ class VersionBuilder::Rep {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
+    // Note: we use C++11 for now but in C++14, this could be done in a more
+    // elegant way using generalized lambda capture.
+    VersionSet* const vs = version_set_;
+    const ImmutableCFOptions* const ioptions = ioptions_;
+
+    auto deleter = [vs, ioptions](SharedBlobFileMetaData* shared_meta) {
+      if (vs) {
+        assert(ioptions);
+        assert(!ioptions->cf_paths.empty());
+        assert(shared_meta);
+
+        vs->AddObsoleteBlobFile(shared_meta->GetBlobFileNumber(),
+                                ioptions->cf_paths.front().path);
+      }
+
+      delete shared_meta;
+    };
+
     auto shared_meta = SharedBlobFileMetaData::Create(
         blob_file_number, blob_file_addition.GetTotalBlobCount(),
         blob_file_addition.GetTotalBlobBytes(),
         blob_file_addition.GetChecksumMethod(),
-        blob_file_addition.GetChecksumValue());
+        blob_file_addition.GetChecksumValue(), deleter);
 
     constexpr uint64_t garbage_blob_count = 0;
     constexpr uint64_t garbage_blob_bytes = 0;
@@ -738,16 +760,19 @@ class VersionBuilder::Rep {
       // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
-      vstorage->AddFile(level, f, info_log_);
+      assert(ioptions_);
+      vstorage->AddFile(level, f, ioptions_->info_log);
     }
   }
 };
 
 VersionBuilder::VersionBuilder(const FileOptions& file_options,
+                               const ImmutableCFOptions* ioptions,
                                TableCache* table_cache,
                                VersionStorageInfo* base_vstorage,
-                               Logger* info_log)
-    : rep_(new Rep(file_options, info_log, table_cache, base_vstorage)) {}
+                               VersionSet* version_set)
+    : rep_(new Rep(file_options, ioptions, table_cache, base_vstorage,
+                   version_set)) {}
 
 VersionBuilder::~VersionBuilder() = default;
 
@@ -773,8 +798,9 @@ Status VersionBuilder::LoadTableHandlers(
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd)
     : version_builder_(new VersionBuilder(
-          cfd->current()->version_set()->file_options(), cfd->table_cache(),
-          cfd->current()->storage_info(), cfd->ioptions()->info_log)),
+          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->table_cache(), cfd->current()->storage_info(),
+          cfd->current()->version_set())),
       version_(cfd->current()) {
   version_->Ref();
 }
@@ -782,8 +808,8 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, Version* v)
     : version_builder_(new VersionBuilder(
-          cfd->current()->version_set()->file_options(), cfd->table_cache(),
-          v->storage_info(), cfd->ioptions()->info_log)),
+          cfd->current()->version_set()->file_options(), cfd->ioptions(),
+          cfd->table_cache(), v->storage_info(), v->version_set())),
       version_(v) {
   assert(version_ != cfd->current());
 }
