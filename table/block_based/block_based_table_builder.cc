@@ -376,18 +376,20 @@ struct BlockBasedTableBuilder::Rep {
 
   const Status& get_status() const { return status; }
 
-  void GetStatusFromIOStatus() {
+  void SyncStatusFromIOStatus() {
     if (status.ok()) {
       status = io_status;
     }
   }
 
+  // Never erase an existing status that is not OK.
   void SetStatus(Status s) {
     if (!s.ok() && status.ok()) {
       status = s;
     }
   }
 
+  // Never erase an existing I/O status that is not OK.
   void SetIOStatus(IOStatus ios) {
     if (!ios.ok() && io_status.ok()) {
       io_status = ios;
@@ -1508,7 +1510,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   if (ios.ok()) {
     r->set_offset(r->get_offset() + footer_encoding.size());
   }
-  r->GetStatusFromIOStatus();
+  r->SyncStatusFromIOStatus();
 }
 
 void BlockBasedTableBuilder::EnterUnbuffered() {
