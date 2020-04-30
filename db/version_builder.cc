@@ -91,6 +91,9 @@ class VersionBuilder::Rep {
     BlobFileMetaDataDelta()
         : additional_garbage_count_(0), additional_garbage_bytes_(0) {}
 
+    std::shared_ptr<SharedBlobFileMetaData> GetSharedMeta() const {
+      return shared_meta_;
+    }
     uint64_t AdditionalGarbageCount() const {
       return additional_garbage_count_;
     }
@@ -98,12 +101,19 @@ class VersionBuilder::Rep {
       return additional_garbage_bytes_;
     }
 
+    void SetSharedMeta(std::shared_ptr<SharedBlobFileMetaData> shared_meta) {
+      assert(!shared_meta_);
+      assert(shared_meta);
+
+      shared_meta_ = std::move(shared_meta);
+    }
     void AddGarbage(uint64_t count, uint64_t bytes) {
       additional_garbage_count_ += count;
       additional_garbage_bytes_ += bytes;
     }
 
    private:
+    std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
     uint64_t additional_garbage_count_;
     uint64_t additional_garbage_bytes_;
   };
