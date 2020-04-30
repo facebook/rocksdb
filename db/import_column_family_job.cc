@@ -62,7 +62,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
                        info2->smallest_internal_key) < 0;
           });
 
-      for (size_t i = 0; i < sorted_files.size() - 1; i++) {
+      for (size_t i = 0; i + 1 < sorted_files.size(); i++) {
         if (cfd_->internal_comparator().Compare(
                 sorted_files[i]->largest_internal_key,
                 sorted_files[i + 1]->smallest_internal_key) >= 0) {
