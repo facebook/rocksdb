@@ -119,6 +119,7 @@ struct CompressionOptions {
 
   // Number of threads for parallel compression.
   // Parallel compression is enabled only if threads > 1.
+  // THE FEATURE IS STILL EXPERIMENTAL
   //
   // This option is valid only when BlockBasedTable is used.
   //
