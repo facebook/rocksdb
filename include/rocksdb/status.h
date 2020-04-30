@@ -60,7 +60,6 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
-    kInvalidPrecondition = 16,
     kMaxCode
   };
 
@@ -136,14 +135,6 @@ class Status {
   }
   static Status InvalidArgument(SubCode msg = kNone) {
     return Status(kInvalidArgument, msg);
-  }
-
-  static Status InvalidPrecondition(SubCode msg = kNone) {
-    return Status(kInvalidPrecondition, msg);
-  }
-  static Status InvalidPrecondition(
-      const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kInvalidPrecondition, msg, msg2);
   }
 
   static Status IOError(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -235,10 +226,10 @@ class Status {
   }
 
   static Status TxnNotPrepared() {
-    return Status(kInvalidPrecondition, kTxnNotPrepared);
+    return Status(kInvalidArgument, kTxnNotPrepared);
   }
   static Status TxnNotPrepared(const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kInvalidPrecondition, kTxnNotPrepared, msg, msg2);
+    return Status(kInvalidArgument, kTxnNotPrepared, msg, msg2);
   }
 
   // Returns true iff the status indicates success.
@@ -261,9 +252,6 @@ class Status {
 
   // Returns true iff the status indicates an InvalidArgument error.
   bool IsInvalidArgument() const { return code() == kInvalidArgument; }
-
-  // Returns true iff the status indicates an InvalidPrecondition error.
-  bool IsInvalidPrecondition() const { return code() == kInvalidPrecondition; }
 
   // Returns true iff the status indicates an IOError.
   bool IsIOError() const { return code() == kIOError; }
@@ -337,7 +325,7 @@ class Status {
 
   // Returns true iff the status indicates a TxnNotPrepared error.
   bool IsTxnNotPrepared() const {
-    return (code() == kInvalidPrecondition) && (subcode() == kTxnNotPrepared);
+    return (code() == kInvalidArgument) && (subcode() == kTxnNotPrepared);
   }
 
   // Return a string representation of this status suitable for printing.
