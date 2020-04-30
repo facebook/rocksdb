@@ -288,7 +288,6 @@ struct BlockBasedTableBuilder::Rep {
   // Synchronize status & io_status accesses across threads from main thread,
   // compression thread and write thread in parallel compression.
   std::mutex status_mutex;
-  std::mutex io_status_mutex;
   size_t alignment;
   BlockBuilder data_block;
   // Buffers uncompressed data blocks and keys to replay later. Needed when
@@ -372,27 +371,58 @@ struct BlockBasedTableBuilder::Rep {
     return status.ok();
   }
 
-  const IOStatus& get_io_status() const { return io_status; }
+  const IOStatus& GetIOStatus() {
+    if (compression_opts.parallel_threads > 1) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      return io_status;
+    } else {
+      return io_status;
+    }
+  }
 
-  const Status& get_status() const { return status; }
+  const Status& GetStatus() {
+    if (compression_opts.parallel_threads > 1) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      return status;
+    } else {
+      return status;
+    }
+  }
 
   void SyncStatusFromIOStatus() {
-    if (status.ok()) {
+    if (compression_opts.parallel_threads > 1) {
+      std::lock_guard<std::mutex> lock(status_mutex);
+      if (status.ok()) {
+        status = io_status;
+      }
+    } else if (status.ok()) {
       status = io_status;
     }
   }
 
   // Never erase an existing status that is not OK.
   void SetStatus(Status s) {
-    if (!s.ok() && status.ok()) {
-      status = s;
+    if (!s.ok()) {
+      // Locking is an overkill for non compression_opts.parallel_threads
+      // case but since it's unlikely that s is not OK, we take this cost
+      // to be simplicity.
+      std::lock_guard<std::mutex> lock(status_mutex);
+      if (status.ok()) {
+        status = s;
+      }
     }
   }
 
   // Never erase an existing I/O status that is not OK.
   void SetIOStatus(IOStatus ios) {
-    if (!ios.ok() && io_status.ok()) {
-      io_status = ios;
+    if (!ios.ok()) {
+      // Locking is an overkill for non compression_opts.parallel_threads
+      // case but since it's unlikely that s is not OK, we take this cost
+      // to be simplicity.
+      std::lock_guard<std::mutex> lock(status_mutex);
+      if (io_status.ok()) {
+        io_status = ios;
+      }
     }
   }
 
@@ -1087,10 +1117,10 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     if (io_s.ok()) {
       s = InsertBlockInCache(block_contents, type, handle);
       if (!s.ok()) {
-        SetStatusAtom(s);
+        r->SetStatus(s);
       }
     } else {
-      SetIOStatusAtom(io_s);
+      r->SetIOStatus(io_s);
     }
     if (s.ok() && io_s.ok()) {
       r->set_offset(r->get_offset() + block_contents.size() +
@@ -1104,7 +1134,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         if (io_s.ok()) {
           r->set_offset(r->get_offset() + pad_bytes);
         } else {
-          SetIOStatusAtom(io_s);
+          r->SetIOStatus(io_s);
         }
       }
       if (r->compression_opts.parallel_threads > 1) {
@@ -1143,10 +1173,10 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
     }
   } else {
-    SetIOStatusAtom(io_s);
+    r->SetIOStatus(io_s);
   }
   if (!io_s.ok() && s.ok()) {
-    SetStatusAtom(io_s);
+    r->SetStatus(io_s);
   }
 }
 
@@ -1157,7 +1187,7 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
   while (r->pc_rep->write_queue.pop(slot)) {
     slot->Take(block_rep);
     if (!block_rep->status.ok()) {
-      SetStatusAtom(block_rep->status);
+      r->SetStatus(block_rep->status);
       break;
     }
 
@@ -1205,40 +1235,10 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
   }
 }
 
-Status BlockBasedTableBuilder::status() const {
-  if (rep_->compression_opts.parallel_threads > 1) {
-    std::lock_guard<std::mutex> lock(rep_->status_mutex);
-    return rep_->get_status();
-  } else {
-    return rep_->get_status();
-  }
-}
+Status BlockBasedTableBuilder::status() const { return rep_->GetStatus(); }
 
 IOStatus BlockBasedTableBuilder::io_status() const {
-  if (rep_->compression_opts.parallel_threads > 1) {
-    std::lock_guard<std::mutex> lock(rep_->io_status_mutex);
-    return rep_->get_io_status();
-  } else {
-    return rep_->get_io_status();
-  }
-}
-
-void BlockBasedTableBuilder::SetStatusAtom(Status s) {
-  if (rep_->compression_opts.parallel_threads > 1) {
-    std::lock_guard<std::mutex> lock(rep_->status_mutex);
-    rep_->SetStatus(s);
-  } else {
-    rep_->SetStatus(s);
-  }
-}
-
-void BlockBasedTableBuilder::SetIOStatusAtom(IOStatus io_s) {
-  if (rep_->compression_opts.parallel_threads > 1) {
-    std::lock_guard<std::mutex> lock(rep_->io_status_mutex);
-    rep_->SetIOStatus(io_s);
-  } else {
-    rep_->SetIOStatus(io_s);
-  }
+  return rep_->GetIOStatus();
 }
 
 static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
@@ -1657,7 +1657,7 @@ Status BlockBasedTableBuilder::Finish() {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
   r->state = Rep::State::kClosed;
-  return r->get_status();
+  return r->GetStatus();
 }
 
 void BlockBasedTableBuilder::Abandon() {

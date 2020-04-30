@@ -111,10 +111,6 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
-  void SetStatusAtom(Status status);
-
-  void SetIOStatusAtom(IOStatus io_status);
-
   // Transition state from buffered to unbuffered. See `Rep::State` API comment
   // for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
