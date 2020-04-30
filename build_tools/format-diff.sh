@@ -117,8 +117,6 @@ else
   diffs=$(git diff -U0 HEAD | $CLANG_FORMAT_DIFF -p 1)
 fi
 
-diffs_line_one=$($diffs | head -n 1)
-echo $diffs_line_one
 if [ -z "$diffs" ]
 then
   echo "Nothing needs to be reformatted!"
