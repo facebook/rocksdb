@@ -366,11 +366,6 @@ struct BlockBasedTableBuilder::Rep {
   uint64_t get_offset() { return offset.load(std::memory_order_relaxed); }
   void set_offset(uint64_t o) { offset.store(o, std::memory_order_relaxed); }
 
-  bool ok() const {
-    assert(io_status.ok() || !status.ok());
-    return status.ok();
-  }
-
   const IOStatus& GetIOStatus() {
     if (compression_opts.parallel_threads > 1) {
       std::lock_guard<std::mutex> lock(status_mutex);
@@ -1204,7 +1199,7 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
     r->pc_rep->raw_bytes_curr_block = block_rep->data->size();
     WriteRawBlock(block_rep->contents, block_rep->compression_type,
                   &r->pending_handle, true /* is_data_block*/);
-    if (!r->ok()) {
+    if (!ok()) {
       break;
     }
 
@@ -1504,7 +1499,7 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   footer.set_checksum(r->table_options.checksum);
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
-  assert(r->ok());
+  assert(ok());
   IOStatus ios = r->file->Append(footer_encoding);
   r->SetIOStatus(ios);
   if (ios.ok()) {
