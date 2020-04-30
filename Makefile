@@ -1192,20 +1192,8 @@ format:
 check-format:
 	build_tools/format-diff.sh -c
 
-buck-targets:
-	python buckifier/buckify_rocksdb.py
-
-check-buck-targets: buck-targets
-	$(eval TMP=$(shell bash -c "git diff TARGETS | head -n 1"))
-	@echo Running git diff on TARGETS, and the first line of output is...
-	@echo $(TMP)
-	@if [ -z "$(TMP)" ]; then \
-		exit 0; \
-	else \
-		echo "Please run 'make buck-targets' to update TARGETS file."; \
-		echo "Do not manually update TARGETS file."; \
-		exit 1; \
-	fi
+check-buck-targets:
+	buckifier/check_buck_targets.sh
 
 package:
 	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
