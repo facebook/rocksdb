@@ -390,6 +390,7 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                               const std::string& object_path,
                               std::unique_ptr<CloudStorageWritableFile>* result,
                               const EnvOptions& options) override;
+
  protected:
   Status Initialize(CloudEnv* env) override;
   Status DoGetCloudObject(const std::string& bucket_name,

@@ -60,8 +60,7 @@ class DBCloud : public StackableDB {
   // cloud path names.
   virtual Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result,
-      bool sanitize)  = 0;
+      PluggableCompactionResult* result, bool sanitize) = 0;
 
   virtual ~DBCloud() {}
 

@@ -38,9 +38,9 @@ class ConstantSizeSstFileManager : public SstFileManagerImpl {
                              int64_t rate_bytes_per_sec,
                              double max_trash_db_ratio,
                              uint64_t bytes_max_delete_chunk)
-    : SstFileManagerImpl(env, std::make_shared<LegacyFileSystemWrapper>(env),
-                         std::move(logger), rate_bytes_per_sec,
-                         max_trash_db_ratio, bytes_max_delete_chunk),
+      : SstFileManagerImpl(env, std::make_shared<LegacyFileSystemWrapper>(env),
+                           std::move(logger), rate_bytes_per_sec,
+                           max_trash_db_ratio, bytes_max_delete_chunk),
         constant_file_size_(constant_file_size) {
     assert(constant_file_size_ >= 0);
   }
@@ -322,9 +322,10 @@ Status DBCloudImpl::DoCheckpointToCloud(
   auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch().ToString();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
-  LegacyFileSystemWrapper fs(base_env);    
-  st = CopyFile(&fs, GetName() + "/" + manifest_fname,
-                GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
+  LegacyFileSystemWrapper fs(base_env);
+  st =
+      CopyFile(&fs, GetName() + "/" + manifest_fname,
+               GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
   if (!st.ok()) {
     return st;
   }
@@ -377,7 +378,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   }
 
   if (!st.ok()) {
-      return st;
+    return st;
   }
 
   // Ignore errors
@@ -389,22 +390,21 @@ Status DBCloudImpl::DoCheckpointToCloud(
 }
 
 Status DBCloudImpl::ExecuteRemoteCompactionRequest(
-      const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result ,
-      bool doSanitize) {
+    const PluggableCompactionParam& inputParams,
+    PluggableCompactionResult* result, bool doSanitize) {
   auto cenv = static_cast<CloudEnvImpl*>(GetEnv());
 
   // run the compaction request on the underlying local database
-  Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(inputParams,
-		  result, doSanitize);
+  Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(
+      inputParams, result, doSanitize);
   if (!status.ok()) {
     return status;
   }
 
   // convert the local pathnames to the cloud pathnames
   for (unsigned int i = 0; i < result->output_files.size(); i++) {
-      OutputFile* outfile = &result->output_files[i];
-      outfile->pathname = cenv->RemapFilename(outfile->pathname);
+    OutputFile* outfile = &result->output_files[i];
+    outfile->pathname = cenv->RemapFilename(outfile->pathname);
   }
   return Status::OK();
 }
