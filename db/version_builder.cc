@@ -87,7 +87,7 @@ class VersionBuilder::Rep {
   };
 
   const FileOptions& file_options_;
-  const ImmutableCFOptions* ioptions_;
+  const ImmutableCFOptions* const ioptions_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
   VersionSet* version_set_;
