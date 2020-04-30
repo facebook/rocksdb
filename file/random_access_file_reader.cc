@@ -22,7 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status RandomAccessFileReader::Read(const ReadOptions& ro, uint64_t offset,
+Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                                     size_t n, Slice* result, char* scratch,
                                     AlignedBuf* aligned_buf,
                                     bool for_compaction) const {
@@ -65,19 +65,20 @@ Status RandomAccessFileReader::Read(const ReadOptions& ro, uint64_t offset,
           orig_offset = aligned_offset + buf.CurrentSize();
         }
 
-        IOOptions opts;
-        s = PrepareIOFromReadOptions(ro, env_, opts);
-        if (s.ok()) {
-          {
-            IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-            s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
-                            &tmp, buf.Destination(), nullptr);
-          }
-          if (ShouldNotifyListeners()) {
-            auto finish_ts = std::chrono::system_clock::now();
-            NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
-                                   s);
-          }
+        {
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          // Only user reads are expected to specify a timeout. And user reads
+          // are not subjected to rate_limiter and should go through only
+          // one iteration of this loop, so we don't need to check and adjust
+          // the opts.timeout before calling file_->Read
+          assert(!opts.timeout.count() || allowed == read_size);
+          s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
+                          &tmp, buf.Destination(), nullptr);
+        }
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = std::chrono::system_clock::now();
+          NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
+                                 s);
         }
 
         buf.Size(buf.CurrentSize() + tmp.size());
@@ -124,22 +125,23 @@ Status RandomAccessFileReader::Read(const ReadOptions& ro, uint64_t offset,
         }
 #endif
 
-        IOOptions opts;
-        s = PrepareIOFromReadOptions(ro, env_, opts);
-        if (s.ok()) {
-          {
-            IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-            s = file_->Read(offset + pos, allowed, opts, &tmp_result,
-                            scratch + pos, nullptr);
-          }
-#ifndef ROCKSDB_LITE
-          if (ShouldNotifyListeners()) {
-            auto finish_ts = std::chrono::system_clock::now();
-            NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
-                                   finish_ts, s);
-          }
-#endif
+        {
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          // Only user reads are expected to specify a timeout. And user reads
+          // are not subjected to rate_limiter and should go through only
+          // one iteration of this loop, so we don't need to check and adjust
+          // the opts.timeout before calling file_->Read
+          assert(!opts.timeout.count() || allowed == n);
+          s = file_->Read(offset + pos, allowed, opts, &tmp_result,
+                          scratch + pos, nullptr);
         }
+#ifndef ROCKSDB_LITE
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = std::chrono::system_clock::now();
+          NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
+                                 finish_ts, s);
+        }
+#endif
 
         if (res_scratch == nullptr) {
           // we can't simply use `scratch` because reads of mmap'd files return
@@ -198,7 +200,7 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-Status RandomAccessFileReader::MultiRead(const ReadOptions& ro,
+Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
                                          FSReadRequest* read_reqs,
                                          size_t num_reqs,
                                          AlignedBuf* aligned_buf) const {
@@ -258,9 +260,7 @@ Status RandomAccessFileReader::MultiRead(const ReadOptions& ro,
     }
 #endif  // ROCKSDB_LITE
 
-    IOOptions opts;
-    s = PrepareIOFromReadOptions(ro, env_, opts);
-    if (s.ok()) {
+    {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
       s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }

@@ -1264,7 +1264,7 @@ class FileChecksumTestHelper {
     Slice result;
     uint64_t offset = 0;
     Status s;
-    s = file_reader_->Read(ReadOptions(), offset, 2048, &result, scratch.get(),
+    s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
                            nullptr, false);
     if (!s.ok()) {
       return s;
@@ -1272,8 +1272,8 @@ class FileChecksumTestHelper {
     while (result.size() != 0) {
       file_checksum_generator->Update(scratch.get(), result.size());
       offset += static_cast<uint64_t>(result.size());
-      s = file_reader_->Read(ReadOptions(), offset, 2048, &result,
-                             scratch.get(), nullptr, false);
+      s = file_reader_->Read(IOOptions(), offset, 2048, &result, scratch.get(),
+                             nullptr, false);
       if (!s.ok()) {
         return s;
       }

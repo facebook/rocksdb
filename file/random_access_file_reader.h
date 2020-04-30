@@ -114,7 +114,7 @@ class RandomAccessFileReader {
   // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
-  Status Read(const ReadOptions& ro, uint64_t offset, size_t n, Slice* result,
+  Status Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
               char* scratch, AlignedBuf* aligned_buf,
               bool for_compaction = false) const;
 
@@ -123,7 +123,7 @@ class RandomAccessFileReader {
   // In non-direct IO mode, aligned_buf should be null;
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
-  Status MultiRead(const ReadOptions& ro, FSReadRequest* reqs, size_t num_reqs,
+  Status MultiRead(const IOOptions& opts, FSReadRequest* reqs, size_t num_reqs,
                    AlignedBuf* aligned_buf) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
@@ -135,5 +135,7 @@ class RandomAccessFileReader {
   std::string file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
+
+  Env* env() const { return env_; }
 };
 }  // namespace ROCKSDB_NAMESPACE

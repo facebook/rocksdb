@@ -350,20 +350,4 @@ inline BlockHandle::BlockHandle()
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}
 
-inline Status PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
-                                       IOOptions& opts) {
-  if (!env) {
-    env = Env::Default();
-  }
-
-  if (ro.deadline.count()) {
-    std::chrono::microseconds now = std::chrono::microseconds(env->NowMicros());
-    if (now > ro.deadline) {
-      return Status::TimedOut("Deadline exceeded");
-    }
-    opts.timeout = ro.deadline - now;
-  }
-  return Status::OK();
-}
-
 }  // namespace ROCKSDB_NAMESPACE
