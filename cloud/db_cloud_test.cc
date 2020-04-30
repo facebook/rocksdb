@@ -1,10 +1,10 @@
 // Copyright (c) 2017 Rockset
 
+#include <gtest/gtest.h>
+
 #ifndef ROCKSDB_LITE
 
 #ifdef USE_AWS
-
-#include "rocksdb/cloud/db_cloud.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,6 +18,8 @@
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
+#include "rocksdb/cloud/db_cloud.h"
+#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -1417,6 +1419,47 @@ TEST_F(CloudTest, CheckpointToCloud) {
 
   aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
       checkpoint_bucket.GetBucketName(), checkpoint_bucket.GetObjectPath());
+}
+
+// Basic test to copy object within S3.
+TEST_F(CloudTest, CopyObjectTest) {
+  CreateAwsEnv();
+
+  // We need to open an empty DB in order for epoch to work.
+  OpenDB();
+
+  std::string content = "This is a test file";
+  std::string fname = dbname_ + "/100000.sst";
+  std::string dst_fname = dbname_ + "/200000.sst";
+
+  {
+    std::unique_ptr<WritableFile> writableFile;
+    aenv_->NewWritableFile(fname, &writableFile, EnvOptions());
+    writableFile->Append(content);
+    writableFile->Fsync();
+  }
+
+  Status st = aenv_->GetCloudEnvOptions().storage_provider->CopyCloudObject(
+      aenv_->GetSrcBucketName(), aenv_->RemapFilename(fname),
+      aenv_->GetSrcBucketName(), dst_fname);
+  ASSERT_OK(st);
+
+  {
+    std::unique_ptr<CloudStorageReadableFile> readableFile;
+    st = aenv_->GetCloudEnvOptions().storage_provider->NewCloudReadableFile(
+        aenv_->GetSrcBucketName(), dst_fname, &readableFile, EnvOptions());
+    ASSERT_OK(st);
+
+    char scratch[100];
+    Slice result;
+    st = dynamic_cast<SequentialFile*>(readableFile.get())
+             ->Read(100, &result, scratch);
+    ASSERT_OK(st);
+    ASSERT_EQ(19, result.size());
+    ASSERT_EQ(result, Slice(content));
+  }
+
+  CloseDB();
 }
 
 #ifdef AWS_DO_NOT_RUN

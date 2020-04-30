@@ -52,6 +52,7 @@
 #include "util/string_util.h"
 
 namespace rocksdb {
+
 #ifdef USE_AWS
 class CloudRequestCallbackGuard {
  public:
@@ -159,12 +160,25 @@ class AwsS3ClientWrapper {
     return outcome;
   }
 
+  // The copy RPC is only successful iff outcome is success and etags between
+  // src and dst match.
+  static bool isCopyCloudObjectSuccess(
+      Aws::S3::Model::CopyObjectOutcome& outcome, const Aws::String& src_etag) {
+    bool success = false;
+    if (outcome.IsSuccess()) {
+      const auto& detail = outcome.GetResult().GetCopyObjectResultDetails();
+      success = (detail.ETagHasBeenSet() && detail.GetETag() == src_etag);
+    }
+    return success;
+  }
+
   Aws::S3::Model::CopyObjectOutcome CopyCloudObject(
-      const Aws::S3::Model::CopyObjectRequest& request) {
+      const Aws::S3::Model::CopyObjectRequest& request,
+      const Aws::String& src_etag) {
     CloudRequestCallbackGuard t(cloud_request_callback_.get(),
                                 CloudRequestOpType::kCopyOp);
     auto outcome = client_->CopyObject(request);
-    t.SetSuccess(outcome.IsSuccess());
+    t.SetSuccess(isCopyCloudObjectSuccess(outcome, src_etag));
     return outcome;
   }
 
@@ -746,6 +760,25 @@ Status S3StorageProvider::CopyCloudObject(const std::string& bucket_name_src,
 
   Aws::String src_url = src_bucket + src_object;
 
+  // Get the metadata of the source object. We need the metadata so that we can
+  // compare the ETag between the source object and dest object. Only when these
+  // ETags match can we conclude this CopyObject operations succeed.
+  //
+  // More details:
+  // https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_model_1_1_copy_object_result_details.html
+  // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html
+  Aws::S3::Model::HeadObjectRequest head_request;
+  head_request.SetBucket(ToAwsString(bucket_name_src));
+  head_request.SetKey(ToAwsString(object_path_src));
+
+  auto head_outcome = s3client_->HeadObject(head_request);
+  if (!head_outcome.IsSuccess()) {
+    return Status::NotFound(
+        "[s3] CopyCloudObject: Fail to get metadata of src object: %s",
+        head_outcome.GetError().GetMessage().c_str());
+  }
+  const auto& src_etag = head_outcome.GetResult().GetETag();
+
   // create copy request
   Aws::S3::Model::CopyObjectRequest request;
   request.SetCopySource(src_url);
@@ -755,15 +788,29 @@ Status S3StorageProvider::CopyCloudObject(const std::string& bucket_name_src,
 
   // execute request
   Aws::S3::Model::CopyObjectOutcome outcome =
-      s3client_->CopyCloudObject(request);
-  bool isSuccess = outcome.IsSuccess();
+      s3client_->CopyCloudObject(request, src_etag);
+  bool isSuccess =
+      AwsS3ClientWrapper::isCopyCloudObjectSuccess(outcome, src_etag);
   if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str());
+    // S3 CopyObject RPC can report errors in 2 ways:
+    // 1. outcome.IsSuccess() = false
+    // 2. outcome.IsSuccess() = true but the outcome's ETag doesn't match the
+    // source's ETag.
+    if (!outcome.IsSuccess()) {
+      const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+          outcome.GetError();
+      std::string errmsg(error.GetMessage().c_str());
+      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+          "[s3] S3WritableFile src path %s error in copying to %s %s",
+          src_url.c_str(), dest_object.c_str(), errmsg.c_str());
+      return Status::IOError(dest_object.c_str(), errmsg.c_str());
+    }
+
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[s3] S3WritableFile src path %s error in copying to %s %s",
-        src_url.c_str(), dest_object.c_str(), errmsg.c_str());
-    return Status::IOError(dest_object.c_str(), errmsg.c_str());
+        "[s3] S3WritableFile src path %s error in copying to %s: CopyObject "
+        "etags don't match",
+        src_url.c_str(), dest_object.c_str());
+    return Status::IOError("CopyObject S3 etags don't match");
   }
   Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
       "[s3] S3WritableFile src path %s copied to %s %s", src_url.c_str(),
