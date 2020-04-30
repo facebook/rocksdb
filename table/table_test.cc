@@ -3557,12 +3557,12 @@ static void DoCompressionTest(CompressionType comp) {
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
 
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"),    2000,   3500));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"),    2000,   3500));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),    4000,   6500));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3500));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3500));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7000));
   c.ResetTableReader();
 }
 

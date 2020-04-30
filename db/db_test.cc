@@ -1489,18 +1489,24 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
 }
 
 TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
+  // Roughly 4 keys per data block, 1000 keys per file,
+  // with filter substantially larger than a data block
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(16));
+  table_options.block_size = 100;
   Options options = CurrentOptions();
-  options.write_buffer_size = 1024 * 1024;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.write_buffer_size = 24 * 1024;
   options.compression = kNoCompression;
   options.create_if_missing = true;
-  options.target_file_size_base = 1024 * 1024;
+  options.target_file_size_base = 24 * 1024;
   DestroyAndReopen(options);
   const auto default_cf = db_->DefaultColumnFamily();
 
   const int N = 64000;
   Random rnd(301);
   for (int i = 0; i < N; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 24)));
   }
   // Flush everything to files
   Flush();
@@ -1509,7 +1515,7 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
 
   // Write more keys
   for (int i = N; i < (N + N / 4); i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 24)));
   }
   // Flush everything to files again
   Flush();
@@ -1517,27 +1523,45 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
   // Wait for compaction to finish
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  const std::string start = Key(0);
-  const std::string end = Key(2 * N);
-  const Range r(start, end);
+  {
+    const std::string start = Key(0);
+    const std::string end = Key(2 * N);
+    const Range r(start, end);
 
-  SizeApproximationOptions size_approx_options;
-  size_approx_options.include_memtabtles = false;
-  size_approx_options.include_files = true;
-  size_approx_options.files_size_error_margin = -1.0;  // disabled
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_memtabtles = false;
+    size_approx_options.include_files = true;
+    size_approx_options.files_size_error_margin = -1.0;  // disabled
 
-  // Get the precise size without any approximation heuristic
-  uint64_t size;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
-  ASSERT_NE(size, 0);
+    // Get the precise size without any approximation heuristic
+    uint64_t size;
+    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+    ASSERT_NE(size, 0);
 
-  // Get the size with an approximation heuristic
-  uint64_t size2;
-  const double error_margin = 0.2;
-  size_approx_options.files_size_error_margin = error_margin;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
-  ASSERT_LT(size2, size * (1 + error_margin));
-  ASSERT_GT(size2, size * (1 - error_margin));
+    // Get the size with an approximation heuristic
+    uint64_t size2;
+    const double error_margin = 0.2;
+    size_approx_options.files_size_error_margin = error_margin;
+    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+    ASSERT_LT(size2, size * (1 + error_margin));
+    ASSERT_GT(size2, size * (1 - error_margin));
+  }
+
+  {
+    // Ensure that metadata is not falsely attributed only to the last data in
+    // the file. (In some applications, filters can be large portion of data
+    // size.)
+    // Perform many queries over small range, enough to ensure crossing file
+    // boundary, and make sure we never see a spike for large filter.
+    for (int i = 0; i < 3000; i += 10) {
+      const std::string start = Key(i);
+      const std::string end = Key(i + 11);  // overlap by 1 key
+      const Range r(start, end);
+      uint64_t size;
+      db_->GetApproximateSizes(&r, 1, &size);
+      ASSERT_LE(size, 11 * 100);
+    }
+  }
 }
 
 TEST_F(DBTest, GetApproximateMemTableStats) {
@@ -1675,12 +1699,13 @@ TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
       ASSERT_TRUE(Between(Size("", Key(2), 1), 20000, 21000));
       ASSERT_TRUE(Between(Size("", Key(3), 1), 120000, 121000));
       ASSERT_TRUE(Between(Size("", Key(4), 1), 130000, 131000));
-      ASSERT_TRUE(Between(Size("", Key(5), 1), 230000, 231000));
-      ASSERT_TRUE(Between(Size("", Key(6), 1), 240000, 241000));
-      ASSERT_TRUE(Between(Size("", Key(7), 1), 540000, 541000));
-      ASSERT_TRUE(Between(Size("", Key(8), 1), 550000, 560000));
+      ASSERT_TRUE(Between(Size("", Key(5), 1), 230000, 232000));
+      ASSERT_TRUE(Between(Size("", Key(6), 1), 240000, 242000));
+      // Ensure some overhead is accounted for, even without including all
+      ASSERT_TRUE(Between(Size("", Key(7), 1), 540500, 545000));
+      ASSERT_TRUE(Between(Size("", Key(8), 1), 550500, 555000));
 
-      ASSERT_TRUE(Between(Size(Key(3), Key(5), 1), 110000, 111000));
+      ASSERT_TRUE(Between(Size(Key(3), Key(5), 1), 110100, 111000));
 
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     }
