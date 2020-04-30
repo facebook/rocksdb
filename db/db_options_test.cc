@@ -920,7 +920,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   compacted = false;
   ASSERT_OK(dbfull()->SetOptions(
       {{"bottommost_compression", "kSnappyCompression"},
-       {"bottommost_compression_opts", "0:6:0:0:0:4:true"}}));
+       {"bottommost_compression_opts", "0:6:0:0:4:true"}}));
   ASSERT_OK(Put("foo", "foofoofoo"));
   ASSERT_OK(Put("bar", "foofoofoo"));
   ASSERT_OK(Flush());
@@ -931,7 +931,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kSnappyCompression, compression_used);
   ASSERT_EQ(6, compression_opt_used.level);
-  ASSERT_EQ(4u, compression_opt_used.parallel_threads);
+  // Right now parallel_level is not yet allowed to be changed.
 
   SyncPoint::GetInstance()->DisableProcessing();
 }
