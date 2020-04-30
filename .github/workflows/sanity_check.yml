@@ -13,7 +13,6 @@ jobs:
     - name: Fetch from upstream
       run: |
         git remote add upstream https://github.com/facebook/rocksdb.git && git fetch upstream
-        git fetch origin
 
     - name: Setup tmate session
       uses: mxschmitt/action-tmate@v2
@@ -23,7 +22,6 @@ jobs:
         echo git status && git status
         echo "git remote -v" && git remote -v
         echo git branch && git branch
-        GIT_CURL_VERBOSE=1 GIT_TRACE=1 git merge-base origin/master HEAD
 
     - name: Setup Python
       uses: actions/setup-python@v1
@@ -38,13 +36,6 @@ jobs:
       uses: wei/wget@v1
       with:
         args: https://raw.githubusercontent.com/llvm-mirror/clang/master/tools/clang-format/clang-format-diff.py
-
-    - name: Found merge base
-      run: git merge-base upstream/master HEAD
-
-    - name: Check format 1
-      run: |
-        build_tools/format-diff.sh -c
 
     - name: Check format
       run: make check-format

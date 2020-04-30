@@ -1202,6 +1202,8 @@ check-buck-targets: buck-targets
 	@if [ -z "$(TMP)" ]; then \
 		exit 0; \
 	else \
+		echo "Please run 'make buck-targets' to update TARGETS file."; \
+		echo "Do not manually update TARGETS file."; \
 		exit 1; \
 	fi
 

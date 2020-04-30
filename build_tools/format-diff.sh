@@ -102,26 +102,14 @@ if [ -z "$uncommitted_code" ]
 then
   # Attempt to get name of facebook/rocksdb.git remote.
   [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE="$(git remote -v | grep 'facebook/rocksdb.git' | head -n 1 | cut -f 1)"
-  echo FORMAT_REMOTE is $FORMAT_REMOTE
   # Fall back on 'origin' if that fails
   [ "$FORMAT_REMOTE" ] || FORMAT_REMOTE=origin
-  echo FORMAT_REMOTE is $FORMAT_REMOTE
   # Use master branch from that remote
   [ "$FORMAT_UPSTREAM" ] || FORMAT_UPSTREAM="$FORMAT_REMOTE/master"
-  echo FORMAT_UPSTREAM is $FORMAT_UPSTREAM
-  echo CLANG_FORMAT_DIFF is $CLANG_FORMAT_DIFF
-  if [ -f ./clang-format-diff.py ]
-  then
-    echo found file
-  else
-    echo not found
-  fi
   # Get the common ancestor with that remote branch. Everything after that
   # common ancestor would be considered the contents of a pull request, so
   # should be relevant for formatting fixes.
-  git merge-base "$FORMAT_UPSTREAM" HEAD
   FORMAT_UPSTREAM_MERGE_BASE="$(git merge-base "$FORMAT_UPSTREAM" HEAD)"
-  echo FORMAT_UPSTREAM_MERGE_BASE is $FORMAT_UPSTREAM_MERGE_BASE
   # Get the differences
   diffs=$(git diff -U0 "$FORMAT_UPSTREAM_MERGE_BASE" | $CLANG_FORMAT_DIFF -p 1)
 else
