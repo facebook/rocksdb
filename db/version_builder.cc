@@ -86,9 +86,9 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
-  class BlobFileChanges {
+  class BlobFileMetaDataDelta {
    public:
-    BlobFileChanges()
+    BlobFileMetaDataDelta()
         : additional_garbage_count_(0), additional_garbage_bytes_(0) {}
 
     uint64_t AdditionalGarbageCount() const {
