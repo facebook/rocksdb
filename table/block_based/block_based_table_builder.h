@@ -111,10 +111,6 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
-  void SetStatusAtom(Status status);
-
-  void SetIOStatusAtom(IOStatus io_status);
-
   // Transition state from buffered to unbuffered. See `Rep::State` API comment
   // for details of the states.
   // REQUIRES: `rep_->state == kBuffered`
@@ -170,8 +166,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   void CompressAndVerifyBlock(
       const Slice& raw_block_contents, bool is_data_block,
       CompressionContext& compression_ctx, UncompressionContext* verify_ctx,
-      std::string& compressed_output, Slice& result_block_contents,
-      CompressionType& result_compression_type, Status& out_status);
+      std::string* compressed_output, Slice* result_block_contents,
+      CompressionType* result_compression_type, Status* out_status);
 
   // Get compressed blocks from BGWorkCompression and write them into SST
   void BGWorkWriteRawBlock();
