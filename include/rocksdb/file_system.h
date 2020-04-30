@@ -77,14 +77,16 @@ enum class IOType : uint8_t {
 // honored. More hints can be added here in the future to indicate things like
 // storage media (HDD/SSD) to be used, replication level etc.
 struct IOOptions {
-  // Timeout for the operation in milliseconds
-  std::chrono::milliseconds timeout;
+  // Timeout for the operation in microseconds
+  std::chrono::microseconds timeout;
 
   // Priority - high or low
   IOPriority prio;
 
   // Type of data being read/written
   IOType type;
+
+  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
 
 // File scope options that control how a file is opened/created and accessed

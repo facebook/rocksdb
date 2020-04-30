@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <string>
 
+#include "file/file_util.h"
 #include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
@@ -235,29 +236,33 @@ Status BlockFetcher::ReadBlockContents() {
       return status_;
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
-      // Actual file read
-    if (file_->use_direct_io()) {
-      PERF_TIMER_GUARD(block_read_time);
-      status_ =
-          file_->Read(handle_.offset(), block_size_with_trailer_,
-                      &slice_, nullptr, &direct_io_buf_, for_compaction_);
-      PERF_COUNTER_ADD(block_read_count, 1);
-      used_buf_ = const_cast<char*>(slice_.data());
-    } else {
-      PrepareBufferForBlockFromFile();
-      PERF_TIMER_GUARD(block_read_time);
-      status_ = file_->Read(handle_.offset(), block_size_with_trailer_,
-                            &slice_, used_buf_, nullptr, for_compaction_);
-      PERF_COUNTER_ADD(block_read_count, 1);
+    IOOptions opts;
+    status_ = PrepareIOFromReadOptions(read_options_, file_->env(), opts);
+    // Actual file read
+    if (status_.ok()) {
+      if (file_->use_direct_io()) {
+        PERF_TIMER_GUARD(block_read_time);
+        status_ =
+            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        PERF_COUNTER_ADD(block_read_count, 1);
+        used_buf_ = const_cast<char*>(slice_.data());
+      } else {
+        PrepareBufferForBlockFromFile();
+        PERF_TIMER_GUARD(block_read_time);
+        status_ = file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                              &slice_, used_buf_, nullptr, for_compaction_);
+        PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
-      if (used_buf_ == &stack_buf_[0]) {
-        num_stack_buf_memcpy_++;
-      } else if (used_buf_ == heap_buf_.get()) {
-        num_heap_buf_memcpy_++;
-      } else if (used_buf_ == compressed_buf_.get()) {
-        num_compressed_buf_memcpy_++;
-      }
+        if (used_buf_ == &stack_buf_[0]) {
+          num_stack_buf_memcpy_++;
+        } else if (used_buf_ == heap_buf_.get()) {
+          num_heap_buf_memcpy_++;
+        } else if (used_buf_ == compressed_buf_.get()) {
+          num_compressed_buf_memcpy_++;
+        }
 #endif
+      }
     }
 
     // TODO: introduce dedicated perf counter for range tombstones

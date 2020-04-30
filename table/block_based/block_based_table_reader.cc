@@ -20,6 +20,7 @@
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
+#include "file/file_util.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
@@ -1671,7 +1672,17 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     read_reqs.emplace_back(req);
   }
 
-  file->MultiRead(&read_reqs[0], read_reqs.size(), nullptr);
+  {
+    IOOptions opts;
+    IOStatus s = PrepareIOFromReadOptions(options, file->env(), opts);
+    if (s.IsTimedOut()) {
+      for (FSReadRequest& req : read_reqs) {
+        req.status = s;
+      }
+    } else {
+      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), nullptr);
+    }
+  }
 
   idx_in_batch = 0;
   size_t valid_batch_idx = 0;

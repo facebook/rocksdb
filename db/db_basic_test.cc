@@ -2387,17 +2387,22 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 
   class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
    public:
-    DeadlineRandomAccessFile(DeadlineFS& fs,
+    DeadlineRandomAccessFile(DeadlineFS& fs, SpecialEnv* env,
                              std::unique_ptr<FSRandomAccessFile>& file)
         : FSRandomAccessFileWrapper(file.get()),
           fs_(fs),
-          file_(std::move(file)) {}
+          file_(std::move(file)),
+          env_(env) {}
 
     IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
           Slice* result, char* scratch, IODebugContext* dbg) const override {
       int delay;
+      const std::chrono::microseconds deadline = fs_.GetDeadline();
+      if (deadline.count()) {
+        AssertDeadline(deadline, opts);
+      }
       if (fs_.ShouldDelay(&delay)) {
-        Env::Default()->SleepForMicroseconds(delay);
+        env_->SleepForMicroseconds(delay);
       }
       return FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
                                              dbg);
@@ -2406,22 +2411,37 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
     IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
           const IOOptions& options, IODebugContext* dbg) override {
       int delay;
+      const std::chrono::microseconds deadline = fs_.GetDeadline();
+      if (deadline.count()) {
+        AssertDeadline(deadline, options);
+      }
       if (fs_.ShouldDelay(&delay)) {
-        Env::Default()->SleepForMicroseconds(delay);
+        env_->SleepForMicroseconds(delay);
       }
       return FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
     }
 
    private:
+    void AssertDeadline(const std::chrono::microseconds deadline,
+                        const IOOptions& opts) const {
+      // Give a leeway of +- 10us as it can take some time for the Get/
+      // MultiGet call to reach here, in order to avoid false alarms
+      std::chrono::microseconds now =
+          std::chrono::microseconds(env_->NowMicros());
+      ASSERT_EQ(deadline - now, opts.timeout);
+    }
     DeadlineFS& fs_;
     std::unique_ptr<FSRandomAccessFile> file_;
+    SpecialEnv* env_;
   };
 
   class DeadlineFS : public FileSystemWrapper {
    public:
-    DeadlineFS()
-      : FileSystemWrapper(FileSystem::Default()),
-        delay_idx_(0) {}
+    DeadlineFS(SpecialEnv* env)
+        : FileSystemWrapper(FileSystem::Default()),
+          delay_idx_(0),
+          deadline_(std::chrono::microseconds::zero()),
+          env_(env) {}
     ~DeadlineFS() = default;
 
     IOStatus NewRandomAccessFile(const std::string& fname,
@@ -2432,13 +2452,14 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
       IOStatus s;
 
       s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
-      result->reset(new DeadlineRandomAccessFile(*this, file));
+      result->reset(new DeadlineRandomAccessFile(*this, env_, file));
       return s;
     }
 
     // Set a vector of {IO counter, delay in microseconds} pairs that control
     // when to inject a delay and duration of the delay
-    void SetDelaySequence(const std::vector<std::pair<int, int>>&& seq) {
+    void SetDelaySequence(const std::chrono::microseconds deadline,
+                          const std::vector<std::pair<int, int>>&& seq) {
       int total_delay = 0;
       for (auto& seq_iter : seq) {
         // Ensure no individual delay is > 500ms
@@ -2451,6 +2472,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
       delay_seq_ = seq;
       delay_idx_ = 0;
       io_count_ = 0;
+      deadline_ = deadline;
     }
 
     // Increment the IO counter and return a delay in microseconds
@@ -2464,10 +2486,14 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
       return false;
     }
 
+    const std::chrono::microseconds GetDeadline() { return deadline_; }
+
    private:
     std::vector<std::pair<int, int>> delay_seq_;
     size_t delay_idx_;
     int io_count_;
+    std::chrono::microseconds deadline_;
+    SpecialEnv* env_;
   };
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
@@ -2483,8 +2509,10 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 
 TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
-      new DBBasicTestMultiGetDeadline::DeadlineFS());
-  std::unique_ptr<Env> env = NewCompositeEnv(fs);
+      new DBBasicTestMultiGetDeadline::DeadlineFS(env_));
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  env_->no_slowdown_ = true;
+  env_->time_elapse_only_sleep_.store(true);
   Options options = CurrentOptions();
 
   std::shared_ptr<Cache> cache = NewLRUCache(1048576);
@@ -2509,13 +2537,13 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
     cfs[i] = handles_[i];
     keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
-  // Delay the first IO by 200ms
-  fs->SetDelaySequence({{0, 200000}});
 
   ReadOptions ro;
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  // Delay the first IO by 200ms
+  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
+
   std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
-  std::cout << "Non-batched MultiGet";
   // The first key is successful because we check after the lookup, but
   // subsequent keys fail due to deadline exceeded
   CheckStatus(statuses, 1);
@@ -2537,10 +2565,9 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
     cfs[i] = handles_[i / 2];
     keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
-  fs->SetDelaySequence({{1, 200000}});
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
   statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
-  std::cout << "Non-batched 2";
   CheckStatus(statuses, 3);
 
   // Test batched MultiGet with an IO delay in the first data block read.
@@ -2552,11 +2579,10 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   cache->SetCapacity(1048576);
   statuses.clear();
   statuses.resize(keys.size());
-  fs->SetDelaySequence({{0, 200000}});
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
-  std::cout << "Batched 1";
   CheckStatus(statuses, 2);
 
   // Similar to the previous one, but an IO delay in the third CF data block
@@ -2568,11 +2594,10 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   cache->SetCapacity(1048576);
   statuses.clear();
   statuses.resize(keys.size());
-  fs->SetDelaySequence({{2, 200000}});
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{2, 20000}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
-  std::cout << "Batched 2";
   CheckStatus(statuses, 6);
 
   // Similar to the previous one, but an IO delay in the last but one CF
@@ -2583,11 +2608,10 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   cache->SetCapacity(1048576);
   statuses.clear();
   statuses.resize(keys.size());
-  fs->SetDelaySequence({{3, 200000}});
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{3, 20000}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
-  std::cout << "Batched 3";
   CheckStatus(statuses, 8);
 
   // Test batched MultiGet with single CF and lots of keys. Inject delay
@@ -2610,11 +2634,10 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   }
   statuses.clear();
   statuses.resize(keys.size());
-  fs->SetDelaySequence({{1, 200000}});
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
   dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
                      pin_values.data(), statuses.data());
-  std::cout << "Batched single CF";
   CheckStatus(statuses, 64);
   Close();
 }

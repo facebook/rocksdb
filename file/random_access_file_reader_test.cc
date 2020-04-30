@@ -106,7 +106,8 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   Slice result;
   AlignedBuf buf;
   for (bool for_compaction : {true, false}) {
-    ASSERT_OK(r->Read(offset, len, &result, nullptr, &buf, for_compaction));
+    ASSERT_OK(r->Read(IOOptions(), offset, len, &result, nullptr, &buf,
+                      for_compaction));
     ASSERT_EQ(result.ToString(), content.substr(offset, len));
   }
 }
@@ -152,7 +153,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
   }
@@ -189,7 +191,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
   }
@@ -226,7 +229,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r1));
     reqs.push_back(std::move(r2));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
   }
@@ -255,7 +259,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     reqs.push_back(std::move(r0));
     reqs.push_back(std::move(r1));
     AlignedBuf aligned_buf;
-    ASSERT_OK(r->MultiRead(reqs.data(), reqs.size(), &aligned_buf));
+    ASSERT_OK(
+        r->MultiRead(IOOptions(), reqs.data(), reqs.size(), &aligned_buf));
 
     AssertResult(content, reqs);
   }

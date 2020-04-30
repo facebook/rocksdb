@@ -304,12 +304,12 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
       !prefetch_buffer->TryReadFromCache(read_offset, Footer::kMaxEncodedLength,
                                          &footer_input)) {
     if (file->use_direct_io()) {
-      s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
-                    nullptr, &internal_buf);
+      s = file->Read(IOOptions(), read_offset, Footer::kMaxEncodedLength,
+                     &footer_input, nullptr, &internal_buf);
     } else {
       footer_buf.reserve(Footer::kMaxEncodedLength);
-      s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
-                    &footer_buf[0], nullptr);
+      s = file->Read(IOOptions(), read_offset, Footer::kMaxEncodedLength,
+                     &footer_input, &footer_buf[0], nullptr);
     }
     if (!s.ok()) return s;
   }

@@ -33,8 +33,8 @@ Status FileTraceReader::Close() {
 
 Status FileTraceReader::Read(std::string* data) {
   assert(file_reader_ != nullptr);
-  Status s = file_reader_->Read(offset_, kTraceMetadataSize, &result_, buffer_,
-                                nullptr);
+  Status s = file_reader_->Read(IOOptions(), offset_, kTraceMetadataSize,
+                                &result_, buffer_, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -58,7 +58,8 @@ Status FileTraceReader::Read(std::string* data) {
   unsigned int to_read =
       bytes_to_read > kBufferSize ? kBufferSize : bytes_to_read;
   while (to_read > 0) {
-    s = file_reader_->Read(offset_, to_read, &result_, buffer_, nullptr);
+    s = file_reader_->Read(IOOptions(), offset_, to_read, &result_, buffer_,
+                           nullptr);
     if (!s.ok()) {
       return s;
     }
