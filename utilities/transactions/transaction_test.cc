@@ -6205,6 +6205,28 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
   }
 }
 
+TEST_P(TransactionTest, CommitWithoutPrepare) {
+  {
+    // skip_prepare = false.
+    WriteOptions write_options;
+    TransactionOptions txn_options;
+    txn_options.skip_prepare = false;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn->Commit().IsTxnNotPrepared());
+    delete txn;
+  }
+
+  {
+    // skip_prepare = true.
+    WriteOptions write_options;
+    TransactionOptions txn_options;
+    txn_options.skip_prepare = true;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->Commit());
+    delete txn;
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

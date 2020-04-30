@@ -87,6 +87,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   }
   use_only_the_last_commit_time_batch_for_recovery_ =
       txn_options.use_only_the_last_commit_time_batch_for_recovery;
+  skip_prepare_ = txn_options.skip_prepare;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -283,10 +284,11 @@ Status PessimisticTransaction::Commit() {
     commit_prepared = true;
   } else if (txn_state_ == STARTED) {
     // expiration and lock stealing is not a concern
-    commit_without_prepare = true;
-    // TODO(myabandeh): what if the user mistakenly forgets prepare? We should
-    // add an option so that the user explictly express the intention of
-    // skipping the prepare phase.
+    if (skip_prepare_) {
+      commit_without_prepare = true;
+    } else {
+      return Status::TxnNotPrepared();
+    }
   }
 
   if (commit_without_prepare) {

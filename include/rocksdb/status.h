@@ -79,6 +79,7 @@ class Status {
     KMergeOperandsInsufficientCapacity = 10,
     kManualCompactionPaused = 11,
     kOverwritten = 12,
+    kTxnNotPrepared = 13,
     kMaxSubCode
   };
 
@@ -224,6 +225,13 @@ class Status {
     return Status(kIOError, kPathNotFound, msg, msg2);
   }
 
+  static Status TxnNotPrepared() {
+    return Status(kInvalidArgument, kTxnNotPrepared);
+  }
+  static Status TxnNotPrepared(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kInvalidArgument, kTxnNotPrepared, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -313,6 +321,11 @@ class Status {
   // is caused by a call to PauseManualCompaction
   bool IsManualCompactionPaused() const {
     return (code() == kIncomplete) && (subcode() == kManualCompactionPaused);
+  }
+
+  // Returns true iff the status indicates a TxnNotPrepared error.
+  bool IsTxnNotPrepared() const {
+    return (code() == kInvalidArgument) && (subcode() == kTxnNotPrepared);
   }
 
   // Return a string representation of this status suitable for printing.
