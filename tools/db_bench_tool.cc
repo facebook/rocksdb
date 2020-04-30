@@ -926,8 +926,8 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " not compressed. Otherwise, apply compression_type to "
              "all levels.");
 
-DEFINE_int32(compression_threads, 1,
-             "Number of concurrent compression threads to run.");
+DEFINE_int32(compression_parallel_threads, 1,
+             "Number of threads for parallel compression.");
 
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
@@ -4030,7 +4030,8 @@ class Benchmark {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
-    options.compression_opts.parallel_threads = FLAGS_compression_threads;
+    options.compression_opts.parallel_threads =
+        FLAGS_compression_parallel_threads;
     // If this is a block based table, set some related options
     if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
         options.table_factory->GetOptions() != nullptr) {
