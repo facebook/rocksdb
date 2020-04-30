@@ -102,9 +102,9 @@ struct SuperVersionContext {
 
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
-    return !full_scan_candidate_files.empty() || !sst_delete_files.empty() ||
-           !blob_delete_files.empty() || !log_delete_files.empty() ||
-           !manifest_delete_files.empty();
+    return !(full_scan_candidate_files.empty() && sst_delete_files.empty() &&
+             blob_delete_files.empty() && log_delete_files.empty() &&
+             manifest_delete_files.empty());
   }
 
   inline bool HaveSomethingToClean() const {
