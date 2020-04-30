@@ -392,8 +392,8 @@ class VersionBuilder::Rep {
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
-    // Note: in C++14, this could be done in a more elegant way using
-    // generalized lambda capture.
+    // Note: we use C++11 for now but in C++14, this could be done in a more
+    // elegant way using generalized lambda capture.
     VersionSet* const vs = version_set_;
     const ImmutableCFOptions* const ioptions = ioptions_;
 
