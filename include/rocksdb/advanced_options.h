@@ -119,15 +119,14 @@ struct CompressionOptions {
 
   // Number of threads for parallel compression.
   // Parallel compression is enabled only if threads > 1.
+  // THE FEATURE IS STILL EXPERIMENTAL
   //
   // This option is valid only when BlockBasedTable is used.
   //
-  // When parallel compression is enabled, SST size estimation becomes less
-  // accurate, because block building and compression are pipelined, and there
-  // might be inflight blocks being compressed and not finally written, when
-  // current SST size is fetched. This brings inflation of final output file
-  // size.
-  // To be more accurate, this inflation is also estimated by using historical
+  // When parallel compression is enabled, SST size file sizes might be
+  // more inflated compared to the target size, because more data of unknown
+  // compressed size is in flight when compression is parallelized. To be
+  // reasonably accurate, this inflation is also estimated by using historical
   // compression ratio and current bytes inflight.
   //
   // Default: 1.
