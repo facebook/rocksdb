@@ -788,7 +788,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
     }
   }
-  r->status = r->io_status;
+  if (r->status.ok()) {
+    r->status = r->io_status;
+  }
 }
 
 Status BlockBasedTableBuilder::status() const { return rep_->status; }
@@ -1064,7 +1066,9 @@ void BlockBasedTableBuilder::WriteFooter(BlockHandle& metaindex_block_handle,
   if (r->io_status.ok()) {
     r->offset += footer_encoding.size();
   }
-  r->status = r->io_status;
+  if (r->status.ok()) {
+    r->status = r->io_status;
+  }
 }
 
 void BlockBasedTableBuilder::EnterUnbuffered() {

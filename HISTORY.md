@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix a bug caused by overwrite the status with io status in block based table builder when writing data blocks. If status stores the error message (e.g., failure of verify block compression), the bug will make the io status overwrite the status.
 
 ## 6.9.3 (04/28/2020)
 ### Bug Fixes
