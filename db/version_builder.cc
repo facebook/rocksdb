@@ -565,6 +565,10 @@ class VersionBuilder::Rep {
       if (!s.ok()) {
         return s;
       }
+
+      // TODO: if there is a blob file associated with the table file
+      // (which can be determined from FileMetaData), check if the blob file
+      // exists in the version (it should), and if so, unlink the SST from it
     }
 
     // Add new files
@@ -575,6 +579,12 @@ class VersionBuilder::Rep {
       const Status s = ApplyFileAddition(level, meta);
       if (!s.ok()) {
         return s;
+      }
+
+      if (meta.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        // TODO: check that blob file exists in version
+        blob_file_meta_deltas_[meta.oldest_blob_file_number].LinkSst(
+            meta.fd.GetNumber());
       }
     }
 
