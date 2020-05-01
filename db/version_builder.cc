@@ -597,13 +597,42 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  static BlobFileMetaData::LinkedSsts ApplyLinkedSstChanges(
+      const BlobFileMetaData::LinkedSsts& base,
+      const std::vector<uint64_t>& newly_linked,
+      const std::vector<uint64_t>& newly_unlinked) {
+    BlobFileMetaData::LinkedSsts result(base);
+
+    // Note: we're processing unlinked files first so that in case a file
+    // appears on both lists (trivial move), it is still there after the
+    // updates are done.
+
+    for (uint64_t blob_file : newly_unlinked) {
+      assert(result.find(blob_file) != result.end());
+
+      result.erase(blob_file);
+    }
+
+    for (uint64_t blob_file : newly_linked) {
+      assert(result.find(blob_file) == result.end());
+
+      result.emplace(blob_file);
+    }
+
+    return result;
+  }
+
   static std::shared_ptr<BlobFileMetaData> CreateMetaDataForNewBlobFile(
       const BlobFileMetaDataDelta& delta) {
     auto shared_meta = delta.GetSharedMeta();
     assert(shared_meta);
 
+    auto linked_ssts = ApplyLinkedSstChanges(BlobFileMetaData::LinkedSsts(),
+                                             delta.GetNewlyLinkedSsts(),
+                                             delta.GetNewlyUnlinkedSsts());
+
     auto meta = BlobFileMetaData::Create(
-        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+        std::move(shared_meta), std::move(linked_ssts),
         delta.GetAdditionalGarbageCount(), delta.GetAdditionalGarbageBytes());
 
     return meta;
@@ -623,8 +652,12 @@ class VersionBuilder::Rep {
     auto shared_meta = base_meta->GetSharedMeta();
     assert(shared_meta);
 
+    auto linked_ssts = ApplyLinkedSstChanges(base_meta->GetLinkedSsts(),
+                                             delta.GetNewlyLinkedSsts(),
+                                             delta.GetNewlyUnlinkedSsts());
+
     auto meta = BlobFileMetaData::Create(
-        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+        std::move(shared_meta), std::move(linked_ssts),
         base_meta->GetGarbageBlobCount() + delta.GetAdditionalGarbageCount(),
         base_meta->GetGarbageBlobBytes() + delta.GetAdditionalGarbageBytes());
 
