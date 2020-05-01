@@ -1630,6 +1630,15 @@ class MemTableInserter : public WriteBatch::Handler {
             cfd->ioptions()->table_factory->Name() + " in CF " +
             cfd->GetName());
       }
+      int cmp = cfd->user_comparator()->Compare(begin_key, end_key);
+      if (cmp > 0) {
+        // It's an empty range where endpoints appear mistaken. Don't bother
+        // applying it to the DB, and return an error to the user.
+        return Status::InvalidArgument("end key comes before start key");
+      } else if (cmp == 0) {
+        // It's an empty range. Don't bother applying it to the DB.
+        return Status::OK();
+      }
     }
 
     auto ret_status =

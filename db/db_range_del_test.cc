@@ -47,6 +47,21 @@ TEST_F(DBRangeDelTest, WriteBatchWithIndexNotSupported) {
   ASSERT_TRUE(indexedBatch.DeleteRange("dr1", "dr1").IsNotSupported());
 }
 
+TEST_F(DBRangeDelTest, EndSameAsStartCoversNothing) {
+  ASSERT_OK(db_->Put(WriteOptions(), "b", "val"));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "b"));
+  ASSERT_EQ("val", Get("b"));
+}
+
+TEST_F(DBRangeDelTest, EndComesBeforeStartInvalidArgument) {
+  db_->Put(WriteOptions(), "b", "val");
+  ASSERT_TRUE(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "a")
+          .IsInvalidArgument());
+  ASSERT_EQ("val", Get("b"));
+}
+
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
   do {
     DestroyAndReopen(CurrentOptions());
