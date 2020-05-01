@@ -976,6 +976,8 @@ ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
+	$(MAKE) check-format
+	$(MAKE) check-buck-targets
 
 # TODO add ldb_tests
 check_some: $(SUBSET)
@@ -1195,6 +1197,12 @@ tags0:
 
 format:
 	build_tools/format-diff.sh
+
+check-format:
+	build_tools/format-diff.sh -c
+
+check-buck-targets:
+	buckifier/check_buck_targets.sh
 
 package:
 	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)

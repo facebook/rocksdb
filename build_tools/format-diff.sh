@@ -2,6 +2,30 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # If clang_format_diff.py command is not specfied, we assume we are able to
 # access directly without any path.
+
+print_usage () {
+  echo "Usage:"
+  echo "format-diff.sh [OPTIONS]"
+  echo "-c: check only."
+  echo "-h: print this message."
+}
+
+while getopts ':ch' OPTION; do
+  case "$OPTION" in
+    c)
+      CHECK_ONLY=1
+      ;;
+    h)
+      print_usage
+      exit 1
+      ;;
+    ?)
+      print_usage
+      exit 1
+      ;;
+  esac
+done
+
 if [ -z $CLANG_FORMAT_DIFF ]
 then
 CLANG_FORMAT_DIFF="clang-format-diff.py"
@@ -10,18 +34,28 @@ fi
 # Check clang-format-diff.py
 if ! which $CLANG_FORMAT_DIFF &> /dev/null
 then
-  echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
-  echo "You can download clang-format-diff.py by running: "
-  echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
-  echo "You can download clang-format by running:"
-  echo "    brew install clang-format"
-  echo "  Or"
-  echo "    apt install clang-format"
-  echo "  This might work too:"
-  echo "    yum install git-clang-format"
-  echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
-  echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
-  exit 128
+  if [ ! -f ./clang-format-diff.py ]
+  then
+    echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
+    echo "You can download clang-format-diff.py by running: "
+    echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
+    echo "You can download clang-format by running:"
+    echo "    brew install clang-format"
+    echo "  Or"
+    echo "    apt install clang-format"
+    echo "  This might work too:"
+    echo "    yum install git-clang-format"
+    echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
+    echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
+    exit 128
+  else
+    if [ -x ./clang-format-diff.py ]
+    then
+      PATH=$PATH:.
+    else
+      CLANG_FORMAT_DIFF="python ./clang-format-diff.py"
+    fi
+  fi
 fi
 
 # Check argparse, a library that clang-format-diff.py requires.
@@ -87,6 +121,10 @@ if [ -z "$diffs" ]
 then
   echo "Nothing needs to be reformatted!"
   exit 0
+elif [ $CHECK_ONLY ]
+then
+  echo "Your change has unformatted code. Please run make format!"
+  exit 1
 fi
 
 # Highlight the insertion/deletion from the clang-format-diff.py's output
