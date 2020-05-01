@@ -1,10 +1,10 @@
 // Copyright (c) 2017 Rockset
 
-#include <gtest/gtest.h>
-
 #ifndef ROCKSDB_LITE
 
 #ifdef USE_AWS
+
+#include "rocksdb/cloud/db_cloud.h"
 
 #include <algorithm>
 #include <chrono>
@@ -18,8 +18,6 @@
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
-#include "rocksdb/cloud/db_cloud.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
