@@ -827,11 +827,14 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_total_wal_size(
     rocksdb_options_t* opt, uint64_t n);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options(
     rocksdb_options_t*, int, int, int, int);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options_zstd_max_train_bytes(
-    rocksdb_options_t*, int);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bottommost_compression_options(
-    rocksdb_options_t*, int, int, int, int, unsigned char);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_compression_options_zstd_max_train_bytes(rocksdb_options_t*,
+                                                             int);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_bottommost_compression_options(rocksdb_options_t*, int, int,
+                                                   int, int, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
     rocksdb_options_t*, int, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_prefix_extractor(
     rocksdb_options_t*, rocksdb_slicetransform_t*);
