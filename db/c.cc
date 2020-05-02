@@ -2381,7 +2381,8 @@ void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
 
 void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
     rocksdb_options_t* opt, int zstd_max_train_bytes, unsigned char enabled) {
-  opt->rep.bottommost_compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
+  opt->rep.bottommost_compression_opts.zstd_max_train_bytes =
+      zstd_max_train_bytes;
   opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
