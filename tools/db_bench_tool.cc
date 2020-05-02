@@ -5415,7 +5415,7 @@ class Benchmark {
 
       // Select one key in the key-range and compose the keyID
       int64_t key_offset = 0, key_seed;
-      if (key_dist_a == 0.0 && key_dist_b == 0.0) {
+      if (key_dist_a == 0.0 || key_dist_b == 0.0) {
         key_offset = ini_rand % keyrange_size_;
       } else {
         double u =
