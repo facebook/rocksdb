@@ -5970,8 +5970,7 @@ Status ReactiveVersionSet::Recover(
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      // Should handle it better
-      s = builder->SaveTo(v->storage_info());
+      builder->SaveTo(v->storage_info());
 
       // Install recovered version
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
@@ -6191,7 +6190,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
       auto version = new Version(cfd, this, file_options_,
                                  *cfd->GetLatestMutableCFOptions(),
                                  current_version_number_++);
-      s = builder->SaveTo(version->storage_info());
+      builder->SaveTo(version->storage_info());
       version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
       AppendVersion(cfd, version);
       active_version_builders_.erase(builder_iter);
