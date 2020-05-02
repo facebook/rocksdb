@@ -2379,6 +2379,12 @@ void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
   opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
+void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt, int zstd_max_train_bytes, bool enabled) {
+  opt->rep.bottommost_compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
 void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
                                              int level, int strategy,
                                              int max_dict_bytes) {
@@ -2386,6 +2392,11 @@ void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
   opt->rep.compression_opts.level = level;
   opt->rep.compression_opts.strategy = strategy;
   opt->rep.compression_opts.max_dict_bytes = max_dict_bytes;
+}
+
+void rocksdb_options_set_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt, int zstd_max_train_bytes) {
+  opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(
