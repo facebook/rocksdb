@@ -5418,7 +5418,8 @@ class Benchmark {
       if (key_dist_a == 0.0 && key_dist_b == 0.0) {
         key_offset = ini_rand % keyrange_size_;
       } else {
-        double u = static_cast<double>(ini_rand % keyrange_size_) / keyrange_size_;
+        double u =
+            static_cast<double>(ini_rand % keyrange_size_) / keyrange_size_;
         key_seed = static_cast<int64_t>(
             ceil(std::pow((u / key_dist_a), (1 / key_dist_b))));
         Random64 rand_key(key_seed);
@@ -5499,8 +5500,7 @@ class Benchmark {
       // Generate the keyID based on the key hotness and prefix hotness
       if (use_random_modeling) {
         key_rand = ini_rand;
-      }
-      else if (use_prefix_modeling) {
+      } else if (use_prefix_modeling) {
         key_rand =
             gen_exp.DistGetKeyID(ini_rand, FLAGS_key_dist_a, FLAGS_key_dist_b);
       } else {
