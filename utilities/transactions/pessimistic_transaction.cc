@@ -191,11 +191,11 @@ Status PessimisticTransaction::Prepare() {
                                                       AWAITING_PREPARE);
   } else if (txn_state_ == STARTED) {
     // expiration and lock stealing is not possible
+    txn_state_.store(AWAITING_PREPARE);
     can_prepare = true;
   }
 
   if (can_prepare) {
-    txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
     assert(log_number_ == 0 ||
