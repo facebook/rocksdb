@@ -544,6 +544,12 @@ class VersionBuilder::Rep {
 
     table_file_levels_[file_number] = level;
 
+    if (meta.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      // TODO: check that blob file exists in version
+      blob_file_meta_deltas_[meta.oldest_blob_file_number].LinkSst(
+          meta.fd.GetNumber());
+    }
+
     return Status::OK();
   }
 
@@ -585,6 +591,37 @@ class VersionBuilder::Rep {
       // TODO: if there is a blob file associated with the table file
       // (which can be determined from FileMetaData), check if the blob file
       // exists in the version (it should), and if so, unlink the SST from it
+      {
+        uint64_t blob_file_number = kInvalidBlobFileNumber;
+
+        const auto& base_files = base_vstorage_->LevelFiles(level);
+        for (const FileMetaData* meta : base_files) {
+          assert(meta);
+
+          if (meta->fd.GetNumber() == number) {
+            blob_file_number = meta->oldest_blob_file_number;
+            break;
+          }
+        }
+
+        if (blob_file_number == kInvalidBlobFileNumber) {
+          if (level < num_levels_) {
+            const auto& added_files = levels_[level].added_files;
+
+            auto it = added_files.find(number);
+            if (it != added_files.end()) {
+              const FileMetaData* const meta = it->second;
+              assert(meta);
+
+              blob_file_number = meta->oldest_blob_file_number;
+            }
+          }
+        }
+
+        if (blob_file_number != kInvalidBlobFileNumber) {
+          blob_file_meta_deltas_[blob_file_number].UnlinkSst(number);
+        }
+      }
     }
 
     // Add new files
@@ -595,12 +632,6 @@ class VersionBuilder::Rep {
       const Status s = ApplyFileAddition(level, meta);
       if (!s.ok()) {
         return s;
-      }
-
-      if (meta.oldest_blob_file_number != kInvalidBlobFileNumber) {
-        // TODO: check that blob file exists in version
-        blob_file_meta_deltas_[meta.oldest_blob_file_number].LinkSst(
-            meta.fd.GetNumber());
       }
     }
 
