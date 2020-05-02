@@ -593,6 +593,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   } else {
     cf_opts = static_cast<ColumnFamilyOptions*>(&options_);
   }
+  cf_opts->force_consistency_checks = true;
   DBOptions* db_opts = static_cast<DBOptions*>(&options_);
   db_opts->create_if_missing = false;
 

@@ -4594,7 +4594,11 @@ Status VersionSet::Recover(
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      s = builder->SaveTo(v->storage_info());
+      if (!s.ok()) {
+        delete v;
+        return s;
+      }
 
       // Install recovered version
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
@@ -5145,7 +5149,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      s = builder->SaveTo(v->storage_info());
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
 
       printf("--------------- Column family \"%s\"  (ID %" PRIu32
@@ -5966,7 +5970,8 @@ Status ReactiveVersionSet::Recover(
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      // Should handle it better
+      s = builder->SaveTo(v->storage_info());
 
       // Install recovered version
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
@@ -6186,7 +6191,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
       auto version = new Version(cfd, this, file_options_,
                                  *cfd->GetLatestMutableCFOptions(),
                                  current_version_number_++);
-      builder->SaveTo(version->storage_info());
+      s = builder->SaveTo(version->storage_info());
       version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
       AppendVersion(cfd, version);
       active_version_builders_.erase(builder_iter);

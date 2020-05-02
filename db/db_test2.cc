@@ -4328,6 +4328,24 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));
 }
 
+TEST_F(DBTest2, FileConsistencyCheckInOpen) {
+  Put("foo", "bar");
+  Flush();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        Status* ret_s = static_cast<Status*>(arg);
+        *ret_s = Status::Corruption("fcc");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.force_consistency_checks = true;
+  ASSERT_NOK(TryReopen(options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
