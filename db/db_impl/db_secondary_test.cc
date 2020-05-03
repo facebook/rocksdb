@@ -45,6 +45,8 @@ class DBSecondaryTest : public DBTestBase {
 
   void OpenSecondary(const Options& options);
 
+  Status TryOpenSecondary(const Options& options);
+
   void OpenSecondaryWithColumnFamilies(
       const std::vector<std::string>& column_families, const Options& options);
 
@@ -70,9 +72,13 @@ class DBSecondaryTest : public DBTestBase {
 };
 
 void DBSecondaryTest::OpenSecondary(const Options& options) {
+  ASSERT_OK(TryOpenSecondary(options));
+}
+
+Status DBSecondaryTest::TryOpenSecondary(const Options& options) {
   Status s =
       DB::OpenAsSecondary(options, dbname_, secondary_path_, &db_secondary_);
-  ASSERT_OK(s);
+  return s;
 }
 
 void DBSecondaryTest::OpenSecondaryWithColumnFamilies(
@@ -857,6 +863,56 @@ TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   thread.join();
   ASSERT_TRUE(called);
+}
+
+TEST_F(DBSecondaryTest, StartFromInconsistent) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        *(reinterpret_cast<Status*>(arg)) =
+            Status::Corruption("Inject corruption");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Options options1;
+  Status s = TryOpenSecondary(options1);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+
+  Options options1;
+  OpenSecondary(options1);
+
+  {
+    std::string value;
+    ASSERT_OK(db_secondary_->Get(ReadOptions(), "foo", &value));
+    ASSERT_EQ("value", value);
+  }
+
+  ASSERT_OK(Put("bar", "value1"));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        *(reinterpret_cast<Status*>(arg)) =
+            Status::Corruption("Inject corruption");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = db_secondary_->TryCatchUpWithPrimary();
+  ASSERT_TRUE(s.IsCorruption());
 }
 #endif  //! ROCKSDB_LITE
 
