@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.10 (5/2/2020)
 ### Bug Fixes
 * Fix wrong result being read from ingested file. May happen when a key in the file happen to be prefix of another key also in the file. The issue can further cause more data corruption. The issue exists with rocksdb >= 5.0.0 since DB::IngestExternalFile() was introduced.
 * Finish implementation of BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey. It's now ready for use. Significantly reduces read amplification in some setups, especially for iterator seeks.
