@@ -182,16 +182,13 @@ class VersionBuilder::Rep {
     }
   }
 
-  std::shared_ptr<SharedBlobFileMetaData> GetSharedBlobFileMetaData(
-      uint64_t blob_file_number) const {
+  bool IsBlobFileInVersion(uint64_t blob_file_number) const {
     auto delta_it = blob_file_meta_deltas_.find(blob_file_number);
     if (delta_it != blob_file_meta_deltas_.end()) {
       const auto& delta = delta_it->second;
 
-      auto shared_meta = delta.GetSharedMeta();
-
-      if (shared_meta) {
-        return shared_meta;
+      if (delta.GetSharedMeta()) {
+        return true;
       }
     }
 
@@ -203,14 +200,12 @@ class VersionBuilder::Rep {
     if (base_it != base_blob_files.end()) {
       const auto& meta = base_it->second;
       assert(meta);
+      assert(meta->GetSharedMeta());
 
-      auto shared_meta = meta->GetSharedMeta();
-      assert(shared_meta);
-
-      return shared_meta;
+      return true;
     }
 
-    return std::shared_ptr<SharedBlobFileMetaData>();
+    return false;
   }
 
   Status CheckConsistencyOfOldestBlobFileReference(
@@ -227,8 +222,7 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 
-    const auto shared_meta = GetSharedBlobFileMetaData(blob_file_number);
-    if (!shared_meta) {
+    if (!IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number
           << " is not part of this version";
@@ -429,8 +423,7 @@ class VersionBuilder::Rep {
   Status ApplyBlobFileAddition(const BlobFileAddition& blob_file_addition) {
     const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
 
-    auto existing_shared_meta = GetSharedBlobFileMetaData(blob_file_number);
-    if (existing_shared_meta) {
+    if (IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number << " already added";
 
@@ -470,8 +463,7 @@ class VersionBuilder::Rep {
   Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
     const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
 
-    auto shared_meta = GetSharedBlobFileMetaData(blob_file_number);
-    if (!shared_meta) {
+    if (!IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number << " not found";
 
