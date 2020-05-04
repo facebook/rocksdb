@@ -648,16 +648,16 @@ class VersionBuilder::Rep {
     // appears on both lists (trivial move), it is still there after the
     // updates are done.
 
-    for (uint64_t blob_file : newly_unlinked) {
-      assert(result.find(blob_file) != result.end());
+    for (uint64_t sst_file_number : newly_unlinked) {
+      assert(result.find(sst_file_number) != result.end());
 
-      result.erase(blob_file);
+      result.erase(sst_file_number);
     }
 
-    for (uint64_t blob_file : newly_linked) {
-      assert(result.find(blob_file) == result.end());
+    for (uint64_t sst_file_number : newly_linked) {
+      assert(result.find(sst_file_number) == result.end());
 
-      result.emplace(blob_file);
+      result.emplace(sst_file_number);
     }
 
     return result;
