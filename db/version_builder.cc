@@ -588,7 +588,7 @@ class VersionBuilder::Rep {
         return s;
       }
 
-      {
+      if (level < num_levels_) {
         uint64_t blob_file_number = kInvalidBlobFileNumber;
 
         const auto& base_files = base_vstorage_->LevelFiles(level);
@@ -602,16 +602,14 @@ class VersionBuilder::Rep {
         }
 
         if (blob_file_number == kInvalidBlobFileNumber) {
-          if (level < num_levels_) {
-            const auto& added_files = levels_[level].added_files;
+          const auto& added_files = levels_[level].added_files;
 
-            auto it = added_files.find(number);
-            if (it != added_files.end()) {
-              const FileMetaData* const meta = it->second;
-              assert(meta);
+          auto it = added_files.find(number);
+          if (it != added_files.end()) {
+            const FileMetaData* const meta = it->second;
+            assert(meta);
 
-              blob_file_number = meta->oldest_blob_file_number;
-            }
+            blob_file_number = meta->oldest_blob_file_number;
           }
         }
 
