@@ -229,7 +229,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
 
   dbfull()->TEST_LockMutex();
   Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                   &edit, dbfull()->TEST_GetMutex());
+                                   &edit, dbfull()->mutex());
   dbfull()->TEST_UnlockMutex();
 
   ASSERT_OK(s);
