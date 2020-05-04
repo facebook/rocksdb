@@ -559,6 +559,40 @@ class VersionBuilder::Rep {
     return s;
   }
 
+  static std::shared_ptr<BlobFileMetaData> CreateMetaDataForNewBlobFile(
+      const BlobFileMetaDataDelta& delta) {
+    auto shared_meta = delta.GetSharedMeta();
+    assert(shared_meta);
+
+    auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                         delta.GetAdditionalGarbageCount(),
+                                         delta.GetAdditionalGarbageBytes());
+
+    return meta;
+  }
+
+  static std::shared_ptr<BlobFileMetaData>
+  GetOrCreateMetaDataForExistingBlobFile(
+      const std::shared_ptr<BlobFileMetaData>& base_meta,
+      const BlobFileMetaDataDelta& delta) {
+    assert(base_meta);
+    assert(!delta.GetSharedMeta());
+
+    if (delta.IsEmpty()) {
+      return base_meta;
+    }
+
+    auto shared_meta = base_meta->GetSharedMeta();
+    assert(shared_meta);
+
+    auto meta = BlobFileMetaData::Create(
+        std::move(shared_meta),
+        base_meta->GetGarbageBlobCount() + delta.GetAdditionalGarbageCount(),
+        base_meta->GetGarbageBlobBytes() + delta.GetAdditionalGarbageBytes());
+
+    return meta;
+  }
+
   void AddBlobFileIfNeeded(
       VersionStorageInfo* vstorage,
       const std::shared_ptr<BlobFileMetaData>& meta) const {
@@ -599,12 +633,8 @@ class VersionBuilder::Rep {
       } else if (delta_blob_file_number < base_blob_file_number) {
         const auto& delta = delta_it->second;
 
-        auto shared_meta = delta.GetSharedMeta();
-        assert(shared_meta);
+        auto meta = CreateMetaDataForNewBlobFile(delta);
 
-        auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                             delta.GetAdditionalGarbageCount(),
-                                             delta.GetAdditionalGarbageBytes());
         AddBlobFileIfNeeded(vstorage, meta);
 
         ++delta_it;
@@ -612,20 +642,9 @@ class VersionBuilder::Rep {
         assert(base_blob_file_number == delta_blob_file_number);
 
         const auto& base_meta = base_it->second;
-        assert(base_meta);
-
-        auto shared_meta = base_meta->GetSharedMeta();
-        assert(shared_meta);
-
         const auto& delta = delta_it->second;
-        assert(!delta.GetSharedMeta());
 
-        auto meta =
-            BlobFileMetaData::Create(std::move(shared_meta),
-                                     base_meta->GetGarbageBlobCount() +
-                                         delta.GetAdditionalGarbageCount(),
-                                     base_meta->GetGarbageBlobBytes() +
-                                         delta.GetAdditionalGarbageBytes());
+        auto meta = GetOrCreateMetaDataForExistingBlobFile(base_meta, delta);
 
         AddBlobFileIfNeeded(vstorage, meta);
 
@@ -646,12 +665,8 @@ class VersionBuilder::Rep {
     while (delta_it != delta_it_end) {
       const auto& delta = delta_it->second;
 
-      auto shared_meta = delta.GetSharedMeta();
-      assert(shared_meta);
+      auto meta = CreateMetaDataForNewBlobFile(delta);
 
-      auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                           delta.GetAdditionalGarbageCount(),
-                                           delta.GetAdditionalGarbageBytes());
       AddBlobFileIfNeeded(vstorage, meta);
 
       ++delta_it;
