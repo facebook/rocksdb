@@ -356,21 +356,17 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
       "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
         // Turn timed wait into a simulated sleep
         uint64_t* abs_time_us = static_cast<uint64_t*>(arg);
-        int64_t cur_time = 0;
-        env_->GetCurrentTime(&cur_time);
-        if (*abs_time_us > static_cast<uint64_t>(cur_time)) {
-          env_->addon_time_.fetch_add(*abs_time_us -
-                                      static_cast<uint64_t>(cur_time));
+        uint64_t cur_time = env_->NowMicros();
+        if (*abs_time_us > cur_time) {
+          env_->addon_time_.fetch_add(*abs_time_us - cur_time);
         }
 
         // Randomly sleep shortly
         env_->addon_time_.fetch_add(
             static_cast<uint64_t>(Random::GetTLSInstance()->Uniform(10)));
 
-        // Set wait until time to before current to force not to sleep.
-        int64_t real_cur_time = 0;
-        Env::Default()->GetCurrentTime(&real_cur_time);
-        *abs_time_us = static_cast<uint64_t>(real_cur_time);
+        // Set wait until time to before (actual) current to force not to sleep
+        *abs_time_us = Env::Default()->NowMicros();
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();

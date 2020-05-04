@@ -508,6 +508,8 @@ class SpecialEnv : public EnvWrapper {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
+      // FIXME: addon_time_ sometimes used to mean seconds (here) and
+      // sometimes microseconds
       *unix_time += addon_time_.load();
     }
     return s;
