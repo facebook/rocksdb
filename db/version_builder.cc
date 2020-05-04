@@ -316,7 +316,10 @@ class VersionBuilder::Rep {
       }
     }
 
-    return Status::OK();
+    Status ret_s;
+    TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistencyBeforeReturn",
+                             &ret_s);
+    return ret_s;
   }
 
   Status CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
