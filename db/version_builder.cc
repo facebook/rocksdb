@@ -106,11 +106,11 @@ class VersionBuilder::Rep {
       return additional_garbage_bytes_;
     }
 
-    const std::vector<uint64_t>& GetNewlyLinkedSsts() const {
+    const std::unordered_set<uint64_t>& GetNewlyLinkedSsts() const {
       return newly_linked_ssts_;
     }
 
-    const std::vector<uint64_t>& GetNewlyUnlinkedSsts() const {
+    const std::unordered_set<uint64_t>& GetNewlyUnlinkedSsts() const {
       return newly_unlinked_ssts_;
     }
 
@@ -127,19 +127,43 @@ class VersionBuilder::Rep {
     }
 
     void LinkSst(uint64_t sst_file_number) {
-      newly_linked_ssts_.emplace_back(sst_file_number);
+      assert(newly_linked_ssts_.find(sst_file_number) ==
+             newly_linked_ssts_.end());
+
+      // Reconcile with newly unlinked SSTs on the fly. (Note: an SST can be
+      // linked to and unlinked from the same blob file in the case of a trivial
+      // move.)
+      auto it = newly_unlinked_ssts_.find(sst_file_number);
+
+      if (it != newly_unlinked_ssts_.end()) {
+        newly_unlinked_ssts_.erase(it);
+      } else {
+        newly_linked_ssts_.emplace(sst_file_number);
+      }
     }
 
     void UnlinkSst(uint64_t sst_file_number) {
-      newly_unlinked_ssts_.emplace_back(sst_file_number);
+      assert(newly_unlinked_ssts_.find(sst_file_number) ==
+             newly_unlinked_ssts_.end());
+
+      // Reconcile with newly linked SSTs on the fly. (Note: an SST can be
+      // linked to and unlinked from the same blob file in the case of a trivial
+      // move.)
+      auto it = newly_linked_ssts_.find(sst_file_number);
+
+      if (it != newly_linked_ssts_.end()) {
+        newly_linked_ssts_.erase(it);
+      } else {
+        newly_unlinked_ssts_.emplace(sst_file_number);
+      }
     }
 
    private:
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
     uint64_t additional_garbage_count_ = 0;
     uint64_t additional_garbage_bytes_ = 0;
-    std::vector<uint64_t> newly_linked_ssts_;
-    std::vector<uint64_t> newly_unlinked_ssts_;
+    std::unordered_set<uint64_t> newly_linked_ssts_;
+    std::unordered_set<uint64_t> newly_unlinked_ssts_;
   };
 
   const FileOptions& file_options_;
@@ -639,13 +663,9 @@ class VersionBuilder::Rep {
 
   static BlobFileMetaData::LinkedSsts ApplyLinkedSstChanges(
       const BlobFileMetaData::LinkedSsts& base,
-      const std::vector<uint64_t>& newly_linked,
-      const std::vector<uint64_t>& newly_unlinked) {
+      const std::unordered_set<uint64_t>& newly_linked,
+      const std::unordered_set<uint64_t>& newly_unlinked) {
     BlobFileMetaData::LinkedSsts result(base);
-
-    // Note: we're processing unlinked files first so that in case a file
-    // appears on both lists (trivial move), it is still there after the
-    // updates are done.
 
     for (uint64_t sst_file_number : newly_unlinked) {
       assert(result.find(sst_file_number) != result.end());
