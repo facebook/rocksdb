@@ -10,7 +10,6 @@
 * Fix a bug caused by using wrong compare function when sorting the input keys of MultiGet with timestamps.
 * Upgraded version of bzip library (1.0.6 -> 1.0.8) used with RocksJava to address potential vulnerabilities if an attacker can manipulate compressed data saved and loaded by RocksDB (not normal). See issue #6703.
 * Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
-* Avoid swallowing errors returned from SaveTo() in a few places, ReactiveVersionSet::Recover() and catch up, VersionEditHandler.
 
 ### Public API Change
 * Add a ConfigOptions argument to the APIs dealing with converting options to and from strings and files.  The ConfigOptions is meant to replace some of the options (such as input_strings_escaped and ignore_unknown_options) and allow for more parameters to be passed in the future without changing the function signature.
