@@ -1906,7 +1906,7 @@ Status DBImpl::WaitForFlushMemTables(
       }
     }
     if (1 == num_dropped && 1 == num) {
-      return Status::InvalidArgument("Cannot flush a dropped CF");
+      return Status::ColumnFamilyDropped();
     }
     // Column families involved in this flush request have either been dropped
     // or finished flush. Then it's time to finish waiting.
