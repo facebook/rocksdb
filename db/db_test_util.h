@@ -502,7 +502,9 @@ class SpecialEnv : public EnvWrapper {
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
-    if (!time_elapse_only_sleep_) {
+    if (time_elapse_only_sleep_) {
+      *unix_time = maybe_starting_time_;
+    } else {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
@@ -530,6 +532,9 @@ class SpecialEnv : public EnvWrapper {
     delete_count_.fetch_add(1);
     return target()->DeleteFile(fname);
   }
+
+  // Something to return when mocking current time
+  const int64_t maybe_starting_time_;
 
   Random rnd_;
   port::Mutex rnd_mutex_;  // Lock to pretect rnd_

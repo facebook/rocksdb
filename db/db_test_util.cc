@@ -14,10 +14,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+int64_t MaybeCurrentTime(Env *env) {
+  int64_t time = 42; // fallback default
+  (void)env->GetCurrentTime(&time);
+  return time;
+}
+}
+
 // Special Env used to delay background operations
 
 SpecialEnv::SpecialEnv(Env* base)
     : EnvWrapper(base),
+      maybe_starting_time_(MaybeCurrentTime(base)),
       rnd_(301),
       sleep_counter_(this),
       addon_time_(0),
