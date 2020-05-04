@@ -75,6 +75,9 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg,
 }
 
 std::string Status::ToString() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   char tmp[30];
   const char* type;
   switch (code_) {

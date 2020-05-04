@@ -459,8 +459,9 @@ std::unordered_map<std::string, OptionTypeInfo>
           [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
              const std::string& value, char* addr) {
             auto mop = reinterpret_cast<std::shared_ptr<MergeOperator>*>(addr);
-            ObjectRegistry::NewInstance()->NewSharedObject<MergeOperator>(value,
-                                                                          mop);
+            ObjectRegistry::NewInstance()
+                ->NewSharedObject<MergeOperator>(value, mop)
+                .PermitUncheckedError();
             return Status::OK();
           }}},
         {"compaction_style",

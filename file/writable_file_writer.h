@@ -46,6 +46,7 @@ class WritableFileWriter {
     for (auto& listener : listeners_) {
       listener->OnFileWriteFinish(info);
     }
+    info.status.PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -126,7 +127,10 @@ class WritableFileWriter {
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
-  ~WritableFileWriter() { Close(); }
+  ~WritableFileWriter() {
+    auto s = Close();
+    s.PermitUncheckedError();
+  }
 
   std::string file_name() const { return file_name_; }
 
