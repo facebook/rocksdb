@@ -118,27 +118,33 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
     }
   }
 
-  // Make a set of all of the live *.sst files
-  std::vector<FileDescriptor> live;
+  // Make a set of all of the live table and blob files
+  std::vector<uint64_t> live_table_files;
+  std::vector<uint64_t> live_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    cfd->current()->AddLiveFiles(&live);
+    cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
   }
 
   ret.clear();
-  ret.reserve(live.size() + 3);  // *.sst + CURRENT + MANIFEST + OPTIONS
+  ret.reserve(live_table_files.size() + live_blob_files.size() +
+              3);  // for CURRENT + MANIFEST + OPTIONS
 
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;
-  for (const auto& live_file : live) {
-    ret.push_back(MakeTableFileName("", live_file.GetNumber()));
+  for (const auto& table_file_number : live_table_files) {
+    ret.emplace_back(MakeTableFileName("", table_file_number));
   }
 
-  ret.push_back(CurrentFileName(""));
-  ret.push_back(DescriptorFileName("", versions_->manifest_file_number()));
-  ret.push_back(OptionsFileName("", versions_->options_file_number()));
+  for (const auto& blob_file_number : live_blob_files) {
+    ret.emplace_back(BlobFileName("", blob_file_number));
+  }
+
+  ret.emplace_back(CurrentFileName(""));
+  ret.emplace_back(DescriptorFileName("", versions_->manifest_file_number()));
+  ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
 
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->manifest_file_size();

@@ -141,10 +141,13 @@ struct JobContext {
   std::vector<CandidateFileInfo> full_scan_candidate_files;
 
   // the list of all live sst files that cannot be deleted
-  std::vector<FileDescriptor> sst_live;
+  std::vector<uint64_t> sst_live;
 
-  // a list of sst files that we need to delete
+  // the list of sst files that we need to delete
   std::vector<ObsoleteFileInfo> sst_delete_files;
+
+  // the list of all live blob files that cannot be deleted
+  std::vector<uint64_t> blob_live;
 
   // the list of blob files that we need to delete
   std::vector<ObsoleteBlobFileInfo> blob_delete_files;
