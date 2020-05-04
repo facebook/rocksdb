@@ -553,6 +553,30 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  uint64_t GetBlobFileNumberForTableFile(int level,
+                                         uint64_t table_file_number) {
+    const auto& added_files = levels_[level].added_files;
+
+    auto it = added_files.find(table_file_number);
+    if (it != added_files.end()) {
+      const FileMetaData* const meta = it->second;
+      assert(meta);
+
+      return meta->oldest_blob_file_number;
+    }
+
+    const auto& base_files = base_vstorage_->LevelFiles(level);
+    for (const FileMetaData* meta : base_files) {
+      assert(meta);
+
+      if (meta->fd.GetNumber() == table_file_number) {
+        return meta->oldest_blob_file_number;
+      }
+    }
+
+    return kInvalidBlobFileNumber;
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
     {
@@ -589,29 +613,8 @@ class VersionBuilder::Rep {
       }
 
       if (level < num_levels_) {
-        uint64_t blob_file_number = kInvalidBlobFileNumber;
-
-        const auto& base_files = base_vstorage_->LevelFiles(level);
-        for (const FileMetaData* meta : base_files) {
-          assert(meta);
-
-          if (meta->fd.GetNumber() == number) {
-            blob_file_number = meta->oldest_blob_file_number;
-            break;
-          }
-        }
-
-        if (blob_file_number == kInvalidBlobFileNumber) {
-          const auto& added_files = levels_[level].added_files;
-
-          auto it = added_files.find(number);
-          if (it != added_files.end()) {
-            const FileMetaData* const meta = it->second;
-            assert(meta);
-
-            blob_file_number = meta->oldest_blob_file_number;
-          }
-        }
+        const uint64_t blob_file_number =
+            GetBlobFileNumberForTableFile(level, number);
 
         if (blob_file_number != kInvalidBlobFileNumber &&
             IsBlobFileInVersion(blob_file_number)) {
