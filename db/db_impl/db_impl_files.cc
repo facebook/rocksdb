@@ -261,7 +261,7 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                            const_cast<std::string*>(&fname));
 
   Status file_deletion_status;
-  if (type == kTableFile || type == kLogFile) {
+  if (type == kTableFile || type == kBlobFile || type == kLogFile) {
     file_deletion_status =
         DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
                      /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
