@@ -1460,7 +1460,6 @@ TEST_F(CloudTest, CopyObjectTest) {
   CloseDB();
 }
 
-#ifdef AWS_DO_NOT_RUN
 //
 // Verify that we can cache data from S3 in persistent cache.
 //
@@ -1483,7 +1482,6 @@ TEST_F(CloudTest, PersistentCache) {
   ASSERT_EQ(value, "World");
   CloseDB();
 }
-#endif /* AWS_DO_NOT_RUN */
 
 }  //  namespace rocksdb
 

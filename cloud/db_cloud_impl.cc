@@ -24,6 +24,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "util/xxhash.h"
+#include "utilities/persistent_cache/block_cache_tier.h"
 
 namespace rocksdb {
 
@@ -140,11 +141,11 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
       BlockBasedTableOptions* tableopt =
           static_cast<BlockBasedTableOptions*>(bopt);
       if (!tableopt->persistent_cache) {
-        std::shared_ptr<PersistentCache> pcache;
-        st =
-            NewPersistentCache(options.env, persistent_cache_path,
-                               persistent_cache_size_gb * 1024L * 1024L * 1024L,
-                               options.info_log, false, &pcache);
+        PersistentCacheConfig config(
+            local_env, persistent_cache_path,
+            persistent_cache_size_gb * 1024L * 1024L * 1024L, options.info_log);
+        auto pcache = std::make_shared<BlockCacheTier>(config);
+        st = pcache->Open();
         if (st.ok()) {
           tableopt->persistent_cache = pcache;
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
