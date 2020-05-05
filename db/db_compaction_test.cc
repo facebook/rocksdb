@@ -5028,7 +5028,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
   DestroyAndReopen(options);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "VersionBuilder::CheckConsistency1", [&](void* arg) {
+      "VersionBuilder::CheckConsistency0", [&](void* arg) {
         auto p =
             reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
@@ -5045,8 +5045,9 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
     Flush();
   }
 
-  ASSERT_NOK(Put("foo", "bar"));
+  ASSERT_NOK(Put("foo", "bar")); 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBCompactionTest, ConsistencyFailTest2) {
@@ -5060,7 +5061,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest2) {
   DestroyAndReopen(options);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "VersionBuilder::CheckConsistency2", [&](void* arg) {
+      "VersionBuilder::CheckConsistency1", [&](void* arg) {
         auto p =
             reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
@@ -5087,6 +5088,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest2) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_NOK(Put("foo", "bar"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 void IngestOneKeyValue(DBImpl* db, const std::string& key,

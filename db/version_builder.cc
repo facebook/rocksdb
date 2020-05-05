@@ -239,7 +239,7 @@ class VersionBuilder::Rep {
         if (level == 0) {
 #ifndef NDEBUG
           auto pair = std::make_pair(&f1, &f2);
-          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
+          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency0", &pair);
 #endif
           if (!level_zero_cmp_(f1, f2)) {
             fprintf(stderr, "L0 files are not sorted properly");
@@ -281,7 +281,7 @@ class VersionBuilder::Rep {
         } else {
 #ifndef NDEBUG
           auto pair = std::make_pair(&f1, &f2);
-          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency2", &pair);
+          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
             fprintf(stderr, "L%d files are not sorted properly", level);
