@@ -41,18 +41,13 @@ enum class OptionType {
   kCompactionStopStyle,
   kMergeOperator,
   kMemTableRepFactory,
-  kBlockBasedTableIndexType,
-  kBlockBasedTableDataBlockIndexType,
-  kBlockBasedTableIndexShorteningMode,
   kFilterPolicy,
   kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
-  kWALRecoveryMode,
-  kAccessHint,
-  kInfoLogLevel,
   kLRUCacheOptions,
   kEnv,
+  kEnum,
   kUnknown,
 };
 
@@ -95,6 +90,39 @@ inline OptionTypeFlags operator&(const OptionTypeFlags &a,
                                  const OptionTypeFlags &b) {
   return static_cast<OptionTypeFlags>(static_cast<uint32_t>(a) &
                                       static_cast<uint32_t>(b));
+}
+
+// Converts an string into its enumerated value.
+// @param type_map Mapping between strings and enum values
+// @param type The string representation of the enum
+// @param value Returns the enum value represented by the string
+// @return true if the string was found in the enum map, false otherwise.
+template <typename T>
+bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
+               const std::string& type, T* value) {
+  auto iter = type_map.find(type);
+  if (iter != type_map.end()) {
+    *value = iter->second;
+    return true;
+  }
+  return false;
+}
+
+// Converts an enum into its string representation.
+// @param type_map Mapping between strings and enum values
+// @param type The enum
+// @param value Returned as the string representation of the enum
+// @return true if the enum was found in the enum map, false otherwise.
+template <typename T>
+bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
+                   const T& type, std::string* value) {
+  for (const auto& pair : type_map) {
+    if (pair.second == type) {
+      *value = pair.first;
+      return true;
+    }
+  }
+  return false;
 }
 
 // Function for converting a option string value into its underlying
@@ -197,6 +225,63 @@ class OptionTypeInfo {
         type(_type),
         verification(_verification),
         flags(_flags) {}
+
+  // Creates an OptionTypeInfo for an enum type.  Enums use an additional
+  // map to convert the enums to/from their string representation.
+  // To create an OptionTypeInfo that is an Enum, one should:
+  // - Create a static map of string values to the corresponding enum value
+  // - Call this method passing the static map in as a parameter.
+  // Note that it is not necessary to add a new OptionType or make any
+  // other changes -- the returned object handles parsing, serialiation, and
+  // comparisons.
+  //
+  // @param _offset The offset in the option object for this enum
+  // @param map The string to enum mapping for this enum
+  template <typename T>
+  static OptionTypeInfo Enum(
+      int _offset, const std::unordered_map<std::string, T>* const map) {
+    return OptionTypeInfo(
+        _offset, OptionType::kEnum, OptionVerificationType::kNormal,
+        OptionTypeFlags::kNone, 0,
+        // Uses the map argument to convert the input string into
+        // its corresponding enum value.  If value is found in the map,
+        // addr is updated to the corresponding map entry.
+        // @return OK if the value is found in the map
+        // @return InvalidArgument if the value is not found in the map
+        [map](const ConfigOptions&, const std::string& name,
+              const std::string& value, char* addr) {
+          if (map == nullptr) {
+            return Status::NotSupported("No enum mapping ", name);
+          } else if (ParseEnum<T>(*map, value, reinterpret_cast<T*>(addr))) {
+            return Status::OK();
+          } else {
+            return Status::InvalidArgument("No mapping for enum ", name);
+          }
+        },
+        // Uses the map argument to convert the input enum into
+        // its corresponding string value.  If enum value is found in the map,
+        // value is updated to the corresponding string value in the map.
+        // @return OK if the enum is found in the map
+        // @return InvalidArgument if the enum is not found in the map
+        [map](const ConfigOptions&, const std::string& name, const char* addr,
+              std::string* value) {
+          if (map == nullptr) {
+            return Status::NotSupported("No enum mapping ", name);
+          } else if (SerializeEnum<T>(*map, (*reinterpret_cast<const T*>(addr)),
+                                      value)) {
+            return Status::OK();
+          } else {
+            return Status::InvalidArgument("No mapping for enum ", name);
+          }
+        },
+        // Casts addr1 and addr2 to the enum type and returns true if
+        // they are equal, false otherwise.
+        [](const ConfigOptions&, const std::string&, const char* addr1,
+           const char* addr2, std::string*) {
+          return (*reinterpret_cast<const T*>(addr1) ==
+                  *reinterpret_cast<const T*>(addr2));
+        });
+  }  // End OptionTypeInfo::Enum
 
   bool IsEnabled(OptionTypeFlags otf) const { return (flags & otf) == otf; }
 

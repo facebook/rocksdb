@@ -273,29 +273,6 @@ std::vector<CompressionType> GetSupportedCompressions() {
 #ifndef ROCKSDB_LITE
 
 namespace {
-template <typename T>
-bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
-               const std::string& type, T* value) {
-  auto iter = type_map.find(type);
-  if (iter != type_map.end()) {
-    *value = iter->second;
-    return true;
-  }
-  return false;
-}
-
-template <typename T>
-bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
-                   const T& type, std::string* value) {
-  for (const auto& pair : type_map) {
-    if (pair.second == type) {
-      *value = pair.first;
-      return true;
-    }
-  }
-  return false;
-}
-
 bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
                                     std::string* value) {
   std::stringstream ss;
@@ -535,36 +512,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<ChecksumType>(
           checksum_type_string_map, value,
           reinterpret_cast<ChecksumType*>(opt_address));
-    case OptionType::kBlockBasedTableIndexType:
-      return ParseEnum<BlockBasedTableOptions::IndexType>(
-          block_base_table_index_type_string_map, value,
-          reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
-    case OptionType::kBlockBasedTableDataBlockIndexType:
-      return ParseEnum<BlockBasedTableOptions::DataBlockIndexType>(
-          block_base_table_data_block_index_type_string_map, value,
-          reinterpret_cast<BlockBasedTableOptions::DataBlockIndexType*>(
-              opt_address));
-    case OptionType::kBlockBasedTableIndexShorteningMode:
-      return ParseEnum<BlockBasedTableOptions::IndexShorteningMode>(
-          block_base_table_index_shortening_mode_string_map, value,
-          reinterpret_cast<BlockBasedTableOptions::IndexShorteningMode*>(
-              opt_address));
     case OptionType::kEncodingType:
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
           reinterpret_cast<EncodingType*>(opt_address));
-    case OptionType::kWALRecoveryMode:
-      return ParseEnum<WALRecoveryMode>(
-          wal_recovery_mode_string_map, value,
-          reinterpret_cast<WALRecoveryMode*>(opt_address));
-    case OptionType::kAccessHint:
-      return ParseEnum<DBOptions::AccessHint>(
-          access_hint_string_map, value,
-          reinterpret_cast<DBOptions::AccessHint*>(opt_address));
-    case OptionType::kInfoLogLevel:
-      return ParseEnum<InfoLogLevel>(
-          info_log_level_string_map, value,
-          reinterpret_cast<InfoLogLevel*>(opt_address));
     case OptionType::kCompactionOptionsFIFO: {
       if (!FIFOCompactionOptionsSpecialCase(
               value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address))) {
@@ -729,24 +680,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<ChecksumType>(
           checksum_type_string_map,
           *reinterpret_cast<const ChecksumType*>(opt_address), value);
-    case OptionType::kBlockBasedTableIndexType:
-      return SerializeEnum<BlockBasedTableOptions::IndexType>(
-          block_base_table_index_type_string_map,
-          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
-              opt_address),
-          value);
-    case OptionType::kBlockBasedTableDataBlockIndexType:
-      return SerializeEnum<BlockBasedTableOptions::DataBlockIndexType>(
-          block_base_table_data_block_index_type_string_map,
-          *reinterpret_cast<const BlockBasedTableOptions::DataBlockIndexType*>(
-              opt_address),
-          value);
-    case OptionType::kBlockBasedTableIndexShorteningMode:
-      return SerializeEnum<BlockBasedTableOptions::IndexShorteningMode>(
-          block_base_table_index_shortening_mode_string_map,
-          *reinterpret_cast<const BlockBasedTableOptions::IndexShorteningMode*>(
-              opt_address),
-          value);
     case OptionType::kFlushBlockPolicyFactory: {
       const auto* ptr =
           reinterpret_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
@@ -758,18 +691,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,
           *reinterpret_cast<const EncodingType*>(opt_address), value);
-    case OptionType::kWALRecoveryMode:
-      return SerializeEnum<WALRecoveryMode>(
-          wal_recovery_mode_string_map,
-          *reinterpret_cast<const WALRecoveryMode*>(opt_address), value);
-    case OptionType::kAccessHint:
-      return SerializeEnum<DBOptions::AccessHint>(
-          access_hint_string_map,
-          *reinterpret_cast<const DBOptions::AccessHint*>(opt_address), value);
-    case OptionType::kInfoLogLevel:
-      return SerializeEnum<InfoLogLevel>(
-          info_log_level_string_map,
-          *reinterpret_cast<const InfoLogLevel*>(opt_address), value);
     case OptionType::kCompactionOptionsFIFO:
       return SerializeStruct(opt_address, value,
                              fifo_compaction_options_type_info);
@@ -1231,32 +1152,6 @@ Status GetTableFactoryFromMap(
   return Status::OK();
 }
 
-std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
-    OptionsHelper::block_base_table_index_type_string_map = {
-        {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
-        {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
-        {"kTwoLevelIndexSearch",
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch},
-        {"kBinarySearchWithFirstKey",
-         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
-
-std::unordered_map<std::string, BlockBasedTableOptions::DataBlockIndexType>
-    OptionsHelper::block_base_table_data_block_index_type_string_map = {
-        {"kDataBlockBinarySearch",
-         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinarySearch},
-        {"kDataBlockBinaryAndHash",
-         BlockBasedTableOptions::DataBlockIndexType::kDataBlockBinaryAndHash}};
-
-std::unordered_map<std::string, BlockBasedTableOptions::IndexShorteningMode>
-    OptionsHelper::block_base_table_index_shortening_mode_string_map = {
-        {"kNoShortening",
-         BlockBasedTableOptions::IndexShorteningMode::kNoShortening},
-        {"kShortenSeparators",
-         BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators},
-        {"kShortenSeparatorsAndSuccessor",
-         BlockBasedTableOptions::IndexShorteningMode::
-             kShortenSeparatorsAndSuccessor}};
-
 std::unordered_map<std::string, EncodingType>
     OptionsHelper::encoding_type_string_map = {{"kPlain", kPlain},
                                                {"kPrefix", kPrefix}};
@@ -1274,31 +1169,6 @@ std::unordered_map<std::string, CompactionPri>
         {"kOldestLargestSeqFirst", kOldestLargestSeqFirst},
         {"kOldestSmallestSeqFirst", kOldestSmallestSeqFirst},
         {"kMinOverlappingRatio", kMinOverlappingRatio}};
-
-std::unordered_map<std::string, WALRecoveryMode>
-    OptionsHelper::wal_recovery_mode_string_map = {
-        {"kTolerateCorruptedTailRecords",
-         WALRecoveryMode::kTolerateCorruptedTailRecords},
-        {"kAbsoluteConsistency", WALRecoveryMode::kAbsoluteConsistency},
-        {"kPointInTimeRecovery", WALRecoveryMode::kPointInTimeRecovery},
-        {"kSkipAnyCorruptedRecords",
-         WALRecoveryMode::kSkipAnyCorruptedRecords}};
-
-std::unordered_map<std::string, DBOptions::AccessHint>
-    OptionsHelper::access_hint_string_map = {
-        {"NONE", DBOptions::AccessHint::NONE},
-        {"NORMAL", DBOptions::AccessHint::NORMAL},
-        {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
-        {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
-
-std::unordered_map<std::string, InfoLogLevel>
-    OptionsHelper::info_log_level_string_map = {
-        {"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
-        {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
-        {"WARN_LEVEL", InfoLogLevel::WARN_LEVEL},
-        {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
-        {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
-        {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
 LRUCacheOptions OptionsHelper::dummy_lru_cache_options;
 CompactionOptionsUniversal OptionsHelper::dummy_comp_options_universal;
@@ -1510,21 +1380,6 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
       return IsOptionEqual<ChecksumType>(this_offset, that_offset);
     case OptionType::kEncodingType:
       return IsOptionEqual<EncodingType>(this_offset, that_offset);
-    case OptionType::kBlockBasedTableIndexType:
-      return IsOptionEqual<BlockBasedTableOptions::IndexType>(this_offset,
-                                                              that_offset);
-    case OptionType::kBlockBasedTableDataBlockIndexType:
-      return IsOptionEqual<BlockBasedTableOptions::DataBlockIndexType>(
-          this_offset, that_offset);
-    case OptionType::kBlockBasedTableIndexShorteningMode:
-      return IsOptionEqual<BlockBasedTableOptions::IndexShorteningMode>(
-          this_offset, that_offset);
-    case OptionType::kWALRecoveryMode:
-      return IsOptionEqual<WALRecoveryMode>(this_offset, that_offset);
-    case OptionType::kAccessHint:
-      return IsOptionEqual<DBOptions::AccessHint>(this_offset, that_offset);
-    case OptionType::kInfoLogLevel:
-      return IsOptionEqual<InfoLogLevel>(this_offset, that_offset);
     case OptionType::kCompactionOptionsFIFO: {
       CompactionOptionsFIFO lhs =
           *reinterpret_cast<const CompactionOptionsFIFO*>(this_offset);

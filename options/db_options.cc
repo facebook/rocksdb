@@ -20,6 +20,29 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, WALRecoveryMode>
+    wal_recovery_mode_string_map = {
+        {"kTolerateCorruptedTailRecords",
+         WALRecoveryMode::kTolerateCorruptedTailRecords},
+        {"kAbsoluteConsistency", WALRecoveryMode::kAbsoluteConsistency},
+        {"kPointInTimeRecovery", WALRecoveryMode::kPointInTimeRecovery},
+        {"kSkipAnyCorruptedRecords",
+         WALRecoveryMode::kSkipAnyCorruptedRecords}};
+
+static std::unordered_map<std::string, DBOptions::AccessHint>
+    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
+                              {"NORMAL", DBOptions::AccessHint::NORMAL},
+                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
+                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
+
+static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
+    {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
+     {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
+     {"WARN_LEVEL", InfoLogLevel::WARN_LEVEL},
+     {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
+     {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
+     {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
+
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::db_options_type_info = {
         /*
@@ -247,10 +270,9 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, allow_concurrent_memtable_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
-        {"wal_recovery_mode",
-         {offsetof(struct DBOptions, wal_recovery_mode),
-          OptionType::kWALRecoveryMode, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+        {"wal_recovery_mode", OptionTypeInfo::Enum<WALRecoveryMode>(
+                                  offsetof(struct DBOptions, wal_recovery_mode),
+                                  &wal_recovery_mode_string_map)},
         {"enable_write_thread_adaptive_yield",
          {offsetof(struct DBOptions, enable_write_thread_adaptive_yield),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -268,12 +290,12 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         {"access_hint_on_compaction_start",
-         {offsetof(struct DBOptions, access_hint_on_compaction_start),
-          OptionType::kAccessHint, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
-        {"info_log_level",
-         {offsetof(struct DBOptions, info_log_level), OptionType::kInfoLogLevel,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+         OptionTypeInfo::Enum<DBOptions::AccessHint>(
+             offsetof(struct DBOptions, access_hint_on_compaction_start),
+             &access_hint_string_map)},
+        {"info_log_level", OptionTypeInfo::Enum<InfoLogLevel>(
+                               offsetof(struct DBOptions, info_log_level),
+                               &info_log_level_string_map)},
         {"dump_malloc_stats",
          {offsetof(struct DBOptions, dump_malloc_stats), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
