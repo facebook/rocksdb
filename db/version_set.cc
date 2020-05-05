@@ -6010,13 +6010,23 @@ Status ReactiveVersionSet::Recover(
       Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
-      builder->SaveTo(v->storage_info());
+      s = builder->SaveTo(v->storage_info());
 
-      // Install recovered version
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
-                      !(db_options_->skip_stats_update_on_db_open));
-      AppendVersion(cfd, v);
+      if (s.ok()) {
+        // Install recovered version
+        v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
+                        !(db_options_->skip_stats_update_on_db_open));
+        AppendVersion(cfd, v);
+      } else {
+        ROCKS_LOG_ERROR(db_options_->info_log,
+                        "[%s]: inconsistent version: %s\n",
+                        cfd->GetName().c_str(), s.ToString().c_str());
+        delete v;
+        break;
+      }
     }
+  }
+  if (s.ok()) {
     next_file_number_.store(version_edit.next_file_number_ + 1);
     last_allocated_sequence_ = version_edit.last_sequence_;
     last_published_sequence_ = version_edit.last_sequence_;
@@ -6093,6 +6103,8 @@ Status ReactiveVersionSet::ReadAndApply(
         s = ApplyOneVersionEditToBuilder(edit, cfds_changed, &temp_edit);
         if (s.ok()) {
           applied_edits++;
+        } else {
+          break;
         }
       }
     }
@@ -6102,13 +6114,14 @@ Status ReactiveVersionSet::ReadAndApply(
     }
     // It's possible that:
     // 1) s.IsCorruption(), indicating the current MANIFEST is corrupted.
+    //    Or the version(s) rebuilt from tailing the MANIFEST is inconsistent.
     // 2) we have finished reading the current MANIFEST.
     // 3) we have encountered an IOError reading the current MANIFEST.
     // We need to look for the next MANIFEST and start from there. If we cannot
     // find the next MANIFEST, we should exit the loop.
-    s = MaybeSwitchManifest(reader->GetReporter(), manifest_reader);
+    Status tmp_s = MaybeSwitchManifest(reader->GetReporter(), manifest_reader);
     reader = manifest_reader->get();
-    if (s.ok()) {
+    if (tmp_s.ok()) {
       if (reader->file()->file_name() == old_manifest_path) {
         // Still processing the same MANIFEST, thus no need to continue this
         // loop since no record is available if we have reached here.
@@ -6138,6 +6151,7 @@ Status ReactiveVersionSet::ReadAndApply(
             number_of_edits_to_skip_ += 2;
           }
         }
+        s = tmp_s;
       }
     }
   }
@@ -6230,12 +6244,16 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
       auto version = new Version(cfd, this, file_options_,
                                  *cfd->GetLatestMutableCFOptions(),
                                  current_version_number_++);
-      builder->SaveTo(version->storage_info());
-      version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
-      AppendVersion(cfd, version);
-      active_version_builders_.erase(builder_iter);
-      if (cfds_changed->count(cfd) == 0) {
-        cfds_changed->insert(cfd);
+      s = builder->SaveTo(version->storage_info());
+      if (s.ok()) {
+        version->PrepareApply(*cfd->GetLatestMutableCFOptions(), true);
+        AppendVersion(cfd, version);
+        active_version_builders_.erase(builder_iter);
+        if (cfds_changed->count(cfd) == 0) {
+          cfds_changed->insert(cfd);
+        }
+      } else {
+        delete version;
       }
     } else if (s.IsPathNotFound()) {
       s = Status::OK();
@@ -6243,23 +6261,25 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // Some other error has occurred during LoadTableHandlers.
   }
 
-  if (version_edit->HasNextFile()) {
-    next_file_number_.store(version_edit->next_file_number_ + 1);
+  if (s.ok()) {
+    if (version_edit->HasNextFile()) {
+      next_file_number_.store(version_edit->next_file_number_ + 1);
+    }
+    if (version_edit->has_last_sequence_) {
+      last_allocated_sequence_ = version_edit->last_sequence_;
+      last_published_sequence_ = version_edit->last_sequence_;
+      last_sequence_ = version_edit->last_sequence_;
+    }
+    if (version_edit->has_prev_log_number_) {
+      prev_log_number_ = version_edit->prev_log_number_;
+      MarkFileNumberUsed(version_edit->prev_log_number_);
+    }
+    if (version_edit->has_log_number_) {
+      MarkFileNumberUsed(version_edit->log_number_);
+    }
+    column_family_set_->UpdateMaxColumnFamily(version_edit->max_column_family_);
+    MarkMinLogNumberToKeep2PC(version_edit->min_log_number_to_keep_);
   }
-  if (version_edit->has_last_sequence_) {
-    last_allocated_sequence_ = version_edit->last_sequence_;
-    last_published_sequence_ = version_edit->last_sequence_;
-    last_sequence_ = version_edit->last_sequence_;
-  }
-  if (version_edit->has_prev_log_number_) {
-    prev_log_number_ = version_edit->prev_log_number_;
-    MarkFileNumberUsed(version_edit->prev_log_number_);
-  }
-  if (version_edit->has_log_number_) {
-    MarkFileNumberUsed(version_edit->log_number_);
-  }
-  column_family_set_->UpdateMaxColumnFamily(version_edit->max_column_family_);
-  MarkMinLogNumberToKeep2PC(version_edit->min_log_number_to_keep_);
   return s;
 }
 
