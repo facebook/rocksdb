@@ -801,21 +801,18 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
-  constexpr VersionSet* version_set = nullptr;
 
-  VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+  VersionBuilder version_builder(env_options, table_cache, &vstorage_);
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr,
                                   true /* force_consistency_checks */);
   ASSERT_OK(version_builder.Apply(&version_edit));
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
-  VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
-                                 &new_vstorage, version_set);
+  VersionBuilder version_builder2(env_options, table_cache, &new_vstorage);
   VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
-                                  kCompactionStyleLevel, nullptr,
-                                  true /* force_consistency_checks */);
+                                   kCompactionStyleLevel, nullptr,
+                                   true /* force_consistency_checks */);
   ASSERT_NOK(version_builder2.Apply(&version_edit));
 
   UnrefFilesInVersion(&new_vstorage);
