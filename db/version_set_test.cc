@@ -1370,7 +1370,7 @@ TEST_F(VersionSetAtomicGroupTest,
   // Write the corrupted edits.
   AddNewEditsToLog(kAtomicGroupSize);
   mu.Lock();
-  EXPECT_OK(
+  EXPECT_NOK(
       reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
   mu.Unlock();
   EXPECT_EQ(edits_[kAtomicGroupSize / 2].DebugString(),
@@ -1420,7 +1420,7 @@ TEST_F(VersionSetAtomicGroupTest,
                                         &manifest_reader_status));
   AddNewEditsToLog(kAtomicGroupSize);
   mu.Lock();
-  EXPECT_OK(
+  EXPECT_NOK(
       reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
   mu.Unlock();
   EXPECT_EQ(edits_[1].DebugString(),
