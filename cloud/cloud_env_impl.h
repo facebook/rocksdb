@@ -12,6 +12,7 @@
 #include "rocksdb/status.h"
 
 namespace rocksdb {
+class CloudStorageReadableFile;
 
 //
 // The Cloud environment
@@ -218,6 +219,29 @@ class CloudEnvImpl : public CloudEnv {
   }
 
  protected:
+  // Checks to see if the input fname exists in the dest or src bucket
+  Status ExistsCloudObject(const std::string& fname);
+
+  // Gets the cloud object fname from the dest or src bucket
+  Status GetCloudObject(const std::string& fname);
+
+  // Gets the size of the named cloud object from the dest or src bucket
+  Status GetCloudObjectSize(const std::string& fname, uint64_t* remote_size);
+
+  // Gets the modification time of the named cloud object from the dest or src
+  // bucket
+  Status GetCloudObjectModificationTime(const std::string& fname,
+                                        uint64_t* time);
+
+  // Returns the list of cloud objects from the src and dest buckets.
+  Status ListCloudObjects(const std::string& path,
+                          std::vector<std::string>* result);
+
+  // Returns a CloudStorageReadableFile from the dest or src bucket
+  Status NewCloudReadableFile(const std::string& fname,
+                              std::unique_ptr<CloudStorageReadableFile>* result,
+                              const EnvOptions& options);
+
   // Copy IDENTITY file to cloud storage. Update dbid registry.
   Status SaveIdentityToCloud(const std::string& localfile,
                              const std::string& idfile);
