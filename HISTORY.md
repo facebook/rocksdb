@@ -2,6 +2,7 @@
 ## 6.9.4 (04/30/2020)
 ### Bug Fixes
 * Fix a bug caused by overwrite the status with io status in block based table builder when writing data blocks. If status stores the error message (e.g., failure of verify block compression), the bug will make the io status overwrite the status.
+* Fix `force_consistency_checks=true` use cases to not swallow errors returned by `CheckConsistencyForDeletes()`, which can expose internal bugs like multiple compactions involving a single file.
 
 ## 6.9.3 (04/28/2020)
 ### Bug Fixes
