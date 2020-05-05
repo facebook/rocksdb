@@ -233,7 +233,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
     if (blob_dir_same_as_cf_dir) {
       return Status::NotSupported(
-          "Using the base DB's directory to store blob files is not "
+          "Using the base DB's storage directories for BlobDB files is not "
           "supported.");
     }
   }
