@@ -523,7 +523,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.10.0/fused-src)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
@@ -965,7 +965,7 @@ endif()
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+  add_subdirectory(third-party/gtest-1.10.0/fused-src/gtest)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
