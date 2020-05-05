@@ -969,6 +969,8 @@ class DBImpl : public DB {
   void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
   bool TEST_IsPersistentStatsEnabled() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
+
+  VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
 #endif  // NDEBUG
 
  protected:

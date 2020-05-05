@@ -5415,13 +5415,15 @@ class Benchmark {
 
       // Select one key in the key-range and compose the keyID
       int64_t key_offset = 0, key_seed;
-      if (key_dist_a == 0.0 && key_dist_b == 0.0) {
+      if (key_dist_a == 0.0 || key_dist_b == 0.0) {
         key_offset = ini_rand % keyrange_size_;
       } else {
+        double u =
+            static_cast<double>(ini_rand % keyrange_size_) / keyrange_size_;
         key_seed = static_cast<int64_t>(
-            ceil(std::pow((ini_rand / key_dist_a), (1 / key_dist_b))));
+            ceil(std::pow((u / key_dist_a), (1 / key_dist_b))));
         Random64 rand_key(key_seed);
-        key_offset = static_cast<int64_t>(rand_key.Next()) % keyrange_size_;
+        key_offset = rand_key.Next() % keyrange_size_;
       }
       return keyrange_size_ * keyrange_id + key_offset;
     }
@@ -5448,6 +5450,7 @@ class Benchmark {
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
     bool use_prefix_modeling = false;
+    bool use_random_modeling = false;
     GenerateTwoTermExpKeys gen_exp;
     std::vector<double> ratio{FLAGS_mix_get_ratio, FLAGS_mix_put_ratio,
                               FLAGS_mix_seek_ratio};
@@ -5482,6 +5485,9 @@ class Benchmark {
           FLAGS_num, FLAGS_keyrange_dist_a, FLAGS_keyrange_dist_b,
           FLAGS_keyrange_dist_c, FLAGS_keyrange_dist_d);
     }
+    if (FLAGS_key_dist_a == 0 || FLAGS_key_dist_b == 0) {
+      use_random_modeling = true;
+    }
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
@@ -5492,7 +5498,9 @@ class Benchmark {
       double u = static_cast<double>(rand_v) / FLAGS_num;
 
       // Generate the keyID based on the key hotness and prefix hotness
-      if (use_prefix_modeling) {
+      if (use_random_modeling) {
+        key_rand = ini_rand;
+      } else if (use_prefix_modeling) {
         key_rand =
             gen_exp.DistGetKeyID(ini_rand, FLAGS_key_dist_a, FLAGS_key_dist_b);
       } else {

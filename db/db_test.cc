@@ -2309,6 +2309,42 @@ TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
     Close();
   } while (ChangeCompactOptions());
 }
+
+TEST_F(DBTest, GetLiveBlobFiles) {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  // Add a live blob file.
+  VersionEdit edit;
+
+  constexpr uint64_t blob_file_number = 234;
+  constexpr uint64_t total_blob_count = 555;
+  constexpr uint64_t total_blob_bytes = 66666;
+  constexpr char checksum_method[] = "CRC32";
+  constexpr char checksum_value[] = "3d87ff57";
+
+  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                   checksum_method, checksum_value);
+
+  dbfull()->TEST_LockMutex();
+  Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                   &edit, dbfull()->mutex());
+  dbfull()->TEST_UnlockMutex();
+
+  ASSERT_OK(s);
+
+  // Make sure it appears in the results returned by GetLiveFiles.
+  uint64_t manifest_size = 0;
+  std::vector<std::string> files;
+  ASSERT_OK(dbfull()->GetLiveFiles(files, &manifest_size));
+
+  ASSERT_FALSE(files.empty());
+  ASSERT_EQ(files[0], BlobFileName("", blob_file_number));
+}
 #endif
 
 TEST_F(DBTest, PurgeInfoLogs) {

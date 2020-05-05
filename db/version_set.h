@@ -629,8 +629,10 @@ class Version {
   // and return true. Otherwise, return false.
   bool Unref();
 
-  // Add all files listed in the current version to *live.
-  void AddLiveFiles(std::vector<FileDescriptor>* live);
+  // Add all files listed in the current version to *live_table_files and
+  // *live_blob_files.
+  void AddLiveFiles(std::vector<uint64_t>* live_table_files,
+                    std::vector<uint64_t>* live_blob_files) const;
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
@@ -1047,8 +1049,10 @@ class VersionSet {
       const Compaction* c, RangeDelAggregator* range_del_agg,
       const FileOptions& file_options_compactions);
 
-  // Add all files listed in any live version to *live.
-  void AddLiveFiles(std::vector<FileDescriptor>* live_list);
+  // Add all files listed in any live version to *live_table_files and
+  // *live_blob_files. Note that these lists may contain duplicates.
+  void AddLiveFiles(std::vector<uint64_t>* live_table_files,
+                    std::vector<uint64_t>* live_blob_files) const;
 
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search

@@ -377,6 +377,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
                                               ColumnFamilyData* cfd,
                                               bool force_create_version) {
   assert(cfd->initialized());
+  Status s;
   if (force_create_version) {
     auto builder_iter = builders_.find(cfd->GetID());
     assert(builder_iter != builders_.end());
@@ -384,13 +385,18 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
                           *cfd->GetLatestMutableCFOptions(),
                           version_set_->current_version_number_++);
-    builder->SaveTo(v->storage_info());
-    // Install new version
-    v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
-                    !(version_set_->db_options_->skip_stats_update_on_db_open));
-    version_set_->AppendVersion(cfd, v);
+    s = builder->SaveTo(v->storage_info());
+    if (s.ok()) {
+      // Install new version
+      v->PrepareApply(
+          *cfd->GetLatestMutableCFOptions(),
+          !(version_set_->db_options_->skip_stats_update_on_db_open));
+      version_set_->AppendVersion(cfd, v);
+    } else {
+      delete v;
+    }
   }
-  return Status::OK();
+  return s;
 }
 
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
@@ -558,16 +564,20 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cfd->GetLatestMutableCFOptions(),
                                 version_set_->current_version_number_++);
-    builder->SaveTo(version->storage_info());
-    version->PrepareApply(
-        *cfd->GetLatestMutableCFOptions(),
-        !version_set_->db_options_->skip_stats_update_on_db_open);
-    auto v_iter = versions_.find(cfd->GetID());
-    if (v_iter != versions_.end()) {
-      delete v_iter->second;
-      v_iter->second = version;
+    s = builder->SaveTo(version->storage_info());
+    if (s.ok()) {
+      version->PrepareApply(
+          *cfd->GetLatestMutableCFOptions(),
+          !version_set_->db_options_->skip_stats_update_on_db_open);
+      auto v_iter = versions_.find(cfd->GetID());
+      if (v_iter != versions_.end()) {
+        delete v_iter->second;
+        v_iter->second = version;
+      } else {
+        versions_.emplace(cfd->GetID(), version);
+      }
     } else {
-      versions_.emplace(cfd->GetID(), version);
+      delete version;
     }
   }
   return s;
