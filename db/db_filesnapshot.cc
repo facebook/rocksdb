@@ -90,6 +90,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
       mutex_.Unlock();
       status = AtomicFlushMemTables(cfds, FlushOptions(),
                                     FlushReason::kGetLiveFiles);
+      if (status.IsColumnFamilyDropped()) {
+        status = Status::OK();
+      }
       mutex_.Lock();
     } else {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -103,8 +106,10 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
         TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
         mutex_.Lock();
         cfd->UnrefAndTryDelete();
-        if (!status.ok()) {
+        if (!status.ok() && !status.IsColumnFamilyDropped()) {
           break;
+        } else if (status.IsColumnFamilyDropped()) {
+          status = Status::OK();
         }
       }
     }
