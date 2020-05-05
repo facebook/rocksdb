@@ -839,6 +839,36 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
+TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
+  Add(0, 1U, "150", "200", 100U);
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.DeleteFile(0, 1U);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder version_builder(env_options, &ioptions_, table_cache,
+                                 &vstorage_, version_set);
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr,
+                                  true /* force_consistency_checks */);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
+
+  VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
+                                 &new_vstorage, version_set);
+  VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr,
+                                  true /* force_consistency_checks */);
+  ASSERT_NOK(version_builder2.Apply(&version_edit));
+
+  UnrefFilesInVersion(&new_vstorage);
+  UnrefFilesInVersion(&new_vstorage2);
+}
+
 TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   const uint32_t kTotalSamples = 20;
   const uint32_t kNumLevels = 5;
