@@ -2533,9 +2533,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
       new DBBasicTestMultiGetDeadline::DeadlineFS(env_));
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
-  env_->no_slowdown_ = true;
-  env_->time_elapse_only_sleep_.store(true);
   Options options = CurrentOptions();
+  env_->SetTimeElapseOnlySleep(&options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(1048576);
   BlockBasedTableOptions table_options;
