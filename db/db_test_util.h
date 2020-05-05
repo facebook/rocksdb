@@ -535,6 +535,19 @@ class SpecialEnv : public EnvWrapper {
     return target()->DeleteFile(fname);
   }
 
+  void SetTimeElapseOnlySleep(Options *options) {
+    time_elapse_only_sleep_ = true;
+    no_slowdown_ = true;
+    // Need to disable stats dumping and persisting which also use
+    // RepeatableThread, one of whose member variables is of type
+    // InstrumentedCondVar. The callback for
+    // InstrumentedCondVar::TimedWaitInternal can be triggered by stats dumping
+    // and persisting threads and cause time_spent_deleting measurement to become
+    // incorrect.
+    options->stats_dump_period_sec = 0;
+    options->stats_persist_period_sec = 0;
+  }
+
   // Something to return when mocking current time
   const int64_t maybe_starting_time_;
 
