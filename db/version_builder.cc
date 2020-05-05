@@ -466,7 +466,10 @@ class VersionBuilder::Rep {
       const auto number = del_file.second;
       if (level < num_levels_) {
         levels_[level].deleted_files.insert(number);
-        CheckConsistencyForDeletes(edit, number, level);
+        s = CheckConsistencyForDeletes(edit, number, level);
+        if (!s.ok()) {
+          return s;
+        }
 
         auto exising = levels_[level].added_files.find(number);
         if (exising != levels_[level].added_files.end()) {
