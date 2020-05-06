@@ -14,7 +14,30 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-Status Cache::CreateFromString(const ConfigOptions& /*opts*/,
+#ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, OptionTypeInfo>
+    lru_cache_options_type_info = {
+        {"capacity",
+         {offsetof(struct LRUCacheOptions, capacity), OptionType::kSizeT,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct LRUCacheOptions, capacity)}},
+        {"num_shard_bits",
+         {offsetof(struct LRUCacheOptions, num_shard_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct LRUCacheOptions, num_shard_bits)}},
+        {"strict_capacity_limit",
+         {offsetof(struct LRUCacheOptions, strict_capacity_limit),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct LRUCacheOptions, strict_capacity_limit)}},
+        {"high_pri_pool_ratio",
+         {offsetof(struct LRUCacheOptions, high_pri_pool_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct LRUCacheOptions, high_pri_pool_ratio)}}};
+#endif  // ROCKSDB_LITE
+
+Status Cache::CreateFromString(const ConfigOptions& config_options,
                                const std::string& value,
                                std::shared_ptr<Cache>* result) {
   Status status;
@@ -24,12 +47,14 @@ Status Cache::CreateFromString(const ConfigOptions& /*opts*/,
   } else {
 #ifndef ROCKSDB_LITE
     LRUCacheOptions cache_opts;
-    if (!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
-                           OptionType::kLRUCacheOptions, value)) {
-      status = Status::InvalidArgument("Invalid cache options");
+    status = OptionTypeInfo::ParseStruct(
+        config_options, "", &lru_cache_options_type_info, "", value,
+        reinterpret_cast<char*>(&cache_opts));
+    if (status.ok()) {
+      cache = NewLRUCache(cache_opts);
     }
-    cache = NewLRUCache(cache_opts);
 #else
+    (void)config_options;
     status = Status::NotSupported("Cannot load cache in LITE mode ", value);
 #endif  //! ROCKSDB_LITE
   }
