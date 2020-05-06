@@ -5024,10 +5024,11 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
 
 TEST_F(DBCompactionTest, ConsistencyFailTest) {
   Options options = CurrentOptions();
+  options.force_consistency_checks = true;
   DestroyAndReopen(options);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "VersionBuilder::CheckConsistency", [&](void* arg) {
+      "VersionBuilder::CheckConsistency0", [&](void* arg) {
         auto p =
             reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
@@ -5046,6 +5047,48 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
 
   ASSERT_NOK(Put("foo", "bar"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBCompactionTest, ConsistencyFailTest2) {
+  Options options = CurrentOptions();
+  options.force_consistency_checks = true;
+  options.target_file_size_base = 1000;
+  options.level0_file_num_compaction_trigger = 2;
+  BlockBasedTableOptions bbto;
+  bbto.block_size = 400;  // small block size
+  options.table_factory.reset(new BlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistency1", [&](void* arg) {
+        auto p =
+            reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
+        // just swap the two FileMetaData so that we hit error
+        // in CheckConsistency funcion
+        FileMetaData* temp = *(p->first);
+        *(p->first) = *(p->second);
+        *(p->second) = temp;
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  std::string value = RandomString(&rnd, 1000);
+
+  ASSERT_OK(Put("foo1", value));
+  ASSERT_OK(Put("z", ""));
+  Flush();
+  ASSERT_OK(Put("foo2", value));
+  ASSERT_OK(Put("z", ""));
+  Flush();
+
+  // This probably returns non-OK, but we rely on the next Put()
+  // to determine the DB is frozen.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_NOK(Put("foo", "bar"));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 void IngestOneKeyValue(DBImpl* db, const std::string& key,

@@ -236,11 +236,11 @@ class VersionBuilder::Rep {
 
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
-#ifndef NDEBUG
-        auto pair = std::make_pair(&f1, &f2);
-        TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency", &pair);
-#endif
         if (level == 0) {
+#ifndef NDEBUG
+          auto pair = std::make_pair(&f1, &f2);
+          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency0", &pair);
+#endif
           if (!level_zero_cmp_(f1, f2)) {
             fprintf(stderr, "L0 files are not sorted properly");
             return Status::Corruption("L0 files are not sorted properly");
@@ -279,6 +279,10 @@ class VersionBuilder::Rep {
                 NumberToString(f2->fd.GetNumber()));
           }
         } else {
+#ifndef NDEBUG
+          auto pair = std::make_pair(&f1, &f2);
+          TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
+#endif
           if (!level_nonzero_cmp_(f1, f2)) {
             fprintf(stderr, "L%d files are not sorted properly", level);
             return Status::Corruption("L" + NumberToString(level) +
@@ -466,7 +470,10 @@ class VersionBuilder::Rep {
       const auto number = del_file.second;
       if (level < num_levels_) {
         levels_[level].deleted_files.insert(number);
-        CheckConsistencyForDeletes(edit, number, level);
+        s = CheckConsistencyForDeletes(edit, number, level);
+        if (!s.ok()) {
+          return s;
+        }
 
         auto exising = levels_[level].added_files.find(number);
         if (exising != levels_[level].added_files.end()) {

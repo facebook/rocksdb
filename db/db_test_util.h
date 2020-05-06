@@ -502,10 +502,14 @@ class SpecialEnv : public EnvWrapper {
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
-    if (!time_elapse_only_sleep_) {
+    if (time_elapse_only_sleep_) {
+      *unix_time = maybe_starting_time_;
+    } else {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
+      // FIXME: addon_time_ sometimes used to mean seconds (here) and
+      // sometimes microseconds
       *unix_time += addon_time_.load();
     }
     return s;
@@ -530,6 +534,20 @@ class SpecialEnv : public EnvWrapper {
     delete_count_.fetch_add(1);
     return target()->DeleteFile(fname);
   }
+
+  void SetTimeElapseOnlySleep(Options* options) {
+    time_elapse_only_sleep_ = true;
+    no_slowdown_ = true;
+    // Need to disable stats dumping and persisting which also use
+    // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
+    // With time_elapse_only_sleep_, this can hang on some platforms.
+    // TODO: why? investigate/fix
+    options->stats_dump_period_sec = 0;
+    options->stats_persist_period_sec = 0;
+  }
+
+  // Something to return when mocking current time
+  const int64_t maybe_starting_time_;
 
   Random rnd_;
   port::Mutex rnd_mutex_;  // Lock to pretect rnd_

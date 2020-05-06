@@ -107,25 +107,11 @@ struct OptionsHelper {
   static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info;
   static std::unordered_map<std::string, OptionTypeInfo>
       lru_cache_options_type_info;
-  static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
-      block_base_table_index_type_string_map;
-  static std::unordered_map<std::string,
-                            BlockBasedTableOptions::DataBlockIndexType>
-      block_base_table_data_block_index_type_string_map;
-  static std::unordered_map<std::string,
-                            BlockBasedTableOptions::IndexShorteningMode>
-      block_base_table_index_shortening_mode_string_map;
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
   static std::unordered_map<std::string, CompactionStyle>
       compaction_style_string_map;
   static std::unordered_map<std::string, CompactionPri>
       compaction_pri_string_map;
-  static std::unordered_map<std::string, WALRecoveryMode>
-      wal_recovery_mode_string_map;
-  static std::unordered_map<std::string, DBOptions::AccessHint>
-      access_hint_string_map;
-  static std::unordered_map<std::string, InfoLogLevel>
-      info_log_level_string_map;
   static ColumnFamilyOptions dummy_cf_options;
   static CompactionOptionsFIFO dummy_comp_options;
   static LRUCacheOptions dummy_lru_cache_options;
@@ -153,22 +139,11 @@ static auto& lru_cache_options_type_info =
     OptionsHelper::lru_cache_options_type_info;
 static auto& compression_type_string_map =
     OptionsHelper::compression_type_string_map;
-static auto& block_base_table_index_type_string_map =
-    OptionsHelper::block_base_table_index_type_string_map;
-static auto& block_base_table_data_block_index_type_string_map =
-    OptionsHelper::block_base_table_data_block_index_type_string_map;
-static auto& block_base_table_index_shortening_mode_string_map =
-    OptionsHelper::block_base_table_index_shortening_mode_string_map;
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
 static auto& compaction_style_string_map =
     OptionsHelper::compaction_style_string_map;
 static auto& compaction_pri_string_map =
     OptionsHelper::compaction_pri_string_map;
-static auto& wal_recovery_mode_string_map =
-    OptionsHelper::wal_recovery_mode_string_map;
-static auto& access_hint_string_map = OptionsHelper::access_hint_string_map;
-static auto& info_log_level_string_map =
-    OptionsHelper::info_log_level_string_map;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
