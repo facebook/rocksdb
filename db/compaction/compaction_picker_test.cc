@@ -82,8 +82,8 @@ class CompactionPickerTest : public testing::Test {
   // merge it with the existing VersionStorageInfo
   void AddVersionStorage() {
     temp_vstorage_.reset(new VersionStorageInfo(
-          &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
-          vstorage_.get(), false));
+        &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
+        vstorage_.get(), false));
   }
 
   void DeleteVersionStorage() {
@@ -152,18 +152,22 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->ComputeFilesMarkedForCompaction();
     vstorage_->SetFinalized();
   }
-  void AddFileToVersionStorage(
-           int level, uint32_t file_number, const char* smallest,
-           const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
-           SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
-           size_t compensated_file_size = 0, bool marked_for_compact = false) {
+  void AddFileToVersionStorage(int level, uint32_t file_number,
+                               const char* smallest, const char* largest,
+                               uint64_t file_size = 1, uint32_t path_id = 0,
+                               SequenceNumber smallest_seq = 100,
+                               SequenceNumber largest_seq = 100,
+                               size_t compensated_file_size = 0,
+                               bool marked_for_compact = false) {
     VersionStorageInfo* base_vstorage = vstorage_.release();
     vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                      kCompactionStyleUniversal, base_vstorage, false));
-    Add(level, file_number, smallest, largest, file_size, path_id,
-        smallest_seq, largest_seq, compensated_file_size, marked_for_compact);
+                                           kCompactionStyleUniversal,
+                                           base_vstorage, false));
+    Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
+        largest_seq, compensated_file_size, marked_for_compact);
 
-    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage, nullptr);
+    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
+                           nullptr);
     builder.SaveTo(vstorage_.get());
     UpdateVersionStorageInfo();
   }
@@ -1800,8 +1804,8 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
   ASSERT_EQ(CompactionReason::kUniversalSortedRunNum,
             compaction->compaction_reason());
   ASSERT_EQ(0, compaction->output_level());
-  EXPECT_EQ(0, compaction->start_level());
-  EXPECT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
 
   AddVersionStorage();
   // Simulate a flush and mark the file for compaction
@@ -1841,9 +1845,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
   ASSERT_EQ(CompactionReason::kFilesMarkedForCompaction,
             compaction->compaction_reason());
   ASSERT_EQ(3, compaction->output_level());
-  EXPECT_EQ(0, compaction->start_level());
-  EXPECT_EQ(1U, compaction->num_input_files(0));
-  EXPECT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
 
   AddVersionStorage();
   Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
@@ -1895,7 +1899,7 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
       // The L0 file was picked. The next compaction will detect an
       // overlap on its input level
       input_level_overlap = true;
-      ASSERT_EQ(3U, compaction->output_level());
+      ASSERT_EQ(3, compaction->output_level());
       ASSERT_EQ(1U, compaction->num_input_files(0));
       ASSERT_EQ(3U, compaction->num_input_files(1));
     } else {
@@ -1903,7 +1907,7 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
       // the L0 file and will detect overlap when adding output
       // level inputs
       output_level_overlap = true;
-      ASSERT_EQ(4U, compaction->output_level());
+      ASSERT_EQ(4, compaction->output_level());
       ASSERT_EQ(2U, compaction->num_input_files(0));
       ASSERT_EQ(1U, compaction->num_input_files(1));
     }
