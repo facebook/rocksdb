@@ -516,6 +516,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "block_based_table_reader_test",
+        "table/block_based/block_based_table_reader_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "block_cache_trace_analyzer_test",
         "tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc",
         "serial",
