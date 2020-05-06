@@ -501,10 +501,10 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
 #endif  // !ROCKSDB_LITE
 }
 
-INSTANTIATE_TEST_CASE_P(InternalKeyPropertiesCollector, TablePropertiesTest,
+INSTANTIATE_TEST_SUITE_P(InternalKeyPropertiesCollector, TablePropertiesTest,
                         ::testing::Bool());
 
-INSTANTIATE_TEST_CASE_P(CustomizedTablePropertiesCollector, TablePropertiesTest,
+INSTANTIATE_TEST_SUITE_P(CustomizedTablePropertiesCollector, TablePropertiesTest,
                         ::testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -103,27 +103,27 @@ TEST_P(HeapTest, Test) {
 }
 
 // Basic test, MAX_VALUE = 3*MAX_HEAP_SIZE (occasional duplicates)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
   Basic, HeapTest,
   ::testing::Values(Params(1000, 3000, 0x1b575cf05b708945))
 );
 // Mid-size heap with small values (many duplicates)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
   SmallValues, HeapTest,
   ::testing::Values(Params(100, 10, 0x5ae213f7bd5dccd0))
 );
 // Small heap, large value range (no duplicates)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
   SmallHeap, HeapTest,
   ::testing::Values(Params(10, ULLONG_MAX, 0x3e1fa8f4d01707cf))
 );
 // Two-element heap
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
   TwoElementHeap, HeapTest,
   ::testing::Values(Params(2, 5, 0x4b5e13ea988c6abc))
 );
 // One-element heap
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
   OneElementHeap, HeapTest,
   ::testing::Values(Params(1, 3, 0x176a1019ab0b612e))
 );

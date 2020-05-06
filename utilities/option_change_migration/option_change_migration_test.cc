@@ -329,7 +329,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBOptionChangeMigrationTests, DBOptionChangeMigrationTests,
     ::testing::Values(std::make_tuple(3, 0, false, 4, 0, false),
                       std::make_tuple(3, 0, true, 4, 0, true),

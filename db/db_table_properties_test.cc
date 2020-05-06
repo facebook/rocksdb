@@ -345,7 +345,7 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBTablePropertiesTest,
     DBTablePropertiesTest,
     ::testing::Values(

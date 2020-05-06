@@ -1298,9 +1298,9 @@ class FileChecksumTestHelper {
 
 uint64_t FileChecksumTestHelper::checksum_uniq_id_ = 1;
 
-INSTANTIATE_TEST_CASE_P(FormatDef, BlockBasedTableTest,
+INSTANTIATE_TEST_SUITE_P(FormatDef, BlockBasedTableTest,
                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, BlockBasedTableTest,
+INSTANTIATE_TEST_SUITE_P(FormatLatest, BlockBasedTableTest,
                         testing::Values(test::kLatestFormatVersion));
 
 // This test serves as the living tutorial for the prefix scan of user collected
@@ -3924,7 +3924,7 @@ class IndexBlockRestartIntervalTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     IndexBlockRestartIntervalTest, IndexBlockRestartIntervalTest,
     ::testing::ValuesIn(IndexBlockRestartIntervalTest::GetRestartValues()));
 

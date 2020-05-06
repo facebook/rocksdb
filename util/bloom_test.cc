@@ -899,7 +899,7 @@ TEST_P(FullBloomTest, CorruptFilters) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
+INSTANTIATE_TEST_SUITE_P(Full, FullBloomTest,
                         testing::Values(BloomFilterPolicy::kLegacyBloom,
                                         BloomFilterPolicy::kFastLocalBloom));
 

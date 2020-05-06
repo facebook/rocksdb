@@ -81,17 +81,17 @@ class EnvBasicTestWithParam : public testing::Test,
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
 static std::unique_ptr<Env> def_env(new NormalizingEnvWrapper(Env::Default()));
-INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(EnvDefault, EnvBasicTestWithParam,
                         ::testing::Values(def_env.get()));
-INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
+INSTANTIATE_TEST_SUITE_P(EnvDefault, EnvMoreTestWithParam,
                         ::testing::Values(def_env.get()));
 
 static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
-INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(MockEnv, EnvBasicTestWithParam,
                         ::testing::Values(mock_env.get()));
 #ifndef ROCKSDB_LITE
 static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
-INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(MemEnv, EnvBasicTestWithParam,
                         ::testing::Values(mem_env.get()));
 
 namespace {
@@ -121,10 +121,10 @@ std::vector<Env*> GetCustomEnvs() {
 
 }  // anonymous namespace
 
-INSTANTIATE_TEST_CASE_P(CustomEnv, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(CustomEnv, EnvBasicTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
 
-INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
+INSTANTIATE_TEST_SUITE_P(CustomEnv, EnvMoreTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
 
 #endif  // ROCKSDB_LITE

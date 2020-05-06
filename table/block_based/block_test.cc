@@ -617,7 +617,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   delete iter;
 }
 
-INSTANTIATE_TEST_CASE_P(P, IndexBlockTest,
+INSTANTIATE_TEST_SUITE_P(P, IndexBlockTest,
                         ::testing::Values(std::make_tuple(false, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, false),

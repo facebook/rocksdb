@@ -290,9 +290,9 @@ class PartitionedFilterBlockTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(FormatDef, PartitionedFilterBlockTest,
+INSTANTIATE_TEST_SUITE_P(FormatDef, PartitionedFilterBlockTest,
                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, PartitionedFilterBlockTest,
+INSTANTIATE_TEST_SUITE_P(FormatLatest, PartitionedFilterBlockTest,
                         testing::Values(test::kLatestFormatVersion));
 
 TEST_P(PartitionedFilterBlockTest, EmptyBuilder) {

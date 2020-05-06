@@ -36,7 +36,7 @@ using std::string;
 
 namespace ROCKSDB_NAMESPACE {
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBAsBaseDB, TransactionTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
@@ -46,7 +46,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     DBAsBaseDB, TransactionStressTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite),
@@ -56,7 +56,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite),
         std::make_tuple(false, false, WRITE_UNPREPARED, kOrderedWrite),
         std::make_tuple(false, true, WRITE_UNPREPARED, kOrderedWrite)));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(
         std::make_tuple(true, true, WRITE_COMMITTED, kOrderedWrite),
@@ -65,7 +65,7 @@ INSTANTIATE_TEST_CASE_P(
 
 // MySQLStyleTransactionTest takes far too long for valgrind to run.
 #ifndef ROCKSDB_VALGRIND_RUN
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_COMMITTED, kOrderedWrite, false),

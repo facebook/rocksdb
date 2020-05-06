@@ -1510,7 +1510,7 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   delete transaction;
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InstanceOccGroup, OptimisticTransactionTest,
     testing::Values(OccValidationPolicy::kValidateSerial,
                     OccValidationPolicy::kValidateParallel));

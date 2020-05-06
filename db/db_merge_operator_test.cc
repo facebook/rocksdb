@@ -210,7 +210,7 @@ class MergeOperatorPinningTest : public DBMergeOperatorTest,
   bool disable_block_cache_;
 };
 
-INSTANTIATE_TEST_CASE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
+INSTANTIATE_TEST_SUITE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
                         ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
@@ -588,7 +588,7 @@ class PerConfigMergeOperatorPinningTest
   bool disable_block_cache_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     MergeOperatorPinningTest, PerConfigMergeOperatorPinningTest,
     ::testing::Combine(::testing::Bool(),
                        ::testing::Range(static_cast<int>(DBTestBase::kDefault),

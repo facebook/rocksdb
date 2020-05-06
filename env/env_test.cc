@@ -1968,11 +1968,11 @@ TEST_F(EnvTest, Close) {
   delete env;
 }
 
-INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
+INSTANTIATE_TEST_SUITE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
 #if !defined(ROCKSDB_LITE)
-INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
+INSTANTIATE_TEST_SUITE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 true)));
 #endif  // !defined(ROCKSDB_LITE)
@@ -1980,10 +1980,10 @@ INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 static std::unique_ptr<Env> chroot_env(
     NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
     ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), false)));
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ChrootEnvWithDirectIO, EnvPosixTestWithParam,
     ::testing::Values(std::pair<Env*, bool>(chroot_env.get(), true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
@@ -2073,7 +2073,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 // 1. True means Options::env is non-null, false means null
 // 2. True means use Env::Default, false means custom
 // 3. True means use FileSystem::Default, false means custom
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     EnvFSTest, EnvFSTestWithParam,
     ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                        ::testing::Bool()));
