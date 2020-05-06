@@ -220,8 +220,9 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   const ImmutableCFOptions* const ioptions = cfd->ioptions();
   assert(ioptions);
 
+  assert(env_);
+
   for (const auto& cf_path : ioptions->cf_paths) {
-    assert(env_);
     bool blob_dir_same_as_cf_dir = false;
     s = env_->AreFilesSame(blob_dir_, cf_path.path, &blob_dir_same_as_cf_dir);
     if (!s.ok()) {
