@@ -559,9 +559,10 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
   opts.env = env.get();
   opts.create_if_missing = true;
 
+  std::string dbname = test::TmpDir();
+
   {
     DB* db = nullptr;
-    std::string dbname = test::TmpDir();
     ASSERT_OK(DB::Open(opts, dbname, &db));
 
     WriteOptions wopts;
