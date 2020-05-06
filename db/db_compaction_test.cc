@@ -5045,7 +5045,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
     Flush();
   }
 
-  ASSERT_NOK(Put("foo", "bar")); 
+  ASSERT_NOK(Put("foo", "bar"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
