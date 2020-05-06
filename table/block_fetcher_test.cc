@@ -60,17 +60,14 @@ struct TestStats {
 class BlockFetcherTest : public testing::Test {
  protected:
   void SetUp() override {
-    test::ResetTmpDirForDirectIO();
+    test::SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_fetcher_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
-    is_direct_io_supported_ = DetectDirectIOSupport();
   }
 
   void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
-
-  bool IsDirectIOSupported() const { return is_direct_io_supported_; }
 
   void AssertSameBlock(const BlockContents& block1,
                        const BlockContents& block2) {
@@ -141,11 +138,6 @@ class BlockFetcherTest : public testing::Test {
                           bool do_uncompress,
                           const TestStats& expected_non_direct_io_stats,
                           const TestStats& expected_direct_io_stats) {
-    if (!IsDirectIOSupported()) {
-      printf("Skip this test since direct IO is not supported\n");
-      return;
-    }
-
     for (CompressionType compression_type : GetSupportedCompressions()) {
       bool do_compress = compression_type != kNoCompression;
       if (compressed != do_compress) continue;
@@ -212,7 +204,6 @@ class BlockFetcherTest : public testing::Test {
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   BlockBasedTableFactory table_factory_;
-  bool is_direct_io_supported_;
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 
@@ -221,15 +212,6 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_OK(fs_->NewWritableFile(Path(filename), FileOptions(), &f, nullptr));
     ASSERT_OK(f->Append(content, IOOptions(), nullptr));
     ASSERT_OK(f->Close(IOOptions(), nullptr));
-  }
-
-  bool DetectDirectIOSupport() {
-    WriteToFile("", ".direct");
-    FileOptions opt;
-    opt.use_direct_reads = true;
-    std::unique_ptr<FSRandomAccessFile> f;
-    auto s = fs_->NewRandomAccessFile(Path(".direct"), opt, &f, nullptr);
-    return s.ok();
   }
 
   void NewFileWriter(const std::string& filename,
@@ -321,11 +303,6 @@ class BlockFetcherTest : public testing::Test {
                            MemoryAllocator* heap_buf_allocator,
                            MemoryAllocator* compressed_buf_allocator,
                            BlockContents* block, MemcpyStats* memcpy_stats) {
-    if (use_direct_io && !IsDirectIOSupported()) {
-      printf("Skip this test since direct IO is not supported\n");
-      return;
-    }
-
     Options options;
     ImmutableCFOptions ioptions(options);
     InternalKeyComparator comparator(options.comparator);
@@ -366,11 +343,6 @@ class BlockFetcherTest : public testing::Test {
 // Expects:
 // the index block contents are the same for both read modes.
 TEST_F(BlockFetcherTest, FetchIndexBlock) {
-  if (!IsDirectIOSupported()) {
-    printf("Skip this test since direct IO is not supported\n");
-    return;
-  }
-
   for (CompressionType compression : GetSupportedCompressions()) {
     std::string table_name =
         "FetchIndexBlock" + CompressionTypeToString(compression);
