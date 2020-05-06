@@ -366,7 +366,6 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
-  fprintf(stderr, "%ld\n", (long)force_consistency_checks_);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
@@ -628,7 +627,6 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     }
   }
 
-  fprintf(stderr, "%ld\n", (long)force_consistency_checks_);
   cf_opts->force_consistency_checks = force_consistency_checks_;
   if (use_table_options) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));

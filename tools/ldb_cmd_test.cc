@@ -559,23 +559,25 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
   opts.env = env.get();
   opts.create_if_missing = true;
 
-  DB* db = nullptr;
-  std::string dbname = test::TmpDir();
-  ASSERT_OK(DB::Open(opts, dbname, &db));
+  {
+    DB* db = nullptr;
+    std::string dbname = test::TmpDir();
+    ASSERT_OK(DB::Open(opts, dbname, &db));
 
-  WriteOptions wopts;
-  FlushOptions fopts;
-  fopts.wait = true;
+    WriteOptions wopts;
+    FlushOptions fopts;
+    fopts.wait = true;
 
-  ASSERT_OK(db->Put(wopts, "foo1", "1"));
-  ASSERT_OK(db->Put(wopts, "bar1", "2"));
-  ASSERT_OK(db->Flush(fopts));
+    ASSERT_OK(db->Put(wopts, "foo1", "1"));
+    ASSERT_OK(db->Put(wopts, "bar1", "2"));
+    ASSERT_OK(db->Flush(fopts));
 
-  ASSERT_OK(db->Put(wopts, "foo2", "3"));
-  ASSERT_OK(db->Put(wopts, "bar2", "4"));
-  ASSERT_OK(db->Flush(fopts));
+    ASSERT_OK(db->Put(wopts, "foo2", "3"));
+    ASSERT_OK(db->Put(wopts, "bar2", "4"));
+    ASSERT_OK(db->Flush(fopts));
 
-  delete db;
+    delete db;
+  }
 
   {
     char arg1[] = "./ldb";
