@@ -186,6 +186,9 @@ DEFINE_int64(compressed_cache_size, -1,
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
 
+DEFINE_int32(num_levels, ROCKSDB_NAMESPACE::Options().num_levels,
+             "Number of levels in the DB");
+
 DEFINE_int32(level0_file_num_compaction_trigger,
              ROCKSDB_NAMESPACE::Options().level0_file_num_compaction_trigger,
              "Level0 compaction start trigger");
