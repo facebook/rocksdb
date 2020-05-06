@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.10 (5/2/2020)
 ### Behavior Changes
 * Disable delete triggered compaction (NewCompactOnDeletionCollectorFactory) in universal compaction mode and num_levels = 1 in order to avoid a corruption bug.
 
