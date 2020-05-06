@@ -1,6 +1,14 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Bug Fixes
+* Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
+
+### Public API Change
+* Flush(..., column_family) may return Status::ColumnFamilyDropped() instead of Status::InvalidArgument() if column_family is dropped while processing the flush request.
+* BlobDB now explicitly disallows using the default column family's storage directories as blob directory.
+
+## 6.10 (5/2/2020)
+### Bug Fixes
 * Fix wrong result being read from ingested file. May happen when a key in the file happen to be prefix of another key also in the file. The issue can further cause more data corruption. The issue exists with rocksdb >= 5.0.0 since DB::IngestExternalFile() was introduced.
 * Finish implementation of BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey. It's now ready for use. Significantly reduces read amplification in some setups, especially for iterator seeks.
 * Fix a bug by updating CURRENT file so that it points to the correct MANIFEST file after best-efforts recovery.
@@ -9,14 +17,11 @@
 * Fix a bug caused by not including user timestamp in MultiGet LookupKey construction. This can lead to wrong query result since the trailing bytes of a user key, if not shorter than timestamp, will be mistaken for user timestamp.
 * Fix a bug caused by using wrong compare function when sorting the input keys of MultiGet with timestamps.
 * Upgraded version of bzip library (1.0.6 -> 1.0.8) used with RocksJava to address potential vulnerabilities if an attacker can manipulate compressed data saved and loaded by RocksDB (not normal). See issue #6703.
-* Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
 
 ### Public API Change
 * Add a ConfigOptions argument to the APIs dealing with converting options to and from strings and files.  The ConfigOptions is meant to replace some of the options (such as input_strings_escaped and ignore_unknown_options) and allow for more parameters to be passed in the future without changing the function signature.
 * Add NewFileChecksumGenCrc32cFactory to the file checksum public API, such that the builtin Crc32c based file checksum generator factory can be used by applications.
 * Add IsDirectory to Env and FS to indicate if a path is a directory.
-* Flush(..., column_family) may return Status::ColumnFamilyDropped() instead of Status::InvalidArgument() if column_family is dropped while processing the flush request.
-* BlobDB now explicitly disallows using the default column family's storage directories as blob directory.
 
 ### New Features
 * Added support for pipelined & parallel compression optimization for `BlockBasedTableBuilder`. This optimization makes block building, block compression and block appending a pipeline, and uses multiple threads to accelerate block compression. Users can set `CompressionOptions::parallel_threads` greater than 1 to enable compression parallelism. This feature is experimental for now.
