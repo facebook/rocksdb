@@ -2357,6 +2357,10 @@ void rocksdb_options_set_compression(rocksdb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }
 
+void rocksdb_options_set_bottommost_compression(rocksdb_options_t* opt, int t) {
+  opt->rep.bottommost_compression = static_cast<CompressionType>(t);
+}
+
 void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
                                                int* level_values,
                                                size_t num_levels) {

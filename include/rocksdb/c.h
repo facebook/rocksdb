@@ -1038,6 +1038,8 @@ enum {
 };
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression(
     rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bottommost_compression(
+    rocksdb_options_t*, int);
 
 enum {
   rocksdb_level_compaction = 0,
