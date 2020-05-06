@@ -143,7 +143,8 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   autovector<PinnableSlice, MultiGetContext::MAX_BATCH_SIZE> values;
   autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
   {
-    const int step = kv.size() / MultiGetContext::MAX_BATCH_SIZE;
+    const int step =
+        static_cast<int>(kv.size()) / MultiGetContext::MAX_BATCH_SIZE;
     auto it = kv.begin();
     for (int i = 0; i < MultiGetContext::MAX_BATCH_SIZE; i++) {
       keys.emplace_back(it->first);
