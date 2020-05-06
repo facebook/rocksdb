@@ -89,7 +89,10 @@ CloudEnv::CloudEnv(const CloudEnvOptions& options, Env* base,
                    const std::shared_ptr<Logger>& logger)
     : cloud_env_options(options), base_env_(base), info_log_(logger) {}
 
-CloudEnv::~CloudEnv() {}
+CloudEnv::~CloudEnv() {
+  cloud_env_options.cloud_log_controller.reset();
+  cloud_env_options.storage_provider.reset();
+}
 
 Status CloudEnv::NewAwsEnv(
     Env* base_env, const std::string& src_cloud_bucket,
