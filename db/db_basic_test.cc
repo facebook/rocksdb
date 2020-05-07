@@ -1778,6 +1778,28 @@ TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
   }
 }
 
+TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        *(reinterpret_cast<Status*>(arg)) =
+            Status::Corruption("Inject corruption");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.best_efforts_recovery = true;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 #ifndef ROCKSDB_LITE
 namespace {
 class TableFileListener : public EventListener {
@@ -2515,9 +2537,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
       new DBBasicTestMultiGetDeadline::DeadlineFS(env_));
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
-  env_->no_slowdown_ = true;
-  env_->time_elapse_only_sleep_.store(true);
   Options options = CurrentOptions();
+  env_->SetTimeElapseOnlySleep(&options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(1048576);
   BlockBasedTableOptions table_options;

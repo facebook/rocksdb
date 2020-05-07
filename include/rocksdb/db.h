@@ -356,8 +356,11 @@ class DB {
 
   // Removes the database entries in the range ["begin_key", "end_key"), i.e.,
   // including "begin_key" and excluding "end_key". Returns OK on success, and
-  // a non-OK status on error. It is not an error if no keys exist in the range
-  // ["begin_key", "end_key").
+  // a non-OK status on error. It is not an error if the database does not
+  // contain any existing data in the range ["begin_key", "end_key").
+  //
+  // If "end_key" comes before "start_key" according to the user's comparator,
+  // a `Status::InvalidArgument` is returned.
   //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read

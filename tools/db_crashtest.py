@@ -422,6 +422,12 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params['ops_per_thread'],
                 "compaction_style": 1,
             }
+            # Single level universal has a lot of special logic. Ensure we cover
+            # it sometimes.
+            if random.randint(0, 1) == 1:
+                additional_opts.update({
+                    "num_levels": 1,
+                })
         elif check_mode == 2:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction

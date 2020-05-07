@@ -56,6 +56,8 @@ extern std::string LogFileName(const std::string& dbname, uint64_t number);
 
 extern std::string LogFileName(uint64_t number);
 
+extern std::string BlobFileName(uint64_t number);
+
 extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
 extern std::string BlobFileName(const std::string& dbname,

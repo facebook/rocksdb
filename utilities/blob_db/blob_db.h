@@ -25,8 +25,9 @@ namespace blob_db {
 // users to use blob DB.
 
 struct BlobDBOptions {
-  // name of the directory under main db, where blobs will be stored.
-  // default is "blob_dir"
+  // Name of the directory under the base DB where blobs will be stored. Using
+  // a directory where the base DB stores its SST files is not supported.
+  // Default is "blob_dir"
   std::string blob_dir = "blob_dir";
 
   // whether the blob_dir path is relative or absolute.
