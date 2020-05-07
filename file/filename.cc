@@ -79,6 +79,11 @@ std::string LogFileName(uint64_t number) {
   return MakeFileName(number, "log");
 }
 
+std::string BlobFileName(uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(number, kRocksDBBlobFileExt.c_str());
+}
+
 std::string BlobFileName(const std::string& blobdirname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(blobdirname, number, kRocksDBBlobFileExt.c_str());
