@@ -25,6 +25,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -40,11 +41,8 @@ class TableBuilder;
 class TableFactory;
 class TableReader;
 class WritableFileWriter;
-struct ColumnFamilyOptions;
 struct ConfigOptions;
-struct DBOptions;
 struct EnvOptions;
-struct Options;
 
 enum ChecksumType : char {
   kNoChecksum = 0x0,
