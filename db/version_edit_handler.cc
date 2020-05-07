@@ -415,7 +415,8 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
       cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-  if (s.IsPathNotFound() && no_error_if_table_files_missing_) {
+  if ((s.IsPathNotFound() || s.IsCorruption()) &&
+      no_error_if_table_files_missing_) {
     s = Status::OK();
   }
   if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
@@ -546,7 +547,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     const std::string fpath =
         MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
     s = version_set_->VerifyFileMetadata(fpath, meta);
-    if (s.IsPathNotFound() || s.IsNotFound()) {
+    if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
     }
