@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Fix a bug caused by overwrite the status with io status in block based table builder when writing data blocks. If status stores the error message (e.g., failure of verify block compression), the bug will make the io status overwrite the status.
 * Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
+* Fix possible false NotFound status from batched MultiGet using index type kHashSearch.
 
 ## 6.9.3 (04/28/2020)
 ### Bug Fixes
