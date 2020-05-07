@@ -948,11 +948,13 @@ endif()
 # Tests are excluded from Release builds
 CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
   "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+  
+add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+add_library(testharness STATIC
+test_util/testharness.cc)
+target_link_libraries(testharness gtest)
+
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
-  add_library(testharness STATIC
-  test_util/testharness.cc)
-  target_link_libraries(testharness gtest)
 
   set(TESTS
         cache/cache_test.cc
