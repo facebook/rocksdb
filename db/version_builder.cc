@@ -255,26 +255,30 @@ class VersionBuilder::Rep {
     return false;
   }
 
-  Status CheckConsistencyOfOldestBlobFileReference(
-      const VersionStorageInfo* vstorage, uint64_t blob_file_number) const {
+  static Status CheckConsistencyOfOldestBlobFileReference(
+      const VersionStorageInfo* vstorage, uint64_t table_file_number,
+      uint64_t blob_file_number) {
     assert(vstorage);
-
-    // TODO: remove this check once we actually start recoding metadata for
-    // blob files in the MANIFEST.
-    if (vstorage->GetBlobFiles().empty()) {
-      return Status::OK();
-    }
 
     if (blob_file_number == kInvalidBlobFileNumber) {
       return Status::OK();
     }
 
-    if (!IsBlobFileInVersion(blob_file_number)) {
-      std::ostringstream oss;
-      oss << "Blob file #" << blob_file_number
-          << " is not part of this version";
+    const auto& blob_files = vstorage->GetBlobFiles();
+    const auto it = blob_files.find(blob_file_number);
 
-      return Status::Corruption("VersionBuilder", oss.str());
+    if (it != blob_files.end()) {
+      const auto& meta = it->second;
+      const auto& linked_ssts = meta->GetLinkedSsts();
+
+      if (linked_ssts.find(table_file_number) == linked_ssts.end()) {
+        std::ostringstream oss;
+        oss << "Links between SST file #" << table_file_number
+            << " and blob file #" << blob_file_number
+            << " are inconsistent (blob -> SST link not found)";
+
+        return Status::Corruption("VersionBuilder", oss.str());
+      }
     }
 
     return Status::OK();
@@ -300,7 +304,8 @@ class VersionBuilder::Rep {
 
       assert(level_files[0]);
       Status s = CheckConsistencyOfOldestBlobFileReference(
-          vstorage, level_files[0]->oldest_blob_file_number);
+          vstorage, level_files[0]->fd.GetNumber(),
+          level_files[0]->oldest_blob_file_number);
       if (!s.ok()) {
         return s;
       }
@@ -308,7 +313,8 @@ class VersionBuilder::Rep {
       for (size_t i = 1; i < level_files.size(); i++) {
         assert(level_files[i]);
         s = CheckConsistencyOfOldestBlobFileReference(
-            vstorage, level_files[i]->oldest_blob_file_number);
+            vstorage, level_files[i]->fd.GetNumber(),
+            level_files[i]->oldest_blob_file_number);
         if (!s.ok()) {
           return s;
         }
