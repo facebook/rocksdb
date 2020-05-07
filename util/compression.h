@@ -420,10 +420,6 @@ class UncompressionContext {
   ZSTDUncompressCachedData uncomp_cached_data_;
 
  public:
-  struct NoCache {};
-  // Do not use context cache, used by TableBuilder
-  UncompressionContext(NoCache, CompressionType /* type */) {}
-
   explicit UncompressionContext(CompressionType type) {
     if (type == kZSTD || type == kZSTDNotFinalCompression) {
       ctx_cache_ = CompressionContextCache::Instance();
