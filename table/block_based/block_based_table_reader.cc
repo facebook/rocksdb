@@ -2461,13 +2461,16 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                               ExtractUserKey(v.first_internal_key)) < 0)) {
           // The requested key falls between highest key in previous block and
           // lowest key in current block.
-          *(miter->s) = iiter->status();
+          if (!iiter->status().IsNotFound()) {
+            *(miter->s) = iiter->status();
+          }
           data_block_range.SkipKey(miter);
           sst_file_range.SkipKey(miter);
           continue;
         }
 
         if (!uncompression_dict_status.ok()) {
+          assert(!uncompression_dict_status.IsNotFound());
           *(miter->s) = uncompression_dict_status;
           data_block_range.SkipKey(miter);
           sst_file_range.SkipKey(miter);
@@ -2680,7 +2683,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                   rep_->level);
       }
-      if (s.ok()) {
+      if (s.ok() && !iiter->status().IsNotFound()) {
         s = iiter->status();
       }
       *(miter->s) = s;
