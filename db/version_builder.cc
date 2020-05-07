@@ -579,6 +579,8 @@ class VersionBuilder::Rep {
 
   uint64_t GetBlobFileNumberForTableFile(int level,
                                          uint64_t table_file_number) {
+    assert(level < num_levels_);
+
     const auto& added_files = levels_[level].added_files;
 
     auto it = added_files.find(table_file_number);
