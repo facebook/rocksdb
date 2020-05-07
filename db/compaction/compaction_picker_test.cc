@@ -88,6 +88,7 @@ class CompactionPickerTest : public testing::Test {
 
   void DeleteVersionStorage() {
     vstorage_.reset();
+    temp_vstorage_.reset();
     files_.clear();
     file_map_.clear();
     input_files_.clear();
@@ -1869,10 +1870,19 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
 
   bool input_level_overlap = false;
   bool output_level_overlap = false;
-  // Let's mark 2 files in 2 different levels for compaction. One
-  // of them will get randomly picked and the other should detect
-  // an overlap. Loop until both cases are covered
+  // Let's mark 2 files in 2 different levels for compaction. The
+  // compaction picker will randomly pick one, so use the sync point to
+  // ensure a deterministic order. Loop until both cases are covered
+  size_t random_index = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionPicker::PickFilesMarkedForCompaction", [&](void* arg) {
+        size_t* index = static_cast<size_t*>(arg);
+        *index = random_index;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
   while (!input_level_overlap || !output_level_overlap) {
+    // Ensure that the L0 file gets picked first
+    random_index = !input_level_overlap ? 0 : 1;
     UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
     NewVersionStorage(5, kCompactionStyleUniversal);
 
@@ -1912,6 +1922,9 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
       ASSERT_EQ(1U, compaction->num_input_files(1));
     }
 
+    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+    // After recomputing the compaction score, only one marked file will remain
+    random_index = 0;
     std::unique_ptr<Compaction> compaction2(
         universal_compaction_picker.PickCompaction(
             cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
