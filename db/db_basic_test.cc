@@ -1295,14 +1295,18 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedSimpleSorted) {
+TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     SetPerfLevel(kEnableCount);
+    // To expand the power of this test, generate > 1 table file and
+    // mix with memtable
     ASSERT_OK(Put(1, "k1", "v1"));
     ASSERT_OK(Put(1, "k2", "v2"));
+    Flush(1);
     ASSERT_OK(Put(1, "k3", "v3"));
     ASSERT_OK(Put(1, "k4", "v4"));
+    Flush(1);
     ASSERT_OK(Delete(1, "k4"));
     ASSERT_OK(Put(1, "k5", "v5"));
     ASSERT_OK(Delete(1, "no_key"));
@@ -1333,7 +1337,7 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleSorted) {
     ASSERT_TRUE(s[5].IsNotFound());
 
     SetPerfLevel(kDisable);
-  } while (ChangeCompactOptions());
+  } while (ChangeOptions());
 }
 
 TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
