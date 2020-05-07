@@ -255,33 +255,19 @@ class VersionBuilder::Rep {
     return false;
   }
 
-  static Status CheckConsistencyOfOldestBlobFileReference(
-      const VersionStorageInfo* vstorage, uint64_t table_file_number,
-      uint64_t blob_file_number) {
-    assert(vstorage);
+  using ExpectedLinkedSsts =
+      std::unordered_map<uint64_t, BlobFileMetaData::LinkedSsts>;
+
+  static void UpdateExpectedLinkedSsts(
+      uint64_t table_file_number, uint64_t blob_file_number,
+      ExpectedLinkedSsts* expected_linked_ssts) {
+    assert(expected_linked_ssts);
 
     if (blob_file_number == kInvalidBlobFileNumber) {
-      return Status::OK();
+      return;
     }
 
-    const auto& blob_files = vstorage->GetBlobFiles();
-    const auto it = blob_files.find(blob_file_number);
-
-    if (it != blob_files.end()) {
-      const auto& meta = it->second;
-      const auto& linked_ssts = meta->GetLinkedSsts();
-
-      if (linked_ssts.find(table_file_number) == linked_ssts.end()) {
-        std::ostringstream oss;
-        oss << "Links between SST file #" << table_file_number
-            << " and blob file #" << blob_file_number
-            << " are inconsistent (blob -> SST link not found)";
-
-        return Status::Corruption("VersionBuilder", oss.str());
-      }
-    }
-
-    return Status::OK();
+    (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
   Status CheckConsistency(VersionStorageInfo* vstorage) {
@@ -292,9 +278,13 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 #endif
-    // Make sure the files are sorted correctly and that the oldest blob file
-    // reference for each table file points to a valid blob file in this
-    // version.
+    // Make sure the files are sorted correctly and that the links between
+    // table files and blob files are consistent. The latter is checked using
+    // the following mapping, which is built using the forward links
+    // (table file -> blob file), and is subsequently compared with the inverse
+    // mapping stored in the BlobFileMetaData objects.
+    ExpectedLinkedSsts expected_linked_ssts;
+
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
 
@@ -303,21 +293,14 @@ class VersionBuilder::Rep {
       }
 
       assert(level_files[0]);
-      Status s = CheckConsistencyOfOldestBlobFileReference(
-          vstorage, level_files[0]->fd.GetNumber(),
-          level_files[0]->oldest_blob_file_number);
-      if (!s.ok()) {
-        return s;
-      }
-
+      UpdateExpectedLinkedSsts(level_files[0]->fd.GetNumber(),
+                               level_files[0]->oldest_blob_file_number,
+                               &expected_linked_ssts);
       for (size_t i = 1; i < level_files.size(); i++) {
         assert(level_files[i]);
-        s = CheckConsistencyOfOldestBlobFileReference(
-            vstorage, level_files[i]->fd.GetNumber(),
-            level_files[i]->oldest_blob_file_number);
-        if (!s.ok()) {
-          return s;
-        }
+        UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
+                                 level_files[i]->oldest_blob_file_number,
+                                 &expected_linked_ssts);
 
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
@@ -377,14 +360,24 @@ class VersionBuilder::Rep {
     // Make sure that all blob files in the version have non-garbage data.
     const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& pair : blob_files) {
+      const uint64_t blob_file_number = pair.first;
       const auto& blob_file_meta = pair.second;
       assert(blob_file_meta);
 
       if (blob_file_meta->GetGarbageBlobCount() >=
           blob_file_meta->GetTotalBlobCount()) {
         std::ostringstream oss;
-        oss << "Blob file #" << blob_file_meta->GetBlobFileNumber()
+        oss << "Blob file #" << blob_file_number
             << " consists entirely of garbage";
+
+        return Status::Corruption("VersionBuilder", oss.str());
+      }
+
+      if (blob_file_meta->GetLinkedSsts() !=
+          expected_linked_ssts[blob_file_number]) {
+        std::ostringstream oss;
+        oss << "Links are inconsistent between table files and blob file #"
+            << blob_file_number;
 
         return Status::Corruption("VersionBuilder", oss.str());
       }
