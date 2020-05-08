@@ -1,9 +1,13 @@
 # Rocksdb Change Log
-## 6.9.4 (04/30/2020)
+## 6.9.4 (05/08/2020)
 ### Bug Fixes
 * Fix a bug caused by overwrite the status with io status in block based table builder when writing data blocks. If status stores the error message (e.g., failure of verify block compression), the bug will make the io status overwrite the status.
 * Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
 * Fix possible false NotFound status from batched MultiGet using index type kHashSearch.
+* Fix corruption caused by enabling delete triggered compaction (NewCompactOnDeletionCollectorFactory) in universal compaction mode, along with parallel compactions. The bug can result in two parallel compactions picking the same input files, resulting in the DB resurrecting older and deleted versions of some keys.
+
+### Behavior Changes
+* Disable delete triggered compaction (NewCompactOnDeletionCollectorFactory) in universal compaction mode and num_levels = 1 in order to avoid a corruption bug.
 
 ## 6.9.3 (04/28/2020)
 ### Bug Fixes
