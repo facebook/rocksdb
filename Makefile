@@ -166,6 +166,12 @@ else
 	CXXFLAGS += -fno-rtti
 endif
 
+ifdef ASSERT_STATUS_CHECKED
+ifeq ($(filter -DROCKSDB_ASSERT_STATUS_CHECKED,$(OPT)),)
+	OPT += -DROCKSDB_ASSERT_STATUS_CHECKED
+endif
+endif
+
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
@@ -656,6 +662,14 @@ PARALLEL_TEST = \
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
         TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
+endif
+ifdef ASSERT_STATUS_CHECKED
+	# This is a new check for which we will add support incrementally. The
+	# whitelist can be removed once support is fully added.
+        TESTS_WHITELIST = \
+		options_test
+        TESTS := $(filter $(TESTS_WHITELIST),$(TESTS))
+        PARALLEL_TEST := $(filter $(TESTS_WHITELIST),$(PARALLEL_TEST))
 endif
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
