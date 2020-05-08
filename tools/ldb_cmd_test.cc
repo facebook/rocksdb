@@ -551,6 +551,98 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+TEST_F(LdbCmdTest, DisableConsistencyChecks) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  std::string dbname = test::TmpDir();
+
+  {
+    DB* db = nullptr;
+    ASSERT_OK(DB::Open(opts, dbname, &db));
+
+    WriteOptions wopts;
+    FlushOptions fopts;
+    fopts.wait = true;
+
+    ASSERT_OK(db->Put(wopts, "foo1", "1"));
+    ASSERT_OK(db->Put(wopts, "bar1", "2"));
+    ASSERT_OK(db->Flush(fopts));
+
+    ASSERT_OK(db->Put(wopts, "foo2", "3"));
+    ASSERT_OK(db->Put(wopts, "bar2", "4"));
+    ASSERT_OK(db->Flush(fopts));
+
+    delete db;
+  }
+
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "checkconsistency";
+    char* argv[] = {arg1, arg2, arg3};
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "Version::PrepareApply:forced_check", [&](void* arg) {
+          bool* forced = reinterpret_cast<bool*>(arg);
+          ASSERT_TRUE(*forced);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "scan";
+    char* argv[] = {arg1, arg2, arg3};
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "Version::PrepareApply:forced_check", [&](void* arg) {
+          bool* forced = reinterpret_cast<bool*>(arg);
+          ASSERT_TRUE(*forced);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "scan";
+    char arg4[] = "--disable_consistency_checks";
+    char* argv[] = {arg1, arg2, arg3, arg4};
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "ColumnFamilyData::ColumnFamilyData", [&](void* arg) {
+          ColumnFamilyOptions* cfo =
+              reinterpret_cast<ColumnFamilyOptions*>(arg);
+          ASSERT_FALSE(cfo->force_consistency_checks);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

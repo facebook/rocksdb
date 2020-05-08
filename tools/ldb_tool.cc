@@ -46,6 +46,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " : DB supports ttl and value is internally timestamp-suffixed\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
              " : Try to load option file from DB.\n");
+  ret.append("  --" + LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS +
+             " : Set options.force_consistency_checks = false.\n");
   ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +
              " : Ignore unknown options when loading option file.\n");
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");

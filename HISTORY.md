@@ -14,6 +14,7 @@
 * Flush(..., column_family) may return Status::ColumnFamilyDropped() instead of Status::InvalidArgument() if column_family is dropped while processing the flush request.
 * BlobDB now explicitly disallows using the default column family's storage directories as blob directory.
 * DeleteRange now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
+* ldb now uses options.force_consistency_checks = true by default and "--disable_consistency_checks" is added to disable it.
 
 ## 6.10 (5/2/2020)
 ### Bug Fixes
