@@ -138,8 +138,7 @@ class CompactionPickerTest : public testing::Test {
 
   void UpdateVersionStorageInfo() {
     if (temp_vstorage_) {
-      VersionBuilder builder(FileOptions(), &ioptions_, nullptr,
-                             vstorage_.get(), nullptr);
+      VersionBuilder builder(FileOptions(), nullptr, vstorage_.get());
       builder.SaveTo(temp_vstorage_.get());
       vstorage_ = std::move(temp_vstorage_);
     }
@@ -167,8 +166,7 @@ class CompactionPickerTest : public testing::Test {
     Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
         largest_seq, compensated_file_size, marked_for_compact);
 
-    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
-                           nullptr);
+    VersionBuilder builder(FileOptions(), nullptr, base_vstorage);
     builder.SaveTo(vstorage_.get());
     UpdateVersionStorageInfo();
   }
