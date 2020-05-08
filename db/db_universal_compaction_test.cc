@@ -1953,6 +1953,7 @@ TEST_F(DBTestUniversalCompaction2, BasicL0toL1) {
   ASSERT_GT(NumTableFilesAtLevel(6), 0);
 }
 
+#if defined(ENABLE_SINGLE_LEVEL_DTC)
 TEST_F(DBTestUniversalCompaction2, SingleLevel) {
   const int kNumKeys = 3000;
   const int kWindowSize = 100;
@@ -1991,6 +1992,7 @@ TEST_F(DBTestUniversalCompaction2, SingleLevel) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
+#endif  // ENABLE_SINGLE_LEVEL_DTC
 
 TEST_F(DBTestUniversalCompaction2, MultipleLevels) {
   const int kWindowSize = 100;
