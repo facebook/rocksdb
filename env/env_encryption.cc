@@ -67,12 +67,12 @@ Status EncryptedSequentialFile::Skip(uint64_t n) {
 // uses direct IO.
 bool EncryptedSequentialFile::use_direct_io() const {
   return file_->use_direct_io();
-  }
+}
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
-  size_t EncryptedSequentialFile::GetRequiredBufferAlignment() const {
-    return file_->GetRequiredBufferAlignment();
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
+size_t EncryptedSequentialFile::GetRequiredBufferAlignment() const {
+  return file_->GetRequiredBufferAlignment();
   }
 
   // Remove any kind of caching of data from the offset to offset+length
