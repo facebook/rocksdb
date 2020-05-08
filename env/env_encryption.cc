@@ -45,28 +45,28 @@ Status EncryptedSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   offset_ += result->size();  // We've already ready data from disk, so update
                               // offset_ even if decryption fails.
   return status;
-  }
+}
 
-  // Skip "n" bytes from the file. This is guaranteed to be no
-  // slower that reading the same data, but may be faster.
-  //
-  // If end of file is reached, skipping will stop at the end of the
-  // file, and Skip will return OK.
-  //
-  // REQUIRES: External synchronization
-  Status EncryptedSequentialFile::Skip(uint64_t n) {
-    auto status = file_->Skip(n);
-    if (!status.ok()) {
-      return status;
-    }
-    offset_ += n;
+// Skip "n" bytes from the file. This is guaranteed to be no
+// slower that reading the same data, but may be faster.
+//
+// If end of file is reached, skipping will stop at the end of the
+// file, and Skip will return OK.
+//
+// REQUIRES: External synchronization
+Status EncryptedSequentialFile::Skip(uint64_t n) {
+  auto status = file_->Skip(n);
+  if (!status.ok()) {
     return status;
   }
+  offset_ += n;
+  return status;
+}
 
-  // Indicates the upper layers if the current SequentialFile implementation
-  // uses direct IO.
-  bool EncryptedSequentialFile::use_direct_io() const {
-    return file_->use_direct_io();
+// Indicates the upper layers if the current SequentialFile implementation
+// uses direct IO.
+bool EncryptedSequentialFile::use_direct_io() const {
+  return file_->use_direct_io();
   }
 
   // Use the returned alignment value to allocate
