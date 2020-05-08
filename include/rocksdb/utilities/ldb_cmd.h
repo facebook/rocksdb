@@ -59,6 +59,7 @@ class LDBCommand {
   static const std::string ARG_FILE_SIZE;
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
+  static const std::string ARG_DISABLE_CONSISTENCY_CHECKS;
 
   struct ParsedParams {
     std::string cmd;
@@ -162,6 +163,9 @@ class LDBCommand {
 
   // If true, try to construct options from DB's option files.
   bool try_load_options_;
+
+  // The value passed to options.force_consistency_checks.
+  bool force_consistency_checks_;
 
   bool create_if_missing_;
 
