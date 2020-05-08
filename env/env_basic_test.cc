@@ -96,8 +96,8 @@ static ROT13BlockCipher encrypt_block_rot13(32);
 
 static CTREncryptionProvider encrypt_provider_ctr(encrypt_block_rot13);
 
-static std::unique_ptr<Env> encrypt_env(new NormalizingEnvWrapper(NewEncryptedEnv(
-                                                                    Env::Default(),&encrypt_provider_ctr)));
+static std::unique_ptr<Env> encrypt_env(new NormalizingEnvWrapper(
+    NewEncryptedEnv(Env::Default(), &encrypt_provider_ctr)));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
                         ::testing::Values(encrypt_env.get()));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
