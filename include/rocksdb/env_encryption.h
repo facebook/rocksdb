@@ -351,8 +351,8 @@ class EncryptedWritableFile : public WritableFileWrapper {
   virtual size_t GetRequiredBufferAlignment() const override;
 
   /*
- * Get the size of valid data in the file.
- */
+   * Get the size of valid data in the file.
+   */
   virtual uint64_t GetFileSize() override;
 
   // Truncate is necessary to trim the file to the correct size
@@ -425,6 +425,6 @@ class EncryptedRandomRWFile : public RandomRWFile {
   virtual Status Close() override;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !defined(ROCKSDB_LITE)
