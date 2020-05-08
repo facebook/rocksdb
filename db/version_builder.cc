@@ -189,9 +189,10 @@ class VersionBuilder::Rep {
       const auto& delta = delta_it->second;
 
       auto shared_meta = delta.GetSharedMeta();
-      assert(shared_meta);
 
-      return shared_meta;
+      if (shared_meta) {
+        return shared_meta;
+      }
     }
 
     assert(base_vstorage_);
