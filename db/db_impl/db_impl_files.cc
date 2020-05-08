@@ -686,13 +686,15 @@ uint64_t PrecomputeMinLogNumberToKeep(
 Status DBImpl::FinishBestEffortsRecovery() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
-  paths.push_back(dbname_);
+  paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
   for (const auto& db_path : immutable_db_options_.db_paths) {
-    paths.push_back(db_path.path);
+    paths.push_back(
+        NormalizePath(db_path.path + std::string(1, kFilePathSeparator)));
   }
   for (const auto* cfd : *versions_->GetColumnFamilySet()) {
     for (const auto& cf_path : cfd->ioptions()->cf_paths) {
-      paths.push_back(cf_path.path);
+      paths.push_back(
+          NormalizePath(cf_path.path + std::string(1, kFilePathSeparator)));
     }
   }
   // Dedup paths
@@ -711,7 +713,8 @@ Status DBImpl::FinishBestEffortsRecovery() {
       if (!ParseFileName(fname, &number, &type)) {
         continue;
       }
-      const std::string normalized_fpath = NormalizePath(path + fname);
+      // path ends with '/' or '\\'
+      const std::string normalized_fpath = path + fname;
       largest_file_number = std::max(largest_file_number, number);
       if (type == kTableFile && number >= next_file_number &&
           files_to_delete.find(normalized_fpath) == files_to_delete.end()) {

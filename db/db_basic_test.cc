@@ -1840,11 +1840,16 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
     ASSERT_OK(Flush(static_cast<int>(cf)));
   }
 
-  // Delete files
+  // Delete and corrupt files
   for (size_t i = 0; i < all_cf_names.size(); ++i) {
     std::vector<std::string>& files = listener->GetFiles(all_cf_names[i]);
     ASSERT_EQ(3, files.size());
-    for (int j = static_cast<int>(files.size() - 1); j >= static_cast<int>(i);
+    std::string corrupted_data;
+    ASSERT_OK(ReadFileToString(env_, files[files.size() - 1], &corrupted_data));
+    ASSERT_OK(WriteStringToFile(
+        env_, corrupted_data.substr(0, corrupted_data.size() - 2),
+        files[files.size() - 1], /*should_sync=*/true));
+    for (int j = static_cast<int>(files.size() - 2); j >= static_cast<int>(i);
          --j) {
       ASSERT_OK(env_->DeleteFile(files[j]));
     }
@@ -1874,6 +1879,32 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
     iter->Next();
     ASSERT_FALSE(iter->Valid());
   }
+}
+
+TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  ASSERT_OK(Flush());
+  Close();
+  {
+    // Hack by adding a new MANIFEST with high file number
+    std::string garbage(10, '\0');
+    ASSERT_OK(WriteStringToFile(env_, garbage, dbname_ + "/MANIFEST-001000",
+                                /*should_sync=*/true));
+  }
+  {
+    // Hack by adding a corrupted SST not referenced by any MANIFEST
+    std::string garbage(10, '\0');
+    ASSERT_OK(WriteStringToFile(env_, garbage, dbname_ + "/001001.sst",
+                                /*should_sync=*/true));
+  }
+
+  options.best_efforts_recovery = true;
+
+  Reopen(options);
+  ASSERT_OK(Put("bar", "value"));
 }
 
 TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
