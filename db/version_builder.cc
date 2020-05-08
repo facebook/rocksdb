@@ -88,9 +88,6 @@ class VersionBuilder::Rep {
 
   class BlobFileMetaDataDelta {
    public:
-    BlobFileMetaDataDelta()
-        : additional_garbage_count_(0), additional_garbage_bytes_(0) {}
-
     bool IsEmpty() const {
       return !shared_meta_ && !additional_garbage_count_ &&
              !additional_garbage_bytes_;
@@ -122,8 +119,8 @@ class VersionBuilder::Rep {
 
    private:
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
-    uint64_t additional_garbage_count_;
-    uint64_t additional_garbage_bytes_;
+    uint64_t additional_garbage_count_ = 0;
+    uint64_t additional_garbage_bytes_ = 0;
   };
 
   const FileOptions& file_options_;
