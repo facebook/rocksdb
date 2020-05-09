@@ -1376,7 +1376,7 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
     return st;
   }
 
-  // If there is no destination bucket, then we need to suck in all sst files
+  // If there is no destination bucket, then we prefer to suck in all sst files
   // from source bucket at db startup time. We do this by setting max_open_files
   // = -1
   if (!HasDestBucket()) {
@@ -1389,15 +1389,13 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
           GetSrcObjectPath().c_str(), local_name.c_str());
     }
     if (!cloud_env_options.keep_local_sst_files && !read_only) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[cloud_env_impl] SanitizeDirectory error.  "
-          " No destination bucket specified. Set options.keep_local_sst_files "
-          "= true to copy in all sst files from src bucket %s into local dir "
-          "%s",
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "[cloud_env_impl] SanitizeDirectory info.  "
+          " No destination bucket specified and options.keep_local_sst_files "
+          "is false. Existing sst files from src bucket %s will not be "
+	  " downloaded into local dir but newly created sst files will "
+	  " remain in local dir %s",
           GetSrcObjectPath().c_str(), local_name.c_str());
-      return Status::InvalidArgument(
-          "No destination bucket. "
-          "Set options.keep_local_sst_files = true");
     }
   }
 
