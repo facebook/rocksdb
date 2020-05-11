@@ -4,7 +4,9 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <cstring>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include "db/version_edit.h"
 #include "db/version_set.h"
@@ -1081,6 +1083,216 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
       std::strstr(s.getState(), "Blob file #16 consists entirely of garbage"));
 
   UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobs) {
+  // Initialize base version. Table files 1..10 are linked to blob files 1..5,
+  // while table files 11..20 are not linked to any blob files.
+
+  for (uint64_t i = 1; i <= 10; ++i) {
+    std::ostringstream oss;
+    oss << std::setw(2) << std::setfill('0') << i;
+
+    const std::string key = oss.str();
+
+    Add(/* level */ 1, /* file_number */ i, /* smallest */ key.c_str(),
+        /* largest */ key.c_str(), /* file_size */ 100,
+        /* path_id */ 0, /* smallest_seq */ i * 100, /* largest_seq */ i * 100,
+        /* num_entries */ 0, /* num_deletions */ 0,
+        /* sampled */ false, /* smallest_seqno */ i * 100,
+        /* largest_seqno */ i * 100,
+        /* oldest_blob_file_number */ ((i - 1) % 5) + 1);
+  }
+
+  for (uint64_t i = 1; i <= 5; ++i) {
+    AddBlob(/* blob_file_number */ i, /* total_blob_count */ 2000,
+            /* total_blob_bytes */ 2000000,
+            /* checksum_method */ std::string(),
+            /* checksum_value */ std::string(),
+            BlobFileMetaData::LinkedSsts{i, i + 5},
+            /* garbage_blob_count */ 1000, /* garbage_blob_bytes */ 1000000);
+  }
+
+  for (uint64_t i = 11; i <= 20; ++i) {
+    std::ostringstream oss;
+    oss << std::setw(2) << std::setfill('0') << i;
+
+    const std::string key = oss.str();
+
+    Add(/* level */ 1, /* file_number */ i, /* smallest */ key.c_str(),
+        /* largest */ key.c_str(), /* file_size */ 100,
+        /* path_id */ 0, /* smallest_seq */ i * 100, /* largest_seq */ i * 100,
+        /* num_entries */ 0, /* num_deletions */ 0,
+        /* sampled */ false, /* smallest_seqno */ i * 100,
+        /* largest_seqno */ i * 100, kInvalidBlobFileNumber);
+  }
+
+  UpdateVersionStorageInfo();
+
+  {
+    const auto& blob_files = vstorage_.GetBlobFiles();
+    ASSERT_EQ(blob_files.size(), 5);
+
+    const std::vector<BlobFileMetaData::LinkedSsts> expected_linked_ssts{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+
+    for (size_t i = 0; i < 5; ++i) {
+      const auto meta =
+          GetBlobFileMetaData(blob_files, /* blob_file_number */ i + 1);
+      ASSERT_NE(meta, nullptr);
+      ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
+    }
+  }
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+  constexpr bool force_consistency_checks = true;
+
+  // Simulate a flush where the SST does not reference any blob files.
+
+  VersionEdit flush_no_blob;
+
+  flush_no_blob.AddFile(
+      /* level */ 0, /* file_number */ 21, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("21", 2100),
+      /* largest */ GetInternalKey("21", 2100), /* smallest_seqno */ 2100,
+      /* largest_seqno */ 2100, /* marked_for_compaction */ false,
+      kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+      kUnknownFileCreationTime, kUnknownFileChecksum,
+      kUnknownFileChecksumFuncName);
+
+  VersionBuilder flush_no_blob_builder(env_options, &ioptions_, table_cache,
+                                       &vstorage_, version_set);
+
+  ASSERT_OK(flush_no_blob_builder.Apply(&flush_no_blob));
+
+  VersionStorageInfo flush_no_blob_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                            kCompactionStyleLevel, &vstorage_,
+                                            force_consistency_checks);
+
+  ASSERT_OK(flush_no_blob_builder.SaveTo(&flush_no_blob_vstorage));
+
+  {
+    const auto& blob_files = flush_no_blob_vstorage.GetBlobFiles();
+    ASSERT_EQ(blob_files.size(), 5);
+
+    const std::vector<BlobFileMetaData::LinkedSsts> expected_linked_ssts{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}};
+
+    for (size_t i = 0; i < 5; ++i) {
+      const auto meta =
+          GetBlobFileMetaData(blob_files, /* blob_file_number */ i + 1);
+      ASSERT_NE(meta, nullptr);
+      ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
+    }
+  }
+
+  // Simulate a flush where the SST references a blob file.
+  VersionEdit flush_blob;
+
+  flush_blob.AddFile(
+      /* level */ 0, /* file_number */ 22, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("22", 2200),
+      /* largest */ GetInternalKey("22", 2200), /* smallest_seqno */ 2200,
+      /* largest_seqno */ 2200, /* marked_for_compaction */ false,
+      /* oldest_blob_file_number */ 6, kUnknownOldestAncesterTime,
+      kUnknownFileCreationTime, kUnknownFileChecksum,
+      kUnknownFileChecksumFuncName);
+  flush_blob.AddBlobFile(/* blob_file_number */ 6, /* total_blob_count */ 2000,
+                         /* total_blob_bytes */ 2000000,
+                         /* checksum_method */ std::string(),
+                         /* checksum_value */ std::string());
+
+  VersionBuilder flush_blob_builder(env_options, &ioptions_, table_cache,
+                                    &flush_no_blob_vstorage, version_set);
+
+  ASSERT_OK(flush_blob_builder.Apply(&flush_blob));
+
+  VersionStorageInfo flush_blob_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
+      &flush_no_blob_vstorage, force_consistency_checks);
+
+  ASSERT_OK(flush_blob_builder.SaveTo(&flush_blob_vstorage));
+
+  {
+    const auto& blob_files = flush_blob_vstorage.GetBlobFiles();
+    ASSERT_EQ(blob_files.size(), 6);
+
+    const std::vector<BlobFileMetaData::LinkedSsts> expected_linked_ssts{
+        {1, 6}, {2, 7}, {3, 8}, {4, 9}, {5, 10}, {22}};
+
+    for (size_t i = 0; i < 6; ++i) {
+      const auto meta =
+          GetBlobFileMetaData(blob_files, /* blob_file_number */ i + 1);
+      ASSERT_NE(meta, nullptr);
+      ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
+    }
+  }
+
+  // Simulate a compaction. Some inputs and outputs have blob file references,
+  // some don't. There is also a trivial move.
+  VersionEdit compaction;
+
+  compaction.DeleteFile(/* level */ 1, /* file_number */ 1);
+  compaction.DeleteFile(/* level */ 1, /* file_number */ 2);
+  compaction.DeleteFile(/* level */ 1, /* file_number */ 6);
+  compaction.DeleteFile(/* level */ 1, /* file_number */ 11);
+  compaction.DeleteFile(/* level */ 0, /* file_number */ 22);
+  compaction.AddFile(
+      /* level */ 1, /* file_number */ 22, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("22", 2200),
+      /* largest */ GetInternalKey("22", 2200), /* smallest_seqno */ 2200,
+      /* largest_seqno */ 2200, /* marked_for_compaction */ false,
+      /* oldest_blob_file_number */ 6, kUnknownOldestAncesterTime,
+      kUnknownFileCreationTime, kUnknownFileChecksum,
+      kUnknownFileChecksumFuncName);
+  compaction.AddFile(
+      /* level */ 2, /* file_number */ 23, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("23", 2300),
+      /* largest */ GetInternalKey("23", 2300), /* smallest_seqno */ 2300,
+      /* largest_seqno */ 2300, /* marked_for_compaction */ false,
+      /* oldest_blob_file_number */ 3, kUnknownOldestAncesterTime,
+      kUnknownFileCreationTime, kUnknownFileChecksum,
+      kUnknownFileChecksumFuncName);
+  compaction.AddFile(
+      /* level */ 2, /* file_number */ 24, /* path_id */ 0,
+      /* file_size */ 100, /* smallest */ GetInternalKey("24", 2400),
+      /* largest */ GetInternalKey("24", 2400), /* smallest_seqno */ 2400,
+      /* largest_seqno */ 2400, /* marked_for_compaction */ false,
+      kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+      kUnknownFileCreationTime, kUnknownFileChecksum,
+      kUnknownFileChecksumFuncName);
+
+  VersionBuilder compaction_builder(env_options, &ioptions_, table_cache,
+                                    &flush_blob_vstorage, version_set);
+
+  ASSERT_OK(compaction_builder.Apply(&compaction));
+
+  VersionStorageInfo compaction_vstorage(
+      &icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
+      &flush_blob_vstorage, force_consistency_checks);
+
+  ASSERT_OK(compaction_builder.SaveTo(&compaction_vstorage));
+
+  {
+    const auto& blob_files = compaction_vstorage.GetBlobFiles();
+    ASSERT_EQ(blob_files.size(), 6);
+
+    const std::vector<BlobFileMetaData::LinkedSsts> expected_linked_ssts{
+        {}, {7}, {3, 8, 23}, {4, 9}, {5, 10}, {22}};
+
+    for (size_t i = 0; i < 6; ++i) {
+      const auto meta =
+          GetBlobFileMetaData(blob_files, /* blob_file_number */ i + 1);
+      ASSERT_NE(meta, nullptr);
+      ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
+    }
+  }
+
+  UnrefFilesInVersion(&compaction_vstorage);
+  UnrefFilesInVersion(&flush_blob_vstorage);
+  UnrefFilesInVersion(&flush_no_blob_vstorage);
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
