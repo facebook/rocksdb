@@ -190,9 +190,7 @@ class VersionBuilder::Rep {
   bool IsBlobFileInVersion(uint64_t blob_file_number) const {
     auto delta_it = blob_file_meta_deltas_.find(blob_file_number);
     if (delta_it != blob_file_meta_deltas_.end()) {
-      const auto& delta = delta_it->second;
-
-      if (delta.GetSharedMeta()) {
+      if (delta_it->second.GetSharedMeta()) {
         return true;
       }
     }
@@ -203,9 +201,8 @@ class VersionBuilder::Rep {
 
     auto base_it = base_blob_files.find(blob_file_number);
     if (base_it != base_blob_files.end()) {
-      const auto& meta = base_it->second;
-      assert(meta);
-      assert(meta->GetSharedMeta());
+      assert(base_it->second);
+      assert(base_it->second->GetSharedMeta());
 
       return true;
     }
