@@ -105,7 +105,7 @@ class BlockBasedTableReaderTest
     std::string path = Path(filename);
     EnvOptions env_options;
     std::unique_ptr<WritableFile> file;
-    ASSERT_OK(env_->NewWritableFile(path, &file, env_options));
+    ASSERT_OK(fs_->NewWritableFile(path, &file, env_options));
     writer->reset(new WritableFileWriter(
         NewLegacyWritableFileWrapper(std::move(file)), path, env_options));
   }

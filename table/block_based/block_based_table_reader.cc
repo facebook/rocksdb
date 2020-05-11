@@ -1640,7 +1640,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     // We don't combine block reads here in direct IO mode, because when doing
     // direct IO read, the block requests will be realigned and merged when
     // necessary.
-    if (scratch != nullptr && prev_end == handle.offset()) {
+    if (use_shared_buffer && !file->use_direct_io() &&
+        prev_end == handle.offset()) {
       req_offset_for_block.emplace_back(prev_len);
       prev_len += block_size(handle);
     } else {
@@ -1652,11 +1653,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         req.len = prev_len;
         if (file->use_direct_io()) {
           req.scratch = nullptr;
-        } else if (scratch == nullptr) {
-          req.scratch = new char[req.len];
-        } else {
+        } else if (use_shared_buffer) {
           req.scratch = scratch + buf_offset;
           buf_offset += req.len;
+        } else {
+          req.scratch = new char[req.len];
         }
         read_reqs.emplace_back(req);
       }
@@ -1675,10 +1676,10 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     req.len = prev_len;
     if (file->use_direct_io()) {
       req.scratch = nullptr;
-    } else if (scratch == nullptr) {
-      req.scratch = new char[req.len];
-    } else {
+    } else if (use_shared_buffer) {
       req.scratch = scratch + buf_offset;
+    } else {
+      req.scratch = new char[req.len];
     }
     read_reqs.emplace_back(req);
   }
