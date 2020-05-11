@@ -1135,7 +1135,7 @@ Status GetTableFactoryFromMap(
       return s;
     }
     table_factory->reset(new BlockBasedTableFactory(bbt_opt));
-    return Status::OK();
+    return s;
   } else if (factory_name == PlainTableFactory().Name()) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(config_options, PlainTableOptions(),
@@ -1144,12 +1144,12 @@ Status GetTableFactoryFromMap(
       return s;
     }
     table_factory->reset(new PlainTableFactory(pt_opt));
-    return Status::OK();
+    return s;
   }
   // Return OK for not supported table factories as TableFactory
   // Deserialization is optional.
   table_factory->reset();
-  return Status::OK();
+  return s;
 }
 
 std::unordered_map<std::string, EncodingType>
@@ -1306,9 +1306,9 @@ Status OptionTypeInfo::SerializeOption(const ConfigOptions& config_options,
   // we skip it in the serialization.
   Status s;
   if (opt_addr == nullptr || IsDeprecated()) {
-    return Status::OK();
+    s = Status::OK();
   } else if (string_func != nullptr) {
-    return string_func(config_options, opt_name, opt_addr, opt_value);
+    s = string_func(config_options, opt_name, opt_addr, opt_value);
   } else if (SerializeSingleOptionHelper(opt_addr, type, opt_value)) {
     s = Status::OK();
   } else {

@@ -594,14 +594,17 @@ inline std::string EncodeInt(uint64_t x) {
                                 const std::string& content) {
       std::unique_ptr<WritableFile> r;
       auto s = NewWritableFile(file_name, &r, EnvOptions());
-      if (!s.ok()) {
-        return s;
+      if (s.ok()) {
+        s = r->Append(content);
       }
-      r->Append(content);
-      r->Flush();
-      r->Close();
-      assert(files_[file_name] == content);
-      return Status::OK();
+      if (s.ok()) {
+        s = r->Flush();
+      }
+      if (s.ok()) {
+        s = r->Close();
+      }
+      assert(!s.ok() || files_[file_name] == content);
+      return s;
     }
 
     // The following text is boilerplate that forwards all methods to target()

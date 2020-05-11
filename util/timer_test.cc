@@ -115,7 +115,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   ASSERT_EQ(5, count2);
 }
 
-TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
+TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 5;
   uint64_t time_counter = 0;
@@ -153,7 +153,7 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
   ASSERT_EQ(5, count);
 }
 
-TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
+TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   uint64_t time_counter = 0;
   mock_env_->set_current_time(0);

@@ -75,55 +75,68 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
 
   std::string options_file_content;
 
-  writable->Append(option_file_header + "[" +
-                   opt_section_titles[kOptionSectionVersion] +
-                   "]\n"
-                   "  rocksdb_version=" +
-                   ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) +
-                   "." + ToString(ROCKSDB_PATCH) + "\n");
-  writable->Append("  options_file_version=" +
-                   ToString(ROCKSDB_OPTION_FILE_MAJOR) + "." +
-                   ToString(ROCKSDB_OPTION_FILE_MINOR) + "\n");
-  writable->Append("\n[" + opt_section_titles[kOptionSectionDBOptions] +
-                   "]\n  ");
-
-  s = GetStringFromDBOptions(config_options, db_opt, &options_file_content);
-  if (!s.ok()) {
-    writable->Close();
-    return s;
+  s = writable->Append(option_file_header + "[" +
+                       opt_section_titles[kOptionSectionVersion] +
+                       "]\n"
+                       "  rocksdb_version=" +
+                       ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) +
+                       "." + ToString(ROCKSDB_PATCH) + "\n");
+  if (s.ok()) {
+    s = writable->Append(
+        "  options_file_version=" + ToString(ROCKSDB_OPTION_FILE_MAJOR) + "." +
+        ToString(ROCKSDB_OPTION_FILE_MINOR) + "\n");
   }
-  writable->Append(options_file_content + "\n");
+  if (s.ok()) {
+    s = writable->Append("\n[" + opt_section_titles[kOptionSectionDBOptions] +
+                         "]\n  ");
+  }
 
-  for (size_t i = 0; i < cf_opts.size(); ++i) {
+  if (s.ok()) {
+    s = GetStringFromDBOptions(config_options, db_opt, &options_file_content);
+  }
+  if (s.ok()) {
+    s = writable->Append(options_file_content + "\n");
+  }
+
+  for (size_t i = 0; s.ok() && i < cf_opts.size(); ++i) {
     // CFOptions section
-    writable->Append("\n[" + opt_section_titles[kOptionSectionCFOptions] +
-                     " \"" + EscapeOptionString(cf_names[i]) + "\"]\n  ");
-    s = GetStringFromColumnFamilyOptions(config_options, cf_opts[i],
-                                         &options_file_content);
-    if (!s.ok()) {
-      writable->Close();
-      return s;
+    s = writable->Append("\n[" + opt_section_titles[kOptionSectionCFOptions] +
+                         " \"" + EscapeOptionString(cf_names[i]) + "\"]\n  ");
+    if (s.ok()) {
+      s = GetStringFromColumnFamilyOptions(config_options, cf_opts[i],
+                                           &options_file_content);
     }
-    writable->Append(options_file_content + "\n");
+    if (s.ok()) {
+      s = writable->Append(options_file_content + "\n");
+    }
     // TableOptions section
     auto* tf = cf_opts[i].table_factory.get();
     if (tf != nullptr) {
-      writable->Append("[" + opt_section_titles[kOptionSectionTableOptions] +
-                       tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
-                       "\"]\n  ");
-      options_file_content.clear();
-      s = tf->GetOptionString(config_options, &options_file_content);
-      if (!s.ok()) {
-        return s;
+      if (s.ok()) {
+        s = writable->Append(
+            "[" + opt_section_titles[kOptionSectionTableOptions] + tf->Name() +
+            " \"" + EscapeOptionString(cf_names[i]) + "\"]\n  ");
       }
-      writable->Append(options_file_content + "\n");
+      if (s.ok()) {
+        options_file_content.clear();
+        s = tf->GetOptionString(config_options, &options_file_content);
+      }
+      if (s.ok()) {
+        s = writable->Append(options_file_content + "\n");
+      }
     }
   }
-  writable->Sync(true /* use_fsync */);
-  writable->Close();
-
-  return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-      config_options, db_opt, cf_names, cf_opts, file_name, fs);
+  if (s.ok()) {
+    s = writable->Sync(true /* use_fsync */);
+  }
+  if (s.ok()) {
+    s = writable->Close();
+  }
+  if (s.ok()) {
+    return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+        config_options, db_opt, cf_names, cf_opts, file_name, fs);
+  }
+  return s;
 }
 
 RocksDBOptionsParser::RocksDBOptionsParser() { Reset(); }
@@ -464,7 +477,7 @@ Status RocksDBOptionsParser::EndSection(
       }
     }
   }
-  return Status::OK();
+  return s;
 }
 
 Status RocksDBOptionsParser::ValidityCheck() {
@@ -609,15 +622,35 @@ Status RocksDBOptionsParser::VerifyDBOptions(
         char buffer[kBufferSize];
         std::string base_value;
         std::string file_value;
-        opt_info.SerializeOption(config_options, pair.first, base_addr,
-                                 &base_value);
-        opt_info.SerializeOption(config_options, pair.first, file_addr,
-                                 &file_value);
+        int offset =
+            snprintf(buffer, sizeof(buffer),
+                     "[RocksDBOptionsParser]: "
+                     "failed the verification on ColumnFamilyOptions::%s",
+                     pair.first.c_str());
+        Status s = opt_info.SerializeOption(config_options, pair.first,
+                                            base_addr, &base_value);
+        if (s.ok()) {
+          s = opt_info.SerializeOption(config_options, pair.first, file_addr,
+                                       &file_value);
+        }
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
                  "failed the verification on DBOptions::%s --- "
                  "The specified one is %s while the persisted one is %s.\n",
                  pair.first.c_str(), base_value.c_str(), file_value.c_str());
+        assert(offset >= 0);
+        assert(static_cast<size_t>(offset) < sizeof(buffer));
+        if (s.ok()) {
+          snprintf(
+              buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
+              "--- The specified one is %s while the persisted one is %s.\n",
+              base_value.c_str(), file_value.c_str());
+        } else {
+          snprintf(buffer + offset,
+                   sizeof(buffer) - static_cast<size_t>(offset),
+                   "--- Unable to re-serialize an option: %s.\n",
+                   s.ToString().c_str());
+        }
         return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
       }
     }
@@ -659,15 +692,30 @@ Status RocksDBOptionsParser::VerifyCFOptions(
         char buffer[kBufferSize];
         std::string base_value;
         std::string file_value;
-        opt_info.SerializeOption(config_options, pair.first, base_addr,
-                                 &base_value);
-        opt_info.SerializeOption(config_options, pair.first, file_addr,
-                                 &file_value);
-        snprintf(buffer, sizeof(buffer),
-                 "[RocksDBOptionsParser]: "
-                 "failed the verification on ColumnFamilyOptions::%s --- "
-                 "The specified one is %s while the persisted one is %s.\n",
-                 pair.first.c_str(), base_value.c_str(), file_value.c_str());
+        Status s = opt_info.SerializeOption(config_options, pair.first,
+                                            base_addr, &base_value);
+        if (s.ok()) {
+          s = opt_info.SerializeOption(config_options, pair.first, file_addr,
+                                       &file_value);
+        }
+        int offset =
+            snprintf(buffer, sizeof(buffer),
+                     "[RocksDBOptionsParser]: "
+                     "failed the verification on ColumnFamilyOptions::%s",
+                     pair.first.c_str());
+        assert(offset >= 0);
+        assert(static_cast<size_t>(offset) < sizeof(buffer));
+        if (s.ok()) {
+          snprintf(
+              buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
+              "--- The specified one is %s while the persisted one is %s.\n",
+              base_value.c_str(), file_value.c_str());
+        } else {
+          snprintf(buffer + offset,
+                   sizeof(buffer) - static_cast<size_t>(offset),
+                   "--- Unable to re-serialize an option: %s.\n",
+                   s.ToString().c_str());
+        }
         return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
       }  // if (! matches)
     }    // CheckSanityLevel

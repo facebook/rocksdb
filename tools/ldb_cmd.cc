@@ -64,6 +64,8 @@ const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
+const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
+    "disable_consistency_checks";
 const std::string LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS =
     "ignore_unknown_options";
 const std::string LDBCommand::ARG_FROM = "from";
@@ -362,6 +364,8 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
+  force_consistency_checks_ =
+      !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
   config_options_.ignore_unknown_options =
       IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
@@ -527,6 +531,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FILE_SIZE,
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
+                                  ARG_DISABLE_CONSISTENCY_CHECKS,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -622,6 +627,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     }
   }
 
+  cf_opts->force_consistency_checks = force_consistency_checks_;
   if (use_table_options) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
@@ -2839,7 +2845,7 @@ CheckConsistencyCommand::CheckConsistencyCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
 
 void CheckConsistencyCommand::Help(std::string& ret) {
   ret.append("  ");
@@ -2848,19 +2854,13 @@ void CheckConsistencyCommand::Help(std::string& ret) {
 }
 
 void CheckConsistencyCommand::DoCommand() {
-  Options opt = PrepareOptionsForOpenDB();
-  opt.paranoid_checks = true;
-  if (!exec_state_.IsNotStarted()) {
-    return;
-  }
-  DB* db;
-  Status st = DB::OpenForReadOnly(opt, db_path_, &db, false);
-  delete db;
-  if (st.ok()) {
+  options_.paranoid_checks = true;
+  options_.num_levels = 64;
+  OpenDB();
+  if (exec_state_.IsSucceed() || exec_state_.IsNotStarted()) {
     fprintf(stdout, "OK\n");
-  } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
   }
+  CloseDB();
 }
 
 // ----------------------------------------------------------------------------

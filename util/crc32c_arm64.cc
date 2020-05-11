@@ -44,6 +44,13 @@ uint32_t crc32c_runtime_check(void) {
 #endif
 }
 
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("alignment")))
+#elif defined(__GNUC__)
+__attribute__((__no_sanitize_undefined__))
+#endif
+#endif
 uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
                              unsigned len) {
   const uint8_t *buf8;

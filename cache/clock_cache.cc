@@ -182,7 +182,7 @@ struct CacheHandle {
   void (*deleter)(const Slice&, void* value);
 
   // Flags and counters associated with the cache handle:
-  //   lowest bit: n-cache bit
+  //   lowest bit: in-cache bit
   //   second lowest bit: usage bit
   //   the rest bits: reference count
   // The handle is unused when flags equals to 0. The thread decreases the count

@@ -107,18 +107,32 @@ else()
     endif()
   endif()
 
-  # No config file for this
   if(WITH_GFLAGS)
-    find_package(gflags REQUIRED)
+    # Config with namespace available since gflags 2.2.2
+    option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
+    find_package(gflags CONFIG)
+    if(gflags_FOUND)
+      if(TARGET ${GFLAGS_TARGET})
+        # Config with GFLAGS_TARGET available since gflags 2.2.0
+        list(APPEND THIRDPARTY_LIBS ${GFLAGS_TARGET})
+      else()
+        # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
+        list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIBRARIES})
+      endif()
+    else()
+      find_package(gflags REQUIRED)
+      list(APPEND THIRDPARTY_LIBS gflags::gflags)
+    endif()
     add_definitions(-DGFLAGS=1)
-    include_directories(${gflags_INCLUDE_DIR})
-    list(APPEND THIRDPARTY_LIBS gflags::gflags)
   endif()
 
   if(WITH_SNAPPY)
-    find_package(snappy REQUIRED)
+    find_package(Snappy CONFIG)
+    if(NOT Snappy_FOUND)
+      find_package(Snappy REQUIRED)
+    endif()
     add_definitions(-DSNAPPY)
-    list(APPEND THIRDPARTY_LIBS snappy::snappy)
+    list(APPEND THIRDPARTY_LIBS Snappy::snappy)
   endif()
 
   if(WITH_ZLIB)

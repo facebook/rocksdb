@@ -44,7 +44,9 @@ default_params = {
     "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
-    "compression_parallel_threads": lambda: random.choice([1] * 9 + [4]),
+    # Disabled compression_parallel_threads as the feature is not stable
+    # lambda: random.choice([1] * 9 + [4])
+    "compression_parallel_threads": 1,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -422,6 +424,12 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params['ops_per_thread'],
                 "compaction_style": 1,
             }
+            # Single level universal has a lot of special logic. Ensure we cover
+            # it sometimes.
+            if random.randint(0, 1) == 1:
+                additional_opts.update({
+                    "num_levels": 1,
+                })
         elif check_mode == 2:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction

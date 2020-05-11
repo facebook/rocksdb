@@ -425,6 +425,9 @@ Status DBImpl::Recover(
     s = versions_->TryRecover(column_families, read_only, &db_id_,
                               &missing_table_file);
     if (s.ok()) {
+      // TryRecover may delete previous column_family_set_.
+      column_family_memtables_.reset(
+          new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
       s = FinishBestEffortsRecovery();
     }
   }
