@@ -1393,8 +1393,8 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
           "[cloud_env_impl] SanitizeDirectory info.  "
           " No destination bucket specified and options.keep_local_sst_files "
           "is false. Existing sst files from src bucket %s will not be "
-	  " downloaded into local dir but newly created sst files will "
-	  " remain in local dir %s",
+          " downloaded into local dir but newly created sst files will "
+          " remain in local dir %s",
           GetSrcObjectPath().c_str(), local_name.c_str());
     }
   }
