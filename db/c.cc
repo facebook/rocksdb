@@ -4456,6 +4456,10 @@ void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
   delete usage;
 }
 
+void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
+  CancelAllBackgroundWork(db->rep, wait);
+}
+
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE
