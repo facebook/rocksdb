@@ -1085,7 +1085,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobs) {
+TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
   // Initialize base version. Table files 1..10 are linked to blob files 1..5,
   // while table files 11..20 are not linked to any blob files.
 
