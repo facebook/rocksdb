@@ -27,6 +27,8 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                                     AlignedBuf* aligned_buf,
                                     bool for_compaction) const {
   (void)aligned_buf;
+
+  TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
   Status s;
   uint64_t elapsed = 0;
   {
