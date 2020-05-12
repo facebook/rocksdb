@@ -105,10 +105,9 @@ class BlockBasedTableReaderTest
     std::string path = Path(filename);
     EnvOptions env_options;
     FileOptions foptions;
-    std::unique_ptr<WritableFile> file;
+    std::unique_ptr<FSWritableFile> file;
     ASSERT_OK(fs_->NewWritableFile(path, foptions, &file, nullptr));
-    writer->reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), path, env_options));
+    writer->reset(new WritableFileWriter(std::move(file), path, env_options));
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
@@ -129,14 +128,30 @@ class BlockBasedTableReaderTest
 // The keys should be in cache after MultiGet.
 TEST_P(BlockBasedTableReaderTest, MultiGet) {
   // Prepare key-value pairs to occupy multiple blocks.
-  Random rnd(101);
+  // Each value is 256B, every 16 pairs constitute 1 block.
+  // Adjacent blocks contain values with different compression complexity:
+  // human readable strings are easier to compress than random strings.
   std::map<std::string, std::string> kv;
-  for (int i = 0; i < 4096; i++) {
-    char key[9] = {0};
-    sprintf(key, "%08d", i);
-    std::string k(key);
-    std::string v = test::RandomHumanReadableString(&rnd, rand() % 1024);
-    kv[k] = v;
+  {
+    Random rnd(101);
+    size_t key = 0;
+    for (int block = 0; block < 100; block++) {
+      for (int i = 0; i < 16; i++) {
+        char k[9] = {0};
+        // Internal key is constructed directly from this key,
+        // and internal key size is required to be >= 8 bytes,
+        // so use %08lu as the format string.
+        sprintf(k, "%08lu", key);
+        std::string v;
+        if (block % 2) {
+          v = test::RandomHumanReadableString(&rnd, 256);
+        } else {
+          test::RandomString(&rnd, 256, &v);
+        }
+        kv[std::string(k)] = v;
+        key++;
+      }
+    }
   }
 
   // Prepare keys, values, and statuses for MultiGet.
