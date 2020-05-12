@@ -109,42 +109,57 @@ bool CompressBlockInternal(const Slice& raw,
                            const CompressionInfo& compression_info,
                            uint32_t format_version,
                            std::string* compressed_output) {
+  bool ret;
+
   // Will return compressed block contents if (1) the compression method is
   // supported in this platform and (2) the compression rate is "good enough".
   switch (compression_info.type()) {
     case kSnappyCompression:
-      return Snappy_Compress(compression_info, raw.data(), raw.size(),
-                             compressed_output);
+      ret = Snappy_Compress(compression_info, raw.data(), raw.size(),
+                            compressed_output);
+      break;
     case kZlibCompression:
-      return Zlib_Compress(
+      ret = Zlib_Compress(
           compression_info,
           GetCompressFormatForVersion(kZlibCompression, format_version),
           raw.data(), raw.size(), compressed_output);
+      break;
     case kBZip2Compression:
-      return BZip2_Compress(
+      ret = BZip2_Compress(
           compression_info,
           GetCompressFormatForVersion(kBZip2Compression, format_version),
           raw.data(), raw.size(), compressed_output);
+      break;
     case kLZ4Compression:
-      return LZ4_Compress(
+      ret = LZ4_Compress(
           compression_info,
           GetCompressFormatForVersion(kLZ4Compression, format_version),
           raw.data(), raw.size(), compressed_output);
+      break;
     case kLZ4HCCompression:
-      return LZ4HC_Compress(
+      ret = LZ4HC_Compress(
           compression_info,
           GetCompressFormatForVersion(kLZ4HCCompression, format_version),
           raw.data(), raw.size(), compressed_output);
+      break;
     case kXpressCompression:
-      return XPRESS_Compress(raw.data(), raw.size(), compressed_output);
+      ret = XPRESS_Compress(raw.data(), raw.size(), compressed_output);
+      break;
     case kZSTD:
     case kZSTDNotFinalCompression:
-      return ZSTD_Compress(compression_info, raw.data(), raw.size(),
-                           compressed_output);
+      ret = ZSTD_Compress(compression_info, raw.data(), raw.size(),
+                          compressed_output);
+      break;
     default:
       // Do not recognize this compression type
-      return false;
+      ret = false;
   }
+
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
+      static_cast<void*>(&ret));
+
+  return ret;
 }
 
 }  // namespace
@@ -512,8 +527,7 @@ struct BlockBasedTableBuilder::Rep {
             _moptions.prefix_extractor != nullptr));
     if (table_options.verify_compression) {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
-        verify_ctxs[i].reset(new UncompressionContext(
-            UncompressionContext::NoCache(), compression_type));
+        verify_ctxs[i].reset(new UncompressionContext(compression_type));
       }
     }
   }
@@ -568,6 +582,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
   // block_rep_pool during parallel compression.
   struct BlockRep {
     Slice contents;
+    Slice compressed_contents;
     std::unique_ptr<std::string> data;
     std::unique_ptr<std::string> compressed_data;
     CompressionType compression_type;
@@ -656,6 +671,7 @@ struct BlockBasedTableBuilder::ParallelCompressionRep {
         finished(false) {
     for (uint32_t i = 0; i < parallel_threads; i++) {
       block_rep_buf[i].contents = Slice();
+      block_rep_buf[i].compressed_contents = Slice();
       block_rep_buf[i].data.reset(new std::string());
       block_rep_buf[i].compressed_data.reset(new std::string());
       block_rep_buf[i].compression_type = CompressionType();
@@ -943,8 +959,8 @@ void BlockBasedTableBuilder::BGWorkCompression(
     CompressAndVerifyBlock(block_rep->contents, true, /* is_data_block*/
                            compression_ctx, verify_ctx,
                            block_rep->compressed_data.get(),
-                           &block_rep->contents, &(block_rep->compression_type),
-                           &block_rep->status);
+                           &block_rep->compressed_contents,
+                           &(block_rep->compression_type), &block_rep->status);
     block_rep->slot->Fill(block_rep);
   }
 }
@@ -1024,7 +1040,8 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
         }
       } else {
         // Decompression reported an error. abort.
-        *out_status = Status::Corruption("Could not decompress");
+        *out_status = Status::Corruption(std::string("Could not decompress: ") +
+                                         stat.getState());
         abort_compression = true;
       }
     }
@@ -1153,6 +1170,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
           uint64_t new_blocks_inflight = r->pc_rep->blocks_inflight.fetch_sub(
                                              1, std::memory_order_relaxed) -
                                          1;
+          assert(new_blocks_inflight < r->compression_opts.parallel_threads);
           r->pc_rep->estimated_file_size.store(
               r->get_offset() +
                   static_cast<uint64_t>(
@@ -1183,6 +1201,17 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
     slot->Take(block_rep);
     if (!block_rep->status.ok()) {
       r->SetStatus(block_rep->status);
+      // Return block_rep to the pool so that blocked Flush() can finish
+      // if there is one, and Flush() will notice !ok() next time.
+      block_rep->status = Status::OK();
+      block_rep->compressed_data->clear();
+      r->pc_rep->block_rep_pool.push(block_rep);
+      // Unlock first block if necessary.
+      if (r->pc_rep->first_block) {
+        std::lock_guard<std::mutex> lock(r->pc_rep->first_block_mutex);
+        r->pc_rep->first_block = false;
+        r->pc_rep->first_block_cond.notify_one();
+      }
       break;
     }
 
@@ -1197,7 +1226,7 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
     }
 
     r->pc_rep->raw_bytes_curr_block = block_rep->data->size();
-    WriteRawBlock(block_rep->contents, block_rep->compression_type,
+    WriteRawBlock(block_rep->compressed_contents, block_rep->compression_type,
                   &r->pending_handle, true /* is_data_block*/);
     if (!ok()) {
       break;
@@ -1569,8 +1598,33 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
         block_rep->first_key_in_next_block->assign(
             r->data_block_and_keys_buffers[i + 1].second.front());
       } else {
-        block_rep->first_key_in_next_block.reset(nullptr);
+        if (r->first_key_in_next_block == nullptr) {
+          block_rep->first_key_in_next_block.reset(nullptr);
+        } else {
+          block_rep->first_key_in_next_block->assign(
+              r->first_key_in_next_block->data(),
+              r->first_key_in_next_block->size());
+        }
       }
+
+      uint64_t new_raw_bytes_inflight =
+          r->pc_rep->raw_bytes_inflight.fetch_add(block_rep->data->size(),
+                                                  std::memory_order_relaxed) +
+          block_rep->data->size();
+      uint64_t new_blocks_inflight =
+          r->pc_rep->blocks_inflight.fetch_add(1, std::memory_order_relaxed) +
+          1;
+      r->pc_rep->estimated_file_size.store(
+          r->get_offset() +
+              static_cast<uint64_t>(
+                  static_cast<double>(new_raw_bytes_inflight) *
+                  r->pc_rep->curr_compression_ratio.load(
+                      std::memory_order_relaxed)) +
+              new_blocks_inflight * kBlockTrailerSize,
+          std::memory_order_relaxed);
+
+      // Read out first_block here to avoid data race with BGWorkWriteRawBlock
+      bool first_block = r->pc_rep->first_block;
 
       assert(block_rep->status.ok());
       if (!r->pc_rep->write_queue.push(block_rep->slot.get())) {
@@ -1578,6 +1632,12 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
       }
       if (!r->pc_rep->compress_queue.push(block_rep)) {
         return;
+      }
+
+      if (first_block) {
+        std::unique_lock<std::mutex> lock(r->pc_rep->first_block_mutex);
+        r->pc_rep->first_block_cond.wait(
+            lock, [r] { return !r->pc_rep->first_block; });
       }
     } else {
       for (const auto& key : keys) {
