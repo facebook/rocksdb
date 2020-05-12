@@ -1172,7 +1172,12 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobs) {
   // Delete a file that does not reference any blob files.
   edit.DeleteFile(/* level */ 1, /* file_number */ 16);
 
-  // Trivially move a file that references a blob file.
+  // Trivially move a file that references a blob file. Note that we save
+  // the original BlobFileMetaData object so we can check that no new object
+  // gets created.
+  auto meta3 =
+      GetBlobFileMetaData(vstorage_.GetBlobFiles(), /* blob_file_number */ 3);
+
   edit.DeleteFile(/* level */ 1, /* file_number */ 3);
   edit.AddFile(/* level */ 2, /* file_number */ 3, /* path_id */ 0,
                /* file_size */ 100, /* smallest */ GetInternalKey("03", 300),
@@ -1223,6 +1228,10 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobs) {
       ASSERT_NE(meta, nullptr);
       ASSERT_EQ(meta->GetLinkedSsts(), expected_linked_ssts[i]);
     }
+
+    // Make sure that no new BlobFileMetaData got created for the blob file
+    // affected by the trivial move.
+    ASSERT_EQ(GetBlobFileMetaData(blob_files, /* blob_file_number */ 3), meta3);
   }
 
   UnrefFilesInVersion(&new_vstorage);
