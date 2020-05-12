@@ -1199,6 +1199,22 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobs) {
                kUnknownFileCreationTime, kUnknownFileChecksum,
                kUnknownFileChecksumFuncName);
 
+  // Add one more SST file that references a blob file, then promptly
+  // delete it in a second version edit before the new version gets saved.
+  // This file should not show up as linked to the blob file in the new version.
+  edit.AddFile(/* level */ 1, /* file_number */ 23, /* path_id */ 0,
+               /* file_size */ 100, /* smallest */ GetInternalKey("23", 2300),
+               /* largest */ GetInternalKey("23", 2300),
+               /* smallest_seqno */ 2300,
+               /* largest_seqno */ 2300, /* marked_for_compaction */ false,
+               /* oldest_blob_file_number */ 5, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName);
+
+  VersionEdit edit2;
+
+  edit2.DeleteFile(/* level */ 1, /* file_number */ 23);
+
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
   constexpr VersionSet* version_set = nullptr;
@@ -1207,6 +1223,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobs) {
                          version_set);
 
   ASSERT_OK(builder.Apply(&edit));
+  ASSERT_OK(builder.Apply(&edit2));
 
   constexpr bool force_consistency_checks = true;
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
