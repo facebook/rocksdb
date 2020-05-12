@@ -100,7 +100,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   FilePrefetchBuffer prefetch_buffer(nullptr, 0, 0, true /* enable */,
                                      false /* track_min_offset */);
-  const uint64_t kSstDumpTailPrefetchSize = 2 * 1024 * 1024;
+  const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
   uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
                                ? kSstDumpTailPrefetchSize
                                : file_size;
@@ -338,8 +338,9 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
   if (table_magic_number == kBlockBasedTableMagicNumber ||
       table_magic_number == kLegacyBlockBasedTableMagicNumber) {
     BlockBasedTableFactory* bbtf = new BlockBasedTableFactory();
-    // To force tail prefetching, we directly tail tail prefetching to
-    // read 512KB blocks.
+    // To force tail prefetching, we fake reporting two useful reads of 512KB
+    // from the tail.
+    // It needs at least two data points to warm up the stats.
     bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
     bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
 
