@@ -96,6 +96,23 @@ class VersionBuilderTest : public testing::Test {
     vstorage_.AddBlobFile(std::move(meta));
   }
 
+  void AddDummyFile(uint64_t table_file_number, uint64_t blob_file_number) {
+    constexpr int level = 0;
+    constexpr char smallest[] = "bar";
+    constexpr char largest[] = "foo";
+    constexpr uint64_t file_size = 100;
+    constexpr uint32_t path_id = 0;
+    constexpr SequenceNumber smallest_seq = 0;
+    constexpr SequenceNumber largest_seq = 0;
+    constexpr uint64_t num_entries = 0;
+    constexpr uint64_t num_deletions = 0;
+    constexpr bool sampled = false;
+
+    Add(level, table_file_number, smallest, largest, file_size, path_id,
+        smallest_seq, largest_seq, num_entries, num_deletions, sampled,
+        smallest_seq, largest_seq, blob_file_number);
+  }
+
   void AddDummyFileToEdit(VersionEdit* edit, uint64_t table_file_number,
                           uint64_t blob_file_number) {
     assert(edit);
@@ -648,7 +665,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
 
-  // Dummy table file to ensure the blob file is referenced
+  // Add dummy table file to ensure the blob file is referenced.
   constexpr uint64_t table_file_number = 1;
   AddDummyFileToEdit(&edit, table_file_number, blob_file_number);
 
@@ -741,6 +758,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   // Increase the amount of garbage for a blob file present in the base version.
 
+  constexpr uint64_t table_file_number = 1;
   constexpr uint64_t blob_file_number = 1234;
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
@@ -750,12 +768,15 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   constexpr uint64_t garbage_blob_bytes = 456789;
 
   AddBlob(blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
-          checksum_value, BlobFileMetaData::LinkedSsts(), garbage_blob_count,
-          garbage_blob_bytes);
+          checksum_value, BlobFileMetaData::LinkedSsts{table_file_number},
+          garbage_blob_count, garbage_blob_bytes);
 
   const auto meta =
       GetBlobFileMetaData(vstorage_.GetBlobFiles(), blob_file_number);
   ASSERT_NE(meta, nullptr);
+
+  // Add dummy table file to ensure the blob file is referenced.
+  AddDummyFile(table_file_number, blob_file_number);
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -793,7 +814,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
-  ASSERT_TRUE(new_meta->GetLinkedSsts().empty());
+  ASSERT_EQ(new_meta->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(),
             garbage_blob_count + new_garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(),
@@ -821,7 +843,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   addition.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                        checksum_method, checksum_value);
 
-  // Dummy table file to ensure the blob file is referenced
+  // Add dummy table file to ensure the blob file is referenced.
   constexpr uint64_t table_file_number = 1;
   AddDummyFileToEdit(&addition, table_file_number, blob_file_number);
 
@@ -888,7 +910,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
 
 TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   // Add three blob files to base version.
-  for (uint64_t i = 1; i <= 3; ++i) {
+  for (uint64_t i = 3; i >= 1; --i) {
+    const uint64_t table_file_number = i;
     const uint64_t blob_file_number = i;
     const uint64_t total_blob_count = i * 1000;
     const uint64_t total_blob_bytes = i * 1000000;
@@ -897,8 +920,12 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
 
     AddBlob(blob_file_number, total_blob_count, total_blob_bytes,
             /* checksum_method */ std::string(),
-            /* checksum_value */ std::string(), BlobFileMetaData::LinkedSsts(),
-            garbage_blob_count, garbage_blob_bytes);
+            /* checksum_value */ std::string(),
+            BlobFileMetaData::LinkedSsts{table_file_number}, garbage_blob_count,
+            garbage_blob_bytes);
+
+    // Add dummy table file to ensure the blob file is referenced.
+    AddDummyFile(table_file_number, blob_file_number);
   }
 
   EnvOptions env_options;
