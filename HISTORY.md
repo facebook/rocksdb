@@ -27,6 +27,7 @@
 * Add NewFileChecksumGenCrc32cFactory to the file checksum public API, such that the builtin Crc32c based file checksum generator factory can be used by applications.
 * Add IsDirectory to Env and FS to indicate if a path is a directory.
 * ldb now uses options.force_consistency_checks = true by default and "--disable_consistency_checks" is added to disable it.
+* Add ReadOptions::deadline to allow users to specify a deadline for MultiGet requests
 
 ### New Features
 * Added support for pipelined & parallel compression optimization for `BlockBasedTableBuilder`. This optimization makes block building, block compression and block appending a pipeline, and uses multiple threads to accelerate block compression. Users can set `CompressionOptions::parallel_threads` greater than 1 to enable compression parallelism. This feature is experimental for now.
