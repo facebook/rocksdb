@@ -175,7 +175,7 @@ def generate_targets(repo_path, deps_map):
         + ["test_util/testutil.cc"],
         [":rocksdb_lib", ":rocksdb_test_lib"])
 
-    print("Extra dependencies:\n{0}".format(str(deps_map)))
+    print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
     # test for every test we found in the Makefile
     for target_alias, deps in deps_map.items():
         for test in sorted(tests):
@@ -196,8 +196,8 @@ def generate_targets(repo_path, deps_map):
                 test_target_name,
                 match_src[0],
                 is_parallel,
-                deps['extra_deps'],
-                deps['extra_compiler_flags'])
+                json.dumps(deps['extra_deps']),
+                json.dumps(deps['extra_compiler_flags']))
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
