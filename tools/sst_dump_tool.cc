@@ -44,17 +44,19 @@
 namespace ROCKSDB_NAMESPACE {
 
 SstFileDumper::SstFileDumper(const Options& options,
-                             const std::string& file_path, bool verify_checksum,
+                             const std::string& file_path,
+                             size_t readahead_size, bool verify_checksum,
                              bool output_hex, bool decode_blob_index)
     : file_name_(file_path),
       read_num_(0),
-      verify_checksum_(verify_checksum),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
+      read_options_(verify_checksum, false),
       internal_comparator_(BytewiseComparator()) {
+  read_options_.readahead_size = readahead_size;
   fprintf(stdout, "Process %s\n", file_path.c_str());
   init_result_ = GetTableReader(file_name_);
 }
@@ -96,9 +98,18 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   file_.reset(new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
                                          file_path));
 
+  FilePrefetchBuffer prefetch_buffer(nullptr, 0, 0, true /* enable */,
+                                     false /* track_min_offset */);
+  const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
+  uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
+                               ? kSstDumpTailPrefetchSize
+                               : file_size;
+  uint64_t prefetch_off = file_size - prefetch_size;
+  prefetch_buffer.Prefetch(file_.get(), prefetch_off,
+                           static_cast<size_t>(prefetch_size));
+
   if (s.ok()) {
-    s = ReadFooterFromFile(file_.get(), nullptr /* prefetch_buffer */,
-                           file_size, &footer);
+    s = ReadFooterFromFile(file_.get(), &prefetch_buffer, file_size, &footer);
   }
   if (s.ok()) {
     magic_number = footer.table_magic_number();
@@ -114,7 +125,11 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read
-    if (ReadTableProperties(magic_number, file_.get(), file_size).ok()) {
+    if (ReadTableProperties(magic_number, file_.get(), file_size,
+                            (magic_number == kBlockBasedTableMagicNumber)
+                                ? &prefetch_buffer
+                                : nullptr)
+            .ok()) {
       SetTableOptionsByMagicNumber(magic_number);
     } else {
       SetOldTableOptions();
@@ -132,8 +147,10 @@ Status SstFileDumper::NewTableReader(
     const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
-  auto t_opt = TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(),
-                                  soptions_, internal_comparator_);
+  auto t_opt =
+      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
+                         internal_comparator_, false /* skip_filters */,
+                         false /* imortal */, true /* force_direct_prefetch */);
   // Allow open file with global sequence number for backward compatibility.
   t_opt.largest_seqno = kMaxSequenceNumber;
 
@@ -152,7 +169,7 @@ Status SstFileDumper::NewTableReader(
 
 Status SstFileDumper::VerifyChecksum() {
   // We could pass specific readahead setting into read options if needed.
-  return table_reader_->VerifyChecksum(ReadOptions(),
+  return table_reader_->VerifyChecksum(read_options_,
                                        TableReaderCaller::kSSTDumpTool);
 }
 
@@ -184,7 +201,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
-      ReadOptions(), moptions_.prefix_extractor.get(), /*arena=*/nullptr,
+      read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kSSTDumpTool));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     table_builder->Add(iter->key(), iter->value());
@@ -234,7 +251,6 @@ int SstFileDumper::ShowCompressionSize(
     size_t block_size,
     CompressionType compress_type,
     const CompressionOptions& compress_opt) {
-  ReadOptions read_options;
   Options opts;
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.statistics->set_stats_level(StatsLevel::kAll);
@@ -301,10 +317,13 @@ int SstFileDumper::ShowCompressionSize(
 
 Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
-                                          uint64_t file_size) {
+                                          uint64_t file_size,
+                                          FilePrefetchBuffer* prefetch_buffer) {
   TableProperties* table_properties = nullptr;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties);
+      file, file_size, table_magic_number, ioptions_, &table_properties,
+      /* compression_type_missing= */ false,
+      /* memory_allocator= */ nullptr, prefetch_buffer);
   if (s.ok()) {
     table_properties_.reset(table_properties);
   } else {
@@ -318,8 +337,16 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
   assert(table_properties_);
   if (table_magic_number == kBlockBasedTableMagicNumber ||
       table_magic_number == kLegacyBlockBasedTableMagicNumber) {
-    options_.table_factory = std::make_shared<BlockBasedTableFactory>();
+    BlockBasedTableFactory* bbtf = new BlockBasedTableFactory();
+    // To force tail prefetching, we fake reporting two useful reads of 512KB
+    // from the tail.
+    // It needs at least two data points to warm up the stats.
+    bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
+    bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
+
+    options_.table_factory.reset(bbtf);
     fprintf(stdout, "Sst file format: block-based\n");
+
     auto& props = table_properties_->user_collected_properties;
     auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
     if (pos != props.end()) {
@@ -373,7 +400,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   }
 
   InternalIterator* iter = table_reader_->NewIterator(
-      ReadOptions(verify_checksum_, false), moptions_.prefix_extractor.get(),
+      read_options_, moptions_.prefix_extractor.get(),
       /*arena=*/nullptr, /*skip_filters=*/false,
       TableReaderCaller::kSSTDumpTool);
   uint64_t i = 0;
@@ -518,6 +545,24 @@ void print_help() {
 )");
 }
 
+// arg_name would include all prefix, e.g. "--my_arg="
+// arg_val is the parses value.
+// True if there is a match. False otherwise.
+// Woud exit after printing errmsg if cannot be parsed.
+bool ParseIntArg(const char* arg, const std::string arg_name,
+                 const std::string err_msg, int64_t* arg_val) {
+  if (strncmp(arg, arg_name.c_str(), arg_name.size()) == 0) {
+    std::string input_str = arg + arg_name.size();
+    std::istringstream iss(input_str);
+    iss >> *arg_val;
+    if (iss.fail()) {
+      fprintf(stderr, "%s\n", err_msg.c_str());
+      exit(1);
+    }
+    return true;
+  }
+  return false;
+}
 }  // namespace
 
 int SSTDumpTool::Run(int argc, char** argv, Options options) {
@@ -547,6 +592,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   std::string compression_level_from_str;
   std::string compression_level_to_str;
   size_t block_size = 0;
+  size_t readahead_size = 2 * 1024 * 1024;
   std::vector<std::pair<CompressionType, const char*>> compression_types;
   uint64_t total_num_files = 0;
   uint64_t total_num_data_blocks = 0;
@@ -555,6 +601,9 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   uint64_t total_filter_block_size = 0;
   int32_t compress_level_from = CompressionOptions::kDefaultCompressionLevel;
   int32_t compress_level_to = CompressionOptions::kDefaultCompressionLevel;
+
+  int64_t tmp_val;
+
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
       env_uri = argv[i] + 10;
@@ -586,15 +635,13 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       show_properties = true;
     } else if (strcmp(argv[i], "--show_summary") == 0) {
       show_summary = true;
-    } else if (strncmp(argv[i], "--set_block_size=", 17) == 0) {
+    } else if (ParseIntArg(argv[i], "--set_block_size=",
+                           "block size must be numeric", &tmp_val)) {
       set_block_size = true;
-      block_size_str = argv[i] + 17;
-      std::istringstream iss(block_size_str);
-      iss >> block_size;
-      if (iss.fail()) {
-        fprintf(stderr, "block size must be numeric\n");
-        exit(1);
-      }
+      block_size = static_cast<size_t>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--readahead_size=",
+                           "readahead_size must be numeric", &tmp_val)) {
+      readahead_size = static_cast<size_t>(tmp_val);
     } else if (strncmp(argv[i], "--compression_types=", 20) == 0) {
       std::string compression_types_csv = argv[i] + 20;
       std::istringstream iss(compression_types_csv);
@@ -633,25 +680,16 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       }
       fprintf(stdout, "key=%s\n", ikey.DebugString(true).c_str());
       return retc;
-    } else if (strncmp(argv[i], "--compression_level_from=", 25) == 0) {
-      compression_level_from_str = argv[i] + 25;
+    } else if (ParseIntArg(argv[i], "--compression_level_from=",
+                           "compression_level_from must be numeric",
+                           &tmp_val)) {
       has_compression_level_from = true;
-      std::istringstream iss(compression_level_from_str);
-      iss >> compress_level_from;
-      if (iss.fail()) {
-        fprintf(stderr, "compression_level_from must be numeric\n");
-        exit(1);
-      }
-    } else if (strncmp(argv[i], "--compression_level_to=", 22) == 0) {
-      compression_level_to_str = argv[i]+23 ;
+      compress_level_from = static_cast<int>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--compression_level_to=",
+                           "compression_level_to must be numeric", &tmp_val)) {
       has_compression_level_to = true;
-      std::istringstream iss(compression_level_to_str);
-      iss >> compress_level_to;
-      if (iss.fail()) {
-        fprintf(stderr, "compression_level_to must be numeric\n");
-        exit(1);
-      }
-    }else {
+      compress_level_to = static_cast<int>(tmp_val);
+    } else {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
       print_help();
       exit(1);
@@ -732,8 +770,9 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    ROCKSDB_NAMESPACE::SstFileDumper dumper(options, filename, verify_checksum,
-                                            output_hex, decode_blob_index);
+    ROCKSDB_NAMESPACE::SstFileDumper dumper(options, filename, readahead_size,
+                                            verify_checksum, output_hex,
+                                            decode_blob_index);
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());

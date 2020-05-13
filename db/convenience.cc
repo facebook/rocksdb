@@ -61,7 +61,8 @@ Status VerifySstFileChecksum(const Options& options,
   s = ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
                          internal_comparator, false /* skip_filters */,
-                         !kImmortal, -1 /* level */),
+                         !kImmortal, false /* force_direct_prefetch */,
+                         -1 /* level */),
       std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {

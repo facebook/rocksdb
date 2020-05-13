@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 class SstFileDumper {
  public:
   explicit SstFileDumper(const Options& options, const std::string& file_name,
-                         bool verify_checksum, bool output_hex,
-                         bool decode_blob_index);
+                         size_t readahead_size, bool verify_checksum,
+                         bool output_hex, bool decode_blob_index);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
@@ -51,7 +51,8 @@ class SstFileDumper {
   // Get the TableReader implementation for the sst file
   Status GetTableReader(const std::string& file_path);
   Status ReadTableProperties(uint64_t table_magic_number,
-                             RandomAccessFileReader* file, uint64_t file_size);
+                             RandomAccessFileReader* file, uint64_t file_size,
+                             FilePrefetchBuffer* prefetch_buffer);
 
   uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
                                         size_t block_size,
@@ -70,7 +71,6 @@ class SstFileDumper {
 
   std::string file_name_;
   uint64_t read_num_;
-  bool verify_checksum_;
   bool output_hex_;
   bool decode_blob_index_;
   EnvOptions soptions_;
@@ -85,6 +85,7 @@ class SstFileDumper {
 
   const ImmutableCFOptions ioptions_;
   const MutableCFOptions moptions_;
+  ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;
   std::unique_ptr<TableProperties> table_properties_;
 };

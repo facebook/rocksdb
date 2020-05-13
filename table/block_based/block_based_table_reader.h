@@ -85,6 +85,8 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block. Overrides
   //    prefetch_index_and_filter_in_cache, so filter will be skipped if both
   //    are set.
+  // @param force_direct_prefetch if true, always prefetching to RocksDB
+  //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
@@ -97,6 +99,7 @@ class BlockBasedTable : public TableReader {
                      bool skip_filters = false, int level = -1,
                      const bool immortal_table = false,
                      const SequenceNumber largest_seqno = 0,
+                     bool force_direct_prefetch = false,
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
                      BlockCacheTracer* const block_cache_tracer = nullptr);
 
@@ -393,10 +396,12 @@ class BlockBasedTable : public TableReader {
                               const SliceTransform* prefix_extractor,
                               BlockCacheLookupContext* lookup_context) const;
 
+  // If force_direct_prefetch is true, always prefetching to RocksDB
+  //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status PrefetchTail(
       RandomAccessFileReader* file, uint64_t file_size,
-      TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
-      const bool preload_all,
+      bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
+      const bool prefetch_all, const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
   Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,

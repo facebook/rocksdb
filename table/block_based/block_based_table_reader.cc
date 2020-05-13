@@ -609,7 +609,8 @@ Status BlockBasedTable::Open(
     const SliceTransform* prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
-    const SequenceNumber largest_seqno, TailPrefetchStats* tail_prefetch_stats,
+    const SequenceNumber largest_seqno, const bool force_direct_prefetch,
+    TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer) {
   table_reader->reset();
 
@@ -622,8 +623,9 @@ Status BlockBasedTable::Open(
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
   if (!ioptions.allow_mmap_reads) {
-    s = PrefetchTail(file.get(), file_size, tail_prefetch_stats, prefetch_all,
-                     preload_all, &prefetch_buffer);
+    s = PrefetchTail(file.get(), file_size, force_direct_prefetch,
+                     tail_prefetch_stats, prefetch_all, preload_all,
+                     &prefetch_buffer);
   } else {
     // Should not prefetch for mmap mode.
     prefetch_buffer.reset(new FilePrefetchBuffer(
@@ -724,8 +726,8 @@ Status BlockBasedTable::Open(
 
 Status BlockBasedTable::PrefetchTail(
     RandomAccessFileReader* file, uint64_t file_size,
-    TailPrefetchStats* tail_prefetch_stats, const bool prefetch_all,
-    const bool preload_all,
+    bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
+    const bool prefetch_all, const bool preload_all,
     std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer) {
   size_t tail_prefetch_size = 0;
   if (tail_prefetch_stats != nullptr) {
@@ -755,7 +757,7 @@ Status BlockBasedTable::PrefetchTail(
                            &tail_prefetch_size);
   Status s;
   // TODO should not have this special logic in the future.
-  if (!file->use_direct_io()) {
+  if (!file->use_direct_io() && !force_direct_prefetch) {
     prefetch_buffer->reset(new FilePrefetchBuffer(
         nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
     s = file->Prefetch(prefetch_off, prefetch_len);
@@ -767,7 +769,6 @@ Status BlockBasedTable::PrefetchTail(
 
   return s;
 }
-
 
 Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
     FilePrefetchBuffer* prefetch_buffer, const Slice& handle_value,
