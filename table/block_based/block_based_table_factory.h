@@ -73,6 +73,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   bool IsDeleteRangeSupported() const override { return true; }
 
+  TailPrefetchStats* tail_prefetch_stats() { return &tail_prefetch_stats_; }
+
   static const std::string kName;
 
  private:

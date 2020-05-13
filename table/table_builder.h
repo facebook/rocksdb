@@ -33,19 +33,20 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1,
+                     bool _force_direct_prefetch = false, int _level = -1,
                      BlockCacheTracer* const _block_cache_tracer = nullptr)
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
-                           _level, 0 /* _largest_seqno */,
-                           _block_cache_tracer) {}
+                           _force_direct_prefetch, _level,
+                           0 /* _largest_seqno */, _block_cache_tracer) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters, bool _immortal, int _level,
+                     bool _skip_filters, bool _immortal,
+                     bool _force_direct_prefetch, int _level,
                      SequenceNumber _largest_seqno,
                      BlockCacheTracer* const _block_cache_tracer)
       : ioptions(_ioptions),
@@ -54,6 +55,7 @@ struct TableReaderOptions {
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
         immortal(_immortal),
+        force_direct_prefetch(_force_direct_prefetch),
         level(_level),
         largest_seqno(_largest_seqno),
         block_cache_tracer(_block_cache_tracer) {}
@@ -66,6 +68,10 @@ struct TableReaderOptions {
   bool skip_filters;
   // Whether the table will be valid as long as the DB is open
   bool immortal;
+  // When data prefetching is needed, even if direct I/O is off, read data to
+  // fetch into RocksDB's buffer, rather than relying
+  // RandomAccessFile::Prefetch().
+  bool force_direct_prefetch;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
   // largest seqno in the table

@@ -1803,6 +1803,9 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*,
                                                  unsigned char);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_cancel_all_background_work(
+    rocksdb_t* db, unsigned char wait);
+
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif

@@ -1776,6 +1776,7 @@ TEST_F(CompactionPickerTest, IntraL0ForEarliestSeqno) {
   ASSERT_EQ(0, compaction->output_level());
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
   const uint64_t kFileSize = 100000;
 
@@ -1932,6 +1933,7 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
     DeleteVersionStorage();
   }
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

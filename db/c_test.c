@@ -1840,6 +1840,9 @@ int main(int argc, char** argv) {
     CheckNoError(err);
   }
 
+  StartPhase("cancel_all_background_work");
+  rocksdb_cancel_all_background_work(db, 1);
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);

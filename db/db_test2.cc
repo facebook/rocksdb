@@ -1268,6 +1268,146 @@ class CompactionCompressionListener : public EventListener {
   const Options* db_options_;
 };
 
+TEST_F(DBTest2, CompressionFailures) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_bytes_for_level_base = 1024;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 7;
+  options.max_background_compactions = 1;
+  options.target_file_size_base = 512;
+
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 512;
+  table_options.verify_compression = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  enum CompressionFailureType {
+    kTestCompressionFail,
+    kTestDecompressionFail,
+    kTestDecompressionCorruption
+  } curr_compression_failure_type;
+  std::vector<CompressionFailureType> compression_failure_types = {
+      kTestCompressionFail, kTestDecompressionFail,
+      kTestDecompressionCorruption};
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
+      [&curr_compression_failure_type](void* arg) {
+        bool* ret = static_cast<bool*>(arg);
+        if (curr_compression_failure_type == kTestCompressionFail) {
+          *ret = false;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
+      [&curr_compression_failure_type](void* arg) {
+        Status* ret = static_cast<Status*>(arg);
+        ASSERT_OK(*ret);
+        if (curr_compression_failure_type == kTestDecompressionFail) {
+          *ret = Status::Corruption("kTestDecompressionFail");
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UncompressBlockContentsForCompressionType:"
+      "TamperWithDecompressionOutput",
+      [&curr_compression_failure_type](void* arg) {
+        if (curr_compression_failure_type == kTestDecompressionCorruption) {
+          BlockContents* contents = static_cast<BlockContents*>(arg);
+          // Ensure uncompressed data != original data
+          std::unique_ptr<char[]> fake_data(
+              new char[contents->data.size() + 1]);
+          *contents =
+              BlockContents(std::move(fake_data), contents->data.size() + 1);
+        }
+      });
+
+  std::vector<CompressionType> compression_types = GetSupportedCompressions();
+  std::vector<uint32_t> compression_max_dict_bytes = {0, 10};
+  std::vector<uint32_t> compression_parallel_threads = {1, 4};
+
+  std::map<std::string, std::string> key_value_written;
+
+  const int kKeySize = 5;
+  const int kValUnitSize = 16;
+  const int kValSize = 256;
+  Random rnd(405);
+
+  Status s = Status::OK();
+
+  for (auto compression_failure_type : compression_failure_types) {
+    curr_compression_failure_type = compression_failure_type;
+    for (auto compression_type : compression_types) {
+      if (compression_type == kNoCompression) {
+        continue;
+      }
+      for (auto parallel_threads : compression_parallel_threads) {
+        for (auto max_dict_bytes : compression_max_dict_bytes) {
+          options.compression = compression_type;
+          options.compression_opts.parallel_threads = parallel_threads;
+          options.compression_opts.max_dict_bytes = max_dict_bytes;
+          options.bottommost_compression_opts.parallel_threads =
+              parallel_threads;
+          options.bottommost_compression_opts.max_dict_bytes = max_dict_bytes;
+
+          DestroyAndReopen(options);
+          // Write 10 random files
+          for (int i = 0; i < 10; i++) {
+            for (int j = 0; j < 5; j++) {
+              std::string key = RandomString(&rnd, kKeySize);
+              // Ensure good compression ratio
+              std::string valueUnit = RandomString(&rnd, kValUnitSize);
+              std::string value;
+              for (int k = 0; k < kValSize; k += kValUnitSize) {
+                value += valueUnit;
+              }
+              s = Put(key, value);
+              if (compression_failure_type == kTestCompressionFail) {
+                key_value_written[key] = value;
+                ASSERT_OK(s);
+              }
+            }
+            s = Flush();
+            if (compression_failure_type == kTestCompressionFail) {
+              ASSERT_OK(s);
+            }
+            s = dbfull()->TEST_WaitForCompact();
+            if (compression_failure_type == kTestCompressionFail) {
+              ASSERT_OK(s);
+            }
+            if (i == 4) {
+              // Make compression fail at the mid of table building
+              ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+            }
+          }
+          ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+          if (compression_failure_type == kTestCompressionFail) {
+            // Should be kNoCompression, check content consistency
+            std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
+            for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+              std::string key = db_iter->key().ToString();
+              std::string value = db_iter->value().ToString();
+              ASSERT_NE(key_value_written.find(key), key_value_written.end());
+              ASSERT_EQ(key_value_written[key], value);
+              key_value_written.erase(key);
+            }
+            ASSERT_EQ(0, key_value_written.size());
+          } else if (compression_failure_type == kTestDecompressionFail) {
+            ASSERT_EQ(std::string(s.getState()),
+                      "Could not decompress: kTestDecompressionFail");
+          } else if (compression_failure_type == kTestDecompressionCorruption) {
+            ASSERT_EQ(std::string(s.getState()),
+                      "Decompressed block did not match raw block");
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST_F(DBTest2, CompressionOptions) {
   if (!Zlib_Supported() || !Snappy_Supported()) {
     return;
