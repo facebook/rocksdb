@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/block_based_table_reader.h"
+
 #include "db/table_properties_collector.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -134,13 +135,13 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   std::map<std::string, std::string> kv;
   {
     Random rnd(101);
-    uint key = 0;
+    uint32_t key = 0;
     for (int block = 0; block < 100; block++) {
       for (int i = 0; i < 16; i++) {
         char k[9] = {0};
         // Internal key is constructed directly from this key,
         // and internal key size is required to be >= 8 bytes,
-        // so use %08lu as the format string.
+        // so use %08u as the format string.
         sprintf(k, "%08u", key);
         std::string v;
         if (block % 2) {
