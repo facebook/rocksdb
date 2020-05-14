@@ -181,8 +181,9 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   NewBlockBasedTableReader(foptions, table_name, &table);
 
   // Ensure that keys are not in cache before MultiGet.
+  ReadOptions roptions;
   for (auto& key : keys) {
-    ASSERT_FALSE(table->TEST_KeyInCache(ReadOptions(), key));
+    ASSERT_FALSE(table->TEST_KeyInCache(roptions, key));
   }
 
   // Prepare MultiGetContext.
