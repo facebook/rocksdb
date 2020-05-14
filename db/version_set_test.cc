@@ -1030,7 +1030,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
       std::move(first_shared_meta), BlobFileMetaData::LinkedSsts(),
       garbage_blob_count, garbage_blob_bytes);
 
-  first_storage_info->AddBlobFile(std::move(first_meta));
+  first_storage_info->AddBlobFile(first_meta);
 
   // Reference the version so it stays alive even after the following version
   // edit.
@@ -1045,7 +1045,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
   ASSERT_EQ(version_blob_files.size(), 1);
   ASSERT_EQ(version_blob_files[0], first_blob_file_number);
 
-  // Create a new version containing a different blob file.
+  // Create a new version containing an additional blob file.
   versions_->TEST_CreateAndAppendVersion(cfd);
 
   Version* const second_version = cfd->current();
@@ -1070,6 +1070,7 @@ TEST_F(VersionSetTest, AddLiveBlobFiles) {
       std::move(second_shared_meta), BlobFileMetaData::LinkedSsts(),
       garbage_blob_count, garbage_blob_bytes);
 
+  second_storage_info->AddBlobFile(std::move(first_meta));
   second_storage_info->AddBlobFile(std::move(second_meta));
 
   // Get all live files from version set. Note that the result contains
