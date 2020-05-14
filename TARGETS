@@ -109,6 +109,11 @@ ROCKSDB_OS_DEPS += ([(
     ["third-party//jemalloc:headers"],
 )] if sanitizer == "" else [])
 
+ROCKSDB_LIB_DEPS = [
+    ":rocksdb_lib",
+    ":rocksdb_test_lib",
+] if not is_opt_mode else [":rocksdb_lib"]
+
 cpp_library(
     name = "rocksdb_lib",
     srcs = [
@@ -437,10 +442,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [
-        ":rocksdb_lib",
-        ":rocksdb_test_lib",
-    ],
+    deps = ROCKSDB_LIB_DEPS,
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
