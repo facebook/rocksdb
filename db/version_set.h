@@ -1164,8 +1164,12 @@ class VersionSet {
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
 
-    Version* const version = new Version(cfd, this, file_options_,
-                                         *cfd->GetLatestMutableCFOptions());
+    const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+    Version* const version =
+        new Version(cfd, this, file_options_, mutable_cf_options);
+
+    constexpr bool update_stats = false;
+    version->PrepareApply(mutable_cf_options, update_stats);
     AppendVersion(cfd, version);
   }
 
