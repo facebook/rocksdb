@@ -67,6 +67,8 @@ class BlockBasedTableReaderTest
   }
 
   void NewBlockBasedTableReader(const FileOptions& foptions,
+                                const ImmutableCFOptions& ioptions,
+                                const InternalKeyComparator& comparator,
                                 const std::string& table_name,
                                 std::unique_ptr<BlockBasedTable>* table) {
     std::unique_ptr<RandomAccessFileReader> file;
@@ -75,9 +77,6 @@ class BlockBasedTableReaderTest
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
 
-    Options options;
-    ImmutableCFOptions ioptions(options);
-    InternalKeyComparator comparator(options.comparator);
     std::unique_ptr<TableReader> table_reader;
     ASSERT_OK(BlockBasedTable::Open(ioptions, EnvOptions(),
                                     table_factory_.table_options(), comparator,
@@ -176,14 +175,16 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   CreateTable(table_name, compression_type_, kv);
 
   std::unique_ptr<BlockBasedTable> table;
+  Options options;
+  ImmutableCFOptions ioptions(options);
   FileOptions foptions;
   foptions.use_direct_reads = use_direct_reads_;
-  NewBlockBasedTableReader(foptions, table_name, &table);
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
 
   // Ensure that keys are not in cache before MultiGet.
-  ReadOptions roptions;
   for (auto& key : keys) {
-    ASSERT_FALSE(table->TEST_KeyInCache(roptions, key));
+    ASSERT_FALSE(table->TEST_KeyInCache(ReadOptions(), key));
   }
 
   // Prepare MultiGetContext.
