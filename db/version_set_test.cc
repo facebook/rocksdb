@@ -911,7 +911,17 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
   // garbage in it, and one without any garbage.
   NewDB();
 
-  VersionEdit edit;
+  assert(versions_);
+  assert(versions_->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions_->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const version = cfd->current();
+  assert(version);
+
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
 
   {
     constexpr uint64_t blob_file_number = 123;
@@ -920,13 +930,19 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr char checksum_method[] = "SHA1";
     constexpr char checksum_value[] =
         "bdb7f34a59dfa1592ce7f52e99f98c570c525cbd";
+
+    auto shared_meta = SharedBlobFileMetaData::Create(
+        blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+        checksum_value);
+
     constexpr uint64_t garbage_blob_count = 89;
     constexpr uint64_t garbage_blob_bytes = 1000000;
 
-    edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
-                     checksum_method, checksum_value);
-    edit.AddBlobFileGarbage(blob_file_number, garbage_blob_count,
-                            garbage_blob_bytes);
+    auto meta = BlobFileMetaData::Create(
+        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+        garbage_blob_count, garbage_blob_bytes);
+
+    storage_info->AddBlobFile(std::move(meta));
   }
 
   {
@@ -936,20 +952,19 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
     constexpr char checksum_method[] = "CRC32";
     constexpr char checksum_value[] = "3d87ff57";
 
-    edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
-                     checksum_method, checksum_value);
+    auto shared_meta = SharedBlobFileMetaData::Create(
+        blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+        checksum_value);
+
+    constexpr uint64_t garbage_blob_count = 0;
+    constexpr uint64_t garbage_blob_bytes = 0;
+
+    auto meta = BlobFileMetaData::Create(
+        std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+        garbage_blob_count, garbage_blob_bytes);
+
+    storage_info->AddBlobFile(std::move(meta));
   }
-
-  assert(versions_);
-  assert(versions_->GetColumnFamilySet());
-
-  mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_);
-  mutex_.Unlock();
-
-  ASSERT_OK(s);
 
   // Force the creation of a new manifest file and make sure metadata for
   // the blob files is re-persisted.
@@ -969,9 +984,9 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
   mutex_.Lock();
   constexpr FSDirectory* db_directory = nullptr;
   constexpr bool new_descriptor_log = true;
-  s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &dummy, &mutex_, db_directory,
-                             new_descriptor_log);
+  Status s = versions_->LogAndApply(
+      versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+      &dummy, &mutex_, db_directory, new_descriptor_log);
   mutex_.Unlock();
 
   ASSERT_OK(s);
