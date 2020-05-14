@@ -940,13 +940,15 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   // Add some garbage to the second and third blob files. The second blob file
   // remains valid since it does not consist entirely of garbage yet. The third
   // blob file is all garbage after the edit and will not be part of the new
-  // version.
+  // version. The corresponding dummy table file is also removed for
+  // consistency.
   edit.AddBlobFileGarbage(/* blob_file_number */ 2,
                           /* garbage_blob_count */ 200,
                           /* garbage_blob_bytes */ 100000);
   edit.AddBlobFileGarbage(/* blob_file_number */ 3,
                           /* garbage_blob_count */ 2700,
                           /* garbage_blob_bytes */ 2940000);
+  edit.DeleteFile(/* level */ 0, /* file_number */ 3);
 
   // Add a fourth blob file.
   edit.AddBlobFile(/* blob_file_number */ 4, /* total_blob_count */ 4000,
