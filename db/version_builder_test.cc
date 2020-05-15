@@ -693,6 +693,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
             BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(), 0);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), 0);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
@@ -820,6 +822,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
             garbage_blob_count + new_garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(),
             garbage_blob_bytes + new_garbage_blob_bytes);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
@@ -881,6 +885,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
             BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(), garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
@@ -1017,6 +1023,9 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   const auto newer_meta1 = GetBlobFileMetaData(newer_blob_files, 1);
 
   ASSERT_EQ(newer_meta1, nullptr);
+
+  UnrefFilesInVersion(&newer_vstorage);
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
