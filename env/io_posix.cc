@@ -711,13 +711,19 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           // comment
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
-          Slice tmp_slice;
-          req->status =
-              Read(req->offset + req_wrap->finished_len,
-                   req->len - req_wrap->finished_len, options, &tmp_slice,
-                   req->scratch + req_wrap->finished_len, dbg);
-          req->result =
-              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          if (use_direct_io()) {
+            // offset must be aligned, so read from the original offset again.
+            req->status = Read(req->offset, req->len, options, &req->result,
+                               req->scratch, dbg);
+          } else {
+            Slice tmp_slice;
+            req->status =
+                Read(req->offset + req_wrap->finished_len,
+                     req->len - req_wrap->finished_len, options, &tmp_slice,
+                     req->scratch + req_wrap->finished_len, dbg);
+            req->result =
+                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          }
         } else if (bytes_read < req_wrap->iov.iov_len) {
           assert(bytes_read > 0);
           assert(bytes_read + req_wrap->finished_len < req->len);
