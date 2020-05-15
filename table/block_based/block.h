@@ -601,9 +601,16 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   std::unique_ptr<GlobalSeqnoState> global_seqno_state_;
 
-  bool PrefixSeek(const Slice& target, uint32_t* index);
+  // Set *prefix_may_exist to false if no key possibly share the same prefix
+  // as `target`. If not set, the result position should be the same as total
+  // order Seek.
+  bool PrefixSeek(const Slice& target, uint32_t* index, bool* prefix_may_exist);
+  // Set *prefix_may_exist to false if no key can possibly share the same
+  // prefix as `target`. If not set, the result position should be the same
+  // as total order seek.
   bool BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
-                            uint32_t left, uint32_t right, uint32_t* index);
+                            uint32_t left, uint32_t right, uint32_t* index,
+                            bool* prefix_may_exist);
   inline int CompareBlockKey(uint32_t block_index, const Slice& target);
 
   inline int Compare(const Slice& a, const Slice& b) const {
