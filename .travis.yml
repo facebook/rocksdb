@@ -269,7 +269,7 @@ script:
       OPT=-DTRAVIS V=1 make rocksdbjava jtest
       ;;
     lite_build)
-      OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 static_lib tools
+      OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 all
       ;;
     examples)
       OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
