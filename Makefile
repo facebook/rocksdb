@@ -539,6 +539,7 @@ TESTS = \
 	random_access_file_reader_test \
 	file_reader_writer_test \
 	block_based_filter_block_test \
+	block_based_table_reader_test \
 	full_filter_block_test \
 	partitioned_filter_block_test \
 	hash_table_test \
@@ -1566,6 +1567,9 @@ file_reader_writer_test: util/file_reader_writer_test.o $(LIBOBJECTS) $(TESTHARN
 	$(AM_LINK)
 
 block_based_filter_block_test: table/block_based/block_based_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 full_filter_block_test: table/block_based/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
