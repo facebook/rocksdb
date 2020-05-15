@@ -11,7 +11,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
 std::string kDBPath = "/tmp/rocksdb_transaction_example";
 

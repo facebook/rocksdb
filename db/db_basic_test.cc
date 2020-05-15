@@ -17,7 +17,7 @@
 #include "test_util/sync_point.h"
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
@@ -27,8 +27,8 @@ class DBBasicTest : public DBTestBase {
 TEST_F(DBBasicTest, OpenWhenOpen) {
   Options options = CurrentOptions();
   options.env = env_;
-  rocksdb::DB* db2 = nullptr;
-  rocksdb::Status s = DB::Open(options, dbname_, &db2);
+  ROCKSDB_NAMESPACE::DB* db2 = nullptr;
+  ROCKSDB_NAMESPACE::Status s = DB::Open(options, dbname_, &db2);
 
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
@@ -1048,8 +1048,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   }
 
   int get_sv_count = 0;
-  rocksdb::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
           // After MultiGet refs a couple of CFs, flush all CFs so MultiGet
@@ -1073,7 +1073,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
           }
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1139,12 +1139,12 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   int get_sv_count = 0;
   int retries = 0;
   bool last_try = false;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) {
         last_try = true;
-        rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (last_try) {
           return;
@@ -1160,7 +1160,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
           }
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1198,8 +1198,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 
   int get_sv_count = 0;
-  rocksdb::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
           for (int i = 0; i < 8; ++i) {
@@ -1219,7 +1219,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
           }
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1558,7 +1558,7 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
   do {
     option_config_ = kRowCache;
     Options options = CurrentOptions();
-    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
     SetPerfLevel(kEnableCount);
     ASSERT_OK(Put(1, "k1", "v1"));
@@ -1664,13 +1664,13 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, Slice(), Slice(),
-                                       std::numeric_limits<size_t>::max(),
-                                       &key_versions));
+  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
+      db_, Slice(), Slice(), std::numeric_limits<size_t>::max(),
+      &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
-  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
-                                       std::numeric_limits<size_t>::max(),
-                                       &key_versions));
+  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
+      db_, handles_[0], Slice(), Slice(), std::numeric_limits<size_t>::max(),
+      &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
@@ -1683,9 +1683,9 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i != kNumDeletes - 1; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
-                                       std::numeric_limits<size_t>::max(),
-                                       &key_versions));
+  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
+      db_, handles_[1], Slice(), Slice(), std::numeric_limits<size_t>::max(),
+      &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
 }
 #endif  // !ROCKSDB_LITE
@@ -2527,7 +2527,7 @@ TEST_P(DBBasicTestWithTimestampWithParam, PutAndGet) {
 INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTimestampWithParam,
                         ::testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 extern "C" {
@@ -2538,7 +2538,7 @@ void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
 #endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();

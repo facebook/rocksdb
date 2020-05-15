@@ -10,12 +10,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.IOException;
-import java.nio.file.FileSystems;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class ComparatorTest {
+public class BuiltinComparatorTest {
 
   @ClassRule
   public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
@@ -25,63 +22,11 @@ public class ComparatorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-     public void javaComparator() throws IOException, RocksDBException {
-
-    final AbstractComparatorTest<Slice> comparatorTest = new AbstractComparatorTest<Slice>() {
-      @Override
-      public AbstractComparator<Slice> getAscendingIntKeyComparator() {
-        return new Comparator(new ComparatorOptions()) {
-
-          @Override
-          public String name() {
-            return "test.AscendingIntKeyComparator";
-          }
-
-          @Override
-          public int compare(final Slice a, final Slice b) {
-            return compareIntKeys(a.data(), b.data());
-          }
-        };
-      }
-    };
-
-    // test the round-tripability of keys written and read with the Comparator
-    comparatorTest.testRoundtrip(FileSystems.getDefault().getPath(
-        dbFolder.getRoot().getAbsolutePath()));
-  }
-
-  @Test
-  public void javaComparatorCf() throws IOException, RocksDBException {
-
-    final AbstractComparatorTest<Slice> comparatorTest = new AbstractComparatorTest<Slice>() {
-      @Override
-      public AbstractComparator<Slice> getAscendingIntKeyComparator() {
-        return new Comparator(new ComparatorOptions()) {
-
-          @Override
-          public String name() {
-            return "test.AscendingIntKeyComparator";
-          }
-
-          @Override
-          public int compare(final Slice a, final Slice b) {
-            return compareIntKeys(a.data(), b.data());
-          }
-        };
-      }
-    };
-
-    // test the round-tripability of keys written and read with the Comparator
-    comparatorTest.testRoundtripCf(FileSystems.getDefault().getPath(
-        dbFolder.getRoot().getAbsolutePath()));
-  }
-
-  @Test
   public void builtinForwardComparator()
       throws RocksDBException {
     try (final Options options = new Options()
-          .setCreateIfMissing(true)
-          .setComparator(BuiltinComparator.BYTEWISE_COMPARATOR);
+        .setCreateIfMissing(true)
+        .setComparator(BuiltinComparator.BYTEWISE_COMPARATOR);
          final RocksDB rocksDb = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())
     ) {
@@ -133,8 +78,8 @@ public class ComparatorTest {
   public void builtinReverseComparator()
       throws RocksDBException {
     try (final Options options = new Options()
-      .setCreateIfMissing(true)
-      .setComparator(BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR);
+        .setCreateIfMissing(true)
+        .setComparator(BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR);
          final RocksDB rocksDb = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())
     ) {

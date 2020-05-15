@@ -19,7 +19,7 @@
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Directories;
 
@@ -177,4 +177,4 @@ class ExternalSstFileIngestionJob {
   bool files_overlap_{false};
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

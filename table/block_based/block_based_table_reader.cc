@@ -54,9 +54,10 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/util.h"
 #include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const uint64_t kBlockBasedTableMagicNumber;
 extern const std::string kHashIndexPrefixesBlock;
@@ -718,6 +719,7 @@ class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
     }
 
     BlockPrefixIndex* prefix_index = nullptr;
+    assert(rep->internal_prefix_transform.get() != nullptr);
     s = BlockPrefixIndex::Create(rep->internal_prefix_transform.get(),
                                  prefixes_contents.data,
                                  prefixes_meta_contents.data, &prefix_index);
@@ -1187,8 +1189,10 @@ Status BlockBasedTable::Open(
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
-  rep->internal_prefix_transform.reset(
-      new InternalKeySliceTransform(prefix_extractor));
+  if (prefix_extractor != nullptr) {
+    rep->internal_prefix_transform.reset(
+        new InternalKeySliceTransform(prefix_extractor));
+  }
   SetupCacheKeyPrefix(rep);
   std::unique_ptr<BlockBasedTable> new_table(
       new BlockBasedTable(rep, block_cache_tracer));
@@ -1346,8 +1350,8 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
           tmp_buf.get() + global_seqno_offset - props_block_handle.offset(), 0);
     }
     uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
-    s = rocksdb::VerifyChecksum(rep_->footer.checksum(), tmp_buf.get(),
-                                block_size + 1, value);
+    s = ROCKSDB_NAMESPACE::VerifyChecksum(rep_->footer.checksum(),
+                                          tmp_buf.get(), block_size + 1, value);
   }
   return s;
 }
@@ -2452,9 +2456,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // which is handle.size() + 1.
-        s = rocksdb::VerifyChecksum(footer.checksum(),
-                                    req.result.data() + req_offset,
-                                    handle.size() + 1, expected);
+        s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
+                                              req.result.data() + req_offset,
+                                              handle.size() + 1, expected);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     }
@@ -2786,7 +2790,7 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekImpl(
     const Slice* target) {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
-  if (target && !CheckPrefixMayMatch(*target)) {
+  if (target && !CheckPrefixMayMatch(*target, IterDirection::kForward)) {
     ResetDataIter();
     return;
   }
@@ -2879,7 +2883,9 @@ void BlockBasedTableIterator<TBlockIter, TValue>::SeekForPrev(
     const Slice& target) {
   is_out_of_bound_ = false;
   is_at_first_key_from_index_ = false;
-  if (!CheckPrefixMayMatch(target)) {
+  // For now totally disable prefix seek in auto prefix mode because we don't
+  // have logic
+  if (!CheckPrefixMayMatch(target, IterDirection::kBackward)) {
     ResetDataIter();
     return;
   }
@@ -3190,6 +3196,7 @@ InternalIterator* BlockBasedTable::NewIterator(
     size_t compaction_readahead_size) {
   BlockCacheLookupContext lookup_context{caller};
   bool need_upper_bound_check =
+      read_options.auto_prefix_mode ||
       PrefixExtractorChanged(rep_->table_properties.get(), prefix_extractor);
   if (arena == nullptr) {
     return new BlockBasedTableIterator<DataBlockIter>(
@@ -4031,6 +4038,7 @@ Status BlockBasedTable::CreateIndexReader(
                                           index_reader);
     }
     case BlockBasedTableOptions::kBinarySearch:
+      FALLTHROUGH_INTENDED;
     case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
       return BinarySearchIndexReader::Create(this, prefetch_buffer, use_cache,
                                              prefetch, pin, lookup_context,
@@ -4040,7 +4048,13 @@ Status BlockBasedTable::CreateIndexReader(
       std::unique_ptr<Block> metaindex_guard;
       std::unique_ptr<InternalIterator> metaindex_iter_guard;
       auto meta_index_iter = preloaded_meta_index_iter;
-      if (meta_index_iter == nullptr) {
+      bool should_fallback = false;
+      if (rep_->internal_prefix_transform.get() == nullptr) {
+        ROCKS_LOG_WARN(rep_->ioptions.info_log,
+                       "No prefix extractor passed in. Fall back to binary"
+                       " search index.");
+        should_fallback = true;
+      } else if (meta_index_iter == nullptr) {
         auto s = ReadMetaIndexBlock(prefetch_buffer, &metaindex_guard,
                                     &metaindex_iter_guard);
         if (!s.ok()) {
@@ -4049,16 +4063,20 @@ Status BlockBasedTable::CreateIndexReader(
           ROCKS_LOG_WARN(rep_->ioptions.info_log,
                          "Unable to read the metaindex block."
                          " Fall back to binary search index.");
-          return BinarySearchIndexReader::Create(this, prefetch_buffer,
-                                                 use_cache, prefetch, pin,
-                                                 lookup_context, index_reader);
+          should_fallback = true;
         }
         meta_index_iter = metaindex_iter_guard.get();
       }
 
-      return HashIndexReader::Create(this, prefetch_buffer, meta_index_iter,
-                                     use_cache, prefetch, pin, lookup_context,
-                                     index_reader);
+      if (should_fallback) {
+        return BinarySearchIndexReader::Create(this, prefetch_buffer, use_cache,
+                                               prefetch, pin, lookup_context,
+                                               index_reader);
+      } else {
+        return HashIndexReader::Create(this, prefetch_buffer, meta_index_iter,
+                                       use_cache, prefetch, pin, lookup_context,
+                                       index_reader);
+      }
     }
     default: {
       std::string error_message =
@@ -4225,11 +4243,12 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       if (!s.ok()) {
         return s;
       }
-      if (metaindex_iter->key() == rocksdb::kPropertiesBlock) {
+      if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kPropertiesBlock) {
         out_file->Append("  Properties block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
-      } else if (metaindex_iter->key() == rocksdb::kCompressionDictBlock) {
+      } else if (metaindex_iter->key() ==
+                 ROCKSDB_NAMESPACE::kCompressionDictBlock) {
         out_file->Append("  Compression dictionary block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
@@ -4238,7 +4257,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         out_file->Append("  Filter block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
-      } else if (metaindex_iter->key() == rocksdb::kRangeDelBlock) {
+      } else if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kRangeDelBlock) {
         out_file->Append("  Range deletion block handle: ");
         out_file->Append(metaindex_iter->value().ToString(true).c_str());
         out_file->Append("\n");
@@ -4250,7 +4269,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   }
 
   // Output TableProperties
-  const rocksdb::TableProperties* table_properties;
+  const ROCKSDB_NAMESPACE::TableProperties* table_properties;
   table_properties = rep_->table_properties.get();
 
   if (table_properties != nullptr) {
@@ -4295,7 +4314,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         "Compression Dictionary:\n"
         "--------------------------------------\n");
     out_file->Append("  size (bytes): ");
-    out_file->Append(rocksdb::ToString(raw_dict.size()));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(raw_dict.size()));
     out_file->Append("\n\n");
     out_file->Append("  HEX    ");
     out_file->Append(raw_dict.ToString(true).c_str());
@@ -4409,7 +4428,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     datablock_size_sum += datablock_size;
 
     out_file->Append("Data Block # ");
-    out_file->Append(rocksdb::ToString(block_id));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(block_id));
     out_file->Append(" @ ");
     out_file->Append(blockhandles_iter->value().handle.ToString(true).c_str());
     out_file->Append("\n");
@@ -4447,13 +4466,13 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     out_file->Append("Data Block Summary:\n");
     out_file->Append("--------------------------------------");
     out_file->Append("\n  # data blocks: ");
-    out_file->Append(rocksdb::ToString(num_datablocks));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(num_datablocks));
     out_file->Append("\n  min data block size: ");
-    out_file->Append(rocksdb::ToString(datablock_size_min));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_min));
     out_file->Append("\n  max data block size: ");
-    out_file->Append(rocksdb::ToString(datablock_size_max));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_max));
     out_file->Append("\n  avg data block size: ");
-    out_file->Append(rocksdb::ToString(datablock_size_avg));
+    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_avg));
     out_file->Append("\n");
   }
 
@@ -4499,4 +4518,4 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
   out_file->Append("\n  ------\n");
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

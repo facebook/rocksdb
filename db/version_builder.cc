@@ -29,7 +29,7 @@
 #include "table/table_reader.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
   if (a->fd.largest_seqno != b->fd.largest_seqno) {
@@ -290,7 +290,7 @@ class VersionBuilder::Rep {
     }
 
     // Delete files
-    const VersionEdit::DeletedFileSet& del = edit->GetDeletedFiles();
+    const auto& del = edit->GetDeletedFiles();
     for (const auto& del_file : del) {
       const auto level = del_file.first;
       const auto number = del_file.second;
@@ -542,4 +542,4 @@ void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
   rep_->MaybeAddFile(vstorage, level, f);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

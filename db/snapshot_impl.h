@@ -12,7 +12,7 @@
 
 #include "rocksdb/db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class SnapshotList;
 
@@ -164,4 +164,4 @@ class SnapshotList {
   uint64_t count_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

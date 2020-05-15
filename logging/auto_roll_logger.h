@@ -17,7 +17,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 // Rolls the log file by size and/or time
@@ -73,6 +73,24 @@ class AutoRollLogger : public Logger {
     }
   }
 
+  using Logger::GetInfoLogLevel;
+  InfoLogLevel GetInfoLogLevel() const override {
+    MutexLock l(&mutex_);
+    if (!logger_) {
+      return Logger::GetInfoLogLevel();
+    }
+    return logger_->GetInfoLogLevel();
+  }
+
+  using Logger::SetInfoLogLevel;
+  void SetInfoLogLevel(const InfoLogLevel log_level) override {
+    MutexLock lock(&mutex_);
+    Logger::SetInfoLogLevel(log_level);
+    if (logger_) {
+      logger_->SetInfoLogLevel(log_level);
+    }
+  }
+
   void SetCallNowMicrosEveryNRecords(uint64_t call_NowMicros_every_N_records) {
     call_NowMicros_every_N_records_ = call_NowMicros_every_N_records;
   }
@@ -83,6 +101,8 @@ class AutoRollLogger : public Logger {
   }
 
   uint64_t TEST_ctime() const { return ctime_; }
+
+  Logger* TEST_inner_logger() const { return logger_.get(); }
 
  protected:
   // Implementation of Close()
@@ -141,4 +161,4 @@ Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
                                std::shared_ptr<Logger>* logger);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

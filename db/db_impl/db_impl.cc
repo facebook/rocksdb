@@ -102,7 +102,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const std::string kDefaultColumnFamilyName("default");
 const std::string kPersistentStatsColumnFamilyName(
@@ -644,7 +644,7 @@ void DBImpl::StartTimedTasks() {
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
     if (stats_dump_period_sec > 0) {
       if (!thread_dump_stats_) {
-        thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+        thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
             static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond));
       }
@@ -652,7 +652,7 @@ void DBImpl::StartTimedTasks() {
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
     if (stats_persist_period_sec > 0) {
       if (!thread_persist_stats_) {
-        thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+        thread_persist_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
             static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond));
       }
@@ -1043,7 +1043,7 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_dump_period_sec > 0) {
-          thread_dump_stats_.reset(new rocksdb::RepeatableThread(
+          thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
               static_cast<uint64_t>(new_options.stats_dump_period_sec) *
                   kMicrosInSecond));
@@ -1059,7 +1059,7 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_persist_period_sec > 0) {
-          thread_persist_stats_.reset(new rocksdb::RepeatableThread(
+          thread_persist_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
               static_cast<uint64_t>(new_options.stats_persist_period_sec) *
                   kMicrosInSecond));
@@ -2301,7 +2301,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      s = cfd->AddDirectories();
+      std::map<std::string, std::shared_ptr<Directory>> dummy_created_dirs;
+      s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
@@ -2560,7 +2561,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, read_callback, this, cfd, allow_blob,
-      ((read_options.snapshot != nullptr) ? false : allow_refresh));
+      read_options.snapshot != nullptr ? false : allow_refresh);
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -3317,27 +3318,67 @@ Status DBImpl::CheckConsistency() {
   TEST_SYNC_POINT("DBImpl::CheckConsistency:AfterGetLiveFilesMetaData");
 
   std::string corruption_messages;
-  for (const auto& md : metadata) {
-    // md.name has a leading "/".
-    std::string file_path = md.db_path + md.name;
 
-    uint64_t fsize = 0;
-    TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
-    Status s = env_->GetFileSize(file_path, &fsize);
-    if (!s.ok() &&
-        env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
-      s = Status::OK();
+  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
+    // Instead of calling GetFileSize() for each expected file, call
+    // GetChildren() for the DB directory and check that all expected files
+    // are listed, without checking their sizes.
+    // Since sst files might be in different directories, do it for each
+    // directory separately.
+    std::map<std::string, std::vector<std::string>> files_by_directory;
+    for (const auto& md : metadata) {
+      // md.name has a leading "/". Remove it.
+      std::string fname = md.name;
+      if (!fname.empty() && fname[0] == '/') {
+        fname = fname.substr(1);
+      }
+      files_by_directory[md.db_path].push_back(fname);
     }
-    if (!s.ok()) {
-      corruption_messages +=
-          "Can't access " + md.name + ": " + s.ToString() + "\n";
-    } else if (fsize != md.size) {
-      corruption_messages += "Sst file size mismatch: " + file_path +
-                             ". Size recorded in manifest " +
-                             ToString(md.size) + ", actual size " +
-                             ToString(fsize) + "\n";
+    for (const auto& dir_files : files_by_directory) {
+      std::string directory = dir_files.first;
+      std::vector<std::string> existing_files;
+      Status s = env_->GetChildren(directory, &existing_files);
+      if (!s.ok()) {
+        corruption_messages +=
+            "Can't list files in " + directory + ": " + s.ToString() + "\n";
+        continue;
+      }
+      std::sort(existing_files.begin(), existing_files.end());
+
+      for (const std::string& fname : dir_files.second) {
+        if (!std::binary_search(existing_files.begin(), existing_files.end(),
+                                fname) &&
+            !std::binary_search(existing_files.begin(), existing_files.end(),
+                                Rocks2LevelTableFileName(fname))) {
+          corruption_messages +=
+              "Missing sst file " + fname + " in " + directory + "\n";
+        }
+      }
+    }
+  } else {
+    for (const auto& md : metadata) {
+      // md.name has a leading "/".
+      std::string file_path = md.db_path + md.name;
+
+      uint64_t fsize = 0;
+      TEST_SYNC_POINT("DBImpl::CheckConsistency:BeforeGetFileSize");
+      Status s = env_->GetFileSize(file_path, &fsize);
+      if (!s.ok() &&
+          env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
+        s = Status::OK();
+      }
+      if (!s.ok()) {
+        corruption_messages +=
+            "Can't access " + md.name + ": " + s.ToString() + "\n";
+      } else if (fsize != md.size) {
+        corruption_messages += "Sst file size mismatch: " + file_path +
+                               ". Size recorded in manifest " +
+                               ToString(md.size) + ", actual size " +
+                               ToString(fsize) + "\n";
+      }
     }
   }
+
   if (corruption_messages.size() == 0) {
     return Status::OK();
   } else {
@@ -3353,31 +3394,12 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
 Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   const FileOptions soptions;
-  std::unique_ptr<SequentialFileReader> id_file_reader;
-  Status s;
-  {
-    std::unique_ptr<FSSequentialFile> idfile;
-    s = fs_->NewSequentialFile(idfilename, soptions, &idfile, nullptr);
-    if (!s.ok()) {
-      return s;
-    }
-    id_file_reader.reset(
-        new SequentialFileReader(std::move(idfile), idfilename));
+
+  Status s = ReadFileToString(fs_.get(), idfilename, identity);
+  if (!s.ok()) {
+    return s;
   }
 
-  uint64_t file_size;
-  s = fs_->GetFileSize(idfilename, IOOptions(), &file_size, nullptr);
-  if (!s.ok()) {
-    return s;
-  }
-  char* buffer =
-      reinterpret_cast<char*>(alloca(static_cast<size_t>(file_size)));
-  Slice id;
-  s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
-  if (!s.ok()) {
-    return s;
-  }
-  identity->assign(id.ToString());
   // If last character is '\n' remove it from identity
   if (identity->size() > 0 && identity->back() == '\n') {
     identity->pop_back();
@@ -3569,6 +3591,11 @@ Status DestroyDB(const std::string& dbname, const Options& options,
 
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->DeleteFile(lockname);
+
+    // sst_file_manager holds a ref to the logger. Make sure the logger is
+    // gone before trying to remove the directory.
+    soptions.sst_file_manager.reset();
+
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
   }
   return result;
@@ -4349,8 +4376,8 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(opts, file_options_, read_options,
-                                           fname);
+        s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
+                                                     read_options, fname);
       }
     }
     if (!s.ok()) {
@@ -4520,4 +4547,4 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
 }
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

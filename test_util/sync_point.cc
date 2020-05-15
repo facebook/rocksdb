@@ -10,7 +10,7 @@ int rocksdb_kill_odds = 0;
 std::vector<std::string> rocksdb_kill_prefix_blacklist;
 
 #ifndef NDEBUG
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 SyncPoint* SyncPoint::GetInstance() {
   static SyncPoint sync_point;
@@ -62,5 +62,5 @@ void SyncPoint::Process(const std::string& point, void* cb_arg) {
   impl_->Process(point, cb_arg);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // NDEBUG

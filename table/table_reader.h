@@ -16,7 +16,7 @@
 #include "table/multiget_context.h"
 #include "table/table_reader_caller.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Iterator;
 struct ParsedInternalKey;
@@ -134,4 +134,4 @@ class TableReader {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

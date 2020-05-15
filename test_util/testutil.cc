@@ -21,7 +21,7 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
@@ -265,6 +265,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
+  db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
@@ -450,4 +451,4 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
 }
 
 }  // namespace test
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

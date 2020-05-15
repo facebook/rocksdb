@@ -22,7 +22,7 @@
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct Options;
 struct FileMetaData;
@@ -85,4 +85,4 @@ extern Status BuildTable(
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const uint64_t file_creation_time = 0);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

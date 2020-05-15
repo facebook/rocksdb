@@ -19,7 +19,7 @@
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch, bool for_compaction) const {
   Status s;
@@ -186,4 +186,4 @@ Status RandomAccessFileReader::MultiRead(FSReadRequest* read_reqs,
 
   return s;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

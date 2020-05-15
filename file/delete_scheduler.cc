@@ -17,7 +17,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 DeleteScheduler::DeleteScheduler(Env* env, FileSystem* fs,
                                  int64_t rate_bytes_per_sec, Logger* info_log,
@@ -352,6 +352,6 @@ void DeleteScheduler::WaitForEmptyTrash() {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

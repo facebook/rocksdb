@@ -24,7 +24,7 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PessimisticTransactionDB : public TransactionDB {
  public:
@@ -158,12 +158,13 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
   friend class WriteUnpreparedTxn;
+  friend class TransactionTest_DoubleCrashInRecovery_Test;
   friend class TransactionTest_DoubleEmptyWrite_Test;
   friend class TransactionTest_DuplicateKeys_Test;
   friend class TransactionTest_PersistentTwoPhaseTransactionTest_Test;
-  friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class TransactionTest_TwoPhaseDoubleRecoveryTest_Test;
   friend class TransactionTest_TwoPhaseOutOfOrderDelete_Test;
+  friend class TransactionStressTest_TwoPhaseLongPrepareTest_Test;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
   TransactionLockMgr lock_mgr_;
@@ -215,5 +216,5 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

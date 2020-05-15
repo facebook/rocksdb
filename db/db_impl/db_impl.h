@@ -62,7 +62,7 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ArenaWrappedDBIter;
@@ -826,7 +826,6 @@ class DBImpl : public DB {
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                      const bool seq_per_batch, const bool batch_per_txn);
 
-
   static Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                       std::unique_ptr<Directory>* directory);
 
@@ -1132,10 +1131,13 @@ class DBImpl : public DB {
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
+  // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is
+  // skipped.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_log_file_exist = false,
-      bool error_if_data_exists_in_logs = false);
+      bool error_if_data_exists_in_logs = false,
+      uint64_t* recovered_seq = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
@@ -1377,8 +1379,10 @@ class DBImpl : public DB {
       JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
 
   // REQUIRES: log_numbers are sorted in ascending order
+  // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                         SequenceNumber* next_sequence, bool read_only);
+                         SequenceNumber* next_sequence, bool read_only,
+                         bool* corrupted_log_found);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
@@ -1401,6 +1405,7 @@ class DBImpl : public DB {
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
 
+  // REQUIRES: mutex locked and in write thread.
   Status ScheduleFlushes(WriteContext* context);
 
   void MaybeFlushStatsCF(autovector<ColumnFamilyData*>* cfds);
@@ -1472,10 +1477,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked and in write thread.
   void AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds);
 
-  // REQUIRES: mutex locked
+  // REQUIRES: mutex locked and in write thread.
   Status SwitchWAL(WriteContext* write_context);
 
-  // REQUIRES: mutex locked
+  // REQUIRES: mutex locked and in write thread.
   Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
@@ -2032,11 +2037,11 @@ class DBImpl : public DB {
 
   // handle for scheduling stats dumping at fixed intervals
   // REQUIRES: mutex locked
-  std::unique_ptr<rocksdb::RepeatableThread> thread_dump_stats_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_dump_stats_;
 
   // handle for scheduling stats snapshoting at fixed intervals
   // REQUIRES: mutex locked
-  std::unique_ptr<rocksdb::RepeatableThread> thread_persist_stats_;
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_persist_stats_;
 
   // When set, we use a separate queue for writes that dont write to memtable.
   // In 2PC these are the writes at Prepare phase.
@@ -2136,4 +2141,4 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

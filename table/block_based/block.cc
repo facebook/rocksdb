@@ -25,7 +25,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Helper routine: decode the next block entry starting at "p",
 // storing the number of shared key bytes, non_shared key bytes,
@@ -156,12 +156,9 @@ void IndexBlockIter::Prev() {
     restart_index_--;
   }
   SeekToRestartPoint(restart_index_);
-  do {
-    if (!ParseNextIndexKey()) {
-      break;
-    }
-    // Loop until end of current entry hits the start of original entry
-  } while (NextEntryOffset() < original);
+  // Loop until end of current entry hits the start of original entry
+  while (ParseNextIndexKey() && NextEntryOffset() < original) {
+  }
 }
 
 // Similar to IndexBlockIter::Prev but also caches the prev entries
@@ -253,12 +250,9 @@ void DataBlockIter::Seek(const Slice& target) {
     return;
   }
   SeekToRestartPoint(index);
-  // Linear search (within restart block) for first key >= target
 
-  while (true) {
-    if (!ParseNextDataKey<DecodeEntry>() || Compare(key_, seek_key) >= 0) {
-      return;
-    }
+  // Linear search (within restart block) for first key >= target
+  while (ParseNextDataKey<DecodeEntry>() && Compare(key_, seek_key) < 0) {
   }
 }
 
@@ -406,12 +400,9 @@ void IndexBlockIter::Seek(const Slice& target) {
     return;
   }
   SeekToRestartPoint(index);
-  // Linear search (within restart block) for first key >= target
 
-  while (true) {
-    if (!ParseNextIndexKey() || Compare(key_, seek_key) >= 0) {
-      return;
-    }
+  // Linear search (within restart block) for first key >= target
+  while (ParseNextIndexKey() && Compare(key_, seek_key) < 0) {
   }
 }
 
@@ -429,8 +420,8 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
     return;
   }
   SeekToRestartPoint(index);
-  // Linear search (within restart block) for first key >= seek_key
 
+  // Linear search (within restart block) for first key >= seek_key
   while (ParseNextDataKey<DecodeEntry>() && Compare(key_, seek_key) < 0) {
   }
   if (!Valid()) {
@@ -960,4 +951,4 @@ size_t Block::ApproximateMemoryUsage() const {
   return usage;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

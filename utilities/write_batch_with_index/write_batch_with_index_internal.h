@@ -18,7 +18,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MergeContext;
 struct Options;
@@ -141,5 +141,5 @@ class WriteBatchWithIndexInternal {
       std::string* value, bool overwrite_key, Status* s);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

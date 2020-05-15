@@ -15,7 +15,7 @@
 #include <vector>
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Logger;
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
@@ -201,5 +201,5 @@ class ObjectRegistry {
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

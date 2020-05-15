@@ -13,7 +13,7 @@
 #include "logging/logging.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 EventLoggerStream::EventLoggerStream(Logger* logger)
     : logger_(logger),
@@ -53,7 +53,7 @@ void EventLogger::Log(Logger* logger, const JSONWriter& jwriter) {
 #ifdef ROCKSDB_PRINT_EVENTS_TO_STDOUT
   printf("%s\n", jwriter.Get().c_str());
 #else
-  rocksdb::Log(logger, "%s %s", Prefix(), jwriter.Get().c_str());
+  ROCKSDB_NAMESPACE::Log(logger, "%s %s", Prefix(), jwriter.Get().c_str());
 #endif
 }
 
@@ -63,9 +63,9 @@ void EventLogger::LogToBuffer(LogBuffer* log_buffer, const JSONWriter& jwriter,
   printf("%s\n", jwriter.Get().c_str());
 #else
   assert(log_buffer);
-  rocksdb::LogToBuffer(log_buffer, max_log_size, "%s %s", Prefix(),
-                       jwriter.Get().c_str());
+  ROCKSDB_NAMESPACE::LogToBuffer(log_buffer, max_log_size, "%s %s", Prefix(),
+                                 jwriter.Get().c_str());
 #endif
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

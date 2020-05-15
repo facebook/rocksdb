@@ -40,7 +40,7 @@ DEFINE_bool(write, false,
     "Should write new values to file in performance tests?");
 DEFINE_bool(identity_as_first_hash, true, "use identity as first hash");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 const uint32_t kNumHashFunc = 10;
@@ -552,15 +552,14 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
     fprintf(stderr, "\n");
   }
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  if (rocksdb::port::kLittleEndian) {
+  if (ROCKSDB_NAMESPACE::port::kLittleEndian) {
     ::testing::InitGoogleTest(&argc, argv);
     ParseCommandLineFlags(&argc, &argv, true);
     return RUN_ALL_TESTS();
-  }
-  else {
+  } else {
     fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
     return 0;
   }

@@ -13,7 +13,7 @@
 #include "monitoring/statistics.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 Reader::Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
@@ -101,5 +101,5 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

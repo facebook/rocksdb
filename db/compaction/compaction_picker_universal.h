@@ -12,7 +12,7 @@
 
 #include "db/compaction/compaction_picker.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class UniversalCompactionPicker : public CompactionPicker {
  public:
   UniversalCompactionPicker(const ImmutableCFOptions& ioptions,
@@ -27,5 +27,5 @@ class UniversalCompactionPicker : public CompactionPicker {
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

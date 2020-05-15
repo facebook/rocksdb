@@ -104,7 +104,7 @@ DEFINE_bool(low_open_files_mode, false,
             "If true, we set max_open_files to 20, so that every file access "
             "needs to reopen it");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static const int kPrefixSize = 3;
 
@@ -292,13 +292,13 @@ class WriteStress {
   std::unique_ptr<DB> db_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
-  rocksdb::WriteStress write_stress;
+  ROCKSDB_NAMESPACE::WriteStress write_stress;
   return write_stress.Run();
 }
 

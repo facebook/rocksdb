@@ -12,7 +12,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Comparator;
 class Env;
@@ -61,4 +61,4 @@ class MergeIteratorBuilder {
   Arena* arena;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

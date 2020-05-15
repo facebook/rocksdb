@@ -25,7 +25,7 @@
 #include "table/table_reader.h"
 #include "trace_replay/block_cache_tracer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Arena;
@@ -223,4 +223,4 @@ class TableCache {
   BlockCacheTracer* const block_cache_tracer_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

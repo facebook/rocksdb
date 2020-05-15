@@ -8,7 +8,7 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 #include "tools/ldb_cmd_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 LDBOptions::LDBOptions() {}
 
@@ -84,6 +84,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBDumperCommand::Help(ret);
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
+  FileChecksumDumpCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);
   CreateColumnFamilyCommand::Help(ret);
   DropColumnFamilyCommand::Help(ret);
@@ -134,6 +135,6 @@ void LDBTool::Run(int argc, char** argv, Options options,
                                                 ldb_options, column_families);
   exit(error_code);
 }
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

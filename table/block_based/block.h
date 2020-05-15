@@ -27,7 +27,7 @@
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct BlockContents;
 class Comparator;
@@ -37,9 +37,10 @@ class DataBlockIter;
 class IndexBlockIter;
 class BlockPrefixIndex;
 
-// BlockReadAmpBitmap is a bitmap that map the rocksdb::Block data bytes to
-// a bitmap with ratio bytes_per_bit. Whenever we access a range of bytes in
-// the Block we update the bitmap and increment READ_AMP_ESTIMATE_USEFUL_BYTES.
+// BlockReadAmpBitmap is a bitmap that map the ROCKSDB_NAMESPACE::Block data
+// bytes to a bitmap with ratio bytes_per_bit. Whenever we access a range of
+// bytes in the Block we update the bitmap and increment
+// READ_AMP_ESTIMATE_USEFUL_BYTES.
 class BlockReadAmpBitmap {
  public:
   explicit BlockReadAmpBitmap(size_t block_size, size_t bytes_per_bit,
@@ -187,7 +188,6 @@ class Block {
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
-
   DataBlockIter* NewDataIterator(const Comparator* comparator,
                                  const Comparator* user_comparator,
                                  DataBlockIter* iter = nullptr,
@@ -268,31 +268,30 @@ class BlockIter : public InternalIteratorBase<TValue> {
     Cleanable::Reset();
   }
 
-  virtual bool Valid() const override { return current_ < restarts_; }
-  virtual Status status() const override { return status_; }
-  virtual Slice key() const override {
+  bool Valid() const override { return current_ < restarts_; }
+  Status status() const override { return status_; }
+  Slice key() const override {
     assert(Valid());
     return key_.GetKey();
   }
 
 #ifndef NDEBUG
-  virtual ~BlockIter() {
+  ~BlockIter() override {
     // Assert that the BlockIter is never deleted while Pinning is Enabled.
     assert(!pinned_iters_mgr_ ||
            (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
   }
-  virtual void SetPinnedItersMgr(
-      PinnedIteratorsManager* pinned_iters_mgr) override {
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
   }
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  virtual bool IsKeyPinned() const override {
+  bool IsKeyPinned() const override {
     return block_contents_pinned_ && key_pinned_;
   }
 
-  virtual bool IsValuePinned() const override { return block_contents_pinned_; }
+  bool IsValuePinned() const override { return block_contents_pinned_; }
 
   size_t TEST_CurrentEntrySize() { return NextEntryOffset() - current_; }
 
@@ -393,7 +392,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     data_block_hash_index_ = data_block_hash_index;
   }
 
-  virtual Slice value() const override {
+  Slice value() const override {
     assert(Valid());
     if (read_amp_bitmap_ && current_ < restarts_ &&
         current_ != last_bitmap_offset_) {
@@ -404,7 +403,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     return value_;
   }
 
-  virtual void Seek(const Slice& target) override;
+  void Seek(const Slice& target) override;
 
   inline bool SeekForGet(const Slice& target) {
     if (!data_block_hash_index_) {
@@ -415,25 +414,25 @@ class DataBlockIter final : public BlockIter<Slice> {
     return SeekForGetImpl(target);
   }
 
-  virtual void SeekForPrev(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
 
-  virtual void Prev() override;
+  void Prev() override;
 
-  virtual void Next() final override;
+  void Next() final override;
 
   // Try to advance to the next entry in the block. If there is data corruption
   // or error, report it to the caller instead of aborting the process. May
   // incur higher CPU overhead because we need to perform check on every entry.
   void NextOrReport();
 
-  virtual void SeekToFirst() override;
+  void SeekToFirst() override;
 
   // Try to seek to the first entry in the block. If there is data corruption
   // or error, report it to caller instead of aborting the process. May incur
   // higher CPU overhead because we need to perform check on every entry.
   void SeekToFirstOrReport();
 
-  virtual void SeekToLast() override;
+  void SeekToLast() override;
 
   void Invalidate(Status s) {
     InvalidateBase(s);
@@ -489,7 +488,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
  public:
   IndexBlockIter() : BlockIter(), prefix_index_(nullptr) {}
 
-  virtual Slice key() const override {
+  Slice key() const override {
     assert(Valid());
     return key_.GetKey();
   }
@@ -525,7 +524,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     return key();
   }
 
-  virtual IndexValue value() const override {
+  IndexValue value() const override {
     assert(Valid());
     if (value_delta_encoded_ || global_seqno_state_ != nullptr) {
       return decoded_value_;
@@ -539,9 +538,16 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     }
   }
 
-  virtual void Seek(const Slice& target) override;
+  // IndexBlockIter follows a different contract for prefix iterator
+  // from data iterators.
+  // If prefix of the seek key `target` exists in the file, it must
+  // return the same result as total order seek.
+  // If the prefix of `target` doesn't exist in the file, it can either
+  // return the result of total order seek, or set both of Valid() = false
+  // and status() = NotFound().
+  void Seek(const Slice& target) override;
 
-  virtual void SeekForPrev(const Slice&) override {
+  void SeekForPrev(const Slice&) override {
     assert(false);
     current_ = restarts_;
     restart_index_ = num_restarts_;
@@ -552,13 +558,13 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     value_.clear();
   }
 
-  virtual void Prev() override;
+  void Prev() override;
 
-  virtual void Next() override;
+  void Next() override;
 
-  virtual void SeekToFirst() override;
+  void SeekToFirst() override;
 
-  virtual void SeekToLast() override;
+  void SeekToLast() override;
 
   void Invalidate(Status s) { InvalidateBase(s); }
 
@@ -615,4 +621,4 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   inline void DecodeCurrentValue(uint32_t shared);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

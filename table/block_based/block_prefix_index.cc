@@ -14,10 +14,10 @@
 #include "util/coding.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 inline uint32_t Hash(const Slice& s) {
-  return rocksdb::Hash(s.data(), s.size(), 0);
+  return ROCKSDB_NAMESPACE::Hash(s.data(), s.size(), 0);
 }
 
 inline uint32_t PrefixToBucket(const Slice& prefix, uint32_t num_buckets) {
@@ -229,4 +229,4 @@ uint32_t BlockPrefixIndex::GetBlocks(const Slice& key, uint32_t** blocks) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

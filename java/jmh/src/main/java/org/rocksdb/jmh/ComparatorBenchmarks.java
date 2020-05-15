@@ -9,7 +9,6 @@ package org.rocksdb.jmh;
 import org.openjdk.jmh.annotations.*;
 import org.rocksdb.*;
 import org.rocksdb.util.BytewiseComparator;
-import org.rocksdb.util.DirectBytewiseComparator;
 import org.rocksdb.util.FileUtils;
 import org.rocksdb.util.ReverseBytewiseComparator;
 
@@ -26,13 +25,24 @@ public class ComparatorBenchmarks {
   @Param({
       "native_bytewise",
       "native_reverse_bytewise",
-      "java_bytewise_adaptive_mutex",
-      "java_bytewise_non-adaptive_mutex",
-      "java_reverse_bytewise_adaptive_mutex",
-      "java_reverse_bytewise_non-adaptive_mutex",
-      "java_direct_bytewise_adaptive_mutex",
-      "java_direct_bytewise_non-adaptive_mutex"
 
+      "java_bytewise_non-direct_reused-64_adaptive-mutex",
+      "java_bytewise_non-direct_reused-64_non-adaptive-mutex",
+      "java_bytewise_non-direct_reused-64_thread-local",
+      "java_bytewise_direct_reused-64_adaptive-mutex",
+      "java_bytewise_direct_reused-64_non-adaptive-mutex",
+      "java_bytewise_direct_reused-64_thread-local",
+      "java_bytewise_non-direct_no-reuse",
+      "java_bytewise_direct_no-reuse",
+
+      "java_reverse_bytewise_non-direct_reused-64_adaptive-mutex",
+      "java_reverse_bytewise_non-direct_reused-64_non-adaptive-mutex",
+      "java_reverse_bytewise_non-direct_reused-64_thread-local",
+      "java_reverse_bytewise_direct_reused-64_adaptive-mutex",
+      "java_reverse_bytewise_direct_reused-64_non-adaptive-mutex",
+      "java_reverse_bytewise_direct_reused-64_thread-local",
+      "java_reverse_bytewise_non-direct_no-reuse",
+      "java_reverse_bytewise_direct_no-reuse"
   })
   public String comparatorName;
 
@@ -50,42 +60,49 @@ public class ComparatorBenchmarks {
 
     options = new Options()
             .setCreateIfMissing(true);
-    if (comparatorName == null || "native_bytewise".equals(comparatorName)) {
+
+    if ("native_bytewise".equals(comparatorName)) {
       options.setComparator(BuiltinComparator.BYTEWISE_COMPARATOR);
+
     } else if ("native_reverse_bytewise".equals(comparatorName)) {
       options.setComparator(BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR);
-    } else if ("java_bytewise_adaptive_mutex".equals(comparatorName)) {
-      comparatorOptions = new ComparatorOptions()
-              .setUseAdaptiveMutex(true);
-      comparator = new BytewiseComparator(comparatorOptions);
+
+    } else if (comparatorName.startsWith("java_")) {
+      comparatorOptions = new ComparatorOptions();
+
+      if (comparatorName.indexOf("non-direct") > -1) {
+        comparatorOptions.setUseDirectBuffer(false);
+      } else if (comparatorName.indexOf("direct") > -1) {
+        comparatorOptions.setUseDirectBuffer(true);
+      }
+
+      if (comparatorName.indexOf("no-reuse") > -1) {
+        comparatorOptions.setMaxReusedBufferSize(-1);
+      } else if (comparatorName.indexOf("_reused-") > -1) {
+        final int idx = comparatorName.indexOf("_reused-");
+        String s = comparatorName.substring(idx + 8);
+        s = s.substring(0, s.indexOf('_'));
+        comparatorOptions.setMaxReusedBufferSize(Integer.parseInt(s));
+      }
+
+      if (comparatorName.indexOf("non-adaptive-mutex") > -1) {
+        comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.MUTEX);
+      } else if (comparatorName.indexOf("adaptive-mutex") > -1) {
+        comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.ADAPTIVE_MUTEX);
+      } else if (comparatorName.indexOf("thread-local") > -1) {
+        comparatorOptions.setReusedSynchronisationType(ReusedSynchronisationType.THREAD_LOCAL);
+      }
+
+      if (comparatorName.startsWith("java_bytewise")) {
+        comparator = new BytewiseComparator(comparatorOptions);
+      } else if (comparatorName.startsWith("java_reverse_bytewise")) {
+        comparator = new ReverseBytewiseComparator(comparatorOptions);
+      }
+
       options.setComparator(comparator);
-    } else if ("java_bytewise_non-adaptive_mutex".equals(comparatorName)) {
-      comparatorOptions = new ComparatorOptions()
-              .setUseAdaptiveMutex(false);
-      comparator = new BytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
-    } else if ("java_reverse_bytewise_adaptive_mutex".equals(comparatorName)) {
-      comparatorOptions = new ComparatorOptions()
-              .setUseAdaptiveMutex(true);
-      comparator = new ReverseBytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
-    } else if ("java_reverse_bytewise_non-adaptive_mutex".equals(comparatorName)) {
-      comparatorOptions = new ComparatorOptions()
-              .setUseAdaptiveMutex(false);
-      comparator = new ReverseBytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
-    } else if ("java_direct_bytewise_adaptive_mutex".equals(comparatorName)) {
-      comparatorOptions = new ComparatorOptions()
-              .setUseAdaptiveMutex(true);
-      comparator = new DirectBytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
-    } else if ("java_direct_bytewise_non-adaptive_mutex".equals(comparatorName)) {
-      comparatorOptions = new ComparatorOptions()
-              .setUseAdaptiveMutex(false);
-      comparator = new DirectBytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
+
     } else {
-      throw new IllegalArgumentException("Unknown comparator name: " + comparatorName);
+      throw new IllegalArgumentException("Unknown comparatorName: " + comparatorName);
     }
 
     db = RocksDB.open(options, dbDir.toAbsolutePath().toString());

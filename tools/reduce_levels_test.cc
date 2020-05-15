@@ -15,7 +15,7 @@
 #include "tools/ldb_cmd_impl.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ReduceLevelTest : public testing::Test {
 public:
@@ -80,10 +80,11 @@ private:
 };
 
 Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels) {
-  rocksdb::Options opt;
+  ROCKSDB_NAMESPACE::Options opt;
   opt.num_levels = num_levels;
   opt.create_if_missing = create_if_missing;
-  rocksdb::Status st = rocksdb::DB::Open(opt, dbname_, &db_);
+  ROCKSDB_NAMESPACE::Status st =
+      ROCKSDB_NAMESPACE::DB::Open(opt, dbname_, &db_);
   if (!st.ok()) {
     fprintf(stderr, "Can't open the db:%s\n", st.ToString().c_str());
   }
@@ -91,8 +92,9 @@ Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels) {
 }
 
 bool ReduceLevelTest::ReduceLevels(int target_level) {
-  std::vector<std::string> args = rocksdb::ReduceDBLevelsCommand::PrepareArgs(
-      dbname_, target_level, false);
+  std::vector<std::string> args =
+      ROCKSDB_NAMESPACE::ReduceDBLevelsCommand::PrepareArgs(
+          dbname_, target_level, false);
   LDBCommand* level_reducer = LDBCommand::InitFromCmdLineArgs(
       args, Options(), LDBOptions(), nullptr, LDBCommand::SelectCommand);
   level_reducer->Run();
@@ -200,7 +202,7 @@ TEST_F(ReduceLevelTest, All_Levels) {
   CloseDB();
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -11,7 +11,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
@@ -159,5 +159,5 @@ bool RunStressTest(StressTest* stress) {
   }
   return true;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
