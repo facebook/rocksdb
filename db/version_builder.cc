@@ -731,7 +731,8 @@ class VersionBuilder::Rep {
     assert(vstorage);
     assert(meta);
 
-    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount()) {
+    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount() ||
+        !meta->GetLinkedSsts().empty()) {
       vstorage->AddBlobFile(meta);
     }
   }
