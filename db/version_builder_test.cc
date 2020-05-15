@@ -1085,6 +1085,55 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
+TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbageLinkedSsts) {
+  // Initialize base version, with a table file pointing to a blob file
+  // that has no garbage at this point.
+
+  Add(/* level */ 1, /* file_number */ 1, /* smallest */ "150",
+      /* largest */ "200", /* file_size */ 100,
+      /* path_id */ 0, /* smallest_seq */ 100, /* largest_seq */ 100,
+      /* num_entries */ 0, /* num_deletions */ 0,
+      /* sampled */ false, /* smallest_seqno */ 100, /* largest_seqno */ 100,
+      /* oldest_blob_file_number */ 16);
+
+  AddBlob(/* blob_file_number */ 16, /* total_blob_count */ 1000,
+          /* total_blob_bytes */ 1000000,
+          /* checksum_method */ std::string(),
+          /* checksum_value */ std::string(), BlobFileMetaData::LinkedSsts{1},
+          /* garbage_blob_count */ 0, /* garbage_blob_bytes */ 0);
+
+  UpdateVersionStorageInfo();
+
+  // Mark the entire blob file garbage but do not remove the linked SST.
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit edit;
+
+  edit.AddBlobFileGarbage(/* blob_file_number */ 16,
+                          /* garbage_blob_count */ 1000,
+                          /* garbage_blob_bytes */ 1000000);
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  // Save to a new version in order to trigger consistency checks.
+  constexpr bool force_consistency_checks = true;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  const Status s = builder.SaveTo(&new_vstorage);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(
+      std::strstr(s.getState(), "Blob file #16 consists entirely of garbage"));
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
 TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
   // Initialize base version. Table files 1..10 are linked to blob files 1..5,
   // while table files 11..20 are not linked to any blob files.
