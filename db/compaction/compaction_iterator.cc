@@ -651,6 +651,12 @@ void CompactionIterator::PrepareOutput() {
       } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
         status_ = Status::IOError("Could not relocate blob during GC");
         valid_ = false;
+      } else if (blob_decision == CompactionFilter::BlobDecision::kRemove) {
+        ikey_.type = kTypeDeletion;
+        current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
+        value_.clear();
+        iter_stats_.num_record_drop_user++;
+        return;
       } else if (blob_decision ==
                  CompactionFilter::BlobDecision::kChangeValue) {
         value_ = compaction_filter_value_;

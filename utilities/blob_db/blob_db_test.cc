@@ -1111,27 +1111,101 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   ASSERT_TRUE(ttl_file->HasTTL());
 }
 
-TEST_F(BlobDBTest, CompactionFilterNotSupported) {
-  class TestCompactionFilter : public CompactionFilter {
-    const char *Name() const override { return "TestCompactionFilter"; }
+TEST_F(BlobDBTest, UserCompactionFilter) {
+  class CustomerFilter : public CompactionFilter {
+   public:
+    bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
+                std::string *new_value, bool *value_changed) const override {
+      *value_changed = false;
+      if (value.size() % 3 == 1) {
+        *new_value = value.ToString() + "_new";
+        *value_changed = true;
+        return false;
+      } else if (value.size() % 2 == 1) {
+        return true;
+      }
+      return false;
+    }
+    bool IgnoreSnapshots() const override { return true; }
+    const char *Name() const override { return "CustomerFilter"; }
   };
-  class TestCompactionFilterFactory : public CompactionFilterFactory {
-    const char *Name() const override { return "TestCompactionFilterFactory"; }
+  class CustomerFilterFactory : public CompactionFilterFactory {
+    const char *Name() const override { return "CustomerFilterFactory"; }
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
         const CompactionFilter::Context & /*context*/) override {
-      return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
+      return std::unique_ptr<CompactionFilter>(new CustomerFilter());
     }
   };
-  for (int i = 0; i < 2; i++) {
+
+  constexpr size_t kNumPuts = 1 << 10;
+  // Generate both inlined and blob value
+  constexpr uint64_t kMinValueSize = 1 << 6;
+  constexpr uint64_t kMaxValueSize = 1 << 8;
+  constexpr uint64_t kMinBlobSize = 1 << 7;
+  static_assert(kMinValueSize < kMinBlobSize, "");
+  static_assert(kMaxValueSize > kMinBlobSize, "");
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = kMinBlobSize;
+  bdb_options.blob_file_size = kMaxValueSize * 10;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1;  // full gc to filter all data
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = CompressionType::kSnappyCompression;
+  // case_num == 0: Test user defined compaction filter
+  // case_num == 1: Test user defined compaction filter factory
+  for (int case_num = 0; case_num < 2; case_num++) {
     Options options;
-    if (i == 0) {
-      options.compaction_filter = new TestCompactionFilter();
+    if (case_num == 0) {
+      options.compaction_filter = new CustomerFilter();
     } else {
-      options.compaction_filter_factory.reset(
-          new TestCompactionFilterFactory());
+      options.compaction_filter_factory.reset(new CustomerFilterFactory());
     }
-    ASSERT_TRUE(TryOpen(BlobDBOptions(), options).IsNotSupported());
+    options.disable_auto_compactions = true;
+    options.env = mock_env_.get();
+    options.statistics = CreateDBStatistics();
+    Open(bdb_options, options);
+
+    std::map<std::string, std::string> data;
+    std::map<std::string, std::string> data_after_compact;
+    Random rnd(301);
+    uint64_t value_size = kMinValueSize;
+    int drop_record = 0;
+    for (size_t i = 0; i < kNumPuts; ++i) {
+      std::ostringstream oss;
+      oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+      const std::string key(oss.str());
+      const std::string value(
+          test::RandomHumanReadableString(&rnd, (int)value_size));
+      const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+      ASSERT_OK(Put(key, value));
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+      data[key] = value;
+      if (value.length() % 3 == 1) {
+        data_after_compact[key] = value + "_new";
+      } else if (value.length() % 2 == 1) {
+        ++drop_record;
+      } else {
+        data_after_compact[key] = value;
+      }
+
+      if (++value_size > kMaxValueSize) {
+        value_size = kMinValueSize;
+      }
+    }
+    // Verify full data set
+    VerifyDB(data);
+    // Applying compaction filter for records
+    ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    // Verify data after compaction, only value with even length left.
+    VerifyDB(data_after_compact);
+    ASSERT_EQ(drop_record,
+              options.statistics->getTickerCount(COMPACTION_KEY_DROP_USER));
     delete options.compaction_filter;
+    Destroy();
   }
 }
 

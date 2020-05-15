@@ -232,6 +232,13 @@ class BlobDBImpl : public BlobDB {
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
 
+  Slice GetCompressedSlice(const Slice& raw, CompressionType compression_type,
+                           std::string* compression_output) const;
+
+  Status DecompressSlice(const Slice& compressed_value,
+                         CompressionType compression_type,
+                         PinnableSlice* value_output) const;
+
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
   // and the blob file's mutex_. If called on a blob file which is visible only

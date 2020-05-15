@@ -18,6 +18,7 @@
 
 ### New Feature
 * sst_dump to add a new --readahead_size argument. Users can specify read size when scanning the data. Sst_dump also tries to prefetch tail part of the SST files so usually some number of I/Os are saved there too.
+* Compaction filter support for BlobDB.
 
 ## 6.10 (5/2/2020)
 ### Bug Fixes

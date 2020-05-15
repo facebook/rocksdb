@@ -137,11 +137,6 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return Status::NotSupported("No blob directory in options");
   }
 
-  if (cf_options_.compaction_filter != nullptr ||
-      cf_options_.compaction_filter_factory != nullptr) {
-    return Status::NotSupported("Blob DB doesn't support compaction filter.");
-  }
-
   if (bdb_options_.garbage_collection_cutoff < 0.0 ||
       bdb_options_.garbage_collection_cutoff > 1.0) {
     return Status::InvalidArgument(
@@ -194,14 +189,17 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   if (bdb_options_.enable_garbage_collection) {
     db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
     cf_options_.compaction_filter_factory =
-        std::make_shared<BlobIndexCompactionFilterFactoryGC>(this, env_,
-                                                             statistics_);
+        std::make_shared<BlobIndexCompactionFilterFactoryGC>(
+            this, env_, cf_options_, statistics_);
   } else {
     db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
     cf_options_.compaction_filter_factory =
-        std::make_shared<BlobIndexCompactionFilterFactory>(this, env_,
-                                                           statistics_);
+        std::make_shared<BlobIndexCompactionFilterFactory>(
+            this, env_, cf_options_, statistics_);
   }
+
+  // Reset user compaction filter after building into compaction factory.
+  cf_options_.compaction_filter = nullptr;
 
   // Open base db.
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
@@ -1123,11 +1121,17 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
 
 Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
                                      std::string* compression_output) const {
-  if (bdb_options_.compression == kNoCompression) {
+  return GetCompressedSlice(raw, bdb_options_.compression, compression_output);
+}
+
+Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
+                                     CompressionType compression_type,
+                                     std::string* compression_output) const {
+  if (compression_type == kNoCompression) {
     return raw;
   }
   StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  CompressionType type = bdb_options_.compression;
+  CompressionType type = compression_type;
   CompressionOptions opts;
   CompressionContext context(type);
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type,
@@ -1135,6 +1139,31 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressBlock(raw, info, &type, kBlockBasedTableVersionFormat, false,
                 compression_output, nullptr, nullptr);
   return *compression_output;
+}
+
+Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
+                                   CompressionType compression_type,
+                                   PinnableSlice* value_output) const {
+  if (compression_type != kNoCompression) {
+    BlockContents contents;
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+
+    {
+      StopWatch decompression_sw(env_, statistics_,
+                                 BLOB_DB_DECOMPRESSION_MICROS);
+      UncompressionContext context(compression_type);
+      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                             compression_type);
+      Status s = UncompressBlockContentsForCompressionType(
+          info, compressed_value.data(), compressed_value.size(), &contents,
+          kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+      if (!s.ok()) {
+        return Status::Corruption("Unable to decompress blob.");
+      }
+    }
+    value_output->PinSelf(contents.data);
+  }
+  return Status::OK();
 }
 
 Status BlobDBImpl::CompactFiles(
@@ -1418,20 +1447,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
 
   if (compression_type != kNoCompression) {
-    BlockContents contents;
-    auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
-
-    {
-      StopWatch decompression_sw(env_, statistics_,
-                                 BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(compression_type);
-      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                             compression_type);
-      s = UncompressBlockContentsForCompressionType(
-          info, value->data(), value->size(), &contents,
-          kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
-    }
-
+    s = DecompressSlice(*value, compression_type, value);
     if (!s.ok()) {
       if (debug_level_ >= 2) {
         ROCKS_LOG_ERROR(
@@ -1442,11 +1458,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
             blob_index.file_number(), blob_index.offset(), blob_index.size(),
             key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
       }
-
-      return Status::Corruption("Unable to uncompress blob.");
+      return s;
     }
-
-    value->PinSelf(contents.data);
   }
 
   return Status::OK();
