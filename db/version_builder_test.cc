@@ -994,6 +994,29 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta4->GetTotalBlobBytes(), 4000000);
   ASSERT_EQ(meta4->GetGarbageBlobCount(), 0);
   ASSERT_EQ(meta4->GetGarbageBlobBytes(), 0);
+
+  // Delete the first table file, which makes the first blob file obsolete
+  // since it's at the head and unreferenced.
+  VersionBuilder second_builder(env_options, &ioptions_, table_cache,
+                                &new_vstorage, version_set);
+
+  VersionEdit second_edit;
+  second_edit.DeleteFile(/* level */ 0, /* file_number */ 1);
+
+  ASSERT_OK(second_builder.Apply(&second_edit));
+
+  VersionStorageInfo newer_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                    kCompactionStyleLevel, &new_vstorage,
+                                    force_consistency_checks);
+
+  ASSERT_OK(second_builder.SaveTo(&newer_vstorage));
+
+  const auto& newer_blob_files = newer_vstorage.GetBlobFiles();
+  ASSERT_EQ(newer_blob_files.size(), 2);
+
+  const auto newer_meta1 = GetBlobFileMetaData(newer_blob_files, 1);
+
+  ASSERT_EQ(newer_meta1, nullptr);
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
