@@ -1318,8 +1318,7 @@ TEST_F(DBTest2, CompressionFailures) {
           BlockContents* contents = static_cast<BlockContents*>(arg);
           // Ensure uncompressed data != original data
           const size_t len = contents->data.size() + 1;
-          std::unique_ptr<char[]> fake_data(new char[len]);
-          memset(fake_data.get(), 0, len);
+          std::unique_ptr<char[]> fake_data(new char[len]());
           *contents = BlockContents(std::move(fake_data), len);
         }
       });
