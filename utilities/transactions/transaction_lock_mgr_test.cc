@@ -55,6 +55,7 @@ class TransactionLockMgrTest : public testing::Test {
   TransactionDB* db_;
 };
 
+#if 0
 TEST_F(TransactionLockMgrTest, LockNonExistingColumnFamily) {
   locker_->RemoveColumnFamily(1024);
   auto txn = NewTxn();
@@ -64,6 +65,9 @@ TEST_F(TransactionLockMgrTest, LockNonExistingColumnFamily) {
   delete txn;
 }
 
+#endif
+
+#if 0
 TEST_F(TransactionLockMgrTest, LockStatus) {
   locker_->AddColumnFamily(1024);
   locker_->AddColumnFamily(2048);
@@ -328,6 +332,7 @@ TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
   delete txn1;
 }
 
+#endif
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
