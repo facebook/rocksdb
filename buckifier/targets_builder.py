@@ -50,6 +50,18 @@ class TARGETSBuilder(object):
             deps=pretty_list(deps)))
         self.total_lib = self.total_lib + 1
 
+    def add_rocksdb_library(self, name, srcs, headers=None):
+        headers_attr_prefix = ""
+        if headers is None:
+            headers_attr_prefix = "auto_"
+            headers = "AutoHeaders.RECURSIVE_GLOB"
+        self.targets_file.write(targets_cfg.rocksdb_library_template.format(
+            name=name,
+            srcs=pretty_list(srcs),
+            headers_attr_prefix=headers_attr_prefix,
+            headers=headers))
+        self.total_lib = self.total_lib + 1
+
     def add_binary(self, name, srcs, deps=None):
         self.targets_file.write(targets_cfg.binary_template % (
             name,

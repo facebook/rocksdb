@@ -168,12 +168,11 @@ def generate_targets(repo_path, deps_map):
         ["test_util/testutil.cc"],
         [":rocksdb_lib"])
     # rocksdb_stress_lib
-    TARGETS.add_library(
+    TARGETS.add_rocksdb_library(
         "rocksdb_stress_lib",
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
-        + ["test_util/testutil.cc"],
-        [":rocksdb_lib", ":rocksdb_test_lib"])
+        + ["test_util/testutil.cc"])
 
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
     # test for every test we found in the Makefile
