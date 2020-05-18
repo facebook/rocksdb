@@ -476,6 +476,13 @@ const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
 std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
   return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
 }
+
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs,
+                                     std::shared_ptr<Env>* shared_env) {
+  assert(shared_env != nullptr);
+  if (!*shared_env) shared_env->reset(Env::Default());
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(shared_env->get(), fs));
+}
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE

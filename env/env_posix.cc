@@ -128,6 +128,9 @@ class PosixDynamicLibrary : public DynamicLibrary {
 
 class PosixEnv : public CompositeEnvWrapper {
  public:
+  // Constructs an Env owning the thread pools
+  PosixEnv();
+
   // This constructor is for constructing non-default Envs, mainly by
   // NewCompositeEnv(). It allows new instances to share the same
   // threadpool and other resources as the default Env, while allowing
@@ -135,7 +138,7 @@ class PosixEnv : public CompositeEnvWrapper {
   PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs);
 
   ~PosixEnv() override {
-    if (this == Env::Default()) {
+    if (thread_pool_root_) {
       for (const auto tid : threads_to_join_) {
         pthread_join(tid, nullptr);
       }
@@ -369,8 +372,6 @@ class PosixEnv : public CompositeEnvWrapper {
 
  private:
   friend Env* Env::Default();
-  // Constructs the default Env, a singleton
-  PosixEnv();
 
   // The below 4 members are only used by the default PosixEnv instance.
   // Non-default instances simply maintain references to the backing
@@ -386,6 +387,7 @@ class PosixEnv : public CompositeEnvWrapper {
   // If true, allow non owner read access for db files. Otherwise, non-owner
   //  has no access to db files.
   bool& allow_non_owner_access_;
+  bool thread_pool_root_;
 };
 
 PosixEnv::PosixEnv()
@@ -395,7 +397,8 @@ PosixEnv::PosixEnv()
       thread_pools_(thread_pools_storage_),
       mu_(mu_storage_),
       threads_to_join_(threads_to_join_storage_),
-      allow_non_owner_access_(allow_non_owner_access_storage_) {
+      allow_non_owner_access_(allow_non_owner_access_storage_),
+      thread_pool_root_(true) {
   ThreadPoolImpl::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(
@@ -407,11 +410,12 @@ PosixEnv::PosixEnv()
 }
 
 PosixEnv::PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs)
-  : CompositeEnvWrapper(this, fs),
-    thread_pools_(default_env->thread_pools_),
-    mu_(default_env->mu_),
-    threads_to_join_(default_env->threads_to_join_),
-    allow_non_owner_access_(default_env->allow_non_owner_access_) {
+    : CompositeEnvWrapper(this, fs),
+      thread_pools_(default_env->thread_pools_),
+      mu_(default_env->mu_),
+      threads_to_join_(default_env->threads_to_join_),
+      allow_non_owner_access_(default_env->allow_non_owner_access_),
+      thread_pool_root_(false) {
   thread_status_updater_ = default_env->thread_status_updater_;
 }
 
@@ -512,6 +516,14 @@ Env* Env::Default() {
 std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
   PosixEnv* default_env = static_cast<PosixEnv*>(Env::Default());
   return std::unique_ptr<Env>(new PosixEnv(default_env, fs));
+}
+
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs,
+                                     std::shared_ptr<Env>* shared_env) {
+  assert(shared_env != nullptr);
+  if (!*shared_env) shared_env->reset(new PosixEnv());
+  PosixEnv* env = static_cast<PosixEnv*>(shared_env->get());
+  return std::unique_ptr<Env>(new PosixEnv(env, fs));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
