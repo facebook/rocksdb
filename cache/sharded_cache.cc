@@ -95,6 +95,16 @@ size_t ShardedCache::GetUsage() const {
   return usage;
 }
 
+size_t ShardedCache::GetHighPriorityPoolUsage() const {
+  // We will not lock the cache when getting the usage from shards.
+  int num_shards = 1 << num_shard_bits_;
+  size_t usage = 0;
+  for (int s = 0; s < num_shards; s++) {
+    usage += GetShard(s)->GetHighPriorityPoolUsage();
+  }
+  return usage;
+}
+
 size_t ShardedCache::GetUsage(Handle* handle) const {
   return GetCharge(handle);
 }
@@ -105,6 +115,16 @@ size_t ShardedCache::GetPinnedUsage() const {
   size_t usage = 0;
   for (int s = 0; s < num_shards; s++) {
     usage += GetShard(s)->GetPinnedUsage();
+  }
+  return usage;
+}
+
+size_t ShardedCache::GetEntries() const {
+  // We will not lock the cache when getting the usage from shards.
+  int num_shards = 1 << num_shard_bits_;
+  size_t usage = 0;
+  for (int s = 0; s < num_shards; s++) {
+    usage += GetShard(s)->GetEntries();
   }
   return usage;
 }

@@ -95,6 +95,8 @@ void LRUHandleTable::Resize() {
   length_ = new_length;
 }
 
+size_t LRUHandleTable::GetEntries() const { return elems_; }
+
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                              double high_pri_pool_ratio,
                              bool use_adaptive_mutex,
@@ -448,10 +450,20 @@ size_t LRUCacheShard::GetUsage() const {
   return usage_;
 }
 
+size_t LRUCacheShard::GetHighPriorityPoolUsage() const {
+  MutexLock l(&mutex_);
+  return high_pri_pool_usage_;
+}
+
 size_t LRUCacheShard::GetPinnedUsage() const {
   MutexLock l(&mutex_);
   assert(usage_ >= lru_usage_);
   return usage_ - lru_usage_;
+}
+
+size_t LRUCacheShard::GetEntries() const {
+  MutexLock l(&mutex_);
+  return table_.GetEntries();
 }
 
 std::string LRUCacheShard::GetPrintableOptions() const {

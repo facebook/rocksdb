@@ -6,9 +6,11 @@
 // This file implements the "bridge" between Java and C++ for
 // ROCKSDB_NAMESPACE::LRUCache.
 
+#include "cache/lru_cache.h"
+
 #include <jni.h>
 
-#include "cache/lru_cache.h"
+#include "include/org_rocksdb_Cache.h"
 #include "include/org_rocksdb_LRUCache.h"
 
 /*
@@ -40,4 +42,60 @@ void Java_org_rocksdb_LRUCache_disposeInternal(JNIEnv* /*env*/,
   auto* sptr_lru_cache =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
   delete sptr_lru_cache;  // delete std::shared_ptr
+}
+
+/*
+ * Class:     org_rocksdb_Cache
+ * Method:    getCapacity
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Cache_getCapacity(JNIEnv* /*env*/, jobject /*jobj*/,
+                                         jlong jhandle) {
+  auto* cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jhandle);
+  return cache->get()->GetCapacity();
+}
+
+/*
+ * Class:     org_rocksdb_Cache
+ * Method:    getUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Cache_getUsage(JNIEnv* /*env*/, jobject /*jobj*/,
+                                      jlong jhandle) {
+  auto* cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jhandle);
+  return cache->get()->GetUsage();
+}
+
+/*
+ * Class:     org_rocksdb_Cache
+ * Method:    getUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Cache_getHighPriorityPoolUsage(JNIEnv* /*env*/,
+                                                      jobject /*jobj*/,
+                                                      jlong jhandle) {
+  auto* cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jhandle);
+  return cache->get()->GetHighPriorityPoolUsage();
+}
+
+/*
+ * Class:     org_rocksdb_Cache
+ * Method:    getPinnedUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Cache_getPinnedUsage(JNIEnv* /*env*/, jobject /*jobj*/,
+                                            jlong jhandle) {
+  auto* cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jhandle);
+  return cache->get()->GetPinnedUsage();
+}
+
+/*
+ * Class:     org_rocksdb_Cache
+ * Method:    getEntries
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Cache_getEntries(JNIEnv* /*env*/, jobject /*jobj*/,
+                                        jlong jhandle) {
+  auto* cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jhandle);
+  return cache->get()->GetEntries();
 }

@@ -421,6 +421,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.HdfsEnv
           org.rocksdb.IngestExternalFileOptions
           org.rocksdb.Logger
+          org.rocksdb.Cache
           org.rocksdb.LRUCache
           org.rocksdb.MemoryUtil
           org.rocksdb.MemTableConfig

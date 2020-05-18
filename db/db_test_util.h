@@ -710,6 +710,12 @@ class CacheWrapper : public Cache {
 
   size_t GetUsage() const override { return target_->GetUsage(); }
 
+  size_t GetHighPriorityPoolUsage() const override {
+    return target_->GetHighPriorityPoolUsage();
+  }
+
+  size_t GetEntries() const override { return target_->GetEntries(); }
+
   size_t GetUsage(Handle* handle) const override {
     return target_->GetUsage(handle);
   }

@@ -12,6 +12,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
 	org.rocksdb.Checkpoint\
+	org.rocksdb.Cache\
 	org.rocksdb.ClockCache\
 	org.rocksdb.CassandraCompactionFilter\
 	org.rocksdb.CassandraValueMergeOperator\

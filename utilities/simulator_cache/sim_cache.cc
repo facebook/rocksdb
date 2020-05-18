@@ -232,6 +232,10 @@ class SimCacheImpl : public SimCache {
 
   size_t GetUsage() const override { return cache_->GetUsage(); }
 
+  size_t GetHighPriorityPoolUsage() const override {
+    return cache_->GetHighPriorityPoolUsage();
+  }
+
   size_t GetUsage(Handle* handle) const override {
     return cache_->GetUsage(handle);
   }
@@ -241,6 +245,8 @@ class SimCacheImpl : public SimCache {
   }
 
   size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
+
+  size_t GetEntries() const override { return cache_->GetEntries(); }
 
   void DisownData() override {
     cache_->DisownData();

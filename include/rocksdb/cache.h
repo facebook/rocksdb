@@ -255,11 +255,18 @@ class Cache {
   // returns the memory size for the entries residing in the cache.
   virtual size_t GetUsage() const = 0;
 
+  // returns the memory size for the high priority entries residing in the
+  // cache.
+  virtual size_t GetHighPriorityPoolUsage() const = 0;
+
   // returns the memory size for a specific entry in the cache.
   virtual size_t GetUsage(Handle* handle) const = 0;
 
   // returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
+
+  // returns the number of entries in the cache
+  virtual size_t GetEntries() const = 0;
 
   // returns the charge for the specific entry in the cache.
   virtual size_t GetCharge(Handle* handle) const = 0;
