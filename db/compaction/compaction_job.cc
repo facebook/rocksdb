@@ -613,32 +613,27 @@ Status CompactionJob::Run() {
 
   // Check if any thread encountered an error during execution
   Status status;
+  IOStatus io_s;
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
       status = state.status;
-      break;
-    }
-  }
-
-  IOStatus io_s;
-  for (const auto& state : compact_->sub_compact_states) {
-    if (!state.io_status.ok()) {
       io_s = state.io_status;
       break;
     }
   }
-  if (!io_s.ok()) {
+
+  if (io_status_.ok()) {
     io_status_ = io_s;
-    status = io_s;
   }
   if (status.ok() && output_directory_) {
     io_s = output_directory_->Fsync(IOOptions(), nullptr);
   }
-  if (!io_s.ok()) {
+  if (io_status_.ok()) {
     io_status_ = io_s;
+  }
+  if (status.ok()) {
     status = io_s;
   }
-
   if (status.ok()) {
     thread_pool.clear();
     std::vector<const FileMetaData*> files_meta;
@@ -1506,7 +1501,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   Status s;
   IOStatus io_s = NewWritableFile(fs_, fname, &writable_file, file_options_);
   s = io_s;
-  if (!io_s.ok()) {
+  if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
   }
   if (!s.ok()) {

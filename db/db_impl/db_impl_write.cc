@@ -1686,7 +1686,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     // of mutable_cf_options.write_buffer_size.
     io_s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
                      &new_log);
-    s = io_s;
+    if (s.ok()) {
+      s = io_s;
+    }
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
@@ -1713,7 +1715,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       // Alway flush the buffer of the last log before switching to a new one
       log::Writer* cur_log_writer = logs_.back().writer;
       io_s = cur_log_writer->WriteBuffer();
-      s = io_s;
+      if (s.ok()) {
+        s = io_s;
+      }
       if (!s.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64

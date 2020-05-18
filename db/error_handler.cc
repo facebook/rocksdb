@@ -154,6 +154,10 @@ void ErrorHandler::CancelErrorRecovery() {
       recovery_in_prog_ = false;
     }
   }
+
+  // If auto recovery is also runing to resume from the retryable error,
+  // we should wait and end the auto recovery.
+  EndAutoRecovery();
 #endif
 }
 
@@ -259,6 +263,9 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (bg_io_err.ok()) {
     return Status::OK();
   }
+  ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
+                 bg_io_err.ToString().c_str());
+
   if (recovery_in_prog_ && recovery_io_error_.ok()) {
     recovery_io_error_ = bg_io_err;
   }
@@ -413,18 +420,15 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
   if (bg_error_.ok() || io_error.ok()) {
     return Status::OK();
   }
-  if (recovery_in_prog_ || db_options_.max_bgerror_resume_count <= 0) {
+  if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_ ||
+      recovery_thread_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
   }
 
-  db_mutex_->Unlock();
-  if (recovery_thread_) {
-    recovery_thread_->join();
-  }
+  recovery_in_prog_ = true;
   recovery_thread_.reset(
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
-  db_mutex_->Lock();
 
   if (recovery_io_error_.ok() && recovery_error_.ok()) {
     return Status::OK();
@@ -444,13 +448,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 #ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
-  if (recovery_in_prog_) {
-    return;
-  }
   if (end_recovery_) {
     return;
   }
-  recovery_in_prog_ = true;
   int resume_count = db_options_.max_bgerror_resume_count;
   uint64_t wait_interval = db_options_.bgerror_resume_retry_interval;
   // Recover from the retryable error. Create a separate thread to do it.
@@ -467,6 +467,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
     if (s.IsShutdownInProgress() ||
         bg_error_.severity() >= Status::Severity::kFatalError) {
+      // If DB shutdown in progress or the error severity is higher than
+      // Hard Error, stop auto resume and returns.
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail0");
       recovery_in_prog_ = false;
       return;
@@ -474,30 +476,32 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     if (!recovery_io_error_.ok() &&
         recovery_error_.severity() <= Status::Severity::kHardError &&
         recovery_io_error_.GetRetryable()) {
-      // Wait on the condition
+      // If new BG IO error happens during auto recovery and it is retryable
+      // and its severity is Hard Error or lower, the auto resmue sleep for
+      // a period of time and redo auto resume if it is allowed.
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait0");
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
       int64_t wait_until = db_->env_->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {
-      // There are four possibility: 1) recover_io_error is set during resume
+      // There are three possibility: 1) recover_io_error is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
-      // error happens during resume and cannot be resumed here
+      // error happens during resume and cannot be resumed here.
       if (recovery_io_error_.ok() && recovery_error_.ok() && s.ok()) {
         // recover from the retryable IO error and no other BG errors. Clean
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
         Status old_bg_error = bg_error_;
         bg_error_ = Status::OK();
-        recovery_in_prog_ = false;
         EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
                                                      old_bg_error, db_mutex_);
+        recovery_in_prog_ = false;
         return;
       } else {
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail1");
         // In this case: 1) recovery_io_error is more serious or not retryable
-        // 2) other recovery_error happens. The auto recovery stops.
+        // 2) other Non IO recovery_error happens. The auto recovery stops.
         recovery_in_prog_ = false;
         return;
       }

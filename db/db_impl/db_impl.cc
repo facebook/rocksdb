@@ -483,7 +483,6 @@ Status DBImpl::CloseHelper() {
   mutex_.Lock();
   shutdown_initiated_ = true;
   error_handler_.CancelErrorRecovery();
-  error_handler_.EndAutoRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();
   }
