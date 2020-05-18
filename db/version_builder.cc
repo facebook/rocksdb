@@ -615,12 +615,6 @@ class VersionBuilder::Rep {
       const uint64_t base_blob_file_number = base_it->first;
       const uint64_t delta_blob_file_number = delta_it->first;
 
-      // Note: blob file numbers are strictly increasing over time and
-      // once blob files get marked obsolete, they never reappear. Thus,
-      // the case delta_blob_file_number < base_blob_file_number is not
-      // possible here.
-      assert(base_blob_file_number <= delta_blob_file_number);
-
       if (base_blob_file_number < delta_blob_file_number) {
         const auto& base_meta = base_it->second;
         assert(base_meta);
@@ -630,6 +624,13 @@ class VersionBuilder::Rep {
         vstorage->AddBlobFile(base_meta);
 
         ++base_it;
+      } else if (delta_blob_file_number < base_blob_file_number) {
+        // Note: blob file numbers are strictly increasing over time and
+        // once blob files get marked obsolete, they never reappear. Thus,
+        // this case is not possible.
+        assert(false);
+
+        ++delta_it;
       } else {
         assert(base_blob_file_number == delta_blob_file_number);
 
