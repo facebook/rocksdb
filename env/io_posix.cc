@@ -189,19 +189,19 @@ bool IsSyncFileRangeSupported(int fd) {
 /*
  * DirectIOHelper
  */
-#ifndef NDEBUG
 namespace {
 
 bool IsSectorAligned(const size_t off, size_t sector_size) {
-  return off % sector_size == 0;
+  assert((sector_size & (sector_size - 1)) == 0);
+  return (off & (sector_size - 1)) == 0;
 }
 
+#ifndef NDEBUG
 bool IsSectorAligned(const void* ptr, size_t sector_size) {
   return uintptr_t(ptr) % sector_size == 0;
 }
-
-}  // namespace
 #endif
+}  // namespace
 
 /*
  * PosixSequentialFile
@@ -276,7 +276,7 @@ IOStatus PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
     ptr += r;
     offset += r;
     left -= r;
-    if (r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+    if (!IsSectorAligned(r, GetRequiredBufferAlignment())) {
       // Bytes reads don't fill sectors. Should only happen at the end
       // of the file.
       break;
@@ -711,21 +711,13 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           // comment
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
-          if (use_direct_io()) {
-            if (req_wrap->finished_len %
-                    static_cast<size_t>(GetRequiredBufferAlignment()) !=
-                0) {
-              // Bytes reads don't fill sectors. Should only happen at the end
-              // of the file.
-              req->result = Slice(req->scratch, req_wrap->finished_len);
-              req->status = IOStatus::OK();
-            } else {
-              // Returns partial result, need to re-read with pread.
-              // Since offset must be aligned,
-              // read from the original offset again.
-              req->status = Read(req->offset, req->len, options, &req->result,
-                                 req->scratch, dbg);
-            }
+          if (use_direct_io() &&
+              !IsSectorAligned(req_wrap->finished_len,
+                               GetRequiredBufferAlignment())) {
+            // Bytes reads don't fill sectors. Should only happen at the end
+            // of the file.
+            req->result = Slice(req->scratch, req_wrap->finished_len);
+            req->status = IOStatus::OK();
           } else {
             Slice tmp_slice;
             req->status =
