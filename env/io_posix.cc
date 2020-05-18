@@ -712,9 +712,20 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
           if (use_direct_io()) {
-            // offset must be aligned, so read from the original offset again.
-            req->status = Read(req->offset, req->len, options, &req->result,
-                               req->scratch, dbg);
+            if (req_wrap->finished_len %
+                    static_cast<size_t>(GetRequiredBufferAlignment()) !=
+                0) {
+              // Bytes reads don't fill sectors. Should only happen at the end
+              // of the file.
+              req->result = Slice(req->scratch, req_wrap->finished_len);
+              req->status = IOStatus::OK();
+            } else {
+              // Returns partial result, need to re-read with pread.
+              // Since offset must be aligned,
+              // read from the original offset again.
+              req->status = Read(req->offset, req->len, options, &req->result,
+                                 req->scratch, dbg);
+            }
           } else {
             Slice tmp_slice;
             req->status =
