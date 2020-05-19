@@ -121,8 +121,8 @@ class NonBatchedOpsStressTest : public StressTest {
           for (size_t j = 0; j < batch_size; ++j) {
             Status s = statuses[j];
             std::string from_db = values[j].ToString();
-            VerifyValue(static_cast<int>(cf), i + j, options, shared, from_db, s,
-                        true);
+            VerifyValue(static_cast<int>(cf), i + j, options, shared, from_db,
+                        s, true);
             if (from_db.length()) {
               PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
                             from_db.data(), from_db.length());
@@ -359,8 +359,7 @@ class NonBatchedOpsStressTest : public StressTest {
       bool is_consistent = true;
       // Only do the consistency check if no error was injected and MultiGet
       // didn't return an unexpected error
-      if (do_consistency_check && !error_count &&
-            (s.ok() || s.IsNotFound())) {
+      if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
         Status tmp_s;
         std::string value;
 
