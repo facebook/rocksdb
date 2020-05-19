@@ -365,7 +365,10 @@ class NonBatchedOpsStressTest : public StressTest {
         std::string value;
 
         tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
-        if (!s.ok() && tmp_s.ok()) {
+        if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
+          fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
+          is_consistent = false;
+        } else if (!s.ok() && tmp_s.ok()) {
           fprintf(stderr, "MultiGet returned different results with key %s\n",
                   keys[i].ToString(true).c_str());
           fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
