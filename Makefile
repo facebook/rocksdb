@@ -668,7 +668,9 @@ ifdef ASSERT_STATUS_CHECKED
 	# This is a new check for which we will add support incrementally. The
 	# whitelist can be removed once support is fully added.
         TESTS_WHITELIST = \
-		options_test
+		options_test \
+		options_settable_test \
+		io_posix_test
         TESTS := $(filter $(TESTS_WHITELIST),$(TESTS))
         PARALLEL_TEST := $(filter $(TESTS_WHITELIST),$(PARALLEL_TEST))
 endif
