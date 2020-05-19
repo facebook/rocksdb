@@ -86,6 +86,43 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
+  class BlobFileMetaDataDelta {
+   public:
+    bool IsEmpty() const {
+      return !shared_meta_ && !additional_garbage_count_ &&
+             !additional_garbage_bytes_;
+    }
+
+    std::shared_ptr<SharedBlobFileMetaData> GetSharedMeta() const {
+      return shared_meta_;
+    }
+
+    uint64_t GetAdditionalGarbageCount() const {
+      return additional_garbage_count_;
+    }
+
+    uint64_t GetAdditionalGarbageBytes() const {
+      return additional_garbage_bytes_;
+    }
+
+    void SetSharedMeta(std::shared_ptr<SharedBlobFileMetaData> shared_meta) {
+      assert(!shared_meta_);
+      assert(shared_meta);
+
+      shared_meta_ = std::move(shared_meta);
+    }
+
+    void AddGarbage(uint64_t count, uint64_t bytes) {
+      additional_garbage_count_ += count;
+      additional_garbage_bytes_ += bytes;
+    }
+
+   private:
+    std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
+    uint64_t additional_garbage_count_ = 0;
+    uint64_t additional_garbage_bytes_ = 0;
+  };
+
   const FileOptions& file_options_;
   const ImmutableCFOptions* const ioptions_;
   TableCache* table_cache_;
@@ -104,8 +141,8 @@ class VersionBuilder::Rep {
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
 
-  // Metadata for all blob files affected by the series of version edits.
-  std::map<uint64_t, std::shared_ptr<BlobFileMetaData>> changed_blob_files_;
+  // Metadata delta for all blob files affected by the series of version edits.
+  std::map<uint64_t, BlobFileMetaDataDelta> blob_file_meta_deltas_;
 
  public:
   Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
@@ -150,14 +187,12 @@ class VersionBuilder::Rep {
     }
   }
 
-  std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
-      uint64_t blob_file_number) const {
-    auto changed_it = changed_blob_files_.find(blob_file_number);
-    if (changed_it != changed_blob_files_.end()) {
-      const auto& meta = changed_it->second;
-      assert(meta);
-
-      return meta;
+  bool IsBlobFileInVersion(uint64_t blob_file_number) const {
+    auto delta_it = blob_file_meta_deltas_.find(blob_file_number);
+    if (delta_it != blob_file_meta_deltas_.end()) {
+      if (delta_it->second.GetSharedMeta()) {
+        return true;
+      }
     }
 
     assert(base_vstorage_);
@@ -166,13 +201,13 @@ class VersionBuilder::Rep {
 
     auto base_it = base_blob_files.find(blob_file_number);
     if (base_it != base_blob_files.end()) {
-      const auto& meta = base_it->second;
-      assert(meta);
+      assert(base_it->second);
+      assert(base_it->second->GetSharedMeta());
 
-      return meta;
+      return true;
     }
 
-    return std::shared_ptr<BlobFileMetaData>();
+    return false;
   }
 
   Status CheckConsistencyOfOldestBlobFileReference(
@@ -189,8 +224,7 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 
-    const auto meta = GetBlobFileMetaData(blob_file_number);
-    if (!meta) {
+    if (!IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number
           << " is not part of this version";
@@ -391,8 +425,7 @@ class VersionBuilder::Rep {
   Status ApplyBlobFileAddition(const BlobFileAddition& blob_file_addition) {
     const uint64_t blob_file_number = blob_file_addition.GetBlobFileNumber();
 
-    auto meta = GetBlobFileMetaData(blob_file_number);
-    if (meta) {
+    if (IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number << " already added";
 
@@ -423,12 +456,8 @@ class VersionBuilder::Rep {
         blob_file_addition.GetChecksumMethod(),
         blob_file_addition.GetChecksumValue(), deleter);
 
-    constexpr uint64_t garbage_blob_count = 0;
-    constexpr uint64_t garbage_blob_bytes = 0;
-    auto new_meta = BlobFileMetaData::Create(
-        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes);
-
-    changed_blob_files_.emplace(blob_file_number, std::move(new_meta));
+    blob_file_meta_deltas_[blob_file_number].SetSharedMeta(
+        std::move(shared_meta));
 
     return Status::OK();
   }
@@ -436,22 +465,16 @@ class VersionBuilder::Rep {
   Status ApplyBlobFileGarbage(const BlobFileGarbage& blob_file_garbage) {
     const uint64_t blob_file_number = blob_file_garbage.GetBlobFileNumber();
 
-    auto meta = GetBlobFileMetaData(blob_file_number);
-    if (!meta) {
+    if (!IsBlobFileInVersion(blob_file_number)) {
       std::ostringstream oss;
       oss << "Blob file #" << blob_file_number << " not found";
 
       return Status::Corruption("VersionBuilder", oss.str());
     }
 
-    assert(meta->GetBlobFileNumber() == blob_file_number);
-
-    auto new_meta = BlobFileMetaData::Create(
-        meta->GetSharedMeta(),
-        meta->GetGarbageBlobCount() + blob_file_garbage.GetGarbageBlobCount(),
-        meta->GetGarbageBlobBytes() + blob_file_garbage.GetGarbageBlobBytes());
-
-    changed_blob_files_[blob_file_number] = std::move(new_meta);
+    blob_file_meta_deltas_[blob_file_number].AddGarbage(
+        blob_file_garbage.GetGarbageBlobCount(),
+        blob_file_garbage.GetGarbageBlobBytes());
 
     return Status::OK();
   }
@@ -530,6 +553,40 @@ class VersionBuilder::Rep {
     return s;
   }
 
+  static std::shared_ptr<BlobFileMetaData> CreateMetaDataForNewBlobFile(
+      const BlobFileMetaDataDelta& delta) {
+    auto shared_meta = delta.GetSharedMeta();
+    assert(shared_meta);
+
+    auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                         delta.GetAdditionalGarbageCount(),
+                                         delta.GetAdditionalGarbageBytes());
+
+    return meta;
+  }
+
+  static std::shared_ptr<BlobFileMetaData>
+  GetOrCreateMetaDataForExistingBlobFile(
+      const std::shared_ptr<BlobFileMetaData>& base_meta,
+      const BlobFileMetaDataDelta& delta) {
+    assert(base_meta);
+    assert(!delta.GetSharedMeta());
+
+    if (delta.IsEmpty()) {
+      return base_meta;
+    }
+
+    auto shared_meta = base_meta->GetSharedMeta();
+    assert(shared_meta);
+
+    auto meta = BlobFileMetaData::Create(
+        std::move(shared_meta),
+        base_meta->GetGarbageBlobCount() + delta.GetAdditionalGarbageCount(),
+        base_meta->GetGarbageBlobBytes() + delta.GetAdditionalGarbageBytes());
+
+    return meta;
+  }
+
   void AddBlobFileIfNeeded(
       VersionStorageInfo* vstorage,
       const std::shared_ptr<BlobFileMetaData>& meta) const {
@@ -551,42 +608,41 @@ class VersionBuilder::Rep {
     auto base_it = base_blob_files.begin();
     const auto base_it_end = base_blob_files.end();
 
-    auto changed_it = changed_blob_files_.begin();
-    const auto changed_it_end = changed_blob_files_.end();
+    auto delta_it = blob_file_meta_deltas_.begin();
+    const auto delta_it_end = blob_file_meta_deltas_.end();
 
-    while (base_it != base_it_end && changed_it != changed_it_end) {
+    while (base_it != base_it_end && delta_it != delta_it_end) {
       const uint64_t base_blob_file_number = base_it->first;
-      const uint64_t changed_blob_file_number = changed_it->first;
+      const uint64_t delta_blob_file_number = delta_it->first;
 
-      const auto& base_meta = base_it->second;
-      const auto& changed_meta = changed_it->second;
-
-      assert(base_meta);
-      assert(changed_meta);
-
-      if (base_blob_file_number < changed_blob_file_number) {
+      if (base_blob_file_number < delta_blob_file_number) {
+        const auto& base_meta = base_it->second;
+        assert(base_meta);
         assert(base_meta->GetGarbageBlobCount() <
                base_meta->GetTotalBlobCount());
 
         vstorage->AddBlobFile(base_meta);
 
         ++base_it;
-      } else if (changed_blob_file_number < base_blob_file_number) {
-        AddBlobFileIfNeeded(vstorage, changed_meta);
+      } else if (delta_blob_file_number < base_blob_file_number) {
+        // Note: blob file numbers are strictly increasing over time and
+        // once blob files get marked obsolete, they never reappear. Thus,
+        // this case is not possible.
+        assert(false);
 
-        ++changed_it;
+        ++delta_it;
       } else {
-        assert(base_blob_file_number == changed_blob_file_number);
-        assert(base_meta->GetSharedMeta() == changed_meta->GetSharedMeta());
-        assert(base_meta->GetGarbageBlobCount() <=
-               changed_meta->GetGarbageBlobCount());
-        assert(base_meta->GetGarbageBlobBytes() <=
-               changed_meta->GetGarbageBlobBytes());
+        assert(base_blob_file_number == delta_blob_file_number);
 
-        AddBlobFileIfNeeded(vstorage, changed_meta);
+        const auto& base_meta = base_it->second;
+        const auto& delta = delta_it->second;
+
+        auto meta = GetOrCreateMetaDataForExistingBlobFile(base_meta, delta);
+
+        AddBlobFileIfNeeded(vstorage, meta);
 
         ++base_it;
-        ++changed_it;
+        ++delta_it;
       }
     }
 
@@ -599,12 +655,14 @@ class VersionBuilder::Rep {
       ++base_it;
     }
 
-    while (changed_it != changed_it_end) {
-      const auto& changed_meta = changed_it->second;
-      assert(changed_meta);
+    while (delta_it != delta_it_end) {
+      const auto& delta = delta_it->second;
 
-      AddBlobFileIfNeeded(vstorage, changed_meta);
-      ++changed_it;
+      auto meta = CreateMetaDataForNewBlobFile(delta);
+
+      AddBlobFileIfNeeded(vstorage, meta);
+
+      ++delta_it;
     }
   }
 
