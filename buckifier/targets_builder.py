@@ -37,6 +37,10 @@ class TARGETSBuilder(object):
     def __del__(self):
         self.targets_file.close()
 
+    def add_include(self, reldir):
+        self.targets_file.write(targets_cfg.include_template.format(
+            reldir=reldir))
+
     def add_library(self, name, srcs, deps=None, headers=None):
         headers_attr_prefix = ""
         if headers is None:

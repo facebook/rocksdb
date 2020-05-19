@@ -108,6 +108,13 @@ def get_tests(repo_path):
 
     return tests
 
+# Get gtest dir from Makefile
+def get_gtest_dir(repo_path):
+    for line in open(repo_path + "/Makefile"):
+        if line.strip().startswith("GTEST_DIR ="):
+            return line.split("=")[1].strip()
+    # if not found
+    exit_with_error("Unable to find GTEST_DIR in Makefile")
 
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
@@ -142,11 +149,19 @@ def generate_targets(repo_path, deps_map):
     cc_files = get_cc_files(repo_path)
     # get tests from Makefile
     tests = get_tests(repo_path)
+    # get gtest dir
+    gtest_dir = get_gtest_dir(repo_path) + "/"
 
     if src_mk is None or cc_files is None or tests is None:
         return False
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
+
+    # includes
+    TARGETS.add_include("include/")
+    TARGETS.add_include("") # repository root
+    TARGETS.add_include(gtest_dir)
+
     # rocksdb_lib
     TARGETS.add_library(
         "rocksdb_lib",
@@ -159,7 +174,7 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("TEST_LIB_SOURCES", []) +
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
-        [":rocksdb_lib"])
+        [":rocksdb_lib", ":rocksdb_third_party_gtest"])
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
@@ -173,6 +188,12 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
+    # rocksdb_third_party_gtest
+    TARGETS.add_library(
+        "rocksdb_third_party_gtest",
+        [gtest_dir + "gtest/gtest-all.cc"],
+        [],
+        [gtest_dir + "gtest/gtest.h"])
 
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
     # test for every test we found in the Makefile

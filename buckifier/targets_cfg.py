@@ -32,7 +32,6 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("lz4", None, "lz4"),
     ("zstd", None),
     ("tbb", None),
-    ("googletest", None, "gtest"),
 ]
 
 ROCKSDB_OS_DEPS = [
@@ -81,10 +80,6 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
-
-    # Directories with files for #include
-    "-I" + REPO_PATH + "include/",
-    "-I" + REPO_PATH,
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
@@ -121,6 +116,10 @@ ROCKSDB_LIB_DEPS = [
 ] if not is_opt_mode else [":rocksdb_lib"]
 """
 
+include_template = """
+# Add a directory for #include
+ROCKSDB_PREPROCESSOR_FLAGS += "-I" + REPO_PATH + "{reldir}",
+"""
 
 library_template = """
 cpp_library(
