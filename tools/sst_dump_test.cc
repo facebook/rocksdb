@@ -22,7 +22,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const uint32_t kOptLength = 100;
+const uint32_t kOptLength = 1024;
 
 namespace {
 static std::string MakeKey(int i) {
