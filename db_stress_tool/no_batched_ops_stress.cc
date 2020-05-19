@@ -36,8 +36,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
       }
-      if (!thread->rand.OneIn(2)) {
-        // Use iterator to verify this range
+      if (thread->rand.OneIn(3)) {
+        // 1/3 chance use iterator to verify this range
         Slice prefix;
         std::string seek_key = Key(start);
         std::unique_ptr<Iterator> iter(
@@ -82,8 +82,8 @@ class NonBatchedOpsStressTest : public StressTest {
                           from_db.data(), from_db.length());
           }
         }
-      } else {
-        // Use Get to verify this range
+      } else if (thread->rand.OneIn(2)) {
+        // 1/3 chance use Get to verify this range
         for (auto i = start; i < end; i++) {
           if (thread->shared->HasVerificationFailedYet()) {
             break;
@@ -98,6 +98,38 @@ class NonBatchedOpsStressTest : public StressTest {
             PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
                           from_db.data(), from_db.length());
           }
+        }
+      } else {
+        // 1/3 chance use MultiGet to verify this range
+        for (auto i = start; i < end;) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+          // Keep the batch size to some reasonable value
+          size_t batch_size = thread->rand.Uniform(128) + 1;
+          batch_size = std::min<size_t>(batch_size, end - i);
+          std::vector<std::string> keystrs(batch_size);
+          std::vector<Slice> keys(batch_size);
+          std::vector<PinnableSlice> values(batch_size);
+          std::vector<Status> statuses(batch_size);
+          for (size_t j = 0; j < batch_size; ++j) {
+            keystrs[j] = Key(i + j);
+            keys[j] = Slice(keystrs[j].data(), keystrs[j].length());
+          }
+          db_->MultiGet(options, column_families_[cf], batch_size, keys.data(),
+                        values.data(), statuses.data());
+          for (size_t j = 0; j < batch_size; ++j) {
+            Status s = statuses[j];
+            std::string from_db = values[j].ToString();
+            VerifyValue(static_cast<int>(cf), i + j, options, shared, from_db,
+                        s, true);
+            if (from_db.length()) {
+              PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i + j),
+                            from_db.data(), from_db.length());
+            }
+          }
+
+          i += batch_size;
         }
       }
     }
@@ -209,6 +241,14 @@ class NonBatchedOpsStressTest : public StressTest {
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
     int error_count = 0;
+    // Do a consistency check between Get and MultiGet. Don't do it too
+    // often as it will slow db_stress down
+    bool do_consistency_check = thread->rand.OneIn(4);
+
+    ReadOptions readoptionscopy = read_opts;
+    if (do_consistency_check) {
+      readoptionscopy.snapshot = db_->GetSnapshot();
+    }
 
     // To appease clang analyzer
     const bool use_txn = FLAGS_use_txn;
@@ -275,7 +315,7 @@ class NonBatchedOpsStressTest : public StressTest {
         SharedState::ignore_read_error = false;
       }
 #endif // NDEBUG
-      db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+      db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
 #ifndef NDEBUG
       if (fault_fs_guard) {
@@ -284,7 +324,7 @@ class NonBatchedOpsStressTest : public StressTest {
 #endif // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
-      txn->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+      txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
       RollbackTxn(txn);
 #endif
@@ -309,10 +349,51 @@ class NonBatchedOpsStressTest : public StressTest {
         std::terminate();
       }
     }
+    if (fault_fs_guard) {
+      fault_fs_guard->DisableErrorInjection();
+    }
 #endif // NDEBUG
 
-    for (const auto& s : statuses) {
-      if (s.ok()) {
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      Status s = statuses[i];
+      bool is_consistent = true;
+      // Only do the consistency check if no error was injected and MultiGet
+      // didn't return an unexpected error
+      if (do_consistency_check && !error_count && (s.ok() || s.IsNotFound())) {
+        Status tmp_s;
+        std::string value;
+
+        tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
+        if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
+          fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
+          is_consistent = false;
+        } else if (!s.ok() && tmp_s.ok()) {
+          fprintf(stderr, "MultiGet returned different results with key %s\n",
+                  keys[i].ToString(true).c_str());
+          fprintf(stderr, "Get returned ok, MultiGet returned not found\n");
+          is_consistent = false;
+        } else if (s.ok() && tmp_s.IsNotFound()) {
+          fprintf(stderr, "MultiGet returned different results with key %s\n",
+                  keys[i].ToString(true).c_str());
+          fprintf(stderr, "MultiGet returned ok, Get returned not found\n");
+          is_consistent = false;
+        } else if (s.ok() && value != values[i].ToString()) {
+          fprintf(stderr, "MultiGet returned different results with key %s\n",
+                  keys[i].ToString(true).c_str());
+          fprintf(stderr, "MultiGet returned value %s\n",
+                  values[i].ToString(true).c_str());
+          fprintf(stderr, "Get returned value %s\n", value.c_str());
+          is_consistent = false;
+        }
+      }
+
+      if (!is_consistent) {
+        fprintf(stderr, "TestMultiGet error: is_consistent is false\n");
+        thread->stats.AddErrors(1);
+        // Fail fast to preserve the DB state
+        thread->shared->SetVerificationFailure();
+        break;
+      } else if (s.ok()) {
         // found case
         thread->stats.AddGets(1, 1);
       } else if (s.IsNotFound()) {
@@ -331,11 +412,10 @@ class NonBatchedOpsStressTest : public StressTest {
         }
       }
     }
-#ifndef NDEBUG
-    if (fault_fs_guard) {
-      fault_fs_guard->DisableErrorInjection();
+
+    if (readoptionscopy.snapshot) {
+      db_->ReleaseSnapshot(readoptionscopy.snapshot);
     }
-#endif // NDEBUG
     return statuses;
   }
 
