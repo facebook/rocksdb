@@ -1734,11 +1734,22 @@ void rocksdb_writebatch_wi_delete(
   b->rep->Delete(Slice(key, klen));
 }
 
+void rocksdb_writebatch_wi_singledelete(rocksdb_writebatch_wi_t* b,
+                                         const char* key, size_t klen) {
+  b->rep->SingleDelete(Slice(key, klen));
+}
+
 void rocksdb_writebatch_wi_delete_cf(
     rocksdb_writebatch_wi_t* b,
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen) {
   b->rep->Delete(column_family->rep, Slice(key, klen));
+}
+
+void rocksdb_writebatch_wi_singledelete_cf(
+    rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen) {
+  b->rep->SingleDelete(column_family->rep, Slice(key, klen));
 }
 
 void rocksdb_writebatch_wi_deletev(

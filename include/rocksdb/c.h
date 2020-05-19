@@ -588,7 +588,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_mergev_cf(
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_delete(rocksdb_writebatch_wi_t*,
                                                           const char* key,
                                                           size_t klen);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_singledelete(
+    rocksdb_writebatch_wi_t*, const char* key, size_t klen);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_delete_cf(
+    rocksdb_writebatch_wi_t*, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_singledelete_cf(
     rocksdb_writebatch_wi_t*, rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_deletev(
