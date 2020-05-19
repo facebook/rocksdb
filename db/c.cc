@@ -1735,7 +1735,7 @@ void rocksdb_writebatch_wi_delete(
 }
 
 void rocksdb_writebatch_wi_singledelete(rocksdb_writebatch_wi_t* b,
-                                         const char* key, size_t klen) {
+                                        const char* key, size_t klen) {
   b->rep->SingleDelete(Slice(key, klen));
 }
 
