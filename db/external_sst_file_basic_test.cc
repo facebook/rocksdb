@@ -6,6 +6,7 @@
 #include <functional>
 
 #include "db/db_test_util.h"
+#include "db/version_edit.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
@@ -174,6 +175,111 @@ TEST_F(ExternalSSTFileBasicTest, Basic) {
   ASSERT_EQ(file1_info.num_range_del_entries, 0);
   ASSERT_EQ(file1_info.smallest_range_del_key, "");
   ASSERT_EQ(file1_info.largest_range_del_key, "");
+  ASSERT_EQ(file1_info.file_checksum, kUnknownFileChecksum);
+  ASSERT_EQ(file1_info.file_checksum_func_name, kUnknownFileChecksumFuncName);
+  // sst_file_writer already finished, cannot add this value
+  s = sst_file_writer.Put(Key(100), "bad_val");
+  ASSERT_FALSE(s.ok()) << s.ToString();
+  s = sst_file_writer.DeleteRange(Key(100), Key(200));
+  ASSERT_FALSE(s.ok()) << s.ToString();
+
+  DestroyAndReopen(options);
+  // Add file using file path
+  s = DeprecatedAddFile({file1});
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+  for (int k = 0; k < 100; k++) {
+    ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+  }
+
+  DestroyAndRecreateExternalSSTFilesDir();
+}
+
+class ChecksumVerifyHelper {
+ private:
+  Options options_;
+
+ public:
+  ChecksumVerifyHelper(Options& options) : options_(options) {}
+  ~ChecksumVerifyHelper() {}
+
+  Status GetSingleFileChecksumAndFuncName(
+      const std::string& file_path, std::string* file_checksum,
+      std::string* file_checksum_func_name) {
+    Status s;
+    EnvOptions soptions;
+    std::unique_ptr<SequentialFile> file_reader;
+    s = options_.env->NewSequentialFile(file_path, &file_reader, soptions);
+    if (!s.ok()) {
+      return s;
+    }
+    std::unique_ptr<char[]> scratch(new char[2048]);
+    Slice result;
+    FileChecksumGenFactory* file_checksum_gen_factory =
+        options_.file_checksum_gen_factory.get();
+    if (file_checksum_gen_factory == nullptr) {
+      *file_checksum = kUnknownFileChecksum;
+      *file_checksum_func_name = kUnknownFileChecksumFuncName;
+      return Status::OK();
+    } else {
+      FileChecksumGenContext gen_context;
+      std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
+          file_checksum_gen_factory->CreateFileChecksumGenerator(gen_context);
+      *file_checksum_func_name = file_checksum_gen->Name();
+      s = file_reader->Read(2048, &result, scratch.get());
+      if (!s.ok()) {
+        return s;
+      }
+      while (result.size() != 0) {
+        file_checksum_gen->Update(scratch.get(), result.size());
+        s = file_reader->Read(2048, &result, scratch.get());
+        if (!s.ok()) {
+          return s;
+        }
+      }
+      file_checksum_gen->Finalize();
+      *file_checksum = file_checksum_gen->GetChecksum();
+    }
+    return Status::OK();
+  }
+};
+
+TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
+  Options options = CurrentOptions();
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  ChecksumVerifyHelper checksum_helper(options);
+
+  SstFileWriter sst_file_writer(EnvOptions(), options);
+
+  // Current file size should be 0 after sst_file_writer init and before open a
+  // file.
+  ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
+  // file1.sst (0 => 99)
+  std::string file1 = sst_files_dir_ + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  for (int k = 0; k < 100; k++) {
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file1_info;
+  Status s = sst_file_writer.Finish(&file1_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  std::string file_checksum, file_checksum_func_name;
+  ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+      file1, &file_checksum, &file_checksum_func_name));
+
+  // Current file size should be non-zero after success write.
+  ASSERT_GT(sst_file_writer.FileSize(), 0);
+
+  ASSERT_EQ(file1_info.file_path, file1);
+  ASSERT_EQ(file1_info.num_entries, 100);
+  ASSERT_EQ(file1_info.smallest_key, Key(0));
+  ASSERT_EQ(file1_info.largest_key, Key(99));
+  ASSERT_EQ(file1_info.num_range_del_entries, 0);
+  ASSERT_EQ(file1_info.smallest_range_del_key, "");
+  ASSERT_EQ(file1_info.largest_range_del_key, "");
+  ASSERT_EQ(file1_info.file_checksum, file_checksum);
+  ASSERT_EQ(file1_info.file_checksum_func_name, file_checksum_func_name);
   // sst_file_writer already finished, cannot add this value
   s = sst_file_writer.Put(Key(100), "bad_val");
   ASSERT_FALSE(s.ok()) << s.ToString();
