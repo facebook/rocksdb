@@ -3297,7 +3297,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   ASSERT_STREQ(f.GetFileChecksum().c_str(), kUnknownFileChecksum.c_str());
 }
 
-TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
+TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   FileChecksumGenCrc32cFactory* file_checksum_gen_factory =
       new FileChecksumGenCrc32cFactory();
   Options options;
@@ -3322,12 +3322,12 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
 
   FileChecksumGenContext gen_context;
   gen_context.file_name = "db/tmp";
-  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen1 =
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen1 =
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
-  f.SetFileChecksumGenerator(checksum_crc32_gen1.release());
+  f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
@@ -3342,12 +3342,22 @@ TEST_P(BlockBasedTableTest, Crc32FileChecksum) {
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
 
-  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen2 =
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen2 =
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   std::string checksum;
-  ASSERT_OK(f.CalculateFileChecksum(checksum_crc32_gen2.get(), &checksum));
+  ASSERT_OK(f.CalculateFileChecksum(checksum_crc32c_gen2.get(), &checksum));
   ASSERT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
+
+  // Unit test the generator itself for schema stability
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen3 =
+      options.file_checksum_gen_factory->CreateFileChecksumGenerator(
+          gen_context);
+  const char data[] = "here is some data";
+  checksum_crc32c_gen3->Update(data, sizeof(data));
+  checksum_crc32c_gen3->Finalize();
+  checksum = checksum_crc32c_gen3->GetChecksum();
+  ASSERT_STREQ(checksum.c_str(), "\345\245\277\110");
 }
 
 // Plain table is not supported in ROCKSDB_LITE
@@ -3441,7 +3451,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   EXPECT_EQ(f.GetFileChecksum(), kUnknownFileChecksum.c_str());
 }
 
-TEST_F(PlainTableTest, Crc32FileChecksum) {
+TEST_F(PlainTableTest, Crc32cFileChecksum) {
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 20;
   plain_table_options.bloom_bits_per_key = 8;
@@ -3462,12 +3472,12 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
 
   FileChecksumGenContext gen_context;
   gen_context.file_name = "db/tmp";
-  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen1 =
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen1 =
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   FileChecksumTestHelper f(true);
   f.CreateWriteableFile();
-  f.SetFileChecksumGenerator(checksum_crc32_gen1.release());
+  f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(
@@ -3481,11 +3491,11 @@ TEST_F(PlainTableTest, Crc32FileChecksum) {
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
 
-  std::unique_ptr<FileChecksumGenerator> checksum_crc32_gen2 =
+  std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen2 =
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   std::string checksum;
-  ASSERT_OK(f.CalculateFileChecksum(checksum_crc32_gen2.get(), &checksum));
+  ASSERT_OK(f.CalculateFileChecksum(checksum_crc32c_gen2.get(), &checksum));
   EXPECT_STREQ(f.GetFileChecksum().c_str(), checksum.c_str());
 }
 

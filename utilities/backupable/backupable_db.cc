@@ -1197,7 +1197,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     std::string dst;
     // 1. extract the filename
     size_t slash = file.find_last_of('/');
-    // file will either be shared/<file>, shared_checksum/<file_crc32_size>
+    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>
     // or private/<number>/<file>
     assert(slash != std::string::npos);
     dst = file.substr(slash + 1);
@@ -1759,8 +1759,8 @@ Slice kMetaDataPrefix("metadata ");
 // <seq number>
 // <metadata(literal string)> <metadata> (optional)
 // <number of files>
-// <file1> <crc32(literal string)> <crc32_value>
-// <file2> <crc32(literal string)> <crc32_value>
+// <file1> <crc32(literal string)> <crc32c_value>
+// <file2> <crc32(literal string)> <crc32c_value>
 // ...
 Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::string& backup_dir,
@@ -1808,6 +1808,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   std::vector<std::shared_ptr<FileInfo>> files;
 
+  // WART: The checksums are crc32c, not original crc32
   Slice checksum_prefix("crc32 ");
 
   for (uint32_t i = 0; s.ok() && i < num_files; ++i) {
@@ -1921,7 +1922,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   }
 
   for (const auto& file : files_) {
-    // use crc32 for now, switch to something else if needed
+    // use crc32c for now, switch to something else if needed
+    // WART: The checksums are crc32c, not original crc32
 
     size_t newlen = len + file->filename.length() + snprintf(writelen_temp,
       sizeof(writelen_temp), " crc32 %u\n", file->checksum_value);

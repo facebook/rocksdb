@@ -7,8 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// Endian-neutral encoding:
+// Encoding independent of machine byte order:
 // * Fixed-length numbers are encoded with least-significant byte first
+//   (little endian, native order on Intel and others)
 // * In addition we support variable length "varint" encoding
 // * Strings are encoded prefixed by their length in varint format
 
@@ -402,13 +403,35 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
   }
 }
 
-// Provide an interface for platform independent endianness transformation
-inline uint64_t EndianTransform(uint64_t input, size_t size) {
-  char* pos = reinterpret_cast<char*>(&input);
-  uint64_t ret_val = 0;
-  for (size_t i = 0; i < size; ++i) {
-    ret_val |= (static_cast<uint64_t>(static_cast<unsigned char>(pos[i]))
-                << ((size - i - 1) << 3));
+// Swaps between big and little endian. Can be used to in combination
+// with the little-endian encoding/decoding functions to encode/decode
+// big endian.
+template <typename T>
+inline T EndianSwapValue(T v) {
+  static_assert(std::is_integral<T>::value, "non-integral type");
+  static_assert(std::is_unsigned<T>::value, "must be unsigned (for now)");
+
+#ifdef _MSC_VER
+  if (sizeof(T) == 2) {
+    return _byteswap_ushort(v);
+  } else if (sizeof(T) == 4) {
+    return _byteswap_ulong(v);
+  } else if (sizeof(T) == 8) {
+    return _byteswap_uint64(v);
+  }
+#else
+  if (sizeof(T) == 2) {
+    return __builtin_bswap16(v);
+  } else if (sizeof(T) == 4) {
+    return __builtin_bswap32(v);
+  } else if (sizeof(T) == 8) {
+    return __builtin_bswap64(v);
+  }
+#endif
+  // Recognized by clang as bswap, but not by gcc :(
+  T ret_val = 0;
+  for (size_t i = 0; i < sizeof(T); ++i) {
+    ret_val |= ((v >> (8 * i)) & 0xff) << (8 * (sizeof(T) - 1 - i));
   }
   return ret_val;
 }
