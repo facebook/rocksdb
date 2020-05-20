@@ -124,6 +124,10 @@ then
 elif [ $CHECK_ONLY ]
 then
   echo "Your change has unformatted code. Please run make format!"
+  if [ $VERBOSE_CHECK ]; then
+    clang-format --version
+    echo "$diffs"
+  fi
   exit 1
 fi
 
