@@ -108,6 +108,7 @@ def get_tests(repo_path):
 
     return tests
 
+
 # Get gtest dir from Makefile
 def get_gtest_dir(repo_path):
     for line in open(repo_path + "/Makefile"):
@@ -115,6 +116,7 @@ def get_gtest_dir(repo_path):
             return line.split("=")[1].strip()
     # if not found
     exit_with_error("Unable to find GTEST_DIR in Makefile")
+
 
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
@@ -234,6 +236,7 @@ def get_rocksdb_path():
         os.path.join(script_dir, "../"))
 
     return rocksdb_path
+
 
 def exit_with_error(msg):
     print(ColorString.error(msg))
