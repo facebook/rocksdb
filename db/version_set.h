@@ -283,6 +283,35 @@ class VersionStorageInfo {
     return files_[level];
   }
 
+  class FileLocation {
+   public:
+    FileLocation() = default;
+    FileLocation(int level, size_t position)
+        : level_(level), position_(position) {}
+
+    int GetLevel() const { return level_; }
+    size_t GetPosition() const { return position_; }
+
+    bool IsValid() const { return level_ >= 0; }
+
+    static FileLocation Invalid() { return FileLocation(); }
+
+   private:
+    int level_ = -1;
+    size_t position_ = 0;
+  };
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  FileLocation GetFileLocation(uint64_t file_number) const {
+    const auto it = file_locations_.find(file_number);
+
+    if (it == file_locations_.end()) {
+      return FileLocation::Invalid();
+    }
+
+    return it->second;
+  }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
@@ -460,6 +489,11 @@ class VersionStorageInfo {
   // List of files per level, files in each level are arranged
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
+
+  // Map of all table files in version. Maps file number to (level, position on
+  // level).
+  using FileLocations = std::unordered_map<uint64_t, FileLocation>;
+  FileLocations file_locations_;
 
   // Map of blob files in version by number.
   BlobFiles blob_files_;
