@@ -298,9 +298,7 @@ class VersionStorageInfo {
       return level_ == rhs.level_ && position_ == rhs.position_;
     }
 
-    bool operator!=(const FileLocation& rhs) const {
-      return !(*this == rhs);
-    }
+    bool operator!=(const FileLocation& rhs) const { return !(*this == rhs); }
 
     static FileLocation Invalid() { return FileLocation(); }
 
