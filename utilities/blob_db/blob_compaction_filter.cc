@@ -17,10 +17,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     int level, const Slice& key, ValueType value_type, const Slice& value,
     std::string* new_value, std::string* skip_until) const {
   if (value_type != kBlobIndex) {
-    if (user_filter_ != nullptr) {
+    if (user_comp_filter() != nullptr) {
       // Apply user compaction filter for non-blobindex.
-      return user_filter_->FilterV2(level, key, value_type, value, new_value,
-                                    skip_until);
+      return user_comp_filter()->FilterV2(level, key, value_type, value,
+                                          new_value, skip_until);
     }
     return Decision::kKeep;
   }
@@ -58,23 +58,12 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
       return Decision::kRemove;
     }
   }
-  if (blob_index.IsInlined() && user_filter_ != nullptr) {
+  if (blob_index.IsInlined() && user_comp_filter() != nullptr) {
     // Apply user compaction filter for inlined data.
-    return user_filter_->FilterV2(level, key, value_type, value, new_value,
-                                  skip_until);
+    return user_comp_filter()->FilterV2(level, key, value_type, value,
+                                        new_value, skip_until);
   }
   return Decision::kKeep;
-}
-
-void BlobIndexCompactionFilterBase::SetUserCompactionFilter(
-    const CompactionFilter* user_filter) {
-  user_filter_ = user_filter;
-}
-
-void BlobIndexCompactionFilterBase::SetUserCompactionFilter(
-    std::unique_ptr<CompactionFilter>* user_filter) {
-  user_filter_ptr_ = std::move(*user_filter);
-  user_filter_ = user_filter_ptr_.get();
 }
 
 BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
@@ -144,22 +133,22 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     return BlobDecision::kIOError;
   }
 
-  const CompactionFilter* udf = user_data_filter();
+  const CompactionFilter* ucf = user_comp_filter();
 
   PinnableSlice blob;
   PinnableSlice blob_raw;  // decompressed blob
   CompressionType compression_type = kNoCompression;
   if (!ReadBlobFromOldFile(key, blob_index, &blob,
-                           udf == nullptr ? nullptr : &blob_raw,
+                           ucf == nullptr ? nullptr : &blob_raw,
                            &compression_type)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
 
   bool value_changed = false;
-  if (udf != nullptr) {
+  if (ucf != nullptr) {
     std::string new_filter_value;
-    if (udf->Filter(0, key,
+    if (ucf->Filter(0, key,
                     compression_type == kNoCompression ? blob : blob_raw,
                     &new_filter_value, &value_changed)) {
       return BlobDecision::kRemove;
@@ -358,19 +347,16 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
   BlobCompactionContext bcontext;
   blob_db_impl()->GetCompactionContext(&bcontext);
 
-  auto rv = new BlobIndexCompactionFilter(std::move(bcontext), current_time,
-                                          statistics());
-
-  // compaction_filter takes precedence over compaction_filter_factory if
-  // client specifies both. (refer to include\rocksdb\options.h)
-  if (user_filter_ != nullptr) {
-    rv->SetUserCompactionFilter(user_filter_);
-  } else if (user_filter_factory_ != nullptr) {
-    auto user_filter = user_filter_factory_->CreateCompactionFilter(context);
-    rv->SetUserCompactionFilter(&user_filter);
+  std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
+      nullptr;
+  if (user_comp_filter_factory_) {
+    user_comp_filter_from_factory =
+        user_comp_filter_factory_->CreateCompactionFilter(context);
   }
 
-  return std::unique_ptr<CompactionFilter>(rv);
+  return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
+      std::move(bcontext), user_comp_filter_,
+      std::move(user_comp_filter_from_factory), current_time, statistics()));
 }
 
 std::unique_ptr<CompactionFilter>
@@ -391,19 +377,16 @@ BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
   BlobCompactionContextGC bcontext_gc;
   blob_db_impl()->GetCompactionContext(&bcontext, &bcontext_gc);
 
-  auto rv = new BlobIndexCompactionFilterGC(
-      std::move(bcontext), std::move(bcontext_gc), current_time, statistics());
-
-  // compaction_filter takes precedence over compaction_filter_factory if
-  // client specifies both. (refer to include\rocksdb\options.h)
-  if (user_filter_ != nullptr) {
-    rv->SetUserCompactionFilter(user_filter_);
-  } else if (user_filter_factory_ != nullptr) {
-    auto user_filter = user_filter_factory_->CreateCompactionFilter(context);
-    rv->SetUserCompactionFilter(&user_filter);
+  std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
+      nullptr;
+  if (user_comp_filter_factory_) {
+    user_comp_filter_from_factory =
+        user_comp_filter_factory_->CreateCompactionFilter(context);
   }
 
-  return std::unique_ptr<CompactionFilter>(rv);
+  return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilterGC(
+      std::move(bcontext), std::move(bcontext_gc), user_comp_filter_,
+      std::move(user_comp_filter_from_factory), current_time, statistics()));
 }
 
 }  // namespace blob_db
