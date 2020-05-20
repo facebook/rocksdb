@@ -416,7 +416,7 @@ Status LogicalBlockSizeCache::RefAndCacheLogicalBlockSize(
       v.size = dir_size->second;
     }
   }
-  return Status::OK();
+  return s;
 }
 
 void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
