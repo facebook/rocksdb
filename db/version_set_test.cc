@@ -421,6 +421,23 @@ TEST_F(VersionStorageInfoTest, GetOverlappingInputs) {
       1, {"i", 0, kTypeValue}, {"j", 0, kTypeValue}));
 }
 
+TEST_F(VersionStorageInfoTest, FileLocation) {
+  Add(0, 11U, "1", "2", 5000U);
+  Add(0, 12U, "1", "2", 5000U);
+
+  Add(2, 7U, "1", "2", 8000U);
+
+  ASSERT_EQ(vstorage_.GetFileLocation(11U),
+            VersionStorageInfo::FileLocation(0, 0));
+  ASSERT_EQ(vstorage_.GetFileLocation(12U),
+            VersionStorageInfo::FileLocation(0, 1));
+
+  ASSERT_EQ(vstorage_.GetFileLocation(7U),
+            VersionStorageInfo::FileLocation(2, 0));
+
+  ASSERT_FALSE(vstorage_.GetFileLocation(999U).IsValid());
+}
+
 class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {
  public:
   VersionStorageInfoTimestampTest()
