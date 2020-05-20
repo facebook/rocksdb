@@ -409,23 +409,22 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
 template <typename T>
 inline T EndianSwapValue(T v) {
   static_assert(std::is_integral<T>::value, "non-integral type");
-  static_assert(std::is_unsigned<T>::value, "must be unsigned (for now)");
 
 #ifdef _MSC_VER
   if (sizeof(T) == 2) {
-    return _byteswap_ushort(v);
+    return static_cast<T>(_byteswap_ushort(static_cast<uint16_t>(v)));
   } else if (sizeof(T) == 4) {
-    return _byteswap_ulong(v);
+    return static_cast<T>(_byteswap_ulong(static_cast<uint32_t>(v)));
   } else if (sizeof(T) == 8) {
-    return _byteswap_uint64(v);
+    return static_cast<T>(_byteswap_uint64(static_cast<uint64_t>(v)));
   }
 #else
   if (sizeof(T) == 2) {
-    return __builtin_bswap16(v);
+    return static_cast<T>(__builtin_bswap16(static_cast<uint16_t>(v)));
   } else if (sizeof(T) == 4) {
-    return __builtin_bswap32(v);
+    return static_cast<T>(__builtin_bswap32(static_cast<uint32_t>(v)));
   } else if (sizeof(T) == 8) {
-    return __builtin_bswap64(v);
+    return static_cast<T>(__builtin_bswap64(static_cast<uint64_t>(v)));
   }
 #endif
   // Recognized by clang as bswap, but not by gcc :(
