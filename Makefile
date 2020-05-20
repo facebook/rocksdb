@@ -327,7 +327,7 @@ endif
 
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
-GTEST_DIR = ./third-party/gtest-1.8.1/fused-src
+GTEST_DIR = third-party/gtest-1.8.1/fused-src
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
 	PLATFORM_CCFLAGS += -I$(GTEST_DIR)
@@ -2219,6 +2219,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
+# FIXME: nothing checks that entries in MAIN_SOURCES actually exist
 all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 

@@ -26,6 +26,7 @@ then
 else
   echo "Please run 'python buckifier/buckify_rocksdb.py' to update TARGETS file."
   echo "Do not manually update TARGETS file."
+  python --version
   mv TARGETS.bkp TARGETS
   exit 1
 fi
