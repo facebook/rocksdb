@@ -364,7 +364,9 @@ class NonBatchedOpsStressTest : public StressTest {
         std::string value;
 
         if (use_txn) {
+#ifndef ROCKSDB_LITE
           tmp_s = txn->Get(readoptionscopy, cfh, keys[i], &value);
+#endif // ROCKSDB_LITE
         } else {
           tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
         }
