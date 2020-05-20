@@ -363,7 +363,11 @@ class NonBatchedOpsStressTest : public StressTest {
         Status tmp_s;
         std::string value;
 
-        tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
+        if (use_txn) {
+          tmp_s = txn->Get(readoptionscopy, cfh, keys[i], &value);
+        } else {
+          tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
+        }
         if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
           is_consistent = false;
