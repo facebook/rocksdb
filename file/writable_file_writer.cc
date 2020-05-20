@@ -30,6 +30,9 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
   TEST_KILL_RANDOM("WritableFileWriter::Append:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
 
+  // Calculate the checksum of appended data
+  CalculateFileChecksum(data);
+
   {
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
@@ -89,7 +92,6 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   if (s.ok()) {
     filesize_ += data.size();
-    CalculateFileChecksum(data);
   }
   return s;
 }

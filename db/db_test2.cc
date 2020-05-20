@@ -1317,10 +1317,9 @@ TEST_F(DBTest2, CompressionFailures) {
         if (curr_compression_failure_type == kTestDecompressionCorruption) {
           BlockContents* contents = static_cast<BlockContents*>(arg);
           // Ensure uncompressed data != original data
-          std::unique_ptr<char[]> fake_data(
-              new char[contents->data.size() + 1]);
-          *contents =
-              BlockContents(std::move(fake_data), contents->data.size() + 1);
+          const size_t len = contents->data.size() + 1;
+          std::unique_ptr<char[]> fake_data(new char[len]());
+          *contents = BlockContents(std::move(fake_data), len);
         }
       });
 

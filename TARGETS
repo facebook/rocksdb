@@ -26,7 +26,6 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("lz4", None, "lz4"),
     ("zstd", None),
     ("tbb", None),
-    ("googletest", None, "gtest"),
 ]
 
 ROCKSDB_OS_DEPS = [
@@ -79,6 +78,7 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
+    "-I" + REPO_PATH + "third-party/gtest-1.8.1/fused-src/",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
@@ -108,6 +108,11 @@ ROCKSDB_OS_DEPS += ([(
     "linux",
     ["third-party//jemalloc:headers"],
 )] if sanitizer == "" else [])
+
+ROCKSDB_LIB_DEPS = [
+    ":rocksdb_lib",
+    ":rocksdb_test_lib",
+] if not is_opt_mode else [":rocksdb_lib"]
 
 cpp_library(
     name = "rocksdb_lib",
@@ -393,7 +398,10 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [":rocksdb_lib"],
+    deps = [
+        ":rocksdb_lib",
+        ":rocksdb_third_party_gtest",
+    ],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
@@ -437,10 +445,20 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [
-        ":rocksdb_lib",
-        ":rocksdb_test_lib",
-    ],
+    deps = ROCKSDB_LIB_DEPS,
+    external_deps = ROCKSDB_EXTERNAL_DEPS,
+)
+
+cpp_library(
+    name = "rocksdb_third_party_gtest",
+    srcs = ["third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc"],
+    headers = ["third-party/gtest-1.8.1/fused-src/gtest/gtest.h"],
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    os_deps = ROCKSDB_OS_DEPS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    deps = [],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
@@ -511,6 +529,13 @@ ROCKS_TESTS = [
     [
         "block_based_filter_block_test",
         "table/block_based/block_based_filter_block_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "block_based_table_reader_test",
+        "table/block_based/block_based_table_reader_test.cc",
         "serial",
         [],
         [],

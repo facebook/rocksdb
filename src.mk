@@ -415,6 +415,7 @@ MAIN_SOURCES =                                                          \
   monitoring/stats_history_test.cc                                      \
   options/options_test.cc                                               \
   table/block_based/block_based_filter_block_test.cc                    \
+  table/block_based/block_based_table_reader_test.cc                    \
   table/block_based/block_test.cc                                       \
   table/block_based/data_block_hash_index_test.cc                       \
   table/block_based/full_filter_block_test.cc                           \
@@ -427,7 +428,7 @@ MAIN_SOURCES =                                                          \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
   table/block_fetcher_test.cc                                           \
-  third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
+  third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc                  \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
   tools/db_bench.cc                                                     \

@@ -327,7 +327,7 @@ endif
 
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
-GTEST_DIR = ./third-party/gtest-1.8.1/fused-src
+GTEST_DIR = third-party/gtest-1.8.1/fused-src
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
 	PLATFORM_CCFLAGS += -I$(GTEST_DIR)
@@ -539,6 +539,7 @@ TESTS = \
 	random_access_file_reader_test \
 	file_reader_writer_test \
 	block_based_filter_block_test \
+	block_based_table_reader_test \
 	full_filter_block_test \
 	partitioned_filter_block_test \
 	hash_table_test \
@@ -667,7 +668,9 @@ ifdef ASSERT_STATUS_CHECKED
 	# This is a new check for which we will add support incrementally. The
 	# whitelist can be removed once support is fully added.
         TESTS_WHITELIST = \
-		options_test
+		options_test \
+		options_settable_test \
+		io_posix_test
         TESTS := $(filter $(TESTS_WHITELIST),$(TESTS))
         PARALLEL_TEST := $(filter $(TESTS_WHITELIST),$(PARALLEL_TEST))
 endif
@@ -1568,6 +1571,9 @@ file_reader_writer_test: util/file_reader_writer_test.o $(LIBOBJECTS) $(TESTHARN
 block_based_filter_block_test: table/block_based/block_based_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 full_filter_block_test: table/block_based/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -2213,6 +2219,7 @@ endif
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
+# FIXME: nothing checks that entries in MAIN_SOURCES actually exist
 all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 DEPFILES = $(all_sources:.cc=.cc.d)
 
