@@ -155,12 +155,7 @@ def generate_targets(repo_path, deps_map):
     if src_mk is None or cc_files is None or tests is None:
         return False
 
-    TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
-
-    # includes
-    TARGETS.add_include("include/")
-    TARGETS.add_include("") # repository root
-    TARGETS.add_include(gtest_dir)
+    TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path, gtest_dir)
 
     # rocksdb_lib
     TARGETS.add_library(

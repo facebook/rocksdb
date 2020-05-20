@@ -25,10 +25,12 @@ def pretty_list(lst, indent=8):
 
 
 class TARGETSBuilder(object):
-    def __init__(self, path):
+    def __init__(self, path, gtest_dir):
         self.path = path
         self.targets_file = open(path, 'w')
-        self.targets_file.write(targets_cfg.rocksdb_target_header)
+        header = targets_cfg.rocksdb_target_header_template.format(
+            gtest_dir=gtest_dir)
+        self.targets_file.write(header)
         self.total_lib = 0
         self.total_bin = 0
         self.total_test = 0
@@ -37,15 +39,13 @@ class TARGETSBuilder(object):
     def __del__(self):
         self.targets_file.close()
 
-    def add_include(self, reldir):
-        self.targets_file.write(targets_cfg.include_template.format(
-            reldir=reldir))
-
     def add_library(self, name, srcs, deps=None, headers=None):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
             headers = "AutoHeaders.RECURSIVE_GLOB"
+        else:
+            headers = "[" + pretty_list(headers) + "]"
         self.targets_file.write(targets_cfg.library_template.format(
             name=name,
             srcs=pretty_list(srcs),
@@ -59,6 +59,8 @@ class TARGETSBuilder(object):
         if headers is None:
             headers_attr_prefix = "auto_"
             headers = "AutoHeaders.RECURSIVE_GLOB"
+        else:
+            headers = "[" + pretty_list(headers) + "]"
         self.targets_file.write(targets_cfg.rocksdb_library_template.format(
             name=name,
             srcs=pretty_list(srcs),

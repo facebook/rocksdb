@@ -74,6 +74,11 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
+
+    # Directories with files for #include
+    "-I" + REPO_PATH + "include/",
+    "-I" + REPO_PATH,
+    "-I" + REPO_PATH + "third-party/gtest-1.8.1/fused-src/",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
@@ -108,15 +113,6 @@ ROCKSDB_LIB_DEPS = [
     ":rocksdb_lib",
     ":rocksdb_test_lib",
 ] if not is_opt_mode else [":rocksdb_lib"]
-
-# Add a directory for #include
-ROCKSDB_PREPROCESSOR_FLAGS += "-I" + REPO_PATH + "include/",
-
-# Add a directory for #include
-ROCKSDB_PREPROCESSOR_FLAGS += "-I" + REPO_PATH + "",
-
-# Add a directory for #include
-ROCKSDB_PREPROCESSOR_FLAGS += "-I" + REPO_PATH + "third-party/gtest-1.8.1/fused-src/",
 
 cpp_library(
     name = "rocksdb_lib",
@@ -456,7 +452,7 @@ cpp_library(
 cpp_library(
     name = "rocksdb_third_party_gtest",
     srcs = ["third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc"],
-    headers = [u'third-party/gtest-1.8.1/fused-src/gtest/gtest.h'],
+    headers = ["third-party/gtest-1.8.1/fused-src/gtest/gtest.h"],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
     os_deps = ROCKSDB_OS_DEPS,
