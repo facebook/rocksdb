@@ -335,6 +335,10 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       *s = LoadTables(cfd, /*prefetch_index_and_filter_in_cache=*/false,
                       /*is_initial_load=*/true);
       if (!s->ok()) {
+        // If s is IOError::PathNotFound, then we mark the db as corrupted.
+        if (s->IsPathNotFound()) {
+          *s = Status::Corruption("Corruption: " + s->ToString());
+        }
         break;
       }
     }
