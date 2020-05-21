@@ -224,7 +224,12 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
     ::testing::Combine(::testing::ValuesIn(GetSupportedCompressions()),
-                       ::testing::Bool()));
+#ifdef ROCKSDB_LITE
+                       ::testing::Values(false)
+#else   // ROCKSDB_LITE
+                       ::testing::Bool()
+#endif  // ROCKSDB_LITE
+                           ));
 
 }  // namespace ROCKSDB_NAMESPACE
 
