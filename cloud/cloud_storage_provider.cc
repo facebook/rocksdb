@@ -99,24 +99,6 @@ Status CloudStorageReadableFileImpl::Skip(uint64_t n) {
   return Status::OK();
 }
 
-size_t CloudStorageReadableFileImpl::GetUniqueId(char* id,
-                                                 size_t max_size) const {
-  // If this is an SST file name, then it can part of the persistent cache.
-  // We need to generate a unique id for the cache.
-  // If it is not a sst file, then nobody should be using this id.
-  uint64_t file_number;
-  FileType file_type;
-  WalFileType log_type;
-  ParseFileName(RemoveEpoch(basename(fname_)), &file_number, &file_type,
-                &log_type);
-  if (max_size >= kMaxVarint64Length && file_number > 0) {
-    char* rid = id;
-    rid = EncodeVarint64(rid, file_number);
-    return static_cast<size_t>(rid - id);
-  }
-  return 0;
-}
-
 /******************** Writablefile ******************/
 
 CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
@@ -306,14 +288,14 @@ Status CloudStorageProviderImpl::NewCloudReadableFile(
     const std::string& bucket, const std::string& fname,
     std::unique_ptr<CloudStorageReadableFile>* result,
     const EnvOptions& options) {
-  // First, check if the file exists and also find its size. We use size in
-  // CloudReadableFile to make sure we always read the valid ranges of the file
-  uint64_t size;
-  Status st = GetCloudObjectSize(bucket, fname, &size);
+  CloudObjectInformation info;
+  Status st = GetCloudObjectMetadata(bucket, fname, &info);
+
   if (!st.ok()) {
     return st;
   }
-  return DoNewCloudReadableFile(bucket, fname, size, result, options);
+  return DoNewCloudReadableFile(bucket, fname, info.size, info.content_hash,
+                                result, options);
 }
 
 Status CloudStorageProviderImpl::GetCloudObject(

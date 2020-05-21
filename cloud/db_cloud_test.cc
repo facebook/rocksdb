@@ -161,7 +161,8 @@ class CloudTest : public testing::Test {
                  const std::string& dest_bucket_name,
                  const std::string& dest_object_path,
                  std::unique_ptr<DBCloud>* cloud_db,
-                 std::unique_ptr<CloudEnv>* cloud_env) {
+                 std::unique_ptr<CloudEnv>* cloud_env,
+                 bool force_keep_local_on_invalid_dest_bucket = true) {
     // The local directory where the clone resides
     std::string cname = clone_dir_ + "/" + clone_name;
 
@@ -177,7 +178,8 @@ class CloudTest : public testing::Test {
       copt.dest_bucket.SetBucketName(dest_bucket_name);
     }
     copt.dest_bucket.SetObjectPath(dest_object_path);
-    if (!copt.dest_bucket.IsValid()) {
+    if (!copt.dest_bucket.IsValid() &&
+        force_keep_local_on_invalid_dest_bucket) {
       copt.keep_local_sst_files = true;
     }
     // Create new AWS env
@@ -1481,6 +1483,56 @@ TEST_F(CloudTest, PersistentCache) {
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_EQ(value, "World");
   CloseDB();
+}
+
+// This test create 2 DBs that shares a block cache. Ensure that reads from one
+// DB do not get the values from the other DB.
+TEST_F(CloudTest, SharedBlockCache) {
+  cloud_env_options_.keep_local_sst_files = false;
+
+  // Share the block cache.
+  rocksdb::BlockBasedTableOptions bbto;
+  bbto.block_cache = NewLRUCache(10 * 1024 * 1024);
+  bbto.format_version = 4;
+  options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  OpenDB();
+
+  std::unique_ptr<CloudEnv> clone_env;
+  std::unique_ptr<DBCloud> clone_db;
+  CloneDB("newdb1", cloud_env_options_.src_bucket.GetBucketName(),
+          cloud_env_options_.src_bucket.GetObjectPath() + "-clone", &clone_db,
+          &clone_env, false /* force_keep_local_on_invalid_dest_bucket */);
+
+  // Flush the first DB.
+  db_->Put(WriteOptions(), "db", "original");
+  db_->Flush(FlushOptions());
+
+  // Flush the second DB.
+  clone_db->Put(WriteOptions(), "db", "clone");
+  clone_db->Flush(FlushOptions());
+
+  std::vector<LiveFileMetaData> file_metadatas;
+  db_->GetLiveFilesMetaData(&file_metadatas);
+  ASSERT_EQ(1, file_metadatas.size());
+
+  file_metadatas.clear();
+  clone_db->GetLiveFilesMetaData(&file_metadatas);
+  ASSERT_EQ(1, file_metadatas.size());
+
+  std::string value;
+  clone_db->Get(ReadOptions(), "db", &value);
+  ASSERT_EQ("clone", value);
+
+  db_->Get(ReadOptions(), "db", &value);
+  ASSERT_EQ("original", value);
+
+  // Cleanup
+  clone_db->Close();
+  CloseDB();
+  clone_env->GetCloudEnvOptions().storage_provider->EmptyBucket(
+      cloud_env_options_.src_bucket.GetBucketName(),
+      cloud_env_options_.src_bucket.GetObjectPath() + "-clone");
 }
 
 }  //  namespace rocksdb

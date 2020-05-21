@@ -29,6 +29,17 @@ class CloudStorageWritableFile : public WritableFile {
   virtual const char* Name() const { return "cloud"; }
 };
 
+// Generic information of the object in the cloud. Some information might be
+// vendor-dependent.
+struct CloudObjectInformation {
+  uint64_t size;
+  uint64_t modification_time;
+
+  // Cloud-vendor dependent. In S3, we will provide ETag of the object.
+  std::string content_hash;
+  std::unordered_map<std::string, std::string> metadata;
+};
+
 // A CloudStorageProvider provides the interface to the cloud object
 // store.  Methods can create and empty buckets, as well as other
 // standard bucket object operations get/put/list/delete
@@ -70,9 +81,9 @@ class CloudStorageProvider {
                                                 uint64_t* time) = 0;
 
   // Get the metadata of the object in cloud storage
-  virtual Status GetCloudObjectMetadata(
-      const std::string& bucket_name, const std::string& object_path,
-      std::unordered_map<std::string, std::string>* metadata) = 0;
+  virtual Status GetCloudObjectMetadata(const std::string& bucket_name,
+                                        const std::string& object_path,
+                                        CloudObjectInformation* info) = 0;
 
   // Copy the specified cloud object from one location in the cloud
   // storage to another location in cloud storage

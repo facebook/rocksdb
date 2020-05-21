@@ -51,9 +51,9 @@ class MockStorageProvider : public CloudStorageProvider {
                                         uint64_t* /*time*/) override {
     return notsup_;
   }
-  Status GetCloudObjectMetadata(
-      const std::string& /*bucket_name*/, const std::string& /*object_path*/,
-      std::unordered_map<std::string, std::string>* /*metadata*/) override {
+  Status GetCloudObjectMetadata(const std::string& /*bucket_name*/,
+                                const std::string& /*object_path*/,
+                                CloudObjectInformation* /* info */) override {
     return notsup_;
   }
   Status CopyCloudObject(const std::string& /*bucket_name_src*/,

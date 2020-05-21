@@ -258,11 +258,22 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
   S3ReadableFile(const std::shared_ptr<AwsS3ClientWrapper>& s3client,
                  const std::shared_ptr<Logger>& info_log,
                  const std::string& bucket, const std::string& fname,
-                 uint64_t size)
+                 uint64_t size, std::string content_hash)
       : CloudStorageReadableFileImpl(info_log, bucket, fname, size),
-        s3client_(s3client) {}
+        s3client_(s3client),
+        content_hash_(std::move(content_hash)) {}
 
   virtual const char* Type() const { return "s3"; }
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
+    if (content_hash_.empty()) {
+      return 0;
+    }
+
+    max_size = std::min(content_hash_.size(), max_size);
+    memcpy(id, content_hash_.c_str(), max_size);
+    return max_size;
+  }
 
   // random access, read data from specified offset in file
   Status DoCloudRead(uint64_t offset, size_t n, char* scratch,
@@ -328,6 +339,7 @@ class S3ReadableFile : public CloudStorageReadableFileImpl {
 
  private:
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
+  std::string content_hash_;
 };  // End class S3ReadableFile
 
 /******************** Writablefile ******************/
@@ -371,9 +383,10 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                                         uint64_t* time) override;
 
   // Get the metadata of the object in cloud storage
-  Status GetCloudObjectMetadata(
-      const std::string& bucket_name, const std::string& object_path,
-      std::unordered_map<std::string, std::string>* metadata) override;
+  Status GetCloudObjectMetadata(const std::string& bucket_name,
+                                const std::string& object_path,
+                                CloudObjectInformation* info) override;
+
   Status PutCloudObjectMetadata(
       const std::string& bucket_name, const std::string& object_path,
       const std::unordered_map<std::string, std::string>& metadata) override;
@@ -383,6 +396,7 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                          const std::string& object_path_dest) override;
   Status DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
+      const std::string& content_hash,
       std::unique_ptr<CloudStorageReadableFile>* result,
       const EnvOptions& options) override;
   Status NewCloudWritableFile(const std::string& local_path,
@@ -403,11 +417,13 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                           uint64_t file_size) override;
 
  private:
-  // If metadata, size or modtime is non-nullptr, returns requested data
+  // If metadata, size modtime or etag is non-nullptr, returns requested data
   Status HeadObject(
       const std::string& bucket, const std::string& path,
       std::unordered_map<std::string, std::string>* metadata = nullptr,
-      uint64_t* size = nullptr, uint64_t* modtime = nullptr);
+      uint64_t* size = nullptr, uint64_t* modtime = nullptr,
+      std::string* etag = nullptr);
+
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
 };
@@ -646,10 +662,12 @@ Status S3StorageProvider::GetCloudObjectModificationTime(
   return HeadObject(bucket_name, object_path, nullptr, nullptr, time);
 }
 
-Status S3StorageProvider::GetCloudObjectMetadata(
-    const std::string& bucket_name, const std::string& object_path,
-    std::unordered_map<std::string, std::string>* metadata) {
-  return HeadObject(bucket_name, object_path, metadata, nullptr, nullptr);
+Status S3StorageProvider::GetCloudObjectMetadata(const std::string& bucket_name,
+                                                 const std::string& object_path,
+                                                 CloudObjectInformation* info) {
+  assert(info != nullptr);
+  return HeadObject(bucket_name, object_path, &info->metadata, &info->size,
+                    &info->modification_time, &info->content_hash);
 }
 
 Status S3StorageProvider::PutCloudObjectMetadata(
@@ -680,10 +698,11 @@ Status S3StorageProvider::PutCloudObjectMetadata(
 
 Status S3StorageProvider::DoNewCloudReadableFile(
     const std::string& bucket, const std::string& fname, uint64_t fsize,
+    const std::string& content_hash,
     std::unique_ptr<CloudStorageReadableFile>* result,
     const EnvOptions& /*options*/) {
-  result->reset(
-      new S3ReadableFile(s3client_, env_->info_log_, bucket, fname, fsize));
+  result->reset(new S3ReadableFile(s3client_, env_->info_log_, bucket, fname,
+                                   fsize, content_hash));
   return Status::OK();
 }
 
@@ -700,7 +719,7 @@ Status S3StorageProvider::NewCloudWritableFile(
 Status S3StorageProvider::HeadObject(
     const std::string& bucket_name, const std::string& object_path,
     std::unordered_map<std::string, std::string>* metadata, uint64_t* size,
-    uint64_t* modtime) {
+    uint64_t* modtime, std::string* etag) {
   Aws::S3::Model::HeadObjectRequest request;
   request.SetBucket(ToAwsString(bucket_name));
   request.SetKey(ToAwsString(object_path));
@@ -726,6 +745,9 @@ Status S3StorageProvider::HeadObject(
   }
   if (modtime != nullptr) {
     *modtime = res.GetLastModified().Millis();
+  }
+  if (etag != nullptr) {
+    *etag = std::string(res.GetETag().data(), res.GetETag().length());
   }
   return Status::OK();
 }
