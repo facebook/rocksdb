@@ -51,7 +51,7 @@ class WritableFileWriter {
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
-  void CalculateFileChecksum(const Slice& data);
+  void UpdateFileChecksum(const Slice& data);
 
   std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
