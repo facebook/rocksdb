@@ -322,80 +322,6 @@ bool ParseVectorCompressionType(
   }
   return true;
 }
-
-// This is to handle backward compatibility, where compaction_options_fifo
-// could be assigned a single scalar value, say, like "23", which would be
-// assigned to max_table_files_size.
-bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str,
-                                      CompactionOptionsFIFO* options) {
-  if (opt_str.find("=") != std::string::npos) {
-    // New format. Go do your new parsing using ParseStructOptions.
-    return false;
-  }
-
-  // Old format. Parse just a single uint64_t value.
-  options->max_table_files_size = ParseUint64(opt_str);
-  return true;
-}
-
-static bool SerializeStruct(
-    const void* const opt_ptr, std::string* value,
-    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
-  ConfigOptions config_options;
-  config_options.delimiter = ";";
-
-  std::string opt_str;
-  Status s =
-      GetStringFromStruct(config_options, opt_ptr, type_info_map, &opt_str);
-  if (!s.ok()) {
-    return false;
-  }
-  *value = "{" + opt_str + "}";
-  return true;
-}
-
-static bool ParseSingleStructOption(
-    const ConfigOptions& config_options, const std::string& opt_val_str,
-    void* options,
-    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
-  size_t end = opt_val_str.find('=');
-  std::string key = opt_val_str.substr(0, end);
-  std::string value = opt_val_str.substr(end + 1);
-  auto iter = type_info_map.find(key);
-  if (iter == type_info_map.end()) {
-    return false;
-  }
-  const auto& opt_info = iter->second;
-  Status s = opt_info.ParseOption(
-      config_options, key, value,
-      reinterpret_cast<char*>(options) + opt_info.mutable_offset);
-  return s.ok();
-}
-
-static bool ParseStructOptions(
-    const std::string& opt_str, void* options,
-    const std::unordered_map<std::string, OptionTypeInfo>& type_info_map) {
-  assert(!opt_str.empty());
-  ConfigOptions config_options;
-
-  size_t start = 0;
-  if (opt_str[0] == '{') {
-    start++;
-  }
-  while ((start != std::string::npos) && (start < opt_str.size())) {
-    if (opt_str[start] == '}') {
-      break;
-    }
-    size_t end = opt_str.find(';', start);
-    size_t len = (end == std::string::npos) ? end : end - start;
-    if (!ParseSingleStructOption(config_options, opt_str.substr(start, len),
-                                 options, type_info_map)) {
-      return false;
-    }
-    start = (end == std::string::npos) ? end : end + 1;
-  }
-  return true;
-}
 }  // anonymouse namespace
 
 bool ParseSliceTransformHelper(
@@ -516,21 +442,6 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
           reinterpret_cast<EncodingType*>(opt_address));
-    case OptionType::kCompactionOptionsFIFO: {
-      if (!FIFOCompactionOptionsSpecialCase(
-              value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address))) {
-        return ParseStructOptions(value, opt_address,
-                                  fifo_compaction_options_type_info);
-      }
-      return true;
-    }
-    case OptionType::kLRUCacheOptions: {
-      return ParseStructOptions(value, opt_address,
-                                lru_cache_options_type_info);
-    }
-    case OptionType::kCompactionOptionsUniversal:
-      return ParseStructOptions(value, opt_address,
-                                universal_compaction_options_type_info);
     case OptionType::kCompactionStopStyle:
       return ParseEnum<CompactionStopStyle>(
           compaction_stop_style_string_map, value,
@@ -691,12 +602,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,
           *reinterpret_cast<const EncodingType*>(opt_address), value);
-    case OptionType::kCompactionOptionsFIFO:
-      return SerializeStruct(opt_address, value,
-                             fifo_compaction_options_type_info);
-    case OptionType::kCompactionOptionsUniversal:
-      return SerializeStruct(opt_address, value,
-                             universal_compaction_options_type_info);
     case OptionType::kCompactionStopStyle:
       return SerializeEnum<CompactionStopStyle>(
           compaction_stop_style_string_map,
@@ -715,26 +620,25 @@ Status GetMutableOptionsFromStrings(
   *new_options = base_options;
   ConfigOptions config_options;
   for (const auto& o : options_map) {
-    auto iter = cf_options_type_info.find(o.first);
-    if (iter == cf_options_type_info.end()) {
+    std::string elem;
+    const auto opt_info =
+        OptionTypeInfo::Find(o.first, cf_options_type_info, &elem);
+    if (opt_info == nullptr) {
       return Status::InvalidArgument("Unrecognized option: " + o.first);
-    }
-    const auto& opt_info = iter->second;
-    if (!opt_info.IsMutable()) {
+    } else if (!opt_info->IsMutable()) {
       return Status::InvalidArgument("Option not changeable: " + o.first);
-    }
-    if (opt_info.IsDeprecated()) {
+    } else if (opt_info->IsDeprecated()) {
       // log warning when user tries to set a deprecated option but don't fail
       // the call for compatibility.
       ROCKS_LOG_WARN(info_log, "%s is a deprecated option and cannot be set",
                      o.first.c_str());
-      continue;
-    }
-    Status s = opt_info.ParseOption(
-        config_options, o.first, o.second,
-        reinterpret_cast<char*>(new_options) + opt_info.mutable_offset);
-    if (!s.ok()) {
-      return s;
+    } else {
+      Status s = opt_info->Parse(
+          config_options, elem, o.second,
+          reinterpret_cast<char*>(new_options) + opt_info->mutable_offset_);
+      if (!s.ok()) {
+        return s;
+      }
     }
   }
   return Status::OK();
@@ -750,19 +654,20 @@ Status GetMutableDBOptionsFromStrings(
 
   for (const auto& o : options_map) {
     try {
-      auto iter = db_options_type_info.find(o.first);
-      if (iter == db_options_type_info.end()) {
+      std::string elem;
+      const auto opt_info =
+          OptionTypeInfo::Find(o.first, db_options_type_info, &elem);
+      if (opt_info == nullptr) {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
-      }
-      const auto& opt_info = iter->second;
-      if (!opt_info.IsMutable()) {
+      } else if (!opt_info->IsMutable()) {
         return Status::InvalidArgument("Option not changeable: " + o.first);
-      }
-      Status s = opt_info.ParseOption(
-          config_options, o.first, o.second,
-          reinterpret_cast<char*>(new_options) + opt_info.mutable_offset);
-      if (!s.ok()) {
-        return s;
+      } else {
+        Status s = opt_info->Parse(
+            config_options, elem, o.second,
+            reinterpret_cast<char*>(new_options) + opt_info->mutable_offset_);
+        if (!s.ok()) {
+          return s;
+        }
       }
     } catch (std::exception& e) {
       return Status::InvalidArgument("Error parsing " + o.first + ":" +
@@ -780,6 +685,11 @@ Status StringToMap(const std::string& opts_str,
   //              "nested_opt={opt1=1;opt2=2};max_bytes_for_level_base=100"
   size_t pos = 0;
   std::string opts = trim(opts_str);
+  // If the input string starts and ends with "{...}", strip off the brackets
+  while (opts.size() > 2 && opts[0] == '{' && opts[opts.size() - 1] == '}') {
+    opts = trim(opts.substr(1, opts.size() - 2));
+  }
+
   while (pos < opts.size()) {
     size_t eq_pos = opts.find('=', pos);
     if (eq_pos == std::string::npos) {
@@ -860,10 +770,10 @@ Status GetStringFromStruct(
     // we skip it in the serialization.
     if (opt_info.ShouldSerialize()) {
       const char* opt_addr =
-          reinterpret_cast<const char*>(opt_ptr) + opt_info.offset;
+          reinterpret_cast<const char*>(opt_ptr) + opt_info.offset_;
       std::string value;
-      Status s = opt_info.SerializeOption(config_options, iter.first, opt_addr,
-                                          &value);
+      Status s =
+          opt_info.Serialize(config_options, iter.first, opt_addr, &value);
       if (s.ok()) {
         opt_string->append(iter.first + "=" + value + config_options.delimiter);
       } else {
@@ -923,13 +833,14 @@ static Status ParseDBOption(const ConfigOptions& config_options,
   const std::string& value = config_options.input_strings_escaped
                                  ? UnescapeOptionString(org_value)
                                  : org_value;
-  auto iter = db_options_type_info.find(name);
-  if (iter == db_options_type_info.end()) {
+  std::string elem;
+  const auto opt_info = OptionTypeInfo::Find(name, db_options_type_info, &elem);
+  if (opt_info == nullptr) {
     return Status::InvalidArgument("Unrecognized option DBOptions:", name);
   } else {
-    return iter->second.ParseOption(
-        config_options, name, value,
-        reinterpret_cast<char*>(new_options) + iter->second.offset);
+    return opt_info->Parse(
+        config_options, elem, value,
+        reinterpret_cast<char*>(new_options) + opt_info->offset_);
   }
 }
 
@@ -1170,121 +1081,24 @@ std::unordered_map<std::string, CompactionPri>
         {"kOldestSmallestSeqFirst", kOldestSmallestSeqFirst},
         {"kMinOverlappingRatio", kMinOverlappingRatio}};
 
-LRUCacheOptions OptionsHelper::dummy_lru_cache_options;
-CompactionOptionsUniversal OptionsHelper::dummy_comp_options_universal;
-CompactionOptionsFIFO OptionsHelper::dummy_comp_options;
-
-template <typename T1>
-int offset_of(T1 LRUCacheOptions::*member) {
-  return int(size_t(&(OptionsHelper::dummy_lru_cache_options.*member)) -
-             size_t(&OptionsHelper::dummy_lru_cache_options));
-}
-
-template <typename T1>
-int offset_of(T1 CompactionOptionsFIFO::*member) {
-  return int(size_t(&(OptionsHelper::dummy_comp_options.*member)) -
-             size_t(&OptionsHelper::dummy_comp_options));
-}
-template <typename T1>
-int offset_of(T1 CompactionOptionsUniversal::*member) {
-  return int(size_t(&(OptionsHelper::dummy_comp_options_universal.*member)) -
-             size_t(&OptionsHelper::dummy_comp_options_universal));
-}
-
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::fifo_compaction_options_type_info = {
-        {"max_table_files_size",
-         {offset_of(&CompactionOptionsFIFO::max_table_files_size),
-          OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(struct CompactionOptionsFIFO, max_table_files_size)}},
-        {"ttl",
-         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated,
-          OptionTypeFlags::kNone, 0}},
-        {"allow_compaction",
-         {offset_of(&CompactionOptionsFIFO::allow_compaction),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
-
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::universal_compaction_options_type_info = {
-        {"size_ratio",
-         {offset_of(&CompactionOptionsUniversal::size_ratio), OptionType::kUInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal, size_ratio)}},
-        {"min_merge_width",
-         {offset_of(&CompactionOptionsUniversal::min_merge_width),
-          OptionType::kUInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal, min_merge_width)}},
-        {"max_merge_width",
-         {offset_of(&CompactionOptionsUniversal::max_merge_width),
-          OptionType::kUInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal, max_merge_width)}},
-        {"max_size_amplification_percent",
-         {offset_of(
-              &CompactionOptionsUniversal::max_size_amplification_percent),
-          OptionType::kUInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal,
-                   max_size_amplification_percent)}},
-        {"compression_size_percent",
-         {offset_of(&CompactionOptionsUniversal::compression_size_percent),
-          OptionType::kInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal,
-                   compression_size_percent)}},
-        {"stop_style",
-         {offset_of(&CompactionOptionsUniversal::stop_style),
-          OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal, stop_style)}},
-        {"allow_trivial_move",
-         {offset_of(&CompactionOptionsUniversal::allow_trivial_move),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(class CompactionOptionsUniversal, allow_trivial_move)}}};
-
 std::unordered_map<std::string, CompactionStopStyle>
     OptionsHelper::compaction_stop_style_string_map = {
         {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
         {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
 
-std::unordered_map<std::string, OptionTypeInfo>
-    OptionsHelper::lru_cache_options_type_info = {
-        {"capacity",
-         {offset_of(&LRUCacheOptions::capacity), OptionType::kSizeT,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, capacity)}},
-        {"num_shard_bits",
-         {offset_of(&LRUCacheOptions::num_shard_bits), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, num_shard_bits)}},
-        {"strict_capacity_limit",
-         {offset_of(&LRUCacheOptions::strict_capacity_limit),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, strict_capacity_limit)}},
-        {"high_pri_pool_ratio",
-         {offset_of(&LRUCacheOptions::high_pri_pool_ratio), OptionType::kDouble,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct LRUCacheOptions, high_pri_pool_ratio)}}};
-
-Status OptionTypeInfo::ParseOption(const ConfigOptions& config_options,
-                                   const std::string& opt_name,
-                                   const std::string& opt_value,
-                                   char* opt_addr) const {
+Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
+                             const std::string& opt_name,
+                             const std::string& opt_value,
+                             char* opt_addr) const {
   if (IsDeprecated()) {
     return Status::OK();
   }
   try {
     if (opt_addr == nullptr) {
       return Status::NotFound("Could not find option: ", opt_name);
-    } else if (parser_func != nullptr) {
-      return parser_func(config_options, opt_name, opt_value, opt_addr);
-    } else if (ParseOptionHelper(opt_addr, type, opt_value)) {
+    } else if (parse_func_ != nullptr) {
+      return parse_func_(config_options, opt_name, opt_value, opt_addr);
+    } else if (ParseOptionHelper(opt_addr, type_, opt_value)) {
       return Status::OK();
     } else if (IsByName()) {
       return Status::NotSupported("Deserializing the option " + opt_name +
@@ -1298,23 +1112,122 @@ Status OptionTypeInfo::ParseOption(const ConfigOptions& config_options,
   }
 }
 
-Status OptionTypeInfo::SerializeOption(const ConfigOptions& config_options,
-                                       const std::string& opt_name,
-                                       const char* opt_addr,
-                                       std::string* opt_value) const {
+Status OptionTypeInfo::ParseStruct(
+    const ConfigOptions& config_options, const std::string& struct_name,
+    const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
+    const std::string& opt_name, const std::string& opt_value, char* opt_addr) {
+  assert(struct_map);
+  Status status;
+  if (opt_name == struct_name || EndsWith(opt_name, "." + struct_name)) {
+    // This option represents the entire struct
+    std::unordered_map<std::string, std::string> opt_map;
+    status = StringToMap(opt_value, &opt_map);
+    if (status.ok()) {
+      for (const auto& map_iter : opt_map) {
+        const auto iter = struct_map->find(map_iter.first);
+        if (iter != struct_map->end()) {
+          status = iter->second.Parse(config_options, map_iter.first,
+                                      map_iter.second,
+                                      opt_addr + iter->second.offset_);
+        } else {
+          return Status::InvalidArgument("Unrecognized option: ",
+                                         struct_name + "." + map_iter.first);
+        }
+      }
+    }
+  } else if (StartsWith(opt_name, struct_name + ".")) {
+    // This option represents a nested field in the struct (e.g, struct.field)
+    std::string elem_name;
+    const auto opt_info =
+        Find(opt_name.substr(struct_name.size() + 1), *struct_map, &elem_name);
+    if (opt_info != nullptr) {
+      status = opt_info->Parse(config_options, elem_name, opt_value,
+                               opt_addr + opt_info->offset_);
+    } else {
+      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+    }
+  } else {
+    // This option represents a field in the struct (e.g. field)
+    std::string elem_name;
+    const auto opt_info = Find(opt_name, *struct_map, &elem_name);
+    if (opt_info != nullptr) {
+      status = opt_info->Parse(config_options, elem_name, opt_value,
+                               opt_addr + opt_info->offset_);
+    } else {
+      status = Status::InvalidArgument("Unrecognized option: ",
+                                       struct_name + "." + opt_name);
+    }
+  }
+  return status;
+}
+
+Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
+                                 const std::string& opt_name,
+                                 const char* opt_addr,
+                                 std::string* opt_value) const {
   // If the option is no longer used in rocksdb and marked as deprecated,
   // we skip it in the serialization.
-  Status s;
-  if (opt_addr == nullptr || IsDeprecated()) {
-    s = Status::OK();
-  } else if (string_func != nullptr) {
-    s = string_func(config_options, opt_name, opt_addr, opt_value);
-  } else if (SerializeSingleOptionHelper(opt_addr, type, opt_value)) {
-    s = Status::OK();
-  } else {
-    s = Status::InvalidArgument("Cannot serialize option: ", opt_name);
+  if (opt_addr != nullptr && ShouldSerialize()) {
+    if (serialize_func_ != nullptr) {
+      return serialize_func_(config_options, opt_name, opt_addr, opt_value);
+    } else if (!SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
+      return Status::InvalidArgument("Cannot serialize option: ", opt_name);
+    }
   }
-  return s;
+  return Status::OK();
+}
+
+Status OptionTypeInfo::SerializeStruct(
+    const ConfigOptions& config_options, const std::string& struct_name,
+    const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
+    const std::string& opt_name, const char* opt_addr, std::string* value) {
+  assert(struct_map);
+  Status status;
+  if (EndsWith(opt_name, struct_name)) {
+    // We are going to write the struct as "{ prop1=value1; prop2=value2;}.
+    // Set the delimiter to ";" so that the everything will be on one line.
+    ConfigOptions embedded = config_options;
+    embedded.delimiter = ";";
+
+    // This option represents the entire struct
+    std::string result;
+    for (const auto& iter : *struct_map) {
+      std::string single;
+      const auto& opt_info = iter.second;
+      if (opt_info.ShouldSerialize()) {
+        status = opt_info.Serialize(embedded, iter.first,
+                                    opt_addr + opt_info.offset_, &single);
+        if (!status.ok()) {
+          return status;
+        } else {
+          result.append(iter.first + "=" + single + embedded.delimiter);
+        }
+      }
+    }
+    *value = "{" + result + "}";
+  } else if (StartsWith(opt_name, struct_name + ".")) {
+    // This option represents a nested field in the struct (e.g, struct.field)
+    std::string elem_name;
+    const auto opt_info =
+        Find(opt_name.substr(struct_name.size() + 1), *struct_map, &elem_name);
+    if (opt_info != nullptr) {
+      status = opt_info->Serialize(config_options, elem_name,
+                                   opt_addr + opt_info->offset_, value);
+    } else {
+      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+    }
+  } else {
+    // This option represents a field in the struct (e.g. field)
+    std::string elem_name;
+    const auto opt_info = Find(opt_name, *struct_map, &elem_name);
+    if (opt_info == nullptr) {
+      return Status::InvalidArgument("Unrecognized option: ", opt_name);
+    } else if (opt_info->ShouldSerialize()) {
+      return opt_info->Serialize(config_options, opt_name + "." + elem_name,
+                                 opt_addr + opt_info->offset_, value);
+    }
+  }
+  return Status::OK();
 }
 
 template <typename T>
@@ -1380,44 +1293,15 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
       return IsOptionEqual<ChecksumType>(this_offset, that_offset);
     case OptionType::kEncodingType:
       return IsOptionEqual<EncodingType>(this_offset, that_offset);
-    case OptionType::kCompactionOptionsFIFO: {
-      CompactionOptionsFIFO lhs =
-          *reinterpret_cast<const CompactionOptionsFIFO*>(this_offset);
-      CompactionOptionsFIFO rhs =
-          *reinterpret_cast<const CompactionOptionsFIFO*>(that_offset);
-      if (lhs.max_table_files_size == rhs.max_table_files_size &&
-          lhs.allow_compaction == rhs.allow_compaction) {
-        return true;
-      }
-      return false;
-    }
-    case OptionType::kCompactionOptionsUniversal: {
-      CompactionOptionsUniversal lhs =
-          *reinterpret_cast<const CompactionOptionsUniversal*>(this_offset);
-      CompactionOptionsUniversal rhs =
-          *reinterpret_cast<const CompactionOptionsUniversal*>(that_offset);
-      if (lhs.size_ratio == rhs.size_ratio &&
-          lhs.min_merge_width == rhs.min_merge_width &&
-          lhs.max_merge_width == rhs.max_merge_width &&
-          lhs.max_size_amplification_percent ==
-              rhs.max_size_amplification_percent &&
-          lhs.compression_size_percent == rhs.compression_size_percent &&
-          lhs.stop_style == rhs.stop_style &&
-          lhs.allow_trivial_move == rhs.allow_trivial_move) {
-        return true;
-      }
-      return false;
-    }
     default:
       return false;
   }  // End switch
 }
 
-bool OptionTypeInfo::MatchesOption(const ConfigOptions& config_options,
-                                   const std::string& opt_name,
-                                   const char* this_addr, const char* that_addr,
-
-                                   std::string* mismatch) const {
+bool OptionTypeInfo::AreEqual(const ConfigOptions& config_options,
+                              const std::string& opt_name,
+                              const char* this_addr, const char* that_addr,
+                              std::string* mismatch) const {
   if (!config_options.IsCheckEnabled(GetSanityLevel())) {
     return true;  // If the sanity level is not being checked, skip it
   }
@@ -1425,11 +1309,12 @@ bool OptionTypeInfo::MatchesOption(const ConfigOptions& config_options,
     if (this_addr == that_addr) {
       return true;
     }
-  } else if (equals_func != nullptr) {
-    if (equals_func(config_options, opt_name, this_addr, that_addr, mismatch)) {
+  } else if (equals_func_ != nullptr) {
+    if (equals_func_(config_options, opt_name, this_addr, that_addr,
+                     mismatch)) {
       return true;
     }
-  } else if (AreOptionsEqual(type, this_addr, that_addr)) {
+  } else if (AreOptionsEqual(type_, this_addr, that_addr)) {
     return true;
   }
   if (mismatch->empty()) {
@@ -1438,29 +1323,82 @@ bool OptionTypeInfo::MatchesOption(const ConfigOptions& config_options,
   return false;
 }
 
-bool OptionTypeInfo::MatchesByName(const ConfigOptions& config_options,
-                                   const std::string& opt_name,
-                                   const char* this_addr,
-                                   const char* that_addr) const {
+bool OptionTypeInfo::StructsAreEqual(
+    const ConfigOptions& config_options, const std::string& struct_name,
+    const std::unordered_map<std::string, OptionTypeInfo>* struct_map,
+    const std::string& opt_name, const char* this_addr, const char* that_addr,
+    std::string* mismatch) {
+  assert(struct_map);
+  Status status;
+  bool matches = true;
+  std::string result;
+  if (EndsWith(opt_name, struct_name)) {
+    // This option represents the entire struct
+    for (const auto& iter : *struct_map) {
+      const auto& opt_info = iter.second;
+
+      matches = opt_info.AreEqual(config_options, iter.first,
+                                  this_addr + opt_info.offset_,
+                                  that_addr + opt_info.offset_, &result);
+      if (!matches) {
+        *mismatch = struct_name + "." + result;
+        return false;
+      }
+    }
+  } else if (StartsWith(opt_name, struct_name + ".")) {
+    // This option represents a nested field in the struct (e.g, struct.field)
+    std::string elem_name;
+    const auto opt_info =
+        Find(opt_name.substr(struct_name.size() + 1), *struct_map, &elem_name);
+    assert(opt_info);
+    if (opt_info == nullptr) {
+      *mismatch = opt_name;
+      matches = false;
+    } else if (!opt_info->AreEqual(config_options, elem_name,
+                                   this_addr + opt_info->offset_,
+                                   that_addr + opt_info->offset_, &result)) {
+      matches = false;
+      *mismatch = struct_name + "." + result;
+    }
+  } else {
+    // This option represents a field in the struct (e.g. field)
+    std::string elem_name;
+    const auto opt_info = Find(opt_name, *struct_map, &elem_name);
+    assert(opt_info);
+    if (opt_info == nullptr) {
+      *mismatch = struct_name + "." + opt_name;
+      matches = false;
+    } else if (!opt_info->AreEqual(config_options, elem_name,
+                                   this_addr + opt_info->offset_,
+                                   that_addr + opt_info->offset_, &result)) {
+      matches = false;
+      *mismatch = struct_name + "." + result;
+    }
+  }
+  return matches;
+}
+
+bool OptionTypeInfo::AreEqualByName(const ConfigOptions& config_options,
+                                    const std::string& opt_name,
+                                    const char* this_addr,
+                                    const char* that_addr) const {
   if (IsByName()) {
     std::string that_value;
-    if (SerializeOption(config_options, opt_name, that_addr, &that_value)
-            .ok()) {
-      return MatchesByName(config_options, opt_name, this_addr, that_value);
+    if (Serialize(config_options, opt_name, that_addr, &that_value).ok()) {
+      return AreEqualByName(config_options, opt_name, this_addr, that_value);
     }
   }
   return false;
 }
 
-bool OptionTypeInfo::MatchesByName(const ConfigOptions& config_options,
-                                   const std::string& opt_name,
-                                   const char* opt_addr,
-                                   const std::string& that_value) const {
+bool OptionTypeInfo::AreEqualByName(const ConfigOptions& config_options,
+                                    const std::string& opt_name,
+                                    const char* opt_addr,
+                                    const std::string& that_value) const {
   std::string this_value;
   if (!IsByName()) {
     return false;
-  } else if (!SerializeOption(config_options, opt_name, opt_addr, &this_value)
-                  .ok()) {
+  } else if (!Serialize(config_options, opt_name, opt_addr, &this_value).ok()) {
     return false;
   } else if (IsEnabled(OptionVerificationType::kByNameAllowFromNull)) {
     if (that_value == kNullptrString) {
@@ -1472,6 +1410,30 @@ bool OptionTypeInfo::MatchesByName(const ConfigOptions& config_options,
     }
   }
   return (this_value == that_value);
+}
+
+const OptionTypeInfo* OptionTypeInfo::Find(
+    const std::string& opt_name,
+    const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
+    std::string* elem_name) {
+  const auto iter = opt_map.find(opt_name);  // Look up the value in the map
+  if (iter != opt_map.end()) {               // Found the option in the map
+    *elem_name = opt_name;                   // Return the name
+    return &(iter->second);  // Return the contents of the iterator
+  } else {
+    auto idx = opt_name.find(".");              // Look for a separator
+    if (idx > 0 && idx != std::string::npos) {  // We found a separator
+      auto siter =
+          opt_map.find(opt_name.substr(0, idx));  // Look for the short name
+      if (siter != opt_map.end()) {               // We found the short name
+        if (siter->second.IsStruct()) {           // If the object is a struct
+          *elem_name = opt_name.substr(idx + 1);  // Return the rest
+          return &(siter->second);  // Return the contents of the iterator
+        }
+      }
+    }
+  }
+  return nullptr;
 }
 #endif  // !ROCKSDB_LITE
 
