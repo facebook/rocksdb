@@ -315,6 +315,12 @@ class VersionStorageInfo {
       return FileLocation::Invalid();
     }
 
+    assert(it->second.GetLevel() < num_levels_);
+    assert(it->second.GetPosition() < files_[it->second.GetLevel()].size());
+    assert(files_[it->second.GetLevel()][it->second.GetPosition()]);
+    assert(files_[it->second.GetLevel()][it->second.GetPosition()]
+               ->fd.GetNumber() == file_number);
+
     return it->second;
   }
 
