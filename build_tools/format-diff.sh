@@ -123,6 +123,8 @@ then
   exit 0
 elif [ $CHECK_ONLY ]
 then
+  echo Checking format.
+  echo "$diffs"
   echo "Your change has unformatted code. Please run make format!"
   exit 1
 fi

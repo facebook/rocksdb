@@ -34,6 +34,12 @@ jobs:
       with:
         args: https://raw.githubusercontent.com/llvm-mirror/clang/master/tools/clang-format/clang-format-diff.py
 
+    # Uncomment the following to setup interactive session.
+    # https://github.com/marketplace/actions/debugging-with-tmate?version=v2
+    # DEBUG ONLY, DO NOT COMMIT.
+    #- name: Setup tmate session
+    #  uses: mxschmitt/action-tmate@v2
+
     - name: Check format
       run: make check-format
 
