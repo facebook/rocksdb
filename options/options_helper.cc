@@ -1224,7 +1224,7 @@ Status OptionTypeInfo::SerializeStruct(
       status = Status::InvalidArgument("Unrecognized option: ", opt_name);
     } else if (opt_info->ShouldSerialize()) {
       status = opt_info->Serialize(config_options, opt_name + "." + elem_name,
-                                 opt_addr + opt_info->offset_, value);
+                                   opt_addr + opt_info->offset_, value);
     }
   }
   return status;
