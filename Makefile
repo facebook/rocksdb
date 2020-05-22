@@ -667,12 +667,54 @@ endif
 ifdef ASSERT_STATUS_CHECKED
 	# This is a new check for which we will add support incrementally. The
 	# whitelist can be removed once support is fully added.
-        TESTS_WHITELIST = \
-		options_test \
+	TESTS_WHITELIST = \
+		arena_test \
+		autovector_test \
+		blob_file_addition_test \
+		blob_file_garbage_test \
+		bloom_test \
+		cassandra_format_test \
+		cassandra_row_merge_test \
+		cassandra_serialize_test \
+		cleanable_test \
+		coding_test \
+		crc32c_test \
+		dbformat_test \
+		defer_test \
+		dynamic_bloom_test \
+		event_logger_test \
+		file_indexer_test \
+		folly_synchronization_distributed_mutex_test \
+		hash_table_test \
+		hash_test \
+		heap_test \
+		histogram_test \
+		inlineskiplist_test \
+		io_posix_test \
+		iostats_context_test \
+		memkind_kmem_allocator_test \
+		merger_test \
+		mock_env_test \
+		object_registry_test \
 		options_settable_test \
-		io_posix_test
-        TESTS := $(filter $(TESTS_WHITELIST),$(TESTS))
-        PARALLEL_TEST := $(filter $(TESTS_WHITELIST),$(PARALLEL_TEST))
+		options_test \
+		random_test \
+		range_del_aggregator_test \
+		range_tombstone_fragmenter_test \
+		repeatable_thread_test \
+		skiplist_test \
+		slice_test \
+		statistics_test \
+		thread_local_test \
+		timer_queue_test \
+		timer_test \
+		util_merge_operators_test \
+		version_edit_test \
+		work_queue_test \
+		write_controller_test \
+
+	TESTS := $(filter $(TESTS_WHITELIST),$(TESTS))
+	PARALLEL_TEST := $(filter $(TESTS_WHITELIST),$(PARALLEL_TEST))
 endif
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
@@ -971,6 +1013,9 @@ CLEAN_FILES += t LOG $(TMPD)
 # interrupt.
 watch-log:
 	$(WATCH) --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
+
+dump-log:
+	bash -c '$(quoted_perl_command)' < LOG
 
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
@@ -1283,9 +1328,9 @@ db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 
 arena_test: memory/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
-	
+
 memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)	
+	$(AM_LINK)
 
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)

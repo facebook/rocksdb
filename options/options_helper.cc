@@ -1221,13 +1221,13 @@ Status OptionTypeInfo::SerializeStruct(
     std::string elem_name;
     const auto opt_info = Find(opt_name, *struct_map, &elem_name);
     if (opt_info == nullptr) {
-      return Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
     } else if (opt_info->ShouldSerialize()) {
-      return opt_info->Serialize(config_options, opt_name + "." + elem_name,
-                                 opt_addr + opt_info->offset_, value);
+      status = opt_info->Serialize(config_options, opt_name + "." + elem_name,
+                                   opt_addr + opt_info->offset_, value);
     }
   }
-  return Status::OK();
+  return status;
 }
 
 template <typename T>
@@ -1329,7 +1329,6 @@ bool OptionTypeInfo::StructsAreEqual(
     const std::string& opt_name, const char* this_addr, const char* that_addr,
     std::string* mismatch) {
   assert(struct_map);
-  Status status;
   bool matches = true;
   std::string result;
   if (EndsWith(opt_name, struct_name)) {
