@@ -11,7 +11,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Operates on MANIFEST files stored in the cloud bucket
@@ -34,6 +34,6 @@ class ManifestReader {
   CloudEnv* cenv_;
   std::string bucket_prefix_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

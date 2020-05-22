@@ -6,7 +6,7 @@
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CloudStorageReadableFileImpl : public CloudStorageReadableFile {
  public:
   CloudStorageReadableFileImpl(const std::shared_ptr<Logger>& info_log,
@@ -140,6 +140,6 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   CloudEnv* env_;
   Status status_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

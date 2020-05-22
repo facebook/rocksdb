@@ -14,7 +14,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
                                const std::string& bucket_prefix)
@@ -139,5 +139,5 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   }
   return s;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif /* ROCKSDB_LITE */

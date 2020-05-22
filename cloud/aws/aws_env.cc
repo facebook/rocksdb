@@ -30,7 +30,7 @@
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
     {"undefined", AwsAccessType::kUndefined},
@@ -600,4 +600,4 @@ std::string AwsEnv::GetWALCacheDir() {
 }
 
 #endif  // USE_AWS
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

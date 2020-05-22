@@ -51,7 +51,7 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 #ifdef USE_AWS
 class CloudRequestCallbackGuard {
  public:
@@ -877,4 +877,4 @@ Status CloudStorageProviderImpl::CreateS3Provider(
   return Status::OK();
 #endif /* USE_AWS */
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

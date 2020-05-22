@@ -28,7 +28,7 @@
 #include <unistd.h>
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CloudTest : public testing::Test {
  public:
@@ -1483,7 +1483,7 @@ TEST_F(CloudTest, PersistentCache) {
   CloseDB();
 }
 
-}  //  namespace rocksdb
+}  //  namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the cloud wrapper around rocksdb
 int main(int argc, char** argv) {

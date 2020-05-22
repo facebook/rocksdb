@@ -17,7 +17,7 @@
 
 #ifdef USE_KAFKA
 #include <librdkafka/rdkafkacpp.h>
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cloud {
 namespace kafka {
 
@@ -416,11 +416,11 @@ CloudLogWritableFile* KafkaController::CreateWritableFile(
 
 }  // namespace kafka
 }  // namespace cloud
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif /* USE_KAFKA */
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status CloudLogControllerImpl::CreateKafkaController(
     std::shared_ptr<CloudLogController>* output) {
 #ifndef USE_KAFKA
@@ -433,4 +433,4 @@ Status CloudLogControllerImpl::CreateKafkaController(
   return Status::OK();
 #endif  // USE_KAFKA
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

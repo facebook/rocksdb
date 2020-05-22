@@ -18,7 +18,7 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 CloudLogWritableFile::CloudLogWritableFile(CloudEnv* env,
                                            const std::string& fname,
                                            const EnvOptions& /*options*/)
@@ -394,4 +394,4 @@ Status CloudLogControllerImpl::GetFileSize(const std::string& fname,
   return st;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
