@@ -157,7 +157,7 @@ public:
   RowValue& operator=(const RowValue& /*that*/) = delete;
   RowValue& operator=(RowValue&& /*that*/) = default;
 
-  std::size_t Size() const;;
+  std::size_t Size() const;
   bool IsTombstone() const;
   // For Tombstone this returns the marked_for_delete_at_,
   // otherwise it returns the max timestamp of containing columns.
