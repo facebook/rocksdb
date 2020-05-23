@@ -19,10 +19,6 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
-#ifdef _MSC_VER
-#undef GetObject
-#endif
-
 namespace rocksdb {
 
 /******************** Readablefile ******************/
