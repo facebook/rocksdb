@@ -1264,6 +1264,77 @@ Status BlockBasedTableBuilder::status() const { return rep_->GetStatus(); }
 IOStatus BlockBasedTableBuilder::io_status() const {
   return rep_->GetIOStatus();
 }
+void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
+  Rep* r = rep_;
+  ParallelCompressionRep::BlockRepSlot* slot;
+  ParallelCompressionRep::BlockRep* block_rep;
+  while (r->pc_rep->write_queue.pop(slot)) {
+    slot->Take(block_rep);
+    if (!block_rep->status.ok()) {
+      r->SetStatus(block_rep->status);
+      // Return block_rep to the pool so that blocked Flush() can finish
+      // if there is one, and Flush() will notice !ok() next time.
+      block_rep->status = Status::OK();
+      block_rep->compressed_data->clear();
+      r->pc_rep->block_rep_pool.push(block_rep);
+      // Unlock first block if necessary.
+      if (r->pc_rep->first_block) {
+        std::lock_guard<std::mutex> lock(r->pc_rep->first_block_mutex);
+        r->pc_rep->first_block = false;
+        r->pc_rep->first_block_cond.notify_one();
+      }
+      break;
+    }
+
+    for (size_t i = 0; i < block_rep->keys->Size(); i++) {
+      auto& key = (*block_rep->keys)[i];
+      if (r->filter_builder != nullptr) {
+        size_t ts_sz =
+            r->internal_comparator.user_comparator()->timestamp_size();
+        r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
+      }
+      r->index_builder->OnKeyAdded(key);
+    }
+
+    r->pc_rep->raw_bytes_curr_block = block_rep->data->size();
+    WriteRawBlock(block_rep->compressed_contents, block_rep->compression_type,
+                  &r->pending_handle, true /* is_data_block*/);
+    if (!ok()) {
+      break;
+    }
+
+    if (r->pc_rep->first_block) {
+      std::lock_guard<std::mutex> lock(r->pc_rep->first_block_mutex);
+      r->pc_rep->first_block = false;
+      r->pc_rep->first_block_cond.notify_one();
+    }
+
+    if (r->filter_builder != nullptr) {
+      r->filter_builder->StartBlock(r->get_offset());
+    }
+    r->props.data_size = r->get_offset();
+    ++r->props.num_data_blocks;
+
+    if (block_rep->first_key_in_next_block == nullptr) {
+      r->index_builder->AddIndexEntry(&(block_rep->keys->Back()), nullptr,
+                                      r->pending_handle);
+    } else {
+      Slice first_key_in_next_block =
+          Slice(*block_rep->first_key_in_next_block);
+      r->index_builder->AddIndexEntry(&(block_rep->keys->Back()),
+                                      &first_key_in_next_block,
+                                      r->pending_handle);
+    }
+    block_rep->compressed_data->clear();
+    r->pc_rep->block_rep_pool.push(block_rep);
+  }
+}
+
+Status BlockBasedTableBuilder::status() const { return rep_->GetStatus(); }
+
+IOStatus BlockBasedTableBuilder::io_status() const {
+  return rep_->GetIOStatus();
+}
 
 static void DeleteCachedBlockContents(const Slice& /*key*/, void* value) {
   BlockContents* bc = reinterpret_cast<BlockContents*>(value);
