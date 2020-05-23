@@ -595,16 +595,6 @@ Status AwsEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& cloud_options,
   return status;
 }
 
-uint64_t AwsEnv::gettid() {
-#ifdef _WIN32_WINNT
-  return static_cast<uint64_t>(::GetCurrentThreadId());
-#else
-  static_assert(sizeof(pthread_t) <= sizeof(uint64_t),
-                "pthread_t is expected to be smaller or equal than 64-bit");
-  return static_cast<uint64_t>(pthread_self());
-#endif
-}
-
 std::string AwsEnv::GetWALCacheDir() {
   return cloud_env_options.cloud_log_controller->GetCacheDir();
 }
