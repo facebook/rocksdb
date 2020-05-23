@@ -1122,17 +1122,18 @@ Status OptionTypeInfo::ParseStruct(
     // This option represents the entire struct
     std::unordered_map<std::string, std::string> opt_map;
     status = StringToMap(opt_value, &opt_map);
-    if (status.ok()) {
-      for (const auto& map_iter : opt_map) {
-        const auto iter = struct_map->find(map_iter.first);
-        if (iter != struct_map->end()) {
-          status = iter->second.Parse(config_options, map_iter.first,
-                                      map_iter.second,
-                                      opt_addr + iter->second.offset_);
-        } else {
-          return Status::InvalidArgument("Unrecognized option: ",
+    for (const auto& map_iter : opt_map) {
+      if (!status.ok()) {
+        break;
+      }
+      const auto iter = struct_map->find(map_iter.first);
+      if (iter != struct_map->end()) {
+        status =
+            iter->second.Parse(config_options, map_iter.first, map_iter.second,
+                               opt_addr + iter->second.offset_);
+      } else {
+        status = Status::InvalidArgument("Unrecognized option: ",
                                          struct_name + "." + map_iter.first);
-        }
       }
     }
   } else if (StartsWith(opt_name, struct_name + ".")) {
