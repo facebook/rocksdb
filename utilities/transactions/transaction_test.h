@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <functional>
 #include <string>
 #include <thread>

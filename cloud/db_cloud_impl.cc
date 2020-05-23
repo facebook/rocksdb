@@ -12,6 +12,7 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/auto_roll_logger.h"
@@ -23,6 +24,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "util/xxhash.h"
+#include "utilities/persistent_cache/block_cache_tier.h"
 
 namespace rocksdb {
 
@@ -37,7 +39,8 @@ class ConstantSizeSstFileManager : public SstFileManagerImpl {
                              int64_t rate_bytes_per_sec,
                              double max_trash_db_ratio,
                              uint64_t bytes_max_delete_chunk)
-      : SstFileManagerImpl(env, std::move(logger), rate_bytes_per_sec,
+      : SstFileManagerImpl(env, std::make_shared<LegacyFileSystemWrapper>(env),
+                           std::move(logger), rate_bytes_per_sec,
                            max_trash_db_ratio, bytes_max_delete_chunk),
         constant_file_size_(constant_file_size) {
     assert(constant_file_size_ >= 0);
@@ -138,11 +141,11 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
       BlockBasedTableOptions* tableopt =
           static_cast<BlockBasedTableOptions*>(bopt);
       if (!tableopt->persistent_cache) {
-        std::shared_ptr<PersistentCache> pcache;
-        st =
-            NewPersistentCache(options.env, persistent_cache_path,
-                               persistent_cache_size_gb * 1024L * 1024L * 1024L,
-                               options.info_log, false, &pcache);
+        PersistentCacheConfig config(
+            local_env, persistent_cache_path,
+            persistent_cache_size_gb * 1024L * 1024L * 1024L, options.info_log);
+        auto pcache = std::make_shared<BlockCacheTier>(config);
+        st = pcache->Open();
         if (st.ok()) {
           tableopt->persistent_cache = pcache;
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
@@ -221,7 +224,8 @@ Status DBCloudImpl::Savepoint() {
   for (auto onefile : live_files) {
     auto remapped_fname = cenv->RemapFilename(onefile.name);
     std::string destpath = cenv->GetDestObjectPath() + "/" + remapped_fname;
-    if (!provider->ExistsObject(cenv->GetDestBucketName(), destpath).ok()) {
+    if (!provider->ExistsCloudObject(cenv->GetDestBucketName(), destpath)
+             .ok()) {
       to_copy.push_back(remapped_fname);
     }
   }
@@ -237,7 +241,7 @@ Status DBCloudImpl::Savepoint() {
         break;
       }
       auto& onefile = to_copy[idx];
-      Status s = provider->CopyObject(
+      Status s = provider->CopyCloudObject(
           cenv->GetSrcBucketName(), cenv->GetSrcObjectPath() + "/" + onefile,
           cenv->GetDestBucketName(), cenv->GetDestObjectPath() + "/" + onefile);
       if (!s.ok()) {
@@ -319,8 +323,9 @@ Status DBCloudImpl::DoCheckpointToCloud(
   auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch().ToString();
   auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
   auto tmp_manifest_fname = manifest_fname + ".tmp";
+  LegacyFileSystemWrapper fs(base_env);
   st =
-      CopyFile(base_env, GetName() + "/" + manifest_fname,
+      CopyFile(&fs, GetName() + "/" + manifest_fname,
                GetName() + "/" + tmp_manifest_fname, manifest_file_size, false);
   if (!st.ok()) {
     return st;
@@ -344,7 +349,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
       }
 
       auto& f = files_to_copy[idx];
-      auto copy_st = provider->PutObject(
+      auto copy_st = provider->PutCloudObject(
           GetName() + "/" + f.first, destination.GetBucketName(),
           destination.GetObjectPath() + "/" + f.second);
       if (!copy_st.ok()) {
@@ -374,7 +379,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   }
 
   if (!st.ok()) {
-      return st;
+    return st;
   }
 
   // Ignore errors
@@ -386,22 +391,21 @@ Status DBCloudImpl::DoCheckpointToCloud(
 }
 
 Status DBCloudImpl::ExecuteRemoteCompactionRequest(
-      const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result ,
-      bool doSanitize) {
+    const PluggableCompactionParam& inputParams,
+    PluggableCompactionResult* result, bool doSanitize) {
   auto cenv = static_cast<CloudEnvImpl*>(GetEnv());
 
   // run the compaction request on the underlying local database
-  Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(inputParams,
-		  result, doSanitize);
+  Status status = GetBaseDB()->ExecuteRemoteCompactionRequest(
+      inputParams, result, doSanitize);
   if (!status.ok()) {
     return status;
   }
 
   // convert the local pathnames to the cloud pathnames
   for (unsigned int i = 0; i < result->output_files.size(); i++) {
-      OutputFile* outfile = &result->output_files[i];
-      outfile->pathname = cenv->RemapFilename(outfile->pathname);
+    OutputFile* outfile = &result->output_files[i];
+    outfile->pathname = cenv->RemapFilename(outfile->pathname);
   }
   return Status::OK();
 }

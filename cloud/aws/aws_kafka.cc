@@ -20,7 +20,7 @@
 namespace rocksdb {
 namespace cloud {
 namespace kafka {
-  
+
 /***************************************************/
 /*                KafkaWritableFile                */
 /***************************************************/
@@ -28,13 +28,14 @@ class KafkaWritableFile : public CloudLogWritableFile {
  public:
   static const std::chrono::microseconds kFlushTimeout;
 
-  KafkaWritableFile(CloudEnv* env, const std::string& fname, const EnvOptions& options,
+  KafkaWritableFile(CloudEnv* env, const std::string& fname,
+                    const EnvOptions& options,
                     std::shared_ptr<RdKafka::Producer> producer,
                     std::shared_ptr<RdKafka::Topic> topic)
-    : CloudLogWritableFile(env, fname, options),
-      producer_(producer),
-      topic_(topic),
-      current_offset_(0) {
+      : CloudLogWritableFile(env, fname, options),
+        producer_(producer),
+        topic_(topic),
+        current_offset_(0) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kafka] WritableFile opened file %s", fname_.c_str());
   }
@@ -58,11 +59,10 @@ class KafkaWritableFile : public CloudLogWritableFile {
 const std::chrono::microseconds KafkaWritableFile::kFlushTimeout =
     std::chrono::seconds(10);
 
-
 Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
                                      const Slice& message) {
-  if (!status_.ok()){
-      return status_;
+  if (!status_.ok()) {
+    return status_;
   }
 
   RdKafka::ErrorCode resp;
@@ -116,13 +116,9 @@ Status KafkaWritableFile::Close() {
   return ProduceRaw("Close", serialized_data);
 }
 
-bool KafkaWritableFile::IsSyncThreadSafe() const {
-  return true;
-}
+bool KafkaWritableFile::IsSyncThreadSafe() const { return true; }
 
-Status KafkaWritableFile::Sync() {
-  return Flush();
-}
+Status KafkaWritableFile::Sync() { return Flush(); }
 
 Status KafkaWritableFile::Flush() {
   std::chrono::microseconds start(env_->NowMicros());
@@ -175,17 +171,16 @@ Status KafkaWritableFile::LogDelete() {
 //
 class KafkaController : public CloudLogControllerImpl {
  public:
-
   ~KafkaController() {
     for (size_t i = 0; i < partitions_.size(); i++) {
       consumer_->stop(consumer_topic_.get(), partitions_[i]->partition());
     }
-    
+
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[%s] KafkaController closed.", Name());
   }
-  
-  const char *Name() const override { return "kafka"; }
+
+  const char* Name() const override { return "kafka"; }
 
   virtual Status CreateStream(const std::string& /* bucket_prefix */) override {
     // Kafka client cannot create a topic. Topics are either manually created
@@ -193,15 +188,16 @@ class KafkaController : public CloudLogControllerImpl {
     // true.
     return status_;
   }
-  virtual Status WaitForStreamReady(const std::string& /* bucket_prefix */) override {
+  virtual Status WaitForStreamReady(
+      const std::string& /* bucket_prefix */) override {
     // Kafka topics don't need to be waited on.
     return status_;
   }
 
   virtual Status TailStream() override;
 
-  virtual CloudLogWritableFile* CreateWritableFile(const std::string& fname,
-                                                   const EnvOptions& options) override;
+  virtual CloudLogWritableFile* CreateWritableFile(
+      const std::string& fname, const EnvOptions& options) override;
 
  protected:
   Status Initialize(CloudEnv* env) override;
@@ -293,8 +289,7 @@ Status KafkaController::TailStream() {
   }
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_, "[%s] TailStream topic %s %s",
-      Name(), consumer_topic_->name().c_str(),
-      status_.ToString().c_str());
+      Name(), consumer_topic_->name().c_str(), status_.ToString().c_str());
 
   Status lastErrorStatus;
   int retryAttempt = 0;
@@ -319,14 +314,14 @@ Status KafkaController::TailStream() {
           Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
               "[%s] error processing message size %ld "
               "extracted from stream %s %s",
-              Name(), message->len(),
-              consumer_topic_->name().c_str(), status_.ToString().c_str());
+              Name(), message->len(), consumer_topic_->name().c_str(),
+              status_.ToString().c_str());
         } else {
           Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
               "[%s] successfully processed message size %ld "
               "extracted from stream %s %s",
-              Name(), message->len(),
-              consumer_topic_->name().c_str(), status_.ToString().c_str());
+              Name(), message->len(), consumer_topic_->name().c_str(),
+              status_.ToString().c_str());
         }
 
         // Remember last read offset from topic (currently unused).
@@ -344,8 +339,7 @@ Status KafkaController::TailStream() {
                             RdKafka::err2str(message->err()).c_str());
 
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-            "[%s] error reading %s %s", Name(),
-            consumer_topic_->name().c_str(),
+            "[%s] error reading %s %s", Name(), consumer_topic_->name().c_str(),
             RdKafka::err2str(message->err()).c_str());
 
         ++retryAttempt;
@@ -376,9 +370,8 @@ Status KafkaController::InitializePartitions() {
                               RdKafka::err2str(err).c_str());
 
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[%s] S3ReadableFile file %s Unable to find shards %s",
-        Name(), consumer_topic_->name().c_str(),
-        status_.ToString().c_str());
+        "[%s] S3ReadableFile file %s Unable to find shards %s", Name(),
+        consumer_topic_->name().c_str(), status_.ToString().c_str());
 
     return status_;
   }
@@ -432,11 +425,12 @@ Status CloudLogControllerImpl::CreateKafkaController(
     std::shared_ptr<CloudLogController>* output) {
 #ifndef USE_KAFKA
   output->reset();
-  return Status::NotSupported("In order to use Kafka, make sure you're compiling with "
-                              "USE_KAFKA=1");
+  return Status::NotSupported(
+      "In order to use Kafka, make sure you're compiling with "
+      "USE_KAFKA=1");
 #else
   output->reset(new rocksdb::cloud::kafka::KafkaController());
   return Status::OK();
-#endif // USE_KAFKA
+#endif  // USE_KAFKA
 }
 }  // namespace rocksdb

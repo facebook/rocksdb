@@ -152,6 +152,10 @@ class Env {
   // Loads the environment specified by the input value into the result
   static Status LoadEnv(const std::string& value, Env** result);
 
+  // Loads the environment specified by the input value into the result
+  static Status LoadEnv(const std::string& value, Env** result,
+                        std::shared_ptr<Env>* guard);
+
   // Return a default environment suitable for the current operating
   // system.  Sophisticated users may wish to provide their own Env
   // implementation instead of relying on this default environment.
@@ -524,6 +528,8 @@ class Env {
     return Status::NotSupported();
   }
 
+  virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
@@ -666,7 +672,7 @@ class RandomAccessFile {
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;  // Default implementation to prevent issues with backwards
                // compatibility.
-  };
+  }
 
   enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
 
@@ -1359,6 +1365,9 @@ class EnvWrapper : public Env {
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     return target_->GetFreeSpace(path, diskfree);
   }
+  void SanitizeEnvOptions(EnvOptions* env_opts) const override {
+    target_->SanitizeEnvOptions(env_opts);
+  }
 
  private:
   Env* target_;
@@ -1405,7 +1414,7 @@ class RandomAccessFileWrapper : public RandomAccessFile {
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
-  };
+  }
   void Hint(AccessPattern pattern) override { target_->Hint(pattern); }
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {

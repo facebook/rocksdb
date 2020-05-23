@@ -20,6 +20,7 @@
 #include "db/db_test_util.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -189,6 +190,7 @@ class CorruptionTest : public testing::Test {
     ASSERT_TRUE(s.ok()) << s.ToString();
     Options options;
     EnvOptions env_options;
+    options.file_system.reset(new LegacyFileSystemWrapper(options.env));
     ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
   }
 
@@ -539,7 +541,8 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
   std::unique_ptr<RandomAccessFile> file;
   ASSERT_OK(options_.env->NewRandomAccessFile(filename, &file, EnvOptions()));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), filename));
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
+                                 filename));
 
   uint64_t file_size;
   ASSERT_OK(options_.env->GetFileSize(filename, &file_size));

@@ -5,12 +5,11 @@
 
 #include "table/plain/plain_table_bloom.h"
 
-#include <string>
 #include <algorithm>
+#include <string>
 #include "util/dynamic_bloom.h"
 
 #include "memory/allocator.h"
-
 
 namespace rocksdb {
 
@@ -28,22 +27,22 @@ uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
 
   return num_blocks * (CACHE_LINE_SIZE * 8);
 }
-}
+}  // namespace
 
 PlainTableBloomV1::PlainTableBloomV1(uint32_t num_probes)
     : kTotalBits(0), kNumBlocks(0), kNumProbes(num_probes), data_(nullptr) {}
 
 void PlainTableBloomV1::SetRawData(char* raw_data, uint32_t total_bits,
-                              uint32_t num_blocks) {
+                                   uint32_t num_blocks) {
   data_ = raw_data;
   kTotalBits = total_bits;
   kNumBlocks = num_blocks;
 }
 
-void PlainTableBloomV1::SetTotalBits(Allocator* allocator,
-                                uint32_t total_bits, uint32_t locality,
-                                size_t huge_page_tlb_size,
-                                Logger* logger) {
+void PlainTableBloomV1::SetTotalBits(Allocator* allocator, uint32_t total_bits,
+                                     uint32_t locality,
+                                     size_t huge_page_tlb_size,
+                                     Logger* logger) {
   kTotalBits = (locality > 0) ? GetTotalBitsForLocality(total_bits)
                               : (total_bits + 7) / 8 * 8;
   kNumBlocks = (locality > 0) ? (kTotalBits / (CACHE_LINE_SIZE * 8)) : 0;
@@ -66,7 +65,8 @@ void PlainTableBloomV1::SetTotalBits(Allocator* allocator,
   data_ = raw;
 }
 
-void BloomBlockBuilder::AddKeysHashes(const std::vector<uint32_t>& keys_hashes) {
+void BloomBlockBuilder::AddKeysHashes(
+    const std::vector<uint32_t>& keys_hashes) {
   for (auto hash : keys_hashes) {
     bloom_.AddHash(hash);
   }

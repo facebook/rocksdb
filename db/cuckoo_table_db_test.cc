@@ -285,6 +285,9 @@ TEST_F(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
 TEST_F(CuckooTableDBTest, AdaptiveTable) {
   Options options = CurrentOptions();
 
+  // Ensure options compatible with PlainTable
+  options.prefix_extractor.reset(NewCappedPrefixTransform(8));
+
   // Write some keys using cuckoo table.
   options.table_factory.reset(NewCuckooTableFactory());
   Reopen(&options);

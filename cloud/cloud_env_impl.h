@@ -5,12 +5,14 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+
 #include "cloud/cloud_manifest.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
+class CloudStorageReadableFile;
 
 //
 // The Cloud environment
@@ -20,11 +22,123 @@ class CloudEnvImpl : public CloudEnv {
 
  public:
   // Constructor
-  CloudEnvImpl(const CloudEnvOptions & options, Env* base_env, const std::shared_ptr<Logger>& logger);
+  CloudEnvImpl(const CloudEnvOptions& options, Env* base_env,
+               const std::shared_ptr<Logger>& logger);
 
   virtual ~CloudEnvImpl();
 
   const CloudType& GetCloudType() const { return cloud_env_options.cloud_type; }
+
+  Status NewSequentialFile(const std::string& fname,
+                           std::unique_ptr<SequentialFile>* result,
+                           const EnvOptions& options) override;
+  Status NewSequentialFileCloud(const std::string& bucket,
+                                const std::string& fname,
+                                std::unique_ptr<SequentialFile>* result,
+                                const EnvOptions& options) override;
+
+  Status NewRandomAccessFile(const std::string& fname,
+                             std::unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& options) override;
+
+  Status NewWritableFile(const std::string& fname,
+                         std::unique_ptr<WritableFile>* result,
+                         const EnvOptions& options) override;
+
+  Status ReopenWritableFile(const std::string& /*fname*/,
+                            std::unique_ptr<WritableFile>* /*result*/,
+                            const EnvOptions& /*options*/) override;
+
+  Status RenameFile(const std::string& src, const std::string& target) override;
+
+  Status LinkFile(const std::string& src, const std::string& target) override;
+
+  Status FileExists(const std::string& fname) override;
+
+  Status GetChildren(const std::string& path,
+                     std::vector<std::string>* result) override;
+
+  Status GetFileSize(const std::string& fname, uint64_t* size) override;
+
+  Status GetFileModificationTime(const std::string& fname,
+                                 uint64_t* file_mtime) override;
+
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override;
+
+  Status CreateDir(const std::string& name) override;
+
+  Status CreateDirIfMissing(const std::string& name) override;
+
+  Status DeleteDir(const std::string& name) override;
+
+  Status NewLogger(const std::string& fname,
+                   std::shared_ptr<Logger>* result) override {
+    return base_env_->NewLogger(fname, result);
+  }
+
+  virtual void Schedule(void (*function)(void* arg), void* arg,
+                        Priority pri = LOW, void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) override {
+    base_env_->Schedule(function, arg, pri, tag, unschedFunction);
+  }
+
+  virtual int UnSchedule(void* tag, Priority pri) override {
+    return base_env_->UnSchedule(tag, pri);
+  }
+
+  virtual void StartThread(void (*function)(void* arg), void* arg) override {
+    base_env_->StartThread(function, arg);
+  }
+
+  virtual void WaitForJoin() override { base_env_->WaitForJoin(); }
+
+  virtual unsigned int GetThreadPoolQueueLen(
+      Priority pri = LOW) const override {
+    return base_env_->GetThreadPoolQueueLen(pri);
+  }
+
+  virtual Status GetTestDirectory(std::string* path) override {
+    return base_env_->GetTestDirectory(path);
+  }
+
+  virtual uint64_t NowMicros() override { return base_env_->NowMicros(); }
+
+  virtual void SleepForMicroseconds(int micros) override {
+    base_env_->SleepForMicroseconds(micros);
+  }
+
+  virtual Status GetHostName(char* name, uint64_t len) override {
+    return base_env_->GetHostName(name, len);
+  }
+
+  virtual Status GetCurrentTime(int64_t* unix_time) override {
+    return base_env_->GetCurrentTime(unix_time);
+  }
+
+  virtual Status GetAbsolutePath(const std::string& db_path,
+                                 std::string* output_path) override {
+    return base_env_->GetAbsolutePath(db_path, output_path);
+  }
+
+  virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {
+    base_env_->SetBackgroundThreads(number, pri);
+  }
+  int GetBackgroundThreads(Priority pri) override {
+    return base_env_->GetBackgroundThreads(pri);
+  }
+
+  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
+    base_env_->IncBackgroundThreadsIfNeeded(number, pri);
+  }
+
+  virtual std::string TimeToString(uint64_t number) override {
+    return base_env_->TimeToString(number);
+  }
+
+  virtual uint64_t GetThreadID() const override {
+    return base_env_->GetThreadID();
+  }
 
   Status SanitizeDirectory(const DBOptions& options,
                            const std::string& clone_name, bool read_only);
@@ -105,7 +219,42 @@ class CloudEnvImpl : public CloudEnv {
   }
 
  protected:
+  // Checks to see if the input fname exists in the dest or src bucket
+  Status ExistsCloudObject(const std::string& fname);
+
+  // Gets the cloud object fname from the dest or src bucket
+  Status GetCloudObject(const std::string& fname);
+
+  // Gets the size of the named cloud object from the dest or src bucket
+  Status GetCloudObjectSize(const std::string& fname, uint64_t* remote_size);
+
+  // Gets the modification time of the named cloud object from the dest or src
+  // bucket
+  Status GetCloudObjectModificationTime(const std::string& fname,
+                                        uint64_t* time);
+
+  // Returns the list of cloud objects from the src and dest buckets.
+  Status ListCloudObjects(const std::string& path,
+                          std::vector<std::string>* result);
+
+  // Returns a CloudStorageReadableFile from the dest or src bucket
+  Status NewCloudReadableFile(const std::string& fname,
+                              std::unique_ptr<CloudStorageReadableFile>* result,
+                              const EnvOptions& options);
+
+  // Copy IDENTITY file to cloud storage. Update dbid registry.
+  Status SaveIdentityToCloud(const std::string& localfile,
+                             const std::string& idfile);
+
+  // Check if options are compatible with the storage system
+  virtual Status CheckOption(const EnvOptions& options);
+
   virtual Status Prepare();
+  // Converts a local pathname to an object name in the src bucket
+  std::string srcname(const std::string& localname);
+
+  // Converts a local pathname to an object name in the dest bucket
+  std::string destname(const std::string& localname);
 
   // Does the dir need to be re-initialized?
   Status NeedsReinitialization(const std::string& clone_dir, bool* do_reinit);

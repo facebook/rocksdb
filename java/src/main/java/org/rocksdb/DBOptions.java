@@ -385,6 +385,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public void setBaseBackgroundCompactions(
       final int baseBackgroundCompactions) {
     assert(isOwningHandle());
@@ -398,6 +399,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public DBOptions setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -406,6 +408,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public int maxBackgroundCompactions() {
     assert(isOwningHandle());
     return maxBackgroundCompactions(nativeHandle_);
@@ -425,6 +428,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public DBOptions setMaxBackgroundFlushes(
       final int maxBackgroundFlushes) {
     assert(isOwningHandle());
@@ -433,6 +437,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  @Deprecated
   public int maxBackgroundFlushes() {
     assert(isOwningHandle());
     return maxBackgroundFlushes(nativeHandle_);
@@ -661,6 +666,34 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setStatsPersistPeriodSec(
+      final int statsPersistPeriodSec) {
+    assert(isOwningHandle());
+    setStatsPersistPeriodSec(nativeHandle_, statsPersistPeriodSec);
+    return this;
+  }
+
+  @Override
+  public int statsPersistPeriodSec() {
+    assert(isOwningHandle());
+    return statsPersistPeriodSec(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setStatsHistoryBufferSize(
+      final long statsHistoryBufferSize) {
+    assert(isOwningHandle());
+    setStatsHistoryBufferSize(nativeHandle_, statsHistoryBufferSize);
+    return this;
+  }
+
+  @Override
+  public long statsHistoryBufferSize() {
+    assert(isOwningHandle());
+    return statsHistoryBufferSize(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setAdviseRandomOnOpen(
       final boolean adviseRandomOnOpen) {
     assert(isOwningHandle());
@@ -807,6 +840,19 @@ public class DBOptions extends RocksObject
     return walBytesPerSync(nativeHandle_);
   }
 
+  @Override
+  public DBOptions setStrictBytesPerSync(final boolean strictBytesPerSync) {
+    assert(isOwningHandle());
+    setStrictBytesPerSync(nativeHandle_, strictBytesPerSync);
+    return this;
+  }
+
+  @Override
+  public boolean strictBytesPerSync() {
+    assert(isOwningHandle());
+    return strictBytesPerSync(nativeHandle_);
+  }
+
   //TODO(AR) NOW
 //  @Override
 //  public DBOptions setListeners(final List<EventListener> listeners) {
@@ -871,6 +917,18 @@ public class DBOptions extends RocksObject
     assert(isOwningHandle());
     return enablePipelinedWrite(nativeHandle_);
   }
+
+  @Override
+  public DBOptions setUnorderedWrite(final boolean unorderedWrite) {
+    setUnorderedWrite(nativeHandle_, unorderedWrite);
+    return this;
+  }
+
+  @Override
+  public boolean unorderedWrite() {
+    return unorderedWrite(nativeHandle_);
+  }
+
 
   @Override
   public DBOptions setAllowConcurrentMemtableWrite(
@@ -1227,6 +1285,14 @@ public class DBOptions extends RocksObject
   private native void setStatsDumpPeriodSec(
       long handle, int statsDumpPeriodSec);
   private native int statsDumpPeriodSec(long handle);
+  private native void setStatsPersistPeriodSec(
+      final long handle, final int statsPersistPeriodSec);
+  private native int statsPersistPeriodSec(
+      final long handle);
+  private native void setStatsHistoryBufferSize(
+      final long handle, final long statsHistoryBufferSize);
+  private native long statsHistoryBufferSize(
+      final long handle);
   private native void setAdviseRandomOnOpen(
       long handle, boolean adviseRandomOnOpen);
   private native boolean adviseRandomOnOpen(long handle);
@@ -1258,6 +1324,10 @@ public class DBOptions extends RocksObject
   private native long bytesPerSync(long handle);
   private native void setWalBytesPerSync(long handle, long walBytesPerSync);
   private native long walBytesPerSync(long handle);
+  private native void setStrictBytesPerSync(
+      final long handle, final boolean strictBytesPerSync);
+  private native boolean strictBytesPerSync(
+      final long handle);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);
   private native boolean enableThreadTracking(long handle);
@@ -1266,6 +1336,9 @@ public class DBOptions extends RocksObject
   private native void setEnablePipelinedWrite(final long handle,
       final boolean enablePipelinedWrite);
   private native boolean enablePipelinedWrite(final long handle);
+  private native void setUnorderedWrite(final long handle,
+      final boolean unorderedWrite);
+  private native boolean unorderedWrite(final long handle);
   private native void setAllowConcurrentMemtableWrite(long handle,
       boolean allowConcurrentMemtableWrite);
   private native boolean allowConcurrentMemtableWrite(long handle);

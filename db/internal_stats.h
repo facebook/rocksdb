@@ -553,6 +553,8 @@ class InternalStats {
   bool HandleEstimateNumKeys(uint64_t* value, DBImpl* db, Version* version);
   bool HandleNumSnapshots(uint64_t* value, DBImpl* db, Version* version);
   bool HandleOldestSnapshotTime(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleOldestSnapshotSequence(uint64_t* value, DBImpl* db,
+                                    Version* version);
   bool HandleNumLiveVersions(uint64_t* value, DBImpl* db, Version* version);
   bool HandleCurrentSuperVersionNumber(uint64_t* value, DBImpl* db,
                                        Version* version);

@@ -210,13 +210,11 @@ void VerifySimilar(uint64_t a, uint64_t b, double bias) {
   }
 }
 
-void VerifyTableProperties(const TableProperties& base_tp,
-                           const TableProperties& new_tp,
-                           double filter_size_bias =
-                               CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
-                           double index_size_bias = 0.1,
-                           double data_size_bias = 0.1,
-                           double num_data_blocks_bias = 0.05) {
+void VerifyTableProperties(
+    const TableProperties& base_tp, const TableProperties& new_tp,
+    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
+    double index_size_bias = 0.1, double data_size_bias = 0.1,
+    double num_data_blocks_bias = 0.05) {
   VerifySimilar(base_tp.data_size, new_tp.data_size, data_size_bias);
   VerifySimilar(base_tp.index_size, new_tp.index_size, index_size_bias);
   VerifySimilar(base_tp.filter_size, new_tp.filter_size, filter_size_bias);
@@ -1633,7 +1631,11 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
 
   // Test with empty block cache.
   constexpr size_t kCapacity = 100;
-  auto block_cache = NewLRUCache(kCapacity, 0 /*num_shard_bits*/);
+  LRUCacheOptions co;
+  co.capacity = kCapacity;
+  co.num_shard_bits = 0;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto block_cache = NewLRUCache(co);
   table_options.block_cache = block_cache;
   table_options.no_block_cache = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));

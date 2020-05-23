@@ -131,7 +131,6 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level, const char* format,
     }
 
     assert(format != nullptr);
-    assert(ap != nullptr);
     const std::unique_ptr<char[]> msg = format_str(format, ap);
 
     // pass msg to java callback handler

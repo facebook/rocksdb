@@ -30,6 +30,7 @@ class LogBuffer {
 
   // Flush all buffered log to the info log.
   void FlushBufferToLog();
+  static const size_t kDefaultMaxLogSize = 512;
 
  private:
   // One log entry with its timestamp

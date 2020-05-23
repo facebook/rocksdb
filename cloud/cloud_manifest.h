@@ -2,7 +2,9 @@
 
 #pragma once
 #include <rocksdb/status.h>
+
 #include <vector>
+
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 

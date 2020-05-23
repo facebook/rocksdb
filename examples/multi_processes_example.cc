@@ -14,8 +14,8 @@
 // run for a while, tailing the logs of the primary. After process with primary
 // instance exits, this process will keep running until you hit 'CTRL+C'.
 
-#include <cinttypes>
 #include <chrono>
+#include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>

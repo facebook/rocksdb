@@ -570,14 +570,13 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_writer->Flush();
   EXPECT_TRUE(s.ok()) << s.ToString();
 
-  EXPECT_EQ(static_cast<test::StringSink*>(file_writer->writable_file())
-                ->contents()
-                .size(),
-            builder->FileSize());
+  EXPECT_EQ(
+      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
+      builder->FileSize());
 
   // Open the table
   file_reader.reset(test::GetRandomAccessFileReader(new test::StringSource(
-      static_cast<test::StringSink*>(file_writer->writable_file())->contents(),
+      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents(),
       0 /*uniq_id*/, ioptions.allow_mmap_reads)));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
@@ -586,9 +585,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),
       std::move(file_reader),
-      static_cast<test::StringSink*>(file_writer->writable_file())
-          ->contents()
-          .size(),
+      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
       &table_reader);
   // Search using Get()
   ReadOptions ro;

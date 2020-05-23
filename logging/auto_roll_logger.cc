@@ -171,7 +171,7 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
   if (!logger_) {
     return;
   }
-  
+
   std::shared_ptr<Logger> logger;
   {
     MutexLock l(&mutex_);

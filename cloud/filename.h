@@ -49,10 +49,10 @@ inline std::string dirname(std::string const& pathname) {
 // If s doesn't end with '/', it appends it.
 // Special case: if s is empty, we don't append '/'
 inline std::string ensure_ends_with_pathsep(std::string s) {
-    if (!s.empty() && s.back() != '/') {
-        s += '/';
-    }
-    return s;
+  if (!s.empty() && s.back() != '/') {
+    s += '/';
+  }
+  return s;
 }
 
 // If the last char of the string is the specified character, then return a

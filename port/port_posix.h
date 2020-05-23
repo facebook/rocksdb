@@ -178,22 +178,22 @@ typedef pthread_once_t OnceType;
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
-  // To test behavior with non-native cache line size, e.g. for
-  // Bloom filters, set TEST_CACHE_LINE_SIZE to the desired test size.
-  // This disables ALIGN_AS to keep it from failing compilation.
-  #ifdef TEST_CACHE_LINE_SIZE
-    #define CACHE_LINE_SIZE TEST_CACHE_LINE_SIZE
-    #define ALIGN_AS(n) /*empty*/
-  #else
-    #if defined(__s390__)
-      #define CACHE_LINE_SIZE 256U
-    #elif defined(__powerpc__) || defined(__aarch64__)
-      #define CACHE_LINE_SIZE 128U
-    #else
-      #define CACHE_LINE_SIZE 64U
-    #endif
-    #define ALIGN_AS(n) alignas(n)
-  #endif
+// To test behavior with non-native cache line size, e.g. for
+// Bloom filters, set TEST_CACHE_LINE_SIZE to the desired test size.
+// This disables ALIGN_AS to keep it from failing compilation.
+#ifdef TEST_CACHE_LINE_SIZE
+#define CACHE_LINE_SIZE TEST_CACHE_LINE_SIZE
+#define ALIGN_AS(n) /*empty*/
+#else
+#if defined(__s390__)
+#define CACHE_LINE_SIZE 256U
+#elif defined(__powerpc__) || defined(__aarch64__)
+#define CACHE_LINE_SIZE 128U
+#else
+#define CACHE_LINE_SIZE 64U
+#endif
+#define ALIGN_AS(n) alignas(n)
+#endif
 #endif
 
 static_assert((CACHE_LINE_SIZE & (CACHE_LINE_SIZE - 1)) == 0,

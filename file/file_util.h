@@ -9,17 +9,18 @@
 #include "file/filename.h"
 #include "options/db_options.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
 namespace rocksdb {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
-extern Status CopyFile(Env* env, const std::string& source,
+extern Status CopyFile(FileSystem* fs, const std::string& source,
                        const std::string& destination, uint64_t size,
                        bool use_fsync);
 
-extern Status CreateFile(Env* env, const std::string& destination,
+extern Status CreateFile(FileSystem* fs, const std::string& destination,
                          const std::string& contents, bool use_fsync);
 
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,

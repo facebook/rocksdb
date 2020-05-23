@@ -1,4 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+#
+# defs.bzl - Definitions for Facebook-specific buck build integration
+# in TARGETS
 
 load("@fbcode_macros//build_defs:cpp_binary.bzl", "cpp_binary")
 load("@fbcode_macros//build_defs:custom_unittest.bzl", "custom_unittest")

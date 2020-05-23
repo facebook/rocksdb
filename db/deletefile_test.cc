@@ -14,9 +14,11 @@
 #include <string>
 #include <vector>
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "file/filename.h"
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
@@ -27,58 +29,26 @@
 
 namespace rocksdb {
 
-class DeleteFileTest : public testing::Test {
+class DeleteFileTest : public DBTestBase {
  public:
-  std::string dbname_;
-  Options options_;
-  DB* db_;
-  Env* env_;
-  int numlevels_;
+  const int numlevels_;
+  const std::string wal_dir_;
 
-  DeleteFileTest() {
-    db_ = nullptr;
-    env_ = Env::Default();
-    options_.delete_obsolete_files_period_micros = 0;  // always do full purge
-    options_.enable_thread_tracking = true;
-    options_.write_buffer_size = 1024*1024*1000;
-    options_.target_file_size_base = 1024*1024*1000;
-    options_.max_bytes_for_level_base = 1024*1024*1000;
-    options_.WAL_ttl_seconds = 300; // Used to test log files
-    options_.WAL_size_limit_MB = 1024; // Used to test log files
-    dbname_ = test::PerThreadDBPath("deletefile_test");
-    options_.wal_dir = dbname_ + "/wal_files";
+  DeleteFileTest()
+      : DBTestBase("/deletefile_test"),
+        numlevels_(7),
+        wal_dir_(dbname_ + "/wal_files") {}
 
-    // clean up all the files that might have been there before
-    std::vector<std::string> old_files;
-    env_->GetChildren(dbname_, &old_files);
-    for (auto file : old_files) {
-      env_->DeleteFile(dbname_ + "/" + file);
-    }
-    env_->GetChildren(options_.wal_dir, &old_files);
-    for (auto file : old_files) {
-      env_->DeleteFile(options_.wal_dir + "/" + file);
-    }
-
-    DestroyDB(dbname_, options_);
-    numlevels_ = 7;
-    EXPECT_OK(ReopenDB(true));
-  }
-
-  Status ReopenDB(bool create) {
-    delete db_;
-    if (create) {
-      DestroyDB(dbname_, options_);
-    }
-    db_ = nullptr;
-    options_.create_if_missing = create;
-    Status s = DB::Open(options_, dbname_, &db_);
-    assert(db_);
-    return s;
-  }
-
-  void CloseDB() {
-    delete db_;
-    db_ = nullptr;
+  void SetOptions(Options* options) {
+    assert(options);
+    options->delete_obsolete_files_period_micros = 0;  // always do full purge
+    options->enable_thread_tracking = true;
+    options->write_buffer_size = 1024 * 1024 * 1000;
+    options->target_file_size_base = 1024 * 1024 * 1000;
+    options->max_bytes_for_level_base = 1024 * 1024 * 1000;
+    options->WAL_ttl_seconds = 300;     // Used to test log files
+    options->WAL_size_limit_MB = 1024;  // Used to test log files
+    options->wal_dir = wal_dir_;
   }
 
   void AddKeys(int numkeys, int startkey = 0) {
@@ -120,23 +90,20 @@ class DeleteFileTest : public testing::Test {
 
   void CreateTwoLevels() {
     AddKeys(50000, 10000);
-    DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-    ASSERT_OK(dbi->TEST_FlushMemTable());
-    ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
     for (int i = 0; i < 2; ++i) {
-      ASSERT_OK(dbi->TEST_CompactRange(i, nullptr, nullptr));
+      ASSERT_OK(dbfull()->TEST_CompactRange(i, nullptr, nullptr));
     }
 
     AddKeys(50000, 10000);
-    ASSERT_OK(dbi->TEST_FlushMemTable());
-    ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
-    ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   }
 
-  void CheckFileTypeCounts(std::string& dir,
-                            int required_log,
-                            int required_sst,
-                            int required_manifest) {
+  void CheckFileTypeCounts(const std::string& dir, int required_log,
+                           int required_sst, int required_manifest) {
     std::vector<std::string> filenames;
     env_->GetChildren(dir, &filenames);
 
@@ -167,6 +134,12 @@ class DeleteFileTest : public testing::Test {
 };
 
 TEST_F(DeleteFileTest, AddKeysAndQueryLevels) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   CreateTwoLevels();
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
@@ -208,15 +181,19 @@ TEST_F(DeleteFileTest, AddKeysAndQueryLevels) {
 
   // Lowest level file deletion should succeed.
   ASSERT_OK(db_->DeleteFile(level2file));
-
-  CloseDB();
 }
 
 TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   CreateTwoLevels();
   // there should be only one (empty) log file because CreateTwoLevels()
   // flushes the memtables to disk
-  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
+  CheckFileTypeCounts(wal_dir_, 1, 0, 0);
   // 2 ssts, 1 manifest
   CheckFileTypeCounts(dbname_, 0, 2, 1);
   std::string first("0"), last("999999");
@@ -229,7 +206,7 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 
   // this time, we keep an iterator alive
-  ReopenDB(true);
+  Reopen(options);
   Iterator *itr = nullptr;
   CreateTwoLevels();
   itr = db_->NewIterator(ReadOptions());
@@ -239,11 +216,15 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   delete itr;
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
-
-  CloseDB();
 }
 
 TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
@@ -253,9 +234,9 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   // We keep an iterator alive
   Iterator* itr = nullptr;
   CreateTwoLevels();
-  ReadOptions options;
-  options.background_purge_on_iterator_cleanup = true;
-  itr = db_->NewIterator(options);
+  ReadOptions read_options;
+  read_options.background_purge_on_iterator_cleanup = true;
+  itr = db_->NewIterator(read_options);
   db_->CompactRange(compact_options, &first_slice, &last_slice);
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
@@ -277,11 +258,15 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   sleeping_task_after.WaitUntilDone();
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
-
-  CloseDB();
 }
 
 TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   auto do_test = [&](bool bg_purge) {
     ColumnFamilyOptions co;
     co.max_write_buffer_size_to_maintain =
@@ -328,20 +313,24 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
         "DBImpl::BGWorkPurge:start"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  options_.avoid_unnecessary_blocking_io = true;
-  ASSERT_OK(ReopenDB(false));
+  options.avoid_unnecessary_blocking_io = true;
+  options.create_if_missing = false;
+  Reopen(options);
   {
     SCOPED_TRACE("avoid_unnecessary_blocking_io = true");
     do_test(true);
   }
-
-  CloseDB();
-  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // This test is to reproduce a bug that read invalid ReadOption in iterator
 // cleanup function
 TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
@@ -351,12 +340,13 @@ TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
   // We keep an iterator alive
   Iterator* itr = nullptr;
   CreateTwoLevels();
-  ReadOptions* options = new ReadOptions();
-  options->background_purge_on_iterator_cleanup = true;
-  itr = db_->NewIterator(*options);
-  // ReadOptions is deleted, but iterator cleanup function should not be
-  // affected
-  delete options;
+  {
+    ReadOptions read_options;
+    read_options.background_purge_on_iterator_cleanup = true;
+    itr = db_->NewIterator(read_options);
+    // ReadOptions is deleted, but iterator cleanup function should not be
+    // affected
+  }
 
   db_->CompactRange(compact_options, &first_slice, &last_slice);
   // 3 sst after compaction with live iterator
@@ -372,11 +362,15 @@ TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
   sleeping_task_after.WaitUntilDone();
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
-
-  CloseDB();
 }
 
 TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
@@ -385,15 +379,16 @@ TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
 
   // We keep an iterator alive
   CreateTwoLevels();
-  ReadOptions options;
-  options.background_purge_on_iterator_cleanup = true;
-  Iterator* itr1 = db_->NewIterator(options);
+  ReadOptions read_options;
+  read_options.background_purge_on_iterator_cleanup = true;
+  Iterator* itr1 = db_->NewIterator(read_options);
   CreateTwoLevels();
-  Iterator* itr2 = db_->NewIterator(options);
+  Iterator* itr2 = db_->NewIterator(read_options);
   db_->CompactRange(compact_options, &first_slice, &last_slice);
   // 5 sst files after 2 compactions with 2 live iterators
   CheckFileTypeCounts(dbname_, 0, 5, 1);
 
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   // ~DBImpl should wait until all BGWorkPurge are finished
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::~DBImpl:WaitJob", "DBImpl::BGWorkPurge"},
@@ -405,24 +400,29 @@ TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
   env_->Schedule(&DeleteFileTest::DoSleep, this, Env::Priority::HIGH);
   delete itr2;
   env_->Schedule(&DeleteFileTest::GuardFinish, nullptr, Env::Priority::HIGH);
-  CloseDB();
+  Close();
 
   TEST_SYNC_POINT("DeleteFileTest::BackgroundPurgeTestMultipleJobs:DBClose");
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DeleteFileTest, DeleteFileWithIterator) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   CreateTwoLevels();
-  ReadOptions options;
-  Iterator* it = db_->NewIterator(options);
+  ReadOptions read_options;
+  Iterator* it = db_->NewIterator(read_options);
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
 
-  std::string level2file = "";
+  std::string level2file;
 
-  ASSERT_EQ((int)metadata.size(), 2);
+  ASSERT_EQ(metadata.size(), static_cast<size_t>(2));
   if (metadata[0].level == 1) {
     level2file = metadata[1].name;
   } else {
@@ -441,10 +441,15 @@ TEST_F(DeleteFileTest, DeleteFileWithIterator) {
   }
   ASSERT_EQ(numKeysIterated, 50000);
   delete it;
-  CloseDB();
 }
 
 TEST_F(DeleteFileTest, DeleteLogFiles) {
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+
   AddKeys(10, 0);
   VectorLogPtr logfiles;
   db_->GetSortedWalFiles(logfiles);
@@ -453,11 +458,11 @@ TEST_F(DeleteFileTest, DeleteLogFiles) {
   // Should not succeed because live logs are not allowed to be deleted
   std::unique_ptr<LogFile> alive_log = std::move(logfiles.back());
   ASSERT_EQ(alive_log->Type(), kAliveLogFile);
-  ASSERT_OK(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
+  ASSERT_OK(env_->FileExists(wal_dir_ + "/" + alive_log->PathName()));
   fprintf(stdout, "Deleting alive log file %s\n",
           alive_log->PathName().c_str());
   ASSERT_TRUE(!db_->DeleteFile(alive_log->PathName()).ok());
-  ASSERT_OK(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
+  ASSERT_OK(env_->FileExists(wal_dir_ + "/" + alive_log->PathName()));
   logfiles.clear();
 
   // Call Flush to bring about a new working log file and add more keys
@@ -471,43 +476,36 @@ TEST_F(DeleteFileTest, DeleteLogFiles) {
   ASSERT_GT(logfiles.size(), 0UL);
   std::unique_ptr<LogFile> archived_log = std::move(logfiles.front());
   ASSERT_EQ(archived_log->Type(), kArchivedLogFile);
-  ASSERT_OK(
-      env_->FileExists(options_.wal_dir + "/" + archived_log->PathName()));
+  ASSERT_OK(env_->FileExists(wal_dir_ + "/" + archived_log->PathName()));
   fprintf(stdout, "Deleting archived log file %s\n",
           archived_log->PathName().c_str());
   ASSERT_OK(db_->DeleteFile(archived_log->PathName()));
-  ASSERT_EQ(Status::NotFound(), env_->FileExists(options_.wal_dir + "/" +
-                                                 archived_log->PathName()));
-  CloseDB();
+  ASSERT_EQ(Status::NotFound(),
+            env_->FileExists(wal_dir_ + "/" + archived_log->PathName()));
 }
 
 TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
-  CloseDB();
-  DBOptions db_options;
-  db_options.create_if_missing = true;
-  db_options.create_missing_column_families = true;
-  std::vector<ColumnFamilyDescriptor> column_families;
-  column_families.emplace_back();
-  column_families.emplace_back("new_cf", ColumnFamilyOptions());
-
-  std::vector<rocksdb::ColumnFamilyHandle*> handles;
-  rocksdb::DB* db;
-  ASSERT_OK(DB::Open(db_options, dbname_, column_families, &handles, &db));
+  Options options = CurrentOptions();
+  SetOptions(&options);
+  Destroy(options);
+  options.create_if_missing = true;
+  Reopen(options);
+  CreateAndReopenWithCF({"new_cf"}, options);
 
   Random rnd(5);
   for (int i = 0; i < 1000; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), handles[1], test::RandomKey(&rnd, 10),
-                      test::RandomKey(&rnd, 10)));
+    ASSERT_OK(db_->Put(WriteOptions(), handles_[1], test::RandomKey(&rnd, 10),
+                       test::RandomKey(&rnd, 10)));
   }
-  ASSERT_OK(db->Flush(FlushOptions(), handles[1]));
+  ASSERT_OK(db_->Flush(FlushOptions(), handles_[1]));
   for (int i = 0; i < 1000; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), handles[1], test::RandomKey(&rnd, 10),
-                      test::RandomKey(&rnd, 10)));
+    ASSERT_OK(db_->Put(WriteOptions(), handles_[1], test::RandomKey(&rnd, 10),
+                       test::RandomKey(&rnd, 10)));
   }
-  ASSERT_OK(db->Flush(FlushOptions(), handles[1]));
+  ASSERT_OK(db_->Flush(FlushOptions(), handles_[1]));
 
   std::vector<LiveFileMetaData> metadata;
-  db->GetLiveFilesMetaData(&metadata);
+  db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(2U, metadata.size());
   ASSERT_EQ("new_cf", metadata[0].column_family_name);
   ASSERT_EQ("new_cf", metadata[1].column_family_name);
@@ -517,11 +515,11 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
   auto new_file = metadata[0].smallest_seqno > metadata[1].smallest_seqno
                       ? metadata[0].name
                       : metadata[1].name;
-  ASSERT_TRUE(db->DeleteFile(new_file).IsInvalidArgument());
-  ASSERT_OK(db->DeleteFile(old_file));
+  ASSERT_TRUE(db_->DeleteFile(new_file).IsInvalidArgument());
+  ASSERT_OK(db_->DeleteFile(old_file));
 
   {
-    std::unique_ptr<Iterator> itr(db->NewIterator(ReadOptions(), handles[1]));
+    std::unique_ptr<Iterator> itr(db_->NewIterator(ReadOptions(), handles_[1]));
     int count = 0;
     for (itr->SeekToFirst(); itr->Valid(); itr->Next()) {
       ASSERT_OK(itr->status());
@@ -530,13 +528,11 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
     ASSERT_EQ(count, 1000);
   }
 
-  delete handles[0];
-  delete handles[1];
-  delete db;
+  Close();
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "new_cf"}, options);
 
-  ASSERT_OK(DB::Open(db_options, dbname_, column_families, &handles, &db));
   {
-    std::unique_ptr<Iterator> itr(db->NewIterator(ReadOptions(), handles[1]));
+    std::unique_ptr<Iterator> itr(db_->NewIterator(ReadOptions(), handles_[1]));
     int count = 0;
     for (itr->SeekToFirst(); itr->Valid(); itr->Next()) {
       ASSERT_OK(itr->status());
@@ -544,16 +540,22 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
     }
     ASSERT_EQ(count, 1000);
   }
-
-  delete handles[0];
-  delete handles[1];
-  delete db;
 }
 
 } //namespace rocksdb
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 

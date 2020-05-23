@@ -1247,9 +1247,51 @@ jint Java_org_rocksdb_Options_statsDumpPeriodSec(
  */
 void Java_org_rocksdb_Options_setStatsDumpPeriodSec(
     JNIEnv*, jobject, jlong jhandle,
-    jint stats_dump_period_sec) {
+    jint jstats_dump_period_sec) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->stats_dump_period_sec =
-      static_cast<int>(stats_dump_period_sec);
+      static_cast<unsigned int>(jstats_dump_period_sec);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    statsPersistPeriodSec
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_statsPersistPeriodSec(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->stats_persist_period_sec;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setStatsPersistPeriodSec
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setStatsPersistPeriodSec(
+    JNIEnv*, jobject, jlong jhandle, jint jstats_persist_period_sec) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->stats_persist_period_sec =
+      static_cast<unsigned int>(jstats_persist_period_sec);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    statsHistoryBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_statsHistoryBufferSize(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->stats_history_buffer_size;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setStatsHistoryBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setStatsHistoryBufferSize(
+    JNIEnv*, jobject, jlong jhandle, jlong jstats_history_buffer_size) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->stats_history_buffer_size =
+      static_cast<size_t>(jstats_history_buffer_size);
 }
 
 /*
@@ -1483,6 +1525,28 @@ jlong Java_org_rocksdb_Options_walBytesPerSync(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setStrictBytesPerSync
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setStrictBytesPerSync(
+    JNIEnv*, jobject, jlong jhandle, jboolean jstrict_bytes_per_sync) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->strict_bytes_per_sync =
+      jstrict_bytes_per_sync == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    strictBytesPerSync
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_strictBytesPerSync(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->strict_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setEnableThreadTracking
  * Signature: (JZ)V
  */
@@ -1545,6 +1609,27 @@ jboolean Java_org_rocksdb_Options_enablePipelinedWrite(
     JNIEnv*, jobject, jlong jhandle) {
   auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   return static_cast<jboolean>(opt->enable_pipelined_write);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setUnorderedWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setUnorderedWrite(
+    JNIEnv*, jobject, jlong jhandle, jboolean unordered_write) {
+    reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+        ->unordered_write = static_cast<bool>(unordered_write);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    unorderedWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_unorderedWrite(
+        JNIEnv*, jobject, jlong jhandle) {
+    return reinterpret_cast<rocksdb::Options*>(jhandle)->unordered_write;
 }
 
 /*
@@ -5420,9 +5505,9 @@ jboolean Java_org_rocksdb_DBOptions_isFdCloseOnExec(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_DBOptions_setStatsDumpPeriodSec(
-    JNIEnv*, jobject, jlong jhandle, jint stats_dump_period_sec) {
+    JNIEnv*, jobject, jlong jhandle, jint jstats_dump_period_sec) {
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->stats_dump_period_sec =
-      static_cast<int>(stats_dump_period_sec);
+      static_cast<unsigned int>(jstats_dump_period_sec);
 }
 
 /*
@@ -5433,6 +5518,48 @@ void Java_org_rocksdb_DBOptions_setStatsDumpPeriodSec(
 jint Java_org_rocksdb_DBOptions_statsDumpPeriodSec(
     JNIEnv*, jobject, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->stats_dump_period_sec;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setStatsPersistPeriodSec
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DBOptions_setStatsPersistPeriodSec(
+    JNIEnv*, jobject, jlong jhandle, jint jstats_persist_period_sec) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->stats_persist_period_sec =
+      static_cast<unsigned int>(jstats_persist_period_sec);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    statsPersistPeriodSec
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_DBOptions_statsPersistPeriodSec(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->stats_persist_period_sec;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setStatsHistoryBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setStatsHistoryBufferSize(
+    JNIEnv*, jobject, jlong jhandle, jlong jstats_history_buffer_size) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->stats_history_buffer_size =
+      static_cast<size_t>(jstats_history_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    statsHistoryBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_statsHistoryBufferSize(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->stats_history_buffer_size;
 }
 
 /*
@@ -5675,6 +5802,28 @@ jlong Java_org_rocksdb_DBOptions_walBytesPerSync(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setStrictBytesPerSync
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setStrictBytesPerSync(
+    JNIEnv*, jobject, jlong jhandle, jboolean jstrict_bytes_per_sync) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->strict_bytes_per_sync =
+      jstrict_bytes_per_sync == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    strictBytesPerSync
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_strictBytesPerSync(
+    JNIEnv*, jobject, jlong jhandle) {
+  return static_cast<jboolean>(
+      reinterpret_cast<rocksdb::DBOptions*>(jhandle)->strict_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setDelayedWriteRate
  * Signature: (JJ)V
  */
@@ -5716,6 +5865,29 @@ jboolean Java_org_rocksdb_DBOptions_enablePipelinedWrite(
   auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
   return static_cast<jboolean>(opt->enable_pipelined_write);
 }
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setUnorderedWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setUnorderedWrite(
+        JNIEnv*, jobject, jlong jhandle, jboolean junordered_write) {
+    auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+    opt->unordered_write = junordered_write == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    unorderedWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_unorderedWrite(
+        JNIEnv*, jobject, jlong jhandle) {
+auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+return static_cast<jboolean>(opt->unordered_write);
+}
+
 
 /*
  * Class:     org_rocksdb_DBOptions

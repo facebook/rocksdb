@@ -4,8 +4,8 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "rocksdb/slice.h"
 
@@ -53,12 +53,9 @@ class PlainTableBloomV1 {
 
   uint32_t GetNumBlocks() const { return kNumBlocks; }
 
-  Slice GetRawData() const {
-    return Slice(data_, GetTotalBits() / 8);
-  }
+  Slice GetRawData() const { return Slice(data_, GetTotalBits() / 8); }
 
-  void SetRawData(char* raw_data, uint32_t total_bits,
-                  uint32_t num_blocks = 0);
+  void SetRawData(char* raw_data, uint32_t total_bits, uint32_t num_blocks = 0);
 
   uint32_t GetTotalBits() const { return kTotalBits; }
 
@@ -83,8 +80,8 @@ class PlainTableBloomV1 {
 inline void PlainTableBloomV1::Prefetch(uint32_t h) {
   if (kNumBlocks != 0) {
     uint32_t ignored;
-    LegacyLocalityBloomImpl</*ExtraRotates*/true>::PrepareHashMayMatch(
-      h, kNumBlocks, data_, &ignored, LOG2_CACHE_LINE_SIZE);
+    LegacyLocalityBloomImpl</*ExtraRotates*/ true>::PrepareHashMayMatch(
+        h, kNumBlocks, data_, &ignored, LOG2_CACHE_LINE_SIZE);
   }
 }
 #if defined(_MSC_VER)
@@ -95,18 +92,18 @@ inline bool PlainTableBloomV1::MayContainHash(uint32_t h) const {
   assert(IsInitialized());
   if (kNumBlocks != 0) {
     return LegacyLocalityBloomImpl<true>::HashMayMatch(
-               h, kNumBlocks, kNumProbes, data_, LOG2_CACHE_LINE_SIZE);
+        h, kNumBlocks, kNumProbes, data_, LOG2_CACHE_LINE_SIZE);
   } else {
-    return LegacyNoLocalityBloomImpl::HashMayMatch(
-               h, kTotalBits, kNumProbes, data_);
+    return LegacyNoLocalityBloomImpl::HashMayMatch(h, kTotalBits, kNumProbes,
+                                                   data_);
   }
 }
 
 inline void PlainTableBloomV1::AddHash(uint32_t h) {
   assert(IsInitialized());
   if (kNumBlocks != 0) {
-    LegacyLocalityBloomImpl<true>::AddHash(
-        h, kNumBlocks, kNumProbes, data_, LOG2_CACHE_LINE_SIZE);
+    LegacyLocalityBloomImpl<true>::AddHash(h, kNumBlocks, kNumProbes, data_,
+                                           LOG2_CACHE_LINE_SIZE);
   } else {
     LegacyNoLocalityBloomImpl::AddHash(h, kTotalBits, kNumProbes, data_);
   }

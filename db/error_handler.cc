@@ -166,12 +166,6 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
     return Status::OK();
   }
 
-  // Check if recovery is currently in progress. If it is, we will save this
-  // error so we can check it at the end to see if recovery succeeded or not
-  if (recovery_in_prog_ && recovery_error_.ok()) {
-    recovery_error_ = bg_err;
-  }
-
   bool paranoid = db_options_.paranoid_checks;
   Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
@@ -204,10 +198,15 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
 
   new_bg_err = Status(bg_err, sev);
 
+  // Check if recovery is currently in progress. If it is, we will save this
+  // error so we can check it at the end to see if recovery succeeded or not
+  if (recovery_in_prog_ && recovery_error_.ok()) {
+    recovery_error_ = new_bg_err;
+  }
+
   bool auto_recovery = auto_recovery_;
   if (new_bg_err.severity() >= Status::Severity::kFatalError && auto_recovery) {
     auto_recovery = false;
-    ;
   }
 
   // Allow some error specific overrides

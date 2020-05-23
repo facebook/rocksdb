@@ -21,7 +21,12 @@ const char* Status::CopyState(const char* state) {
 #ifdef OS_WIN
   const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
   char* result = new char[cch];
-  errno_t ret;
+  errno_t ret
+#if defined(_MSC_VER)
+    ;
+#else
+    __attribute__((__unused__));
+#endif
   ret = strncpy_s(result, cch, state, cch - 1);
   result[cch - 1] = '\0';
   assert(ret == 0);
@@ -43,6 +48,10 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Memory limit reached",                               // kMemoryLimit
     "Space limit reached",                                // kSpaceLimit
     "No such file or directory",                          // kPathNotFound
+    // KMergeOperandsInsufficientCapacity
+    "Insufficient capacity for merge operands",
+    // kManualCompactionPaused
+    "Manual compaction paused",
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,

@@ -411,9 +411,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
     bool trailing_batch = i == unflushed_save_points_->size();
     SavePointBatchHandler sp_handler(&write_batch_,
                                      *wupt_db_->GetCFHandleMap().get());
-    size_t curr_boundary = trailing_batch
-                               ? wb.GetWriteBatch()->GetDataSize()
-                               : (*unflushed_save_points_)[i];
+    size_t curr_boundary = trailing_batch ? wb.GetWriteBatch()->GetDataSize()
+                                          : (*unflushed_save_points_)[i];
 
     // Construct the partial write batch up to the savepoint.
     //
@@ -838,7 +837,7 @@ void WriteUnpreparedTxn::MultiGet(const ReadOptions& options,
                                   ColumnFamilyHandle* column_family,
                                   const size_t num_keys, const Slice* keys,
                                   PinnableSlice* values, Status* statuses,
-                                  bool sorted_input) {
+                                  const bool sorted_input) {
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wupt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
