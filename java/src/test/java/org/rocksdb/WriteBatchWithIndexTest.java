@@ -130,7 +130,7 @@ public class WriteBatchWithIndexTest {
         try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
              final ReadOptions readOptions = new ReadOptions();
              final RocksIterator base = db.newIterator(newCf, readOptions);
-             final RocksIterator it = wbwi.newIteratorWithBase(newCf, base)) {
+             final RocksIterator it = wbwi.newIteratorWithBase(newCf, base, readOptions)) {
           it.seek(k1);
           assertThat(it.isValid()).isTrue();
           assertThat(it.key()).isEqualTo(k1);
