@@ -52,7 +52,6 @@
 #include "util/string_util.h"
 
 #ifdef _WIN32_WINNT
-#undef GetObject
 #undef GetMessage
 #endif
 

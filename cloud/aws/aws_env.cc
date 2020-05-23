@@ -28,10 +28,6 @@
 #include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
 
-#ifdef _WIN32_WINNT
-#undef GetObject
-#endif
-
 namespace rocksdb {
 
 static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
