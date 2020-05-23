@@ -16,7 +16,7 @@
 #include "table/iterator_wrapper.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                        std::string* prop) {
@@ -75,7 +75,7 @@ Status ArenaWrappedDBIter::Refresh() {
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
         read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator(),
-        latest_seq);
+        latest_seq, /* allow_unprepared_value */ true);
     SetIterUnderDBIter(internal_iter);
   } else {
     db_iter_->set_sequence(latest_seq);
@@ -103,4 +103,4 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   return iter;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

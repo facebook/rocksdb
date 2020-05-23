@@ -47,6 +47,7 @@
 #include <set>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
 #include "logging/logging.h"
 #include "logging/posix_logger.h"
@@ -73,7 +74,7 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -81,9 +82,18 @@ inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
 
+static uint64_t gettid() {
+  return Env::Default()->GetThreadID();
+}
+
 // list of pathnames that are locked
-static std::set<std::string> lockedFiles;
-static port::Mutex mutex_lockedFiles;
+// Only used for error message.
+struct LockHoldingInfo {
+  int64_t acquire_time;
+  uint64_t acquiring_thread;
+};
+static std::map<std::string, LockHoldingInfo> locked_files;
+static port::Mutex mutex_locked_files;
 
 static int LockOrUnlock(int fd, bool lock) {
   errno = 0;
@@ -112,6 +122,8 @@ int cloexec_flags(int flags, const EnvOptions* options) {
   if (options == nullptr || options->set_fd_cloexec) {
     flags |= O_CLOEXEC;
   }
+#else
+  (void)options;
 #endif
   return flags;
 }
@@ -178,7 +190,9 @@ class PosixFileSystem : public FileSystem {
                        errno);
       }
     }
-    result->reset(new PosixSequentialFile(fname, file, fd, options));
+    result->reset(new PosixSequentialFile(
+        fname, file, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
+        options));
     return IOStatus::OK();
   }
 
@@ -237,12 +251,14 @@ class PosixFileSystem : public FileSystem {
         }
 #endif
       }
-      result->reset(new PosixRandomAccessFile(fname, fd, options
+      result->reset(new PosixRandomAccessFile(
+          fname, fd, GetLogicalBlockSizeForReadIfNeeded(options, fname, fd),
+          options
 #if defined(ROCKSDB_IOURING_PRESENT)
-                                              ,
-                                              thread_local_io_urings_.get()
+          ,
+          thread_local_io_urings_.get()
 #endif
-                                                  ));
+              ));
     }
     return s;
   }
@@ -323,12 +339,18 @@ class PosixFileSystem : public FileSystem {
         }
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd, options));
+      result->reset(new PosixWritableFile(
+          fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
+          options));
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      result->reset(
+          new PosixWritableFile(fname, fd,
+                                GetLogicalBlockSizeForWriteIfNeeded(
+                                    no_mmap_writes_options, fname, fd),
+                                no_mmap_writes_options));
     }
     return s;
   }
@@ -423,12 +445,18 @@ class PosixFileSystem : public FileSystem {
         }
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd, options));
+      result->reset(new PosixWritableFile(
+          fname, fd, GetLogicalBlockSizeForWriteIfNeeded(options, fname, fd),
+          options));
     } else {
       // disable mmap writes
       FileOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      result->reset(
+          new PosixWritableFile(fname, fd,
+                                GetLogicalBlockSizeForWriteIfNeeded(
+                                    no_mmap_writes_options, fname, fd),
+                                no_mmap_writes_options));
     }
     return s;
   }
@@ -519,10 +547,34 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
   }
 
-  IOStatus NewLogger(const std::string& /*fname*/, const IOOptions& /*opts*/,
-                     std::shared_ptr<rocksdb::Logger>* /*ptr*/,
-                     IODebugContext* /*dbg*/) override {
-    return IOStatus::NotSupported();
+  IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
+                   std::shared_ptr<Logger>* result,
+                   IODebugContext* /*dbg*/) override {
+    FILE* f;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      f = fopen(fname.c_str(),
+                "w"
+#ifdef __GLIBC_PREREQ
+#if __GLIBC_PREREQ(2, 7)
+                "e"  // glibc extension to enable O_CLOEXEC
+#endif
+#endif
+      );
+    }
+    if (f == nullptr) {
+      result->reset();
+      return status_to_io_status(
+              IOError("when fopen a file for new logger", fname, errno));
+    } else {
+      int fd = fileno(f);
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
+#endif
+      SetFD_CLOEXEC(fd, nullptr);
+      result->reset(new PosixLogger(f, &gettid, Env::Default()));
+      return IOStatus::OK();
+    }
   }
 
   IOStatus FileExists(const std::string& fname, const IOOptions& /*opts*/,
@@ -699,9 +751,16 @@ class PosixFileSystem : public FileSystem {
     *lock = nullptr;
     IOStatus result;
 
-    mutex_lockedFiles.Lock();
-    // If it already exists in the lockedFiles set, then it is already locked,
-    // and fail this lock attempt. Otherwise, insert it into lockedFiles.
+    LockHoldingInfo lhi;
+    int64_t current_time = 0;
+    // Ignore status code as the time is only used for error message.
+    Env::Default()->GetCurrentTime(&current_time);
+    lhi.acquire_time = current_time;
+    lhi.acquiring_thread = Env::Default()->GetThreadID();
+
+    mutex_locked_files.Lock();
+    // If it already exists in the locked_files set, then it is already locked,
+    // and fail this lock attempt. Otherwise, insert it into locked_files.
     // This check is needed because fcntl() does not detect lock conflict
     // if the fcntl is issued by the same thread that earlier acquired
     // this lock.
@@ -709,10 +768,18 @@ class PosixFileSystem : public FileSystem {
     // Otherwise, we will open a new file descriptor. Locks are associated with
     // a process, not a file descriptor and when *any* file descriptor is
     // closed, all locks the process holds for that *file* are released
-    if (lockedFiles.insert(fname).second == false) {
-      mutex_lockedFiles.Unlock();
+    const auto it_success = locked_files.insert({fname, lhi});
+    if (it_success.second == false) {
+      mutex_locked_files.Unlock();
       errno = ENOLCK;
-      return IOError("lock ", fname, errno);
+      LockHoldingInfo& prev_info = it_success.first->second;
+      // Note that the thread ID printed is the same one as the one in
+      // posix logger, but posix logger prints it hex format.
+      return IOError("lock hold by current process, acquire time " +
+                         ToString(prev_info.acquire_time) +
+                         " acquiring thread " +
+                         ToString(prev_info.acquiring_thread),
+                     fname, errno);
     }
 
     int fd;
@@ -727,7 +794,7 @@ class PosixFileSystem : public FileSystem {
     } else if (LockOrUnlock(fd, true) == -1) {
       // if there is an error in locking, then remove the pathname from
       // lockedfiles
-      lockedFiles.erase(fname);
+      locked_files.erase(fname);
       result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
@@ -738,7 +805,7 @@ class PosixFileSystem : public FileSystem {
       *lock = my_lock;
     }
 
-    mutex_lockedFiles.Unlock();
+    mutex_locked_files.Unlock();
     return result;
   }
 
@@ -746,10 +813,10 @@ class PosixFileSystem : public FileSystem {
                       IODebugContext* /*dbg*/) override {
     PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
     IOStatus result;
-    mutex_lockedFiles.Lock();
+    mutex_locked_files.Lock();
     // If we are unlocking, then verify that we had locked it earlier,
-    // it should already exist in lockedFiles. Remove it from lockedFiles.
-    if (lockedFiles.erase(my_lock->filename) != 1) {
+    // it should already exist in locked_files. Remove it from locked_files.
+    if (locked_files.erase(my_lock->filename) != 1) {
       errno = ENOLCK;
       result = IOError("unlock", my_lock->filename, errno);
     } else if (LockOrUnlock(my_lock->fd_, false) == -1) {
@@ -757,7 +824,7 @@ class PosixFileSystem : public FileSystem {
     }
     close(my_lock->fd_);
     delete my_lock;
-    mutex_lockedFiles.Unlock();
+    mutex_locked_files.Unlock();
     return result;
   }
 
@@ -810,6 +877,28 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
   }
 
+  IOStatus IsDirectory(const std::string& path, const IOOptions& /*opts*/,
+                       bool* is_dir, IODebugContext* /*dbg*/) override {
+    // First open
+    int fd = -1;
+    int flags = cloexec_flags(O_RDONLY, nullptr);
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(path.c_str(), flags);
+    }
+    if (fd < 0) {
+      return IOError("While open for IsDirectory()", path, errno);
+    }
+    struct stat sbuf;
+    if (fstat(fd, &sbuf) < 0) {
+      return IOError("While doing stat for IsDirectory()", path, errno);
+    }
+    if (nullptr != is_dir) {
+      *is_dir = S_ISDIR(sbuf.st_mode);
+    }
+    return IOStatus::OK();
+  }
+
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
                                  const DBOptions& db_options) const override {
     FileOptions optimized = file_options;
@@ -833,7 +922,15 @@ class PosixFileSystem : public FileSystem {
     optimized.fallocate_with_keep_size = true;
     return optimized;
   }
-
+#ifdef OS_LINUX
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    return logical_block_size_cache_.RefAndCacheLogicalBlockSize(paths);
+  }
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    logical_block_size_cache_.UnrefAndTryRemoveCachedLogicalBlockSize(paths);
+    return Status::OK();
+  }
+#endif
  private:
   bool checkedDiskForMmap_;
   bool forceMmapOff_;  // do we override Env options?
@@ -879,7 +976,47 @@ class PosixFileSystem : public FileSystem {
   // If true, allow non owner read access for db files. Otherwise, non-owner
   //  has no access to db files.
   bool allow_non_owner_access_;
+
+#ifdef OS_LINUX
+  static LogicalBlockSizeCache logical_block_size_cache_;
+#endif
+  static size_t GetLogicalBlockSize(const std::string& fname, int fd);
+  // In non-direct IO mode, this directly returns kDefaultPageSize.
+  // Otherwise call GetLogicalBlockSize.
+  static size_t GetLogicalBlockSizeForReadIfNeeded(const EnvOptions& options,
+                                                   const std::string& fname,
+                                                   int fd);
+  static size_t GetLogicalBlockSizeForWriteIfNeeded(const EnvOptions& options,
+                                                    const std::string& fname,
+                                                    int fd);
 };
+
+#ifdef OS_LINUX
+LogicalBlockSizeCache PosixFileSystem::logical_block_size_cache_;
+#endif
+
+size_t PosixFileSystem::GetLogicalBlockSize(const std::string& fname, int fd) {
+#ifdef OS_LINUX
+  return logical_block_size_cache_.GetLogicalBlockSize(fname, fd);
+#else
+  (void)fname;
+  return PosixHelper::GetLogicalBlockSizeOfFd(fd);
+#endif
+}
+
+size_t PosixFileSystem::GetLogicalBlockSizeForReadIfNeeded(
+    const EnvOptions& options, const std::string& fname, int fd) {
+  return options.use_direct_reads
+             ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
+             : kDefaultPageSize;
+}
+
+size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
+    const EnvOptions& options, const std::string& fname, int fd) {
+  return options.use_direct_writes
+             ? PosixFileSystem::GetLogicalBlockSize(fname, fd)
+             : kDefaultPageSize;
+}
 
 PosixFileSystem::PosixFileSystem()
     : checkedDiskForMmap_(false),
@@ -910,4 +1047,4 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return default_fs_ptr;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

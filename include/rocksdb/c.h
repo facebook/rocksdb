@@ -592,17 +592,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_deletev(
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_deletev_cf(
     rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
     int num_keys, const char* const* keys_list, const size_t* keys_list_sizes);
+// DO NOT USE - rocksdb_writebatch_wi_delete_range is not yet supported
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_delete_range(
     rocksdb_writebatch_wi_t* b, const char* start_key, size_t start_key_len,
     const char* end_key, size_t end_key_len);
+// DO NOT USE - rocksdb_writebatch_wi_delete_range_cf is not yet supported
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_delete_range_cf(
     rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
     const char* start_key, size_t start_key_len, const char* end_key,
     size_t end_key_len);
+// DO NOT USE - rocksdb_writebatch_wi_delete_rangev is not yet supported
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_delete_rangev(
     rocksdb_writebatch_wi_t* b, int num_keys, const char* const* start_keys_list,
     const size_t* start_keys_list_sizes, const char* const* end_keys_list,
     const size_t* end_keys_list_sizes);
+// DO NOT USE - rocksdb_writebatch_wi_delete_rangev_cf is not yet supported
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_wi_delete_rangev_cf(
     rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
     int num_keys, const char* const* start_keys_list,
@@ -854,6 +858,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
                                                  unsigned char val);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
+    rocksdb_options_t* opt, unsigned char val);
 
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
@@ -1039,6 +1046,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_ratelimiter(
     rocksdb_options_t* opt, rocksdb_ratelimiter_t* limiter);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_atomic_flush(
     rocksdb_options_t* opt, unsigned char);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_row_cache(
+    rocksdb_options_t* opt, rocksdb_cache_t* cache
+);
 
 /* RateLimiter */
 extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
@@ -1784,6 +1795,16 @@ rocksdb_approximate_memory_usage_get_mem_table_readers_total(
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_approximate_memory_usage_get_cache_total(
     rocksdb_memory_usage_t* memory_usage);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_dump_malloc_stats(
+    rocksdb_options_t*, unsigned char);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*,
+                                                 unsigned char);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_cancel_all_background_work(
+    rocksdb_t* db, unsigned char wait);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

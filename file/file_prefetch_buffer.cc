@@ -17,10 +17,11 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
+#include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
                                     uint64_t offset, size_t n,
                                     bool for_compaction) {
@@ -86,9 +87,16 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   }
 
   Slice result;
-  s = reader->Read(rounddown_offset + chunk_len,
-                   static_cast<size_t>(roundup_len - chunk_len), &result,
-                   buffer_.BufferStart() + chunk_len, for_compaction);
+  size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
+  s = reader->Read(IOOptions(), rounddown_offset + chunk_len, read_len, &result,
+                   buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
+#ifndef NDEBUG
+  if (!s.ok() || result.size() < read_len) {
+    // Fake an IO error to force db_stress fault injection to ignore
+    // truncated read errors
+    IGNORE_STATUS_IF_ERROR(Status::IOError());
+  }
+#endif
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
     buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
@@ -133,4 +141,4 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

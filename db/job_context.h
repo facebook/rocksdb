@@ -15,7 +15,7 @@
 #include "db/log_writer.h"
 #include "db/column_family.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemTable;
 struct SuperVersion;
@@ -102,8 +102,9 @@ struct SuperVersionContext {
 
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
-    return full_scan_candidate_files.size() || sst_delete_files.size() ||
-           log_delete_files.size() || manifest_delete_files.size();
+    return !(full_scan_candidate_files.empty() && sst_delete_files.empty() &&
+             blob_delete_files.empty() && log_delete_files.empty() &&
+             manifest_delete_files.empty());
   }
 
   inline bool HaveSomethingToClean() const {
@@ -140,10 +141,16 @@ struct JobContext {
   std::vector<CandidateFileInfo> full_scan_candidate_files;
 
   // the list of all live sst files that cannot be deleted
-  std::vector<FileDescriptor> sst_live;
+  std::vector<uint64_t> sst_live;
 
-  // a list of sst files that we need to delete
+  // the list of sst files that we need to delete
   std::vector<ObsoleteFileInfo> sst_delete_files;
+
+  // the list of all live blob files that cannot be deleted
+  std::vector<uint64_t> blob_live;
+
+  // the list of blob files that we need to delete
+  std::vector<ObsoleteBlobFileInfo> blob_delete_files;
 
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;
@@ -216,4 +223,4 @@ struct JobContext {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -14,7 +14,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImpl;
 
@@ -66,4 +66,4 @@ class StatsHistoryIterator {
   virtual Status status() const = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

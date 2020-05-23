@@ -32,7 +32,7 @@
 #undef DeleteFile
 #undef GetTickCount
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 // Currently not designed for inheritance but rather a replacement
@@ -154,6 +154,8 @@ public:
 
   virtual Status NewLogger(const std::string& fname,
                            std::shared_ptr<Logger>* result);
+
+  virtual Status IsDirectory(const std::string& path, bool* is_dir);
 
   virtual uint64_t NowMicros();
 
@@ -287,6 +289,8 @@ public:
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override;
 
+  Status IsDirectory(const std::string& path, bool* is_dir) override;
+
   uint64_t NowMicros() override;
 
   uint64_t NowNanos() override;
@@ -344,4 +348,4 @@ private:
 };
 
 } // namespace port
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

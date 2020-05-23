@@ -12,7 +12,7 @@
 #include "db/merge_context.h"
 #include "monitoring/perf_context_imp.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -48,14 +48,16 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, read_options)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, pinnable_val, &s,
-                                &merge_context, &max_covering_tombstone_seq);
+    super_version->current->Get(read_options, lkey, pinnable_val,
+                                /*timestamp=*/nullptr, &s, &merge_context,
+                                &max_covering_tombstone_seq);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   RecordTick(stats_, NUMBER_KEYS_READ);
@@ -85,7 +87,8 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
       super_version->version_number, read_callback);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), read_seq);
+                          db_iter->GetRangeDelAggregator(), read_seq,
+                          /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -116,7 +119,8 @@ Status DBImplReadOnly::NewIterators(
         sv->version_number, read_callback);
     auto* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                            db_iter->GetRangeDelAggregator(), read_seq);
+                            db_iter->GetRangeDelAggregator(), read_seq,
+                            /* allow_unprepared_value */ true);
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }
@@ -218,4 +222,4 @@ Status DB::OpenForReadOnly(
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

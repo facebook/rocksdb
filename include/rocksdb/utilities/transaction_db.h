@@ -19,7 +19,7 @@
 //
 // See transaction.h and examples/transaction_example.cc
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TransactionDBMutexFactory;
 
@@ -172,6 +172,10 @@ struct TransactionOptions {
   // Default: false
   bool skip_concurrency_control = false;
 
+  // In pessimistic transaction, if this is true, then you can skip Prepare
+  // before Commit, otherwise, you must Prepare before Commit.
+  bool skip_prepare = true;
+
   // See TransactionDBOptions::default_write_batch_flush_threshold for
   // description. If a negative value is specified, then the default value from
   // TransactionDBOptions is used.
@@ -304,6 +308,6 @@ class TransactionDB : public StackableDB {
   void operator=(const TransactionDB&) = delete;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

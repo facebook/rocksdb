@@ -24,7 +24,7 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // TODO(icanadi) mock out VersionSet
 // TODO(icanadi) move other WalManager-specific tests from db_test here
@@ -320,7 +320,7 @@ TEST_F(WalManagerTest, TransactionLogIteratorNewFileWhileScanning) {
   ASSERT_TRUE(iter->status().ok());
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

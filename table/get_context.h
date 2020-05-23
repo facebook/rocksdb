@@ -13,7 +13,7 @@
 #include "rocksdb/types.h"
 #include "table/block_based/block.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class MergeContext;
 class PinnedIteratorsManager;
 
@@ -33,14 +33,19 @@ struct GetContextStats {
   uint64_t num_cache_bytes_read = 0;
   uint64_t num_cache_miss = 0;
   uint64_t num_cache_add = 0;
+  uint64_t num_cache_add_redundant = 0;
   uint64_t num_cache_bytes_write = 0;
   uint64_t num_cache_index_add = 0;
+  uint64_t num_cache_index_add_redundant = 0;
   uint64_t num_cache_index_bytes_insert = 0;
   uint64_t num_cache_data_add = 0;
+  uint64_t num_cache_data_add_redundant = 0;
   uint64_t num_cache_data_bytes_insert = 0;
   uint64_t num_cache_filter_add = 0;
+  uint64_t num_cache_filter_add_redundant = 0;
   uint64_t num_cache_filter_bytes_insert = 0;
   uint64_t num_cache_compression_dict_add = 0;
+  uint64_t num_cache_compression_dict_add_redundant = 0;
   uint64_t num_cache_compression_dict_bytes_insert = 0;
 };
 
@@ -87,7 +92,17 @@ class GetContext {
   // merge_context and they are never merged. The value pointer is untouched.
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, PinnableSlice* value, bool* value_found,
+             const Slice& user_key, PinnableSlice* value,
+             bool* value_found, MergeContext* merge_context, bool do_merge,
+             SequenceNumber* max_covering_tombstone_seq, Env* env,
+             SequenceNumber* seq = nullptr,
+             PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
+             ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+             uint64_t tracing_get_id = 0);
+  GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
+             Logger* logger, Statistics* statistics, GetState init_state,
+             const Slice& user_key, PinnableSlice* value,
+             std::string* timestamp, bool* value_found,
              MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, Env* env,
              SequenceNumber* seq = nullptr,
@@ -159,6 +174,7 @@ class GetContext {
   GetState state_;
   Slice user_key_;
   PinnableSlice* pinnable_val_;
+  std::string* timestamp_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;
@@ -188,4 +204,4 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
                          Cleanable* value_pinner = nullptr);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

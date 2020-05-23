@@ -14,7 +14,7 @@
 
 #include <atomic>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace compression_cache {
 
 void* const SentinelValue = nullptr;
@@ -105,4 +105,4 @@ void CompressionContextCache::ReturnCachedZSTDUncompressData(int64_t idx) {
 
 CompressionContextCache::~CompressionContextCache() { delete rep_; }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

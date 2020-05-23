@@ -20,7 +20,7 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct WriteOptions;
 
@@ -430,8 +430,7 @@ Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
   assert(snapshot_);
 
   SequenceNumber min_uncommitted =
-      static_cast_with_check<const SnapshotImpl, const Snapshot>(
-          snapshot_.get())
+      static_cast_with_check<const SnapshotImpl>(snapshot_.get())
           ->min_uncommitted_;
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
   // tracked_at_seq is either max or the last snapshot with which this key was
@@ -468,6 +467,6 @@ Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
   return ret;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

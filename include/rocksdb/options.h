@@ -19,8 +19,8 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/pre_release_callback.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -29,7 +29,7 @@
 #undef max
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class CompactionFilter;
@@ -50,6 +50,13 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+
+enum class CpuPriority {
+  kIdle = 0,
+  kLow = 1,
+  kNormal = 2,
+  kHigh = 3,
+};
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -222,8 +229,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Compression algorithm that will be used for the bottommost level that
   // contain files.
   //
-  // Default: kDisableCompressionOption (Disabled). The means that the setting
-  // specified via Options.compression applies to the bottommost level as well.
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
 
@@ -397,11 +402,6 @@ struct DBOptions {
   // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
   Env* env = Env::Default();
-
-  // Use the specified object to interact with the storage to
-  // read/write files. This is in addition to env. This option should be used
-  // if the desired storage subsystem provides a FileSystem implementation.
-  std::shared_ptr<FileSystem> file_system = nullptr;
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
@@ -988,6 +988,16 @@ struct DBOptions {
   // Default: false
   bool skip_stats_update_on_db_open = false;
 
+  // If true, then DB::Open() will not fetch and check sizes of all sst files.
+  // This may significantly speed up startup if there are many sst files,
+  // especially when using non-default Env with expensive GetFileSize().
+  // We'll still check that all required sst files exist.
+  // If paranoid_checks is false, this option is ignored, and sst files are
+  // not checked at all.
+  //
+  // Default: false
+  bool skip_checking_sst_file_sizes_on_db_open = false;
+
   // Recovery mode to control the consistency while replaying WAL
   // Default: kPointInTimeRecovery
   WALRecoveryMode wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -1115,6 +1125,25 @@ struct DBOptions {
   //
   // Default: 0
   size_t log_readahead_size = 0;
+
+  // If user does NOT provide the checksum generator factory, the file checksum
+  // will NOT be used. A new file checksum generator object will be created
+  // when a SST file is created. Therefore, each created FileChecksumGenerator
+  // will only be used from a single thread and so does not need to be
+  // thread-safe.
+  //
+  // Default: nullptr
+  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
+
+  // By default, RocksDB recovery fails if any table file referenced in
+  // MANIFEST are missing after scanning the MANIFEST.
+  // Best-efforts recovery is another recovery mode that
+  // tries to restore the database to the most recent point in time without
+  // missing file.
+  // Currently not compatible with atomic flush. Furthermore, WAL files will
+  // not be used for recovery if best_efforts_recovery is true.
+  // Default: false
+  bool best_efforts_recovery = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1254,6 +1283,13 @@ struct ReadOptions {
   // changing implementation of prefix extractor.
   bool total_order_seek;
 
+  // When true, by default use total_order_seek = true, and RocksDB can
+  // selectively enable prefix seek mode if won't generate a different result
+  // from total_order_seek, based on seek key, and iterator upper bound.
+  // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
+  // prefix mode is not used.
+  bool auto_prefix_mode;
+
   // Enforce that the iterator only iterates over the same prefix as the seek.
   // This option is effective only for prefix seeks, i.e. prefix_extractor is
   // non-null for the column family and total_order_seek is false.  Unlike
@@ -1301,9 +1337,24 @@ struct ReadOptions {
   // specified timestamp. All timestamps of the same database must be of the
   // same length and format. The user is responsible for providing a customized
   // compare function via Comparator to order <key, timestamp> tuples.
+  // For iterator, iter_start_ts is the lower bound (older) and timestamp
+  // serves as the upper bound. Versions of the same record that fall in
+  // the timestamp range will be returned. If iter_start_ts is nullptr,
+  // only the most recent version visible to timestamp is returned.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
   const Slice* timestamp;
+  const Slice* iter_start_ts;
+
+  // Deadline for completing the read request (only Get/MultiGet for now) in us.
+  // It should be set to microseconds since epoch, i.e, gettimeofday or
+  // equivalent plus allowed duration in microseconds. The best way is to use
+  // env->NowMicros() + some timeout.
+  // This is best efforts. The call may exceed the deadline if there is IO
+  // involved and the file system doesn't support deadlines, or due to
+  // checking for deadline periodically rather than for every key if
+  // processing a batch
+  std::chrono::microseconds deadline;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
@@ -1357,9 +1408,6 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
-  // See comments for PreReleaseCallback
-  PreReleaseCallback* pre_release_callback;
-
   // If true, this writebatch will maintain the last insert positions of each
   // memtable as hints in concurrent write. It can improve write performance
   // in concurrent writes if keys in one writebatch are sequential. In
@@ -1386,7 +1434,6 @@ struct WriteOptions {
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        pre_release_callback(nullptr),
         memtable_insert_hint_per_batch(false),
         timestamp(nullptr) {}
 };
@@ -1566,4 +1613,4 @@ struct SizeApproximationOptions {
   double files_size_error_margin = -1.0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

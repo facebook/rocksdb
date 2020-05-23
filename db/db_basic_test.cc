@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
@@ -17,7 +18,7 @@
 #include "test_util/sync_point.h"
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
@@ -27,8 +28,8 @@ class DBBasicTest : public DBTestBase {
 TEST_F(DBBasicTest, OpenWhenOpen) {
   Options options = CurrentOptions();
   options.env = env_;
-  rocksdb::DB* db2 = nullptr;
-  rocksdb::Status s = DB::Open(options, dbname_, &db2);
+  ROCKSDB_NAMESPACE::DB* db2 = nullptr;
+  ROCKSDB_NAMESPACE::Status s = DB::Open(options, dbname_, &db2);
 
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
@@ -324,7 +325,12 @@ TEST_F(DBBasicTest, CheckLock) {
     ASSERT_OK(TryReopen(options));
 
     // second open should fail
-    ASSERT_TRUE(!(DB::Open(options, dbname_, &localdb)).ok());
+    Status s = DB::Open(options, dbname_, &localdb);
+    ASSERT_NOK(s);
+#ifdef OS_LINUX
+    ASSERT_TRUE(s.ToString().find("lock hold by current process") !=
+                std::string::npos);
+#endif  // OS_LINUX
   } while (ChangeCompactOptions());
 }
 
@@ -392,7 +398,7 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   sleeping_task_low.WaitUntilDone();
 }
 
-TEST_F(DBBasicTest, FLUSH) {
+TEST_F(DBBasicTest, Flush) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     WriteOptions writeOpt = WriteOptions();
@@ -571,7 +577,7 @@ TEST_F(DBBasicTest, Snapshot) {
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
     ASSERT_EQ(1U, GetNumSnapshots());
-    ASSERT_LE(time_snap1, GetTimeOldestSnapshots());
+    ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
 
     db_->ReleaseSnapshot(s2);
@@ -919,44 +925,44 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 #endif
 
 class TestEnv : public EnvWrapper {
-  public:
-   explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
+ public:
+  explicit TestEnv(Env* base_env) : EnvWrapper(base_env), close_count(0) {}
 
-   class TestLogger : public Logger {
-    public:
-     using Logger::Logv;
-     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
-     ~TestLogger() override {
-       if (!closed_) {
-         CloseHelper();
-       }
-     }
-     void Logv(const char* /*format*/, va_list /*ap*/) override {}
-
-    protected:
-     Status CloseImpl() override { return CloseHelper(); }
-
-    private:
-     Status CloseHelper() {
-       env->CloseCountInc();
-       ;
-       return Status::IOError();
-     }
-     TestEnv* env;
-   };
-
-    void CloseCountInc() { close_count++; }
-
-    int GetCloseCount() { return close_count; }
-
-    Status NewLogger(const std::string& /*fname*/,
-                     std::shared_ptr<Logger>* result) override {
-      result->reset(new TestLogger(this));
-      return Status::OK();
+  class TestLogger : public Logger {
+   public:
+    using Logger::Logv;
+    explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
+    ~TestLogger() override {
+      if (!closed_) {
+        CloseHelper();
+      }
     }
+    void Logv(const char* /*format*/, va_list /*ap*/) override {}
+
+   protected:
+    Status CloseImpl() override { return CloseHelper(); }
 
    private:
-    int close_count;
+    Status CloseHelper() {
+      env->CloseCountInc();
+      ;
+      return Status::IOError();
+    }
+    TestEnv* env;
+  };
+
+  void CloseCountInc() { close_count++; }
+
+  int GetCloseCount() { return close_count; }
+
+  Status NewLogger(const std::string& /*fname*/,
+                   std::shared_ptr<Logger>* result) override {
+    result->reset(new TestLogger(this));
+    return Status::OK();
+  }
+
+ private:
+  int close_count;
 };
 
 TEST_F(DBBasicTest, DBClose) {
@@ -1008,7 +1014,7 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.manual_wal_flush = true;
-  options.write_buffer_size=100;
+  options.write_buffer_size = 100;
   options.env = fault_injection_env.get();
 
   Reopen(options);
@@ -1048,8 +1054,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   }
 
   int get_sv_count = 0;
-  rocksdb::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
           // After MultiGet refs a couple of CFs, flush all CFs so MultiGet
@@ -1073,7 +1079,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
           }
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1139,12 +1145,12 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
   int get_sv_count = 0;
   int retries = 0;
   bool last_try = false;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::LastTry", [&](void* /*arg*/) {
         last_try = true;
-        rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
       });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (last_try) {
           return;
@@ -1160,7 +1166,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
           }
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1198,8 +1204,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 
   int get_sv_count = 0;
-  rocksdb::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
           for (int i = 0; i < 8; ++i) {
@@ -1219,7 +1225,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
           }
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   std::vector<int> cfs;
   std::vector<std::string> keys;
@@ -1289,14 +1295,18 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedSimpleSorted) {
+TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     SetPerfLevel(kEnableCount);
+    // To expand the power of this test, generate > 1 table file and
+    // mix with memtable
     ASSERT_OK(Put(1, "k1", "v1"));
     ASSERT_OK(Put(1, "k2", "v2"));
+    Flush(1);
     ASSERT_OK(Put(1, "k3", "v3"));
     ASSERT_OK(Put(1, "k4", "v4"));
+    Flush(1);
     ASSERT_OK(Delete(1, "k4"));
     ASSERT_OK(Put(1, "k5", "v5"));
     ASSERT_OK(Delete(1, "no_key"));
@@ -1327,7 +1337,7 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleSorted) {
     ASSERT_TRUE(s[5].IsNotFound());
 
     SetPerfLevel(kDisable);
-  } while (ChangeCompactOptions());
+  } while (ChangeOptions());
 }
 
 TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
@@ -1458,7 +1468,8 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
   ASSERT_EQ(0, num_keys);
 
   for (int i = 0; i < 128; i += 9) {
-    ASSERT_OK(Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
+    ASSERT_OK(
+        Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
   }
 
   std::vector<std::string> keys;
@@ -1558,7 +1569,7 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
   do {
     option_config_ = kRowCache;
     Options options = CurrentOptions();
-    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
     SetPerfLevel(kEnableCount);
     ASSERT_OK(Put(1, "k1", "v1"));
@@ -1664,13 +1675,13 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, Slice(), Slice(),
-                                       std::numeric_limits<size_t>::max(),
-                                       &key_versions));
+  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
+      db_, Slice(), Slice(), std::numeric_limits<size_t>::max(),
+      &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
-  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
-                                       std::numeric_limits<size_t>::max(),
-                                       &key_versions));
+  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
+      db_, handles_[0], Slice(), Slice(), std::numeric_limits<size_t>::max(),
+      &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
@@ -1683,9 +1694,9 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i != kNumDeletes - 1; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(rocksdb::GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
-                                       std::numeric_limits<size_t>::max(),
-                                       &key_versions));
+  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
+      db_, handles_[1], Slice(), Slice(), std::numeric_limits<size_t>::max(),
+      &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
 }
 #endif  // !ROCKSDB_LITE
@@ -1696,8 +1707,8 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   BlockBasedTableOptions table_options;
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   table_options.block_size = 16 * 1024;
-  assert(table_options.block_size >
-          BlockBasedTable::kMultiGetReadStackBufSize);
+  ASSERT_TRUE(table_options.block_size >
+            BlockBasedTable::kMultiGetReadStackBufSize);
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
 
@@ -1729,15 +1740,244 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
                      keys.data(), values.data(), statuses.data(), true);
 }
 
-class DBBasicTestWithParallelIO
-    : public DBTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool, bool, bool>> {
+TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    for (size_t i = 0; i != 10000; ++i) {
+      std::string key_str = Key(static_cast<int>(i));
+      std::string value_str = std::to_string(cf) + "_" + std::to_string(i);
+
+      ASSERT_OK(Put(static_cast<int>(cf), key_str, value_str));
+      if (0 == (i % 1000)) {
+        ASSERT_OK(Flush(static_cast<int>(cf)));
+      }
+    }
+  }
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+  }
+  Close();
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu", "eevee"},
+                           options);
+  num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    for (int i = 0; i != 10000; ++i) {
+      std::string key_str = Key(static_cast<int>(i));
+      std::string expected_value_str =
+          std::to_string(cf) + "_" + std::to_string(i);
+      ASSERT_EQ(expected_value_str, Get(static_cast<int>(cf), key_str));
+    }
+  }
+}
+
+TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        *(reinterpret_cast<Status*>(arg)) =
+            Status::Corruption("Inject corruption");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.best_efforts_recovery = true;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+#ifndef ROCKSDB_LITE
+namespace {
+class TableFileListener : public EventListener {
  public:
-  DBBasicTestWithParallelIO() : DBTestBase("/db_basic_test_with_parallel_io") {
-    bool compressed_cache = std::get<0>(GetParam());
-    bool uncompressed_cache = std::get<1>(GetParam());
-    compression_enabled_ = std::get<2>(GetParam());
-    fill_cache_ = std::get<3>(GetParam());
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    InstrumentedMutexLock lock(&mutex_);
+    cf_to_paths_[info.cf_name].push_back(info.file_path);
+  }
+  std::vector<std::string>& GetFiles(const std::string& cf_name) {
+    InstrumentedMutexLock lock(&mutex_);
+    return cf_to_paths_[cf_name];
+  }
+
+ private:
+  InstrumentedMutex mutex_;
+  std::unordered_map<std::string, std::vector<std::string>> cf_to_paths_;
+};
+}  // namespace
+
+TEST_F(DBBasicTest, RecoverWithMissingFiles) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  TableFileListener* listener = new TableFileListener();
+  // Disable auto compaction to simplify SST file name tracking.
+  options.disable_auto_compactions = true;
+  options.listeners.emplace_back(listener);
+  CreateAndReopenWithCF({"pikachu", "eevee"}, options);
+  std::vector<std::string> all_cf_names = {kDefaultColumnFamilyName, "pikachu",
+                                           "eevee"};
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  for (size_t cf = 0; cf != num_cfs; ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "0_value"));
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+    ASSERT_OK(Put(static_cast<int>(cf), "b", "0_value"));
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+    ASSERT_OK(Put(static_cast<int>(cf), "c", "0_value"));
+    ASSERT_OK(Flush(static_cast<int>(cf)));
+  }
+
+  // Delete and corrupt files
+  for (size_t i = 0; i < all_cf_names.size(); ++i) {
+    std::vector<std::string>& files = listener->GetFiles(all_cf_names[i]);
+    ASSERT_EQ(3, files.size());
+    std::string corrupted_data;
+    ASSERT_OK(ReadFileToString(env_, files[files.size() - 1], &corrupted_data));
+    ASSERT_OK(WriteStringToFile(
+        env_, corrupted_data.substr(0, corrupted_data.size() - 2),
+        files[files.size() - 1], /*should_sync=*/true));
+    for (int j = static_cast<int>(files.size() - 2); j >= static_cast<int>(i);
+         --j) {
+      ASSERT_OK(env_->DeleteFile(files[j]));
+    }
+  }
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies(all_cf_names, options);
+  // Verify data
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[0]));
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+    iter.reset(db_->NewIterator(read_opts, handles_[1]));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", iter->key());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    iter.reset(db_->NewIterator(read_opts, handles_[2]));
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", iter->key());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("b", iter->key());
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+  }
+}
+
+TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  ASSERT_OK(Flush());
+  Close();
+  {
+    // Hack by adding a new MANIFEST with high file number
+    std::string garbage(10, '\0');
+    ASSERT_OK(WriteStringToFile(env_, garbage, dbname_ + "/MANIFEST-001000",
+                                /*should_sync=*/true));
+  }
+  {
+    // Hack by adding a corrupted SST not referenced by any MANIFEST
+    std::string garbage(10, '\0');
+    ASSERT_OK(WriteStringToFile(env_, garbage, dbname_ + "/001001.sst",
+                                /*should_sync=*/true));
+  }
+
+  options.best_efforts_recovery = true;
+
+  Reopen(options);
+  ASSERT_OK(Put("bar", "value"));
+}
+
+TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Put(1, "bar", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Flush(1));
+  Close();
+  ASSERT_OK(env_->DeleteFile(CurrentFileName(dbname_)));
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+  std::vector<std::string> cf_names;
+  ASSERT_OK(DB::ListColumnFamilies(DBOptions(options), dbname_, &cf_names));
+  ASSERT_EQ(2, cf_names.size());
+  for (const auto& name : cf_names) {
+    ASSERT_TRUE(name == kDefaultColumnFamilyName || name == "pikachu");
+  }
+}
+
+TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  TableFileListener* listener = new TableFileListener();
+  options.listeners.emplace_back(listener);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  std::vector<std::string> kAllCfNames = {kDefaultColumnFamilyName, "pikachu"};
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(2, num_cfs);
+  for (int cf = 0; cf < static_cast<int>(kAllCfNames.size()); ++cf) {
+    ASSERT_OK(Put(cf, "a", "0_value"));
+    ASSERT_OK(Flush(cf));
+    ASSERT_OK(Put(cf, "b", "0_value"));
+  }
+  // Delete files
+  for (size_t i = 0; i < kAllCfNames.size(); ++i) {
+    std::vector<std::string>& files = listener->GetFiles(kAllCfNames[i]);
+    ASSERT_EQ(1, files.size());
+    for (int j = static_cast<int>(files.size() - 1); j >= static_cast<int>(i);
+         --j) {
+      ASSERT_OK(env_->DeleteFile(files[j]));
+    }
+  }
+  options.best_efforts_recovery = true;
+  ReopenWithColumnFamilies(kAllCfNames, options);
+  // Verify WAL is not applied
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[0]));
+  iter->SeekToFirst();
+  ASSERT_FALSE(iter->Valid());
+  iter.reset(db_->NewIterator(read_opts, handles_[1]));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("a", iter->key());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+}
+#endif  // !ROCKSDB_LITE
+
+class DBBasicTestMultiGet : public DBTestBase {
+ public:
+  DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
+                      bool uncompressed_cache, bool compression_enabled,
+                      bool fill_cache, uint32_t compression_parallel_threads)
+      : DBTestBase(test_dir) {
+    compression_enabled_ = compression_enabled;
+    fill_cache_ = fill_cache;
 
     if (compressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
@@ -1760,10 +2000,17 @@ class DBBasicTestWithParallelIO
       compression_types = GetSupportedCompressions();
       // Not every platform may have compression libraries available, so
       // dynamically pick based on what's available
-      if (compression_types.size() == 0) {
-        compression_enabled_ = false;
+      CompressionType tmp_type = kNoCompression;
+      for (auto c_type : compression_types) {
+        if (c_type != kNoCompression) {
+          tmp_type = c_type;
+          break;
+        }
+      }
+      if (tmp_type != kNoCompression) {
+        options.compression = tmp_type;
       } else {
-        options.compression = compression_types[0];
+        compression_enabled_ = false;
       }
     }
 #else
@@ -1771,7 +2018,7 @@ class DBBasicTestWithParallelIO
     if (!Snappy_Supported()) {
       compression_enabled_ = false;
     }
-#endif //ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
     table_options.block_cache = uncompressed_cache_;
     if (table_options.block_cache == nullptr) {
@@ -1785,25 +2032,48 @@ class DBBasicTestWithParallelIO
     options.table_factory.reset(new BlockBasedTableFactory(table_options));
     if (!compression_enabled_) {
       options.compression = kNoCompression;
+    } else {
+      options.compression_opts.parallel_threads = compression_parallel_threads;
     }
     Reopen(options);
 
-    std::string zero_str(128, '\0');
-    for (int i = 0; i < 100; ++i) {
-      // Make the value compressible. A purely random string doesn't compress
-      // and the resultant data block will not be compressed
-      values_.emplace_back(RandomString(&rnd, 128) + zero_str);
-      assert(Put(Key(i), values_[i]) == Status::OK());
+    if (num_cfs > 1) {
+      for (int cf = 0; cf < num_cfs; ++cf) {
+        cf_names_.emplace_back("cf" + std::to_string(cf));
+      }
+      CreateColumnFamilies(cf_names_, options);
+      cf_names_.emplace_back("default");
     }
-    Flush();
 
-    for (int i = 0; i < 100; ++i) {
-      // block cannot gain space by compression
-      uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
-      std::string tmp_key = "a" + Key(i);
-      assert(Put(tmp_key, uncompressable_values_[i]) == Status::OK());
+    std::string zero_str(128, '\0');
+    for (int cf = 0; cf < num_cfs; ++cf) {
+      for (int i = 0; i < 100; ++i) {
+        // Make the value compressible. A purely random string doesn't compress
+        // and the resultant data block will not be compressed
+        values_.emplace_back(RandomString(&rnd, 128) + zero_str);
+        assert(((num_cfs == 1) ? Put(Key(i), values_[i])
+                               : Put(cf, Key(i), values_[i])) == Status::OK());
+      }
+      if (num_cfs == 1) {
+        Flush();
+      } else {
+        dbfull()->Flush(FlushOptions(), handles_[cf]);
+      }
+
+      for (int i = 0; i < 100; ++i) {
+        // block cannot gain space by compression
+        uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
+        std::string tmp_key = "a" + Key(i);
+        assert(((num_cfs == 1) ? Put(tmp_key, uncompressable_values_[i])
+                               : Put(cf, tmp_key, uncompressable_values_[i])) ==
+               Status::OK());
+      }
+      if (num_cfs == 1) {
+        Flush();
+      } else {
+        dbfull()->Flush(FlushOptions(), handles_[cf]);
+      }
     }
-    Flush();
   }
 
   bool CheckValue(int i, const std::string& value) {
@@ -1819,6 +2089,8 @@ class DBBasicTestWithParallelIO
     }
     return false;
   }
+
+  const std::vector<std::string>& GetCFNames() const { return cf_names_; }
 
   int num_lookups() { return uncompressed_cache_->num_lookups(); }
   int num_found() { return uncompressed_cache_->num_found(); }
@@ -1836,7 +2108,7 @@ class DBBasicTestWithParallelIO
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
- private:
+ protected:
   class MyFlushBlockPolicyFactory : public FlushBlockPolicyFactory {
    public:
     MyFlushBlockPolicyFactory() {}
@@ -1877,23 +2149,25 @@ class DBBasicTestWithParallelIO
     const BlockBuilder& data_block_builder_;
   };
 
-  class MyBlockCache : public Cache {
+  class MyBlockCache : public CacheWrapper {
    public:
-    explicit MyBlockCache(std::shared_ptr<Cache>& target)
-        : target_(target), num_lookups_(0), num_found_(0), num_inserts_(0) {}
+    explicit MyBlockCache(std::shared_ptr<Cache> target)
+        : CacheWrapper(target),
+          num_lookups_(0),
+          num_found_(0),
+          num_inserts_(0) {}
 
-    virtual const char* Name() const override { return "MyBlockCache"; }
+    const char* Name() const override { return "MyBlockCache"; }
 
-    virtual Status Insert(const Slice& key, void* value, size_t charge,
-                          void (*deleter)(const Slice& key, void* value),
-                          Handle** handle = nullptr,
-                          Priority priority = Priority::LOW) override {
+    Status Insert(const Slice& key, void* value, size_t charge,
+                  void (*deleter)(const Slice& key, void* value),
+                  Handle** handle = nullptr,
+                  Priority priority = Priority::LOW) override {
       num_inserts_++;
       return target_->Insert(key, value, charge, deleter, handle, priority);
     }
 
-    virtual Handle* Lookup(const Slice& key,
-                           Statistics* stats = nullptr) override {
+    Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
       num_lookups_++;
       Handle* handle = target_->Lookup(key, stats);
       if (handle != nullptr) {
@@ -1901,57 +2175,6 @@ class DBBasicTestWithParallelIO
       }
       return handle;
     }
-
-    virtual bool Ref(Handle* handle) override { return target_->Ref(handle); }
-
-    virtual bool Release(Handle* handle, bool force_erase = false) override {
-      return target_->Release(handle, force_erase);
-    }
-
-    virtual void* Value(Handle* handle) override {
-      return target_->Value(handle);
-    }
-
-    virtual void Erase(const Slice& key) override { target_->Erase(key); }
-    virtual uint64_t NewId() override { return target_->NewId(); }
-
-    virtual void SetCapacity(size_t capacity) override {
-      target_->SetCapacity(capacity);
-    }
-
-    virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override {
-      target_->SetStrictCapacityLimit(strict_capacity_limit);
-    }
-
-    virtual bool HasStrictCapacityLimit() const override {
-      return target_->HasStrictCapacityLimit();
-    }
-
-    virtual size_t GetCapacity() const override {
-      return target_->GetCapacity();
-    }
-
-    virtual size_t GetUsage() const override { return target_->GetUsage(); }
-
-    virtual size_t GetUsage(Handle* handle) const override {
-      return target_->GetUsage(handle);
-    }
-
-    virtual size_t GetPinnedUsage() const override {
-      return target_->GetPinnedUsage();
-    }
-
-    virtual size_t GetCharge(Handle* /*handle*/) const override { return 0; }
-
-    virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                        bool thread_safe) override {
-      return target_->ApplyToAllCacheEntries(callback, thread_safe);
-    }
-
-    virtual void EraseUnRefEntries() override {
-      return target_->EraseUnRefEntries();
-    }
-
     int num_lookups() { return num_lookups_; }
 
     int num_found() { return num_found_; }
@@ -1959,7 +2182,6 @@ class DBBasicTestWithParallelIO
     int num_inserts() { return num_inserts_; }
 
    private:
-    std::shared_ptr<Cache> target_;
     int num_lookups_;
     int num_found_;
     int num_inserts_;
@@ -1971,6 +2193,19 @@ class DBBasicTestWithParallelIO
   std::vector<std::string> values_;
   std::vector<std::string> uncompressable_values_;
   bool fill_cache_;
+  std::vector<std::string> cf_names_;
+};
+
+class DBBasicTestWithParallelIO
+    : public DBBasicTestMultiGet,
+      public testing::WithParamInterface<
+          std::tuple<bool, bool, bool, bool, uint32_t>> {
+ public:
+  DBBasicTestWithParallelIO()
+      : DBBasicTestMultiGet("/db_basic_test_with_parallel_io", 1,
+                            std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam()), std::get<3>(GetParam()),
+                            std::get<4>(GetParam())) {}
 };
 
 TEST_P(DBBasicTestWithParallelIO, MultiGet) {
@@ -2108,13 +2343,13 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   ro.fill_cache = fill_cache();
 
   SyncPoint::GetInstance()->SetCallBack(
-      "RetrieveMultipleBlocks:VerifyChecksum", [&](void *status) {
-      Status* s = static_cast<Status*>(status);
-      read_count++;
-      if (read_count == 2) {
-        *s = Status::Corruption();
-      }
-    });
+      "RetrieveMultipleBlocks:VerifyChecksum", [&](void* status) {
+        Status* s = static_cast<Status*>(status);
+        read_count++;
+        if (read_count == 2) {
+          *s = Status::Corruption();
+        }
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // Warm up the cache first
@@ -2127,7 +2362,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data(), true);
   ASSERT_TRUE(CheckValue(0, values[0].ToString()));
-  //ASSERT_TRUE(CheckValue(50, values[1].ToString()));
+  // ASSERT_TRUE(CheckValue(50, values[1].ToString()));
   ASSERT_EQ(statuses[0], Status::OK());
   ASSERT_EQ(statuses[1], Status::Corruption());
 
@@ -2145,10 +2380,10 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   ro.fill_cache = fill_cache();
 
   SyncPoint::GetInstance()->SetCallBack(
-      "TableCache::MultiGet:FindTable", [&](void *status) {
-      Status* s = static_cast<Status*>(status);
-      *s = Status::IOError();
-    });
+      "TableCache::MultiGet:FindTable", [&](void* status) {
+        Status* s = static_cast<Status*>(status);
+        *s = Status::IOError();
+      });
   // DB open will create table readers unless we reduce the table cache
   // capacity.
   // SanitizeOptions will set max_open_files to minimum of 20. Table cache
@@ -2157,10 +2392,10 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   // prevent file open during DB open and force the file to be opened
   // during MultiGet
   SyncPoint::GetInstance()->SetCallBack(
-      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void *arg) {
-      int* max_open_files = (int*)arg;
-      *max_open_files = 11;
-    });
+      "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+        int* max_open_files = (int*)arg;
+        *max_open_files = 11;
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(CurrentOptions());
@@ -2180,354 +2415,290 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(
-    ParallelIO, DBBasicTestWithParallelIO,
-    // Params are as follows -
-    // Param 0 - Compressed cache enabled
-    // Param 1 - Uncompressed cache enabled
-    // Param 2 - Data compression enabled
-    // Param 3 - ReadOptions::fill_cache
-    ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                       ::testing::Bool(), ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
+                        // Params are as follows -
+                        // Param 0 - Compressed cache enabled
+                        // Param 1 - Uncompressed cache enabled
+                        // Param 2 - Data compression enabled
+                        // Param 3 - ReadOptions::fill_cache
+                        // Param 4 - CompressionOptions::parallel_threads
+                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Bool(), ::testing::Bool(),
+                                           ::testing::Values(1, 4)));
 
-class DBBasicTestWithTimestampBase : public DBTestBase {
+// A test class for intercepting random reads and injecting artificial
+// delays. Used for testing the deadline/timeout feature
+class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
  public:
-  explicit DBBasicTestWithTimestampBase(const std::string& dbname)
-      : DBTestBase(dbname) {}
+  DBBasicTestMultiGetDeadline()
+      : DBBasicTestMultiGet("db_basic_test_multiget_deadline" /*Test dir*/,
+                             10 /*# of column families*/,
+                             false /*compressed cache enabled*/,
+                             true /*uncompressed cache enabled*/,
+                             true /*compression enabled*/,
+                             true /*ReadOptions.fill_cache*/,
+                             1 /*# of parallel compression threads*/) {}
 
- protected:
-  class TestComparatorBase : public Comparator {
+  // Forward declaration
+  class DeadlineFS;
+
+  class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
    public:
-    explicit TestComparatorBase(size_t ts_sz) : Comparator(ts_sz) {}
+    DeadlineRandomAccessFile(DeadlineFS& fs, SpecialEnv* env,
+                             std::unique_ptr<FSRandomAccessFile>& file)
+        : FSRandomAccessFileWrapper(file.get()),
+          fs_(fs),
+          file_(std::move(file)),
+          env_(env) {}
 
-    const char* Name() const override { return "TestComparator"; }
-
-    void FindShortSuccessor(std::string*) const override {}
-
-    void FindShortestSeparator(std::string*, const Slice&) const override {}
-
-    int Compare(const Slice& a, const Slice& b) const override {
-      int r = CompareWithoutTimestamp(a, b);
-      if (r != 0 || 0 == timestamp_size()) {
-        return r;
+    IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
+          Slice* result, char* scratch, IODebugContext* dbg) const override {
+      int delay;
+      const std::chrono::microseconds deadline = fs_.GetDeadline();
+      if (deadline.count()) {
+        AssertDeadline(deadline, opts);
       }
-      return CompareTimestamp(
-          Slice(a.data() + a.size() - timestamp_size(), timestamp_size()),
-          Slice(b.data() + b.size() - timestamp_size(), timestamp_size()));
+      if (fs_.ShouldDelay(&delay)) {
+        env_->SleepForMicroseconds(delay);
+      }
+      return FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
+                                             dbg);
     }
 
-    virtual int CompareImpl(const Slice& a, const Slice& b) const = 0;
-
-    int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
-      assert(a.size() >= timestamp_size());
-      assert(b.size() >= timestamp_size());
-      Slice k1 = StripTimestampFromUserKey(a, timestamp_size());
-      Slice k2 = StripTimestampFromUserKey(b, timestamp_size());
-
-      return CompareImpl(k1, k2);
+    IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+          const IOOptions& options, IODebugContext* dbg) override {
+      int delay;
+      const std::chrono::microseconds deadline = fs_.GetDeadline();
+      if (deadline.count()) {
+        AssertDeadline(deadline, options);
+      }
+      if (fs_.ShouldDelay(&delay)) {
+        env_->SleepForMicroseconds(delay);
+      }
+      return FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
     }
 
-    int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
-      if (!ts1.data() && !ts2.data()) {
-        return 0;
-      } else if (ts1.data() && !ts2.data()) {
-        return 1;
-      } else if (!ts1.data() && ts2.data()) {
-        return -1;
-      }
-      assert(ts1.size() == ts2.size());
-      uint64_t low1 = 0;
-      uint64_t low2 = 0;
-      uint64_t high1 = 0;
-      uint64_t high2 = 0;
-      auto* ptr1 = const_cast<Slice*>(&ts1);
-      auto* ptr2 = const_cast<Slice*>(&ts2);
-      if (!GetFixed64(ptr1, &low1) || !GetFixed64(ptr1, &high1) ||
-          !GetFixed64(ptr2, &low2) || !GetFixed64(ptr2, &high2)) {
-        assert(false);
-      }
-      if (high1 < high2) {
-        return 1;
-      } else if (high1 > high2) {
-        return -1;
-      }
-      if (low1 < low2) {
-        return 1;
-      } else if (low1 > low2) {
-        return -1;
-      }
-      return 0;
-    }
-  };
-
-  Slice EncodeTimestamp(uint64_t low, uint64_t high, std::string* ts) {
-    assert(nullptr != ts);
-    ts->clear();
-    PutFixed64(ts, low);
-    PutFixed64(ts, high);
-    assert(ts->size() == sizeof(low) + sizeof(high));
-    return Slice(*ts);
-  }
-};
-
-class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
- public:
-  DBBasicTestWithTimestamp()
-      : DBBasicTestWithTimestampBase("/db_basic_test_with_timestamp") {}
-
- protected:
-  class TestComparator : public TestComparatorBase {
-   public:
-    const int kKeyPrefixLength =
-        3;  // 3: length of "key" in generated keys ("key" + std::to_string(j))
-    explicit TestComparator(size_t ts_sz) : TestComparatorBase(ts_sz) {}
-
-    int CompareImpl(const Slice& a, const Slice& b) const override {
-      int n1 = atoi(
-          std::string(a.data() + kKeyPrefixLength, a.size() - kKeyPrefixLength)
-              .c_str());
-      int n2 = atoi(
-          std::string(b.data() + kKeyPrefixLength, b.size() - kKeyPrefixLength)
-              .c_str());
-      return (n1 < n2) ? -1 : (n1 > n2) ? 1 : 0;
-    }
-  };
-};
-
-#ifndef ROCKSDB_LITE
-// A class which remembers the name of each flushed file.
-class FlushedFileCollector : public EventListener {
- public:
-  FlushedFileCollector() {}
-  ~FlushedFileCollector() override {}
-
-  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
-    InstrumentedMutexLock lock(&mutex_);
-    flushed_files_.push_back(info.file_path);
-  }
-
-  std::vector<std::string> GetFlushedFiles() {
-    std::vector<std::string> result;
-    {
-      InstrumentedMutexLock lock(&mutex_);
-      result = flushed_files_;
-    }
-    return result;
-  }
-
-  void ClearFlushedFiles() {
-    InstrumentedMutexLock lock(&mutex_);
-    flushed_files_.clear();
-  }
-
- private:
-  std::vector<std::string> flushed_files_;
-  InstrumentedMutex mutex_;
-};
-
-TEST_F(DBBasicTestWithTimestamp, PutAndGetWithCompaction) {
-  const int kNumKeysPerFile = 8192;
-  const size_t kNumTimestamps = 2;
-  const size_t kNumKeysPerTimestamp = (kNumKeysPerFile - 1) / kNumTimestamps;
-  const size_t kSplitPosBase = kNumKeysPerTimestamp / 2;
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
-
-  FlushedFileCollector* collector = new FlushedFileCollector();
-  options.listeners.emplace_back(collector);
-
-  std::string tmp;
-  size_t ts_sz = EncodeTimestamp(0, 0, &tmp).size();
-  TestComparator test_cmp(ts_sz);
-  options.comparator = &test_cmp;
-  BlockBasedTableOptions bbto;
-  bbto.filter_policy.reset(NewBloomFilterPolicy(
-      10 /*bits_per_key*/, false /*use_block_based_builder*/));
-  bbto.whole_key_filtering = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, options);
-  size_t num_cfs = handles_.size();
-  ASSERT_EQ(2, num_cfs);
-  std::vector<std::string> write_ts_strs(kNumTimestamps);
-  std::vector<std::string> read_ts_strs(kNumTimestamps);
-  std::vector<Slice> write_ts_list;
-  std::vector<Slice> read_ts_list;
-
-  for (size_t i = 0; i != kNumTimestamps; ++i) {
-    write_ts_list.emplace_back(EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
-    read_ts_list.emplace_back(EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
-    const Slice& write_ts = write_ts_list.back();
-    WriteOptions wopts;
-    wopts.timestamp = &write_ts;
-    for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
-      for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-        ASSERT_OK(Put(cf, "key" + std::to_string(j),
-                      "value_" + std::to_string(j) + "_" + std::to_string(i),
-                      wopts));
-        if (j == kSplitPosBase + i || j == kNumKeysPerTimestamp - 1) {
-          // flush all keys with the same timestamp to two sst files, split at
-          // incremental positions such that lowerlevel[1].smallest.userkey ==
-          // higherlevel[0].largest.userkey
-          ASSERT_OK(Flush(cf));
-
-          // compact files (2 at each level) to a lower level such that all keys
-          // with the same timestamp is at one level, with newer versions at
-          // higher levels.
-          CompactionOptions compact_opt;
-          compact_opt.compression = kNoCompression;
-          db_->CompactFiles(compact_opt, handles_[cf],
-                            collector->GetFlushedFiles(),
-                            static_cast<int>(kNumTimestamps - i));
-          collector->ClearFlushedFiles();
-        }
-      }
-    }
-  }
-  const auto& verify_db_func = [&]() {
-    for (size_t i = 0; i != kNumTimestamps; ++i) {
-      ReadOptions ropts;
-      ropts.timestamp = &read_ts_list[i];
-      for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
-        ColumnFamilyHandle* cfh = handles_[cf];
-        for (size_t j = 0; j != kNumKeysPerTimestamp; ++j) {
-          std::string value;
-          ASSERT_OK(db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
-          ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
-                    value);
-        }
-      }
-    }
-  };
-  verify_db_func();
-}
-#endif  // !ROCKSDB_LITE
-
-class DBBasicTestWithTimestampWithParam
-    : public DBBasicTestWithTimestampBase,
-      public testing::WithParamInterface<bool> {
- public:
-  DBBasicTestWithTimestampWithParam()
-      : DBBasicTestWithTimestampBase(
-            "/db_basic_test_with_timestamp_with_param") {}
-
- protected:
-  class TestComparator : public TestComparatorBase {
    private:
-    const Comparator* cmp_without_ts_;
-
-   public:
-    explicit TestComparator(size_t ts_sz)
-        : TestComparatorBase(ts_sz), cmp_without_ts_(nullptr) {
-      cmp_without_ts_ = BytewiseComparator();
+    void AssertDeadline(const std::chrono::microseconds deadline,
+                        const IOOptions& opts) const {
+      // Give a leeway of +- 10us as it can take some time for the Get/
+      // MultiGet call to reach here, in order to avoid false alarms
+      std::chrono::microseconds now =
+          std::chrono::microseconds(env_->NowMicros());
+      ASSERT_EQ(deadline - now, opts.timeout);
     }
-
-    int CompareImpl(const Slice& a, const Slice& b) const override {
-      return cmp_without_ts_->Compare(a, b);
-    }
+    DeadlineFS& fs_;
+    std::unique_ptr<FSRandomAccessFile> file_;
+    SpecialEnv* env_;
   };
+
+  class DeadlineFS : public FileSystemWrapper {
+   public:
+    DeadlineFS(SpecialEnv* env)
+        : FileSystemWrapper(FileSystem::Default()),
+          delay_idx_(0),
+          deadline_(std::chrono::microseconds::zero()),
+          env_(env) {}
+    ~DeadlineFS() = default;
+
+    IOStatus NewRandomAccessFile(const std::string& fname,
+                                 const FileOptions& opts,
+                                 std::unique_ptr<FSRandomAccessFile>* result,
+                                 IODebugContext* dbg) override {
+      std::unique_ptr<FSRandomAccessFile> file;
+      IOStatus s;
+
+      s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+      result->reset(new DeadlineRandomAccessFile(*this, env_, file));
+      return s;
+    }
+
+    // Set a vector of {IO counter, delay in microseconds} pairs that control
+    // when to inject a delay and duration of the delay
+    void SetDelaySequence(const std::chrono::microseconds deadline,
+                          const std::vector<std::pair<int, int>>&& seq) {
+      int total_delay = 0;
+      for (auto& seq_iter : seq) {
+        // Ensure no individual delay is > 500ms
+        ASSERT_LT(seq_iter.second, 500000);
+        total_delay += seq_iter.second;
+      }
+      // ASSERT total delay is < 1s. This is mainly to keep the test from
+      // timing out in CI test frameworks
+      ASSERT_LT(total_delay, 1000000);
+      delay_seq_ = seq;
+      delay_idx_ = 0;
+      io_count_ = 0;
+      deadline_ = deadline;
+    }
+
+    // Increment the IO counter and return a delay in microseconds
+    bool ShouldDelay(int* delay) {
+      if (delay_idx_ < delay_seq_.size() &&
+          delay_seq_[delay_idx_].first == io_count_++) {
+        *delay = delay_seq_[delay_idx_].second;
+        delay_idx_++;
+        return true;
+      }
+      return false;
+    }
+
+    const std::chrono::microseconds GetDeadline() { return deadline_; }
+
+   private:
+    std::vector<std::pair<int, int>> delay_seq_;
+    size_t delay_idx_;
+    int io_count_;
+    std::chrono::microseconds deadline_;
+    SpecialEnv* env_;
+  };
+
+  inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
+    for (size_t i = 0; i < statuses.size(); ++i) {
+      if (i < num_ok) {
+        EXPECT_OK(statuses[i]);
+      } else {
+        EXPECT_EQ(statuses[i], Status::TimedOut());
+      }
+    }
+  }
 };
 
-TEST_P(DBBasicTestWithTimestampWithParam, PutAndGet) {
-  const int kNumKeysPerFile = 8192;
-  const size_t kNumTimestamps = 6;
-  bool memtable_only = GetParam();
+TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
+  std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
+      new DBBasicTestMultiGetDeadline::DeadlineFS(env_));
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.env = env_;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
-  std::string tmp;
-  size_t ts_sz = EncodeTimestamp(0, 0, &tmp).size();
-  TestComparator test_cmp(ts_sz);
-  options.comparator = &test_cmp;
-  BlockBasedTableOptions bbto;
-  bbto.filter_policy.reset(NewBloomFilterPolicy(
-      10 /*bits_per_key*/, false /*use_block_based_builder*/));
-  bbto.whole_key_filtering = true;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  env_->SetTimeElapseOnlySleep(&options);
 
-  std::vector<CompressionType> compression_types;
-  compression_types.push_back(kNoCompression);
-  if (Zlib_Supported()) {
-    compression_types.push_back(kZlibCompression);
+  std::shared_ptr<Cache> cache = NewLRUCache(1048576);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.env = env.get();
+  ReopenWithColumnFamilies(GetCFNames(), options);
+
+  // Test the non-batched version of MultiGet with multiple column
+  // families
+  std::vector<std::string> key_str;
+  size_t i;
+  for (i = 0; i < 5; ++i) {
+    key_str.emplace_back(Key(static_cast<int>(i)));
   }
-#if LZ4_VERSION_NUMBER >= 10400  // r124+
-  compression_types.push_back(kLZ4Compression);
-  compression_types.push_back(kLZ4HCCompression);
-#endif  // LZ4_VERSION_NUMBER >= 10400
-  if (ZSTD_Supported()) {
-    compression_types.push_back(kZSTD);
+  std::vector<ColumnFamilyHandle*> cfs(key_str.size());
+  ;
+  std::vector<Slice> keys(key_str.size());
+  std::vector<std::string> values(key_str.size());
+  for (i = 0; i < key_str.size(); ++i) {
+    cfs[i] = handles_[i];
+    keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
 
-  // Switch compression dictionary on/off to check key extraction
-  // correctness in kBuffered state
-  std::vector<uint32_t> max_dict_bytes_list = {0, 1 << 14};  // 0 or 16KB
+  ReadOptions ro;
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  // Delay the first IO by 200ms
+  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
 
-  for (auto compression_type : compression_types) {
-    for (uint32_t max_dict_bytes : max_dict_bytes_list) {
-      options.compression = compression_type;
-      options.compression_opts.max_dict_bytes = max_dict_bytes;
-      if (compression_type == kZSTD) {
-        options.compression_opts.zstd_max_train_bytes = max_dict_bytes;
-      }
-      options.target_file_size_base = 1 << 26;  // 64MB
+  std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
+  // The first key is successful because we check after the lookup, but
+  // subsequent keys fail due to deadline exceeded
+  CheckStatus(statuses, 1);
 
-      DestroyAndReopen(options);
-      CreateAndReopenWithCF({"pikachu"}, options);
-      size_t num_cfs = handles_.size();
-      ASSERT_EQ(2, num_cfs);
-      std::vector<std::string> write_ts_strs(kNumTimestamps);
-      std::vector<std::string> read_ts_strs(kNumTimestamps);
-      std::vector<Slice> write_ts_list;
-      std::vector<Slice> read_ts_list;
-
-      for (size_t i = 0; i != kNumTimestamps; ++i) {
-        write_ts_list.emplace_back(
-            EncodeTimestamp(i * 2, 0, &write_ts_strs[i]));
-        read_ts_list.emplace_back(
-            EncodeTimestamp(1 + i * 2, 0, &read_ts_strs[i]));
-        const Slice& write_ts = write_ts_list.back();
-        WriteOptions wopts;
-        wopts.timestamp = &write_ts;
-        for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
-          for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps; ++j) {
-            ASSERT_OK(Put(
-                cf, "key" + std::to_string(j),
-                "value_" + std::to_string(j) + "_" + std::to_string(i), wopts));
-          }
-          if (!memtable_only) {
-            ASSERT_OK(Flush(cf));
-          }
-        }
-      }
-      const auto& verify_db_func = [&]() {
-        for (size_t i = 0; i != kNumTimestamps; ++i) {
-          ReadOptions ropts;
-          ropts.timestamp = &read_ts_list[i];
-          for (int cf = 0; cf != static_cast<int>(num_cfs); ++cf) {
-            ColumnFamilyHandle* cfh = handles_[cf];
-            for (size_t j = 0; j != (kNumKeysPerFile - 1) / kNumTimestamps;
-                 ++j) {
-              std::string value;
-              ASSERT_OK(
-                  db_->Get(ropts, cfh, "key" + std::to_string(j), &value));
-              ASSERT_EQ("value_" + std::to_string(j) + "_" + std::to_string(i),
-                        value);
-            }
-          }
-        }
-      };
-      verify_db_func();
-    }
+  // Clear the cache
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  // Test non-batched Multiget with multiple column families and
+  // introducing an IO delay in one of the middle CFs
+  key_str.clear();
+  for (i = 0; i < 10; ++i) {
+    key_str.emplace_back(Key(static_cast<int>(i)));
   }
+  cfs.resize(key_str.size());
+  keys.resize(key_str.size());
+  values.resize(key_str.size());
+  for (i = 0; i < key_str.size(); ++i) {
+    // 2 keys per CF
+    cfs[i] = handles_[i / 2];
+    keys[i] = Slice(key_str[i].data(), key_str[i].size());
+  }
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
+  statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
+  CheckStatus(statuses, 3);
+
+  // Test batched MultiGet with an IO delay in the first data block read.
+  // Both keys in the first CF should succeed as they're in the same data
+  // block and would form one batch, and we check for deadline between
+  // batches.
+  std::vector<PinnableSlice> pin_values(keys.size());
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  statuses.clear();
+  statuses.resize(keys.size());
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
+  dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
+                     pin_values.data(), statuses.data());
+  CheckStatus(statuses, 2);
+
+  // Similar to the previous one, but an IO delay in the third CF data block
+  // read
+  for (PinnableSlice& value : pin_values) {
+    value.Reset();
+  }
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  statuses.clear();
+  statuses.resize(keys.size());
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{2, 20000}});
+  dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
+                     pin_values.data(), statuses.data());
+  CheckStatus(statuses, 6);
+
+  // Similar to the previous one, but an IO delay in the last but one CF
+  for (PinnableSlice& value : pin_values) {
+    value.Reset();
+  }
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  statuses.clear();
+  statuses.resize(keys.size());
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{3, 20000}});
+  dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
+                     pin_values.data(), statuses.data());
+  CheckStatus(statuses, 8);
+
+  // Test batched MultiGet with single CF and lots of keys. Inject delay
+  // into the second batch of keys. As each batch is 32, the first 64 keys,
+  // i.e first two batches, should succeed and the rest should time out
+  for (PinnableSlice& value : pin_values) {
+    value.Reset();
+  }
+  cache->SetCapacity(0);
+  cache->SetCapacity(1048576);
+  key_str.clear();
+  for (i = 0; i < 100; ++i) {
+    key_str.emplace_back(Key(static_cast<int>(i)));
+  }
+  keys.resize(key_str.size());
+  pin_values.clear();
+  pin_values.resize(key_str.size());
+  for (i = 0; i < key_str.size(); ++i) {
+    keys[i] = Slice(key_str[i].data(), key_str[i].size());
+  }
+  statuses.clear();
+  statuses.resize(keys.size());
+  ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
+  dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
+                     pin_values.data(), statuses.data());
+  CheckStatus(statuses, 64);
+  Close();
 }
 
-INSTANTIATE_TEST_CASE_P(Timestamp, DBBasicTestWithTimestampWithParam,
-                        ::testing::Bool());
-
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 extern "C" {
@@ -2538,7 +2709,7 @@ void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
 #endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();

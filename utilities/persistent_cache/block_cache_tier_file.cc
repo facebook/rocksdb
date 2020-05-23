@@ -18,7 +18,7 @@
 #include "port/port.h"
 #include "util/crc32c.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // File creation factories
@@ -235,7 +235,8 @@ bool RandomAccessCacheFile::Read(const LBA& lba, Slice* key, Slice* val,
   }
 
   Slice result;
-  Status s = freader_->Read(lba.off_, lba.size_, &result, scratch);
+  Status s = freader_->Read(IOOptions(), lba.off_, lba.size_, &result, scratch,
+                            nullptr);
   if (!s.ok()) {
     Error(log_, "Error reading from file %s. %s", Path().c_str(),
           s.ToString().c_str());
@@ -603,6 +604,6 @@ void ThreadedWriter::DispatchIO(const IO& io) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

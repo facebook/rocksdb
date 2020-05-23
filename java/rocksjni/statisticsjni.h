@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::Statistics
+// ROCKSDB_NAMESPACE::Statistics
 
 #ifndef JAVA_ROCKSJNI_STATISTICSJNI_H_
 #define JAVA_ROCKSJNI_STATISTICSJNI_H_
@@ -15,20 +15,19 @@
 #include "rocksdb/statistics.h"
 #include "monitoring/statistics.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
-  class StatisticsJni : public StatisticsImpl {
-   public:
-     StatisticsJni(std::shared_ptr<Statistics> stats);
-     StatisticsJni(std::shared_ptr<Statistics> stats,
-         const std::set<uint32_t> ignore_histograms);
-     virtual bool HistEnabledForType(uint32_t type) const override;
+class StatisticsJni : public StatisticsImpl {
+ public:
+  StatisticsJni(std::shared_ptr<Statistics> stats);
+  StatisticsJni(std::shared_ptr<Statistics> stats,
+                const std::set<uint32_t> ignore_histograms);
+  virtual bool HistEnabledForType(uint32_t type) const override;
 
-   private:
-     const std::set<uint32_t> m_ignore_histograms;
+ private:
+  const std::set<uint32_t> m_ignore_histograms;
  };
 
-}  // namespace rocksdb
+ }  // namespace ROCKSDB_NAMESPACE
 
-// @lint-ignore TXT4 T25377293 Grandfathered in
 #endif  // JAVA_ROCKSJNI_STATISTICSJNI_H_

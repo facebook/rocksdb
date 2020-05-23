@@ -9,7 +9,7 @@
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef NDEBUG
 // the delay for debugging purpose.
@@ -29,4 +29,4 @@ void ThreadStatusUtil::TEST_StateDelay(const ThreadStatus::StateType state) {
 
 #endif  // !NDEBUG
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -27,7 +27,7 @@
 #include "util/heap.h"
 #include "util/kv_map.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TruncatedRangeDelIterator {
  public:
@@ -438,4 +438,4 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
   const std::vector<SequenceNumber>* snapshots_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

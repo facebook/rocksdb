@@ -40,7 +40,7 @@
 #include "table/block_based/data_block_footer.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 BlockBuilder::BlockBuilder(
     int block_restart_interval, bool use_delta_encoding,
@@ -79,6 +79,11 @@ void BlockBuilder::Reset() {
   if (data_block_hash_index_builder_.Valid()) {
     data_block_hash_index_builder_.Reset();
   }
+}
+
+void BlockBuilder::SwapAndReset(std::string& buffer) {
+  std::swap(buffer_, buffer);
+  Reset();
 }
 
 size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key,
@@ -193,4 +198,4 @@ void BlockBuilder::Add(const Slice& key, const Slice& value,
   estimate_ += buffer_.size() - curr_size;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

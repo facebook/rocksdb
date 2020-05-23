@@ -12,7 +12,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ConcurrentTaskLimiter {
  public:
@@ -43,4 +43,4 @@ class ConcurrentTaskLimiter {
 extern ConcurrentTaskLimiter* NewConcurrentTaskLimiter(const std::string& name,
                                                        int32_t limit);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -13,7 +13,7 @@
 #include "rocksdb/options.h"
 #include "util/compression.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // ImmutableCFOptions is a data struct used by RocksDB internal. It contains a
 // subset of Options that should not be changed during the entire lifetime
@@ -90,12 +90,6 @@ struct ImmutableCFOptions {
 
   std::vector<CompressionType> compression_per_level;
 
-  CompressionType bottommost_compression;
-
-  CompressionOptions bottommost_compression_opts;
-
-  CompressionOptions compression_opts;
-
   bool level_compaction_dynamic_level_bytes;
 
   Options::AccessHint access_hint_on_compaction_start;
@@ -125,6 +119,8 @@ struct ImmutableCFOptions {
   std::vector<DbPath> cf_paths;
 
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
+
+  FileChecksumGenFactory* file_checksum_gen_factory;
 };
 
 struct MutableCFOptions {
@@ -164,6 +160,9 @@ struct MutableCFOptions {
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
+        bottommost_compression(options.bottommost_compression),
+        compression_opts(options.compression_opts),
+        bottommost_compression_opts(options.bottommost_compression_opts),
         sample_for_compression(options.sample_for_compression) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
@@ -196,6 +195,7 @@ struct MutableCFOptions {
         paranoid_file_checks(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+        bottommost_compression(kDisableCompressionOption),
         sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
@@ -251,6 +251,10 @@ struct MutableCFOptions {
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;
+  CompressionType bottommost_compression;
+  CompressionOptions compression_opts;
+  CompressionOptions bottommost_compression_opts;
+
   uint64_t sample_for_compression;
 
   // Derived options
@@ -264,4 +268,4 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);
 uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
     int level, CompactionStyle compaction_style, int base_level = 1,
     bool level_compaction_dynamic_level_bytes = false);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

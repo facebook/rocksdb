@@ -19,7 +19,7 @@
 #include "table/block_based/parsed_full_filter_block.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class FilterPolicy;
 class FilterBitsBuilder;
@@ -119,7 +119,7 @@ class FullFilterBlockReader
                      const SliceTransform* prefix_extractor,
                      const Comparator* comparator,
                      const Slice* const const_ikey_ptr, bool* filter_checked,
-                     bool need_upper_bound_check,
+                     bool need_upper_bound_check, bool no_io,
                      BlockCacheLookupContext* lookup_context) override;
 
  private:
@@ -136,4 +136,4 @@ class FullFilterBlockReader
   size_t prefix_extractor_full_length_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

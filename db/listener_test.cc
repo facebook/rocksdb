@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -37,7 +37,7 @@
 
 #ifndef ROCKSDB_LITE
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EventListenerTest : public DBTestBase {
  public:
@@ -54,24 +54,27 @@ class EventListenerTest : public DBTestBase {
   const size_t k110KB = 110 << 10;
 };
 
-struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
-  rocksdb::Status AddUserKey(const rocksdb::Slice& /*key*/,
-                             const rocksdb::Slice& /*value*/,
-                             rocksdb::EntryType /*type*/,
-                             rocksdb::SequenceNumber /*seq*/,
-                             uint64_t /*file_size*/) override {
+struct TestPropertiesCollector
+    : public ROCKSDB_NAMESPACE::TablePropertiesCollector {
+  ROCKSDB_NAMESPACE::Status AddUserKey(
+      const ROCKSDB_NAMESPACE::Slice& /*key*/,
+      const ROCKSDB_NAMESPACE::Slice& /*value*/,
+      ROCKSDB_NAMESPACE::EntryType /*type*/,
+      ROCKSDB_NAMESPACE::SequenceNumber /*seq*/,
+      uint64_t /*file_size*/) override {
     return Status::OK();
   }
-  rocksdb::Status Finish(
-      rocksdb::UserCollectedProperties* properties) override {
+  ROCKSDB_NAMESPACE::Status Finish(
+      ROCKSDB_NAMESPACE::UserCollectedProperties* properties) override {
     properties->insert({"0", "1"});
     return Status::OK();
   }
 
   const char* Name() const override { return "TestTablePropertiesCollector"; }
 
-  rocksdb::UserCollectedProperties GetReadableProperties() const override {
-    rocksdb::UserCollectedProperties ret;
+  ROCKSDB_NAMESPACE::UserCollectedProperties GetReadableProperties()
+      const override {
+    ROCKSDB_NAMESPACE::UserCollectedProperties ret;
     ret["2"] = "3";
     return ret;
   }
@@ -912,10 +915,10 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedFlushTest) {
 
   // the usual TEST_WaitForFlushMemTable() doesn't work for failed flushes, so
   // forge a custom one for the failed flush case.
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkFlush:done",
         "EventListenerTest:BackgroundErrorListenerFailedFlushTest:1"}});
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   env_->drop_writes_.store(true, std::memory_order_release);
   env_->no_slowdown_ = true;
@@ -1029,7 +1032,7 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   ASSERT_GT(listener->file_reads_.load(), 0);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE
 

@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -16,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/ldb_tool.h"
@@ -24,7 +26,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/ldb_cmd_execute_result.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class LDBCommand {
  public:
@@ -57,6 +59,7 @@ class LDBCommand {
   static const std::string ARG_FILE_SIZE;
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
+  static const std::string ARG_DISABLE_CONSISTENCY_CHECKS;
 
   struct ParsedParams {
     std::string cmd;
@@ -161,7 +164,8 @@ class LDBCommand {
   // If true, try to construct options from DB's option files.
   bool try_load_options_;
 
-  bool ignore_unknown_options_;
+  // The value passed to options.force_consistency_checks.
+  bool force_consistency_checks_;
 
   bool create_if_missing_;
 
@@ -237,6 +241,7 @@ class LDBCommand {
 
   Options options_;
   std::vector<ColumnFamilyDescriptor> column_families_;
+  ConfigOptions config_options_;
   LDBOptions ldb_options_;
 
  private:
@@ -272,6 +277,6 @@ class LDBCommandRunner {
       const std::vector<ColumnFamilyDescriptor>* column_families);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

@@ -6,7 +6,7 @@
 #include <mutex>
 #include <cstdlib>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 /* GLOBAL DIFINE */
 // #define DEBUG
 #ifdef DEBUG
@@ -127,7 +127,7 @@ public:
     Status s;
     int r = _io_ctx->read(_fid, buffer, n, _offset);
     if (r >= 0) {
-      buffer.copy(0, r, scratch);
+      buffer.begin().copy(r, scratch);
       *result = Slice(scratch, r);
       _offset += r;
       s = Status::OK();
@@ -205,7 +205,7 @@ public:
     Status s;
     int r = _io_ctx->read(_fid, buffer, n, offset);
     if (r >= 0) {
-      buffer.copy(0, r, scratch);
+      buffer.begin().copy(r, scratch);
       *result = Slice(scratch, r);
       s = Status::OK();
     } else {
@@ -1494,4 +1494,4 @@ EnvLibrados* EnvLibrados::Default() {
   return &default_env;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

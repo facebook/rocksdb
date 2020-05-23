@@ -8,7 +8,7 @@
 #include "options/db_options.h"
 #include "rocksdb/utilities/object_registry.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 FileSystem::FileSystem() {}
 
@@ -24,6 +24,18 @@ Status FileSystem::Load(const std::string& value,
   s = Status::NotSupported("Cannot load FileSystem in LITE mode: ", value);
 #endif
   return s;
+}
+
+IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
+                                       const std::string& old_fname,
+                                       const FileOptions& opts,
+                                       std::unique_ptr<FSWritableFile>* result,
+                                       IODebugContext* dbg) {
+  IOStatus s = RenameFile(old_fname, fname, opts.io_options, dbg);
+  if (!s.ok()) {
+    return s;
+  }
+  return NewWritableFile(fname, opts, result, dbg);
 }
 
 FileOptions FileSystem::OptimizeForLogRead(
@@ -71,12 +83,31 @@ FileOptions FileSystem::OptimizeForCompactionTableRead(
   return optimized_file_options;
 }
 
-Status ReadFileToString(FileSystem* fs, const std::string& fname,
-                        std::string* data) {
+IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
+                           const std::string& fname, bool should_sync) {
+  std::unique_ptr<FSWritableFile> file;
+  EnvOptions soptions;
+  IOStatus s = fs->NewWritableFile(fname, soptions, &file, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+  s = file->Append(data, IOOptions(), nullptr);
+  if (s.ok() && should_sync) {
+    s = file->Sync(IOOptions(), nullptr);
+  }
+  if (!s.ok()) {
+    fs->DeleteFile(fname, IOOptions(), nullptr);
+  }
+  return s;
+}
+
+IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
+                          std::string* data) {
   FileOptions soptions;
   data->clear();
   std::unique_ptr<FSSequentialFile> file;
-  Status s = fs->NewSequentialFile(fname, soptions, &file, nullptr);
+  IOStatus s = status_to_io_status(
+      fs->NewSequentialFile(fname, soptions, &file, nullptr));
   if (!s.ok()) {
     return s;
   }
@@ -107,4 +138,4 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 }
 #endif
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

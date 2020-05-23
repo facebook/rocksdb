@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/version_edit.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
@@ -22,7 +23,7 @@
 #include "table/table_builder.h"
 #include "util/compression.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BlockBuilder;
 class BlockHandle;
@@ -67,6 +68,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Return non-ok iff some error has been detected.
   Status status() const override;
 
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override;
+
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
   // REQUIRES: Finish(), Abandon() have not been called
@@ -82,14 +86,27 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Number of calls to Add() so far.
   uint64_t NumEntries() const override;
 
+  bool IsEmpty() const override;
+
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
+
+  // Estimated size of the file generated so far. This is used when
+  // FileSize() cannot estimate final SST size, e.g. parallel compression
+  // is enabled.
+  uint64_t EstimatedFileSize() const override;
 
   bool NeedCompact() const override;
 
   // Get table properties
   TableProperties GetTableProperties() const override;
+
+  // Get file checksum
+  std::string GetFileChecksum() const override;
+
+  // Get file checksum function name
+  const char* GetFileChecksumFuncName() const override;
 
  private:
   bool ok() const { return status().ok(); }
@@ -127,6 +144,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
 
+  struct ParallelCompressionRep;
+
   // Advanced operation: flush any buffered key/value pairs to file.
   // Can be used to ensure that two adjacent entries never live in
   // the same data block.  Most clients should not need to use this method.
@@ -136,6 +155,22 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
   const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
+
+  // Get blocks from mem-table walking thread, compress them and
+  // pass them to the write thread. Used in parallel compression mode only
+  void BGWorkCompression(CompressionContext& compression_ctx,
+                         UncompressionContext* verify_ctx);
+
+  // Given raw block content, try to compress it and return result and
+  // compression type
+  void CompressAndVerifyBlock(
+      const Slice& raw_block_contents, bool is_data_block,
+      CompressionContext& compression_ctx, UncompressionContext* verify_ctx,
+      std::string* compressed_output, Slice* result_block_contents,
+      CompressionType* result_compression_type, Status* out_status);
+
+  // Get compressed blocks from BGWorkCompression and write them into SST
+  void BGWorkWriteRawBlock();
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
@@ -144,4 +179,4 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

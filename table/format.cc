@@ -28,7 +28,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kBlockBasedTableMagicNumber;
@@ -267,14 +267,16 @@ std::string Footer::ToString() const {
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
     result.append("table_magic_number: " +
-                  rocksdb::ToString(table_magic_number_) + "\n  ");
+                  ROCKSDB_NAMESPACE::ToString(table_magic_number_) + "\n  ");
   } else {
-    result.append("checksum: " + rocksdb::ToString(checksum_) + "\n  ");
+    result.append("checksum: " + ROCKSDB_NAMESPACE::ToString(checksum_) +
+                  "\n  ");
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("footer version: " + rocksdb::ToString(version_) + "\n  ");
+    result.append("footer version: " + ROCKSDB_NAMESPACE::ToString(version_) +
+                  "\n  ");
     result.append("table_magic_number: " +
-                  rocksdb::ToString(table_magic_number_) + "\n  ");
+                  ROCKSDB_NAMESPACE::ToString(table_magic_number_) + "\n  ");
   }
   return result;
 }
@@ -290,7 +292,8 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
                               file->file_name());
   }
 
-  char footer_space[Footer::kMaxEncodedLength];
+  std::string footer_buf;
+  AlignedBuf internal_buf;
   Slice footer_input;
   size_t read_offset =
       (file_size > Footer::kMaxEncodedLength)
@@ -300,8 +303,14 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
   if (prefetch_buffer == nullptr ||
       !prefetch_buffer->TryReadFromCache(read_offset, Footer::kMaxEncodedLength,
                                          &footer_input)) {
-    s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
-                   footer_space);
+    if (file->use_direct_io()) {
+      s = file->Read(IOOptions(), read_offset, Footer::kMaxEncodedLength,
+                     &footer_input, nullptr, &internal_buf);
+    } else {
+      footer_buf.reserve(Footer::kMaxEncodedLength);
+      s = file->Read(IOOptions(), read_offset, Footer::kMaxEncodedLength,
+                     &footer_input, &footer_buf[0], nullptr);
+    }
     if (!s.ok()) return s;
   }
 
@@ -332,6 +341,7 @@ Status UncompressBlockContentsForCompressionType(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     BlockContents* contents, uint32_t format_version,
     const ImmutableCFOptions& ioptions, MemoryAllocator* allocator) {
+  Status ret = Status::OK();
   CacheAllocationPtr ubuf;
 
   assert(uncompression_info.type() != kNoCompression &&
@@ -438,7 +448,15 @@ Status UncompressBlockContentsForCompressionType(
                         contents->data.size());
   RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
 
-  return Status::OK();
+  TEST_SYNC_POINT_CALLBACK(
+      "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
+      static_cast<void*>(&ret));
+  TEST_SYNC_POINT_CALLBACK(
+      "UncompressBlockContentsForCompressionType:"
+      "TamperWithDecompressionOutput",
+      static_cast<void*>(contents));
+
+  return ret;
 }
 
 //
@@ -454,10 +472,10 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                const ImmutableCFOptions& ioptions,
                                MemoryAllocator* allocator) {
   assert(data[n] != kNoCompression);
-  assert(data[n] == uncompression_info.type());
+  assert(data[n] == static_cast<char>(uncompression_info.type()));
   return UncompressBlockContentsForCompressionType(uncompression_info, data, n,
                                                    contents, format_version,
                                                    ioptions, allocator);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

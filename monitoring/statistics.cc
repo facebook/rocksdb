@@ -11,7 +11,7 @@
 #include "port/likely.h"
 #include "rocksdb/statistics.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // The order of items listed in  Tickers should be the same as
 // the order listed in TickersNameMap
@@ -176,6 +176,14 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.block.cache.compression.dict.bytes.insert"},
     {BLOCK_CACHE_COMPRESSION_DICT_BYTES_EVICT,
      "rocksdb.block.cache.compression.dict.bytes.evict"},
+    {BLOCK_CACHE_ADD_REDUNDANT, "rocksdb.block.cache.add.redundant"},
+    {BLOCK_CACHE_INDEX_ADD_REDUNDANT,
+     "rocksdb.block.cache.index.add.redundant"},
+    {BLOCK_CACHE_FILTER_ADD_REDUNDANT,
+     "rocksdb.block.cache.filter.add.redundant"},
+    {BLOCK_CACHE_DATA_ADD_REDUNDANT, "rocksdb.block.cache.data.add.redundant"},
+    {BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
+     "rocksdb.block.cache.compression.dict.add.redundant"},
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -403,4 +411,4 @@ bool StatisticsImpl::HistEnabledForType(uint32_t type) const {
   return type < HISTOGRAM_ENUM_MAX;
 }
 
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

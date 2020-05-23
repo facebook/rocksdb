@@ -25,7 +25,7 @@
 #include "util/heap.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
 typedef BinaryHeap<IteratorWrapper*, MaxIteratorComparator> MergerMaxIterHeap;
@@ -167,7 +167,6 @@ class MergingIterator : public InternalIterator {
       SwitchToForward();
       // The loop advanced all non-current children to be > key() so current_
       // should still be strictly the smallest key.
-      assert(current_ == CurrentForward());
     }
 
     // For the heap modifications below to be correct, current_ must be the
@@ -196,6 +195,7 @@ class MergingIterator : public InternalIterator {
     if (is_valid) {
       result->key = key();
       result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      result->value_prepared = current_->IsValuePrepared();
     }
     return is_valid;
   }
@@ -239,6 +239,17 @@ class MergingIterator : public InternalIterator {
   Slice value() const override {
     assert(Valid());
     return current_->value();
+  }
+
+  bool PrepareValue() override {
+    assert(Valid());
+    if (current_->PrepareValue()) {
+      return true;
+    }
+
+    considerStatus(current_->status());
+    assert(!status_.ok());
+    return false;
   }
 
   // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result
@@ -466,4 +477,4 @@ InternalIterator* MergeIteratorBuilder::Finish() {
   return ret;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

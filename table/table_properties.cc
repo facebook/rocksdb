@@ -13,7 +13,7 @@
 #include "table/table_properties_internal.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
     port::kMaxInt32;
@@ -125,10 +125,11 @@ std::string TableProperties::ToString(
                  prop_delim, kv_delim);
 
   AppendProperty(result, "column family ID",
-                 column_family_id == rocksdb::TablePropertiesCollectorFactory::
-                                         Context::kUnknownColumnFamily
+                 column_family_id ==
+                         ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory::
+                             Context::kUnknownColumnFamily
                      ? std::string("N/A")
-                     : rocksdb::ToString(column_family_id),
+                     : ROCKSDB_NAMESPACE::ToString(column_family_id),
                  prop_delim, kv_delim);
   AppendProperty(
       result, "column family name",
@@ -268,4 +269,4 @@ Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
   return SeekToMetaBlock(meta_iter, kRangeDelBlock, is_found, block_handle);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -17,7 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_manager.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
@@ -36,8 +36,7 @@ class SstFileManagerImpl : public SstFileManager {
   ~SstFileManagerImpl();
 
   // DB will call OnAddFile whenever a new sst file is added.
-  virtual Status OnAddFile(const std::string& file_path,
-                           bool compaction = false);
+  Status OnAddFile(const std::string& file_path, bool compaction = false);
 
   // Overload where size of the file is provided by the caller rather than
   // queried from the filesystem. This is an optimization.
@@ -193,6 +192,6 @@ class SstFileManagerImpl : public SstFileManager {
   ErrorHandler* cur_instance_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

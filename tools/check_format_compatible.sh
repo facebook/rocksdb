@@ -53,11 +53,11 @@ with open('${sorted_input_data}', 'w') as f:
     print >> f, k + " ==> " + v
 EOF
 
-declare -a backward_compatible_checkout_objs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb")
-declare -a forward_compatible_checkout_objs=("4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb" "5.5.fb" "5.6.fb" "5.7.fb" "5.8.fb" "5.9.fb" "5.10.fb")
-declare -a forward_compatible_with_options_checkout_objs=("5.11.fb" "5.12.fb" "5.13.fb" "5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb")
+declare -a backward_compatible_checkout_objs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb" "5.5.fb" "5.6.fb" "5.7.fb" "5.8.fb" "5.9.fb" "5.10.fb" "5.11.fb" "5.12.fb" "5.13.fb" "5.14.fb" "5.15.fb")
+declare -a forward_compatible_checkout_objs=() # N/A at the moment
+declare -a forward_compatible_with_options_checkout_objs=("5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb")
 declare -a checkout_objs=(${backward_compatible_checkout_objs[@]} ${forward_compatible_checkout_objs[@]} ${forward_compatible_with_options_checkout_objs[@]})
-declare -a extern_sst_ingestion_compatible_checkout_objs=("5.14.fb" "5.15.fb" "5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb")
+declare -a extern_sst_ingestion_compatible_checkout_objs=("5.16.fb" "5.17.fb" "5.18.fb" "6.0.fb" "6.1.fb" "6.2.fb" "6.3.fb" "6.4.fb" "6.5.fb" "6.6.fb" "6.7.fb" "6.8.fb")
 
 generate_db()
 {
@@ -108,15 +108,15 @@ ingest_external_sst()
 # Remote add may fail if added previously (we don't cleanup).
 git remote add github_origin "https://github.com/facebook/rocksdb.git"
 set -e
-https_proxy="fwdproxy:8080" git fetch github_origin
+git fetch github_origin
 
 # Compatibility test for external SST file ingestion
 for checkout_obj in "${extern_sst_ingestion_compatible_checkout_objs[@]}"
 do
   echo == Generating DB with extern SST file in "$checkout_obj" ...
-  https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_obj -b $checkout_obj
+  git checkout github_origin/$checkout_obj -b $checkout_obj
   make clean
-  make ldb -j32
+  DISABLE_WARNING_AS_ERROR=1 make ldb -j32
   write_external_sst $input_data_path $test_dir/$checkout_obj $test_dir/$checkout_obj
   ingest_external_sst $test_dir/$checkout_obj $test_dir/$checkout_obj
 done
@@ -124,9 +124,9 @@ done
 checkout_flag=${1:-"master"}
 
 echo == Building $checkout_flag debug
-https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_flag -b tmp-$checkout_flag
+git checkout github_origin/$checkout_flag -b tmp-$checkout_flag
 make clean
-make ldb -j32
+DISABLE_WARNING_AS_ERROR=1 make ldb -j32
 compare_base_db_dir=$test_dir"/base_db_dir"
 write_external_sst $input_data_path $compare_base_db_dir $compare_base_db_dir
 ingest_external_sst $compare_base_db_dir $compare_base_db_dir
@@ -136,7 +136,7 @@ do
   echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag
   git checkout $checkout_obj
   make clean
-  make ldb -j32
+  DISABLE_WARNING_AS_ERROR=1 make ldb -j32
   compare_db $test_dir/$checkout_obj $compare_base_db_dir db_dump.txt 1 1
   git checkout tmp-$checkout_flag
   # Clean up
@@ -148,9 +148,9 @@ echo == Finish compatibility test for SST ingestion.
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Generating DB from "$checkout_obj" ...
-   https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_obj -b $checkout_obj
+   git checkout github_origin/$checkout_obj -b $checkout_obj
    make clean
-   make ldb -j32
+   DISABLE_WARNING_AS_ERROR=1 make ldb -j32
    generate_db $input_data_path $test_dir/$checkout_obj
 done
 
@@ -159,7 +159,7 @@ checkout_flag=${1:-"master"}
 echo == Building $checkout_flag debug
 git checkout tmp-$checkout_flag
 make clean
-make ldb -j32
+DISABLE_WARNING_AS_ERROR=1 make ldb -j32
 compare_base_db_dir=$test_dir"/base_db_dir"
 echo == Generate compare base DB to $compare_base_db_dir
 generate_db $input_data_path $compare_base_db_dir
@@ -175,7 +175,7 @@ do
    echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag...
    git checkout $checkout_obj
    make clean
-   make ldb -j32
+   DISABLE_WARNING_AS_ERROR=1 make ldb -j32
    compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt 0
 done
 
@@ -184,7 +184,7 @@ do
    echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag with its options...
    git checkout $checkout_obj
    make clean
-   make ldb -j32
+   DISABLE_WARNING_AS_ERROR=1 make ldb -j32
    compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt 1 1
 done
 

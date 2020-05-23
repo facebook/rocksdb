@@ -16,7 +16,7 @@
 #include "table/multiget_context.h"
 #include "table/table_reader_caller.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Iterator;
 struct ParsedInternalKey;
@@ -50,7 +50,8 @@ class TableReader {
   virtual InternalIterator* NewIterator(
       const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
       bool skip_filters, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0) = 0;
+      size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
@@ -134,4 +135,4 @@ class TableReader {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

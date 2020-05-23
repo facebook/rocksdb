@@ -58,6 +58,9 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#ifndef NDEBUG
+#include "test_util/fault_injection_test_fs.h"
+#endif
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -66,11 +69,8 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
-// SyncPoint is not supported in Released Windows Mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
-#include "test_util/sync_point.h"
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "test_util/testutil.h"
+#include "test_util/fault_injection_test_env.h"
 
 #include "utilities/merge_operators.h"
 
@@ -112,6 +112,7 @@ DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
 DECLARE_int64(compressed_cache_size);
 DECLARE_int32(compaction_style);
+DECLARE_int32(num_levels);
 DECLARE_int32(level0_file_num_compaction_trigger);
 DECLARE_int32(level0_slowdown_writes_trigger);
 DECLARE_int32(level0_stop_writes_trigger);
@@ -128,7 +129,9 @@ DECLARE_int32(universal_min_merge_width);
 DECLARE_int32(universal_max_merge_width);
 DECLARE_int32(universal_max_size_amplification_percent);
 DECLARE_int32(clear_column_family_one_in);
-DECLARE_int32(get_live_files_and_wal_files_one_in);
+DECLARE_int32(get_live_files_one_in);
+DECLARE_int32(get_sorted_wal_files_one_in);
+DECLARE_int32(get_current_wal_file_one_in);
 DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
@@ -153,6 +156,7 @@ DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
 DECLARE_bool(use_direct_reads);
 DECLARE_bool(use_direct_io_for_flush_and_compaction);
+DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
@@ -167,6 +171,8 @@ DECLARE_double(max_bytes_for_level_multiplier);
 DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
+DECLARE_uint64(sst_file_manager_bytes_per_sec);
+DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_bool(use_txn);
 DECLARE_uint64(txn_write_policy);
 DECLARE_bool(unordered_write);
@@ -196,6 +202,7 @@ DECLARE_string(compression_type);
 DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
+DECLARE_int32(compression_parallel_threads);
 DECLARE_string(checksum_type);
 DECLARE_string(hdfs);
 DECLARE_string(env_uri);
@@ -211,6 +218,7 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
 DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
@@ -226,17 +234,21 @@ DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
 DECLARE_int32(approximate_size_one_in);
+DECLARE_bool(sync_fault_injection);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
-extern rocksdb::DbStressEnvWrapper* db_stress_env;
+extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
+#ifndef NDEBUG
+extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+#endif
 
-extern enum rocksdb::CompressionType compression_type_e;
-extern enum rocksdb::CompressionType bottommost_compression_type_e;
-extern enum rocksdb::ChecksumType checksum_type_e;
+extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
+extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
+extern enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e;
 
 enum RepFactory { kSkipList, kHashSkipList, kVectorRep };
 
@@ -256,61 +268,63 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 
 extern enum RepFactory FLAGS_rep_factory;
 
-namespace rocksdb {
-inline enum rocksdb::CompressionType StringToCompressionType(
+namespace ROCKSDB_NAMESPACE {
+inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
 
-  rocksdb::CompressionType ret_compression_type;
+  ROCKSDB_NAMESPACE::CompressionType ret_compression_type;
 
   if (!strcasecmp(ctype, "disable")) {
-    ret_compression_type = rocksdb::kDisableCompressionOption;
+    ret_compression_type = ROCKSDB_NAMESPACE::kDisableCompressionOption;
   } else if (!strcasecmp(ctype, "none")) {
-    ret_compression_type = rocksdb::kNoCompression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kNoCompression;
   } else if (!strcasecmp(ctype, "snappy")) {
-    ret_compression_type = rocksdb::kSnappyCompression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kSnappyCompression;
   } else if (!strcasecmp(ctype, "zlib")) {
-    ret_compression_type = rocksdb::kZlibCompression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kZlibCompression;
   } else if (!strcasecmp(ctype, "bzip2")) {
-    ret_compression_type = rocksdb::kBZip2Compression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kBZip2Compression;
   } else if (!strcasecmp(ctype, "lz4")) {
-    ret_compression_type = rocksdb::kLZ4Compression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kLZ4Compression;
   } else if (!strcasecmp(ctype, "lz4hc")) {
-    ret_compression_type = rocksdb::kLZ4HCCompression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kLZ4HCCompression;
   } else if (!strcasecmp(ctype, "xpress")) {
-    ret_compression_type = rocksdb::kXpressCompression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kXpressCompression;
   } else if (!strcasecmp(ctype, "zstd")) {
-    ret_compression_type = rocksdb::kZSTD;
+    ret_compression_type = ROCKSDB_NAMESPACE::kZSTD;
   } else {
     fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
-    ret_compression_type = rocksdb::kSnappyCompression;  // default value
+    ret_compression_type =
+        ROCKSDB_NAMESPACE::kSnappyCompression;  // default value
   }
-  if (ret_compression_type != rocksdb::kDisableCompressionOption &&
+  if (ret_compression_type != ROCKSDB_NAMESPACE::kDisableCompressionOption &&
       !CompressionTypeSupported(ret_compression_type)) {
     // Use no compression will be more portable but considering this is
     // only a stress test and snappy is widely available. Use snappy here.
-    ret_compression_type = rocksdb::kSnappyCompression;
+    ret_compression_type = ROCKSDB_NAMESPACE::kSnappyCompression;
   }
   return ret_compression_type;
 }
 
-inline enum rocksdb::ChecksumType StringToChecksumType(const char* ctype) {
+inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(
+    const char* ctype) {
   assert(ctype);
-  auto iter = rocksdb::checksum_type_string_map.find(ctype);
-  if (iter != rocksdb::checksum_type_string_map.end()) {
+  auto iter = ROCKSDB_NAMESPACE::checksum_type_string_map.find(ctype);
+  if (iter != ROCKSDB_NAMESPACE::checksum_type_string_map.end()) {
     return iter->second;
   }
   fprintf(stderr, "Cannot parse checksum type '%s'\n", ctype);
-  return rocksdb::kCRC32c;
+  return ROCKSDB_NAMESPACE::kCRC32c;
 }
 
-inline std::string ChecksumTypeToString(rocksdb::ChecksumType ctype) {
+inline std::string ChecksumTypeToString(ROCKSDB_NAMESPACE::ChecksumType ctype) {
   auto iter = std::find_if(
-      rocksdb::checksum_type_string_map.begin(),
-      rocksdb::checksum_type_string_map.end(),
-      [&](const std::pair<std::string, rocksdb::ChecksumType>&
+      ROCKSDB_NAMESPACE::checksum_type_string_map.begin(),
+      ROCKSDB_NAMESPACE::checksum_type_string_map.end(),
+      [&](const std::pair<std::string, ROCKSDB_NAMESPACE::ChecksumType>&
               name_and_enum_val) { return name_and_enum_val.second == ctype; });
-  assert(iter != rocksdb::checksum_type_string_map.end());
+  assert(iter != ROCKSDB_NAMESPACE::checksum_type_string_map.end());
   return iter->first;
 }
 
@@ -334,7 +348,7 @@ inline std::vector<std::string> SplitString(std::string src) {
 // truncation of constant value on static_cast
 #pragma warning(disable : 4309)
 #endif
-inline bool GetNextPrefix(const rocksdb::Slice& src, std::string* v) {
+inline bool GetNextPrefix(const ROCKSDB_NAMESPACE::Slice& src, std::string* v) {
   std::string ret = src.ToString();
   for (int i = static_cast<int>(ret.size()) - 1; i >= 0; i--) {
     if (ret[i] != static_cast<char>(255)) {
@@ -505,5 +519,5 @@ extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

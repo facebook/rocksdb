@@ -17,7 +17,7 @@ extern "C" {
 
 #include "rocksdb/utilities/lua/rocks_lua_custom_library.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace lua {
 class LuaStateWrapper {
  public:
@@ -51,5 +51,5 @@ class LuaStateWrapper {
   lua_State* lua_state_;
 };
 }  // namespace lua
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // LUA

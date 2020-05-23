@@ -11,7 +11,7 @@
 #include <memory>
 #include "rocksdb/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class WriteControllerToken;
@@ -141,4 +141,4 @@ class CompactionPressureToken : public WriteControllerToken {
   virtual ~CompactionPressureToken();
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

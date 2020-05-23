@@ -11,7 +11,7 @@
 #include "util/murmurhash.h"
 #include "rocksdb/options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const uint32_t kCuckooMurmurSeedMultiplier = 816922183;
 static inline uint64_t CuckooHash(
@@ -79,8 +79,8 @@ class CuckooTableFactory : public TableFactory {
 
   void* GetOptions() override { return &table_options_; }
 
-  Status GetOptionString(std::string* /*opt_string*/,
-                         const std::string& /*delimiter*/) const override {
+  Status GetOptionString(const ConfigOptions& /*config_options*/,
+                         std::string* /*opt_string*/) const override {
     return Status::OK();
   }
 
@@ -88,5 +88,5 @@ class CuckooTableFactory : public TableFactory {
   CuckooTableOptions table_options_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

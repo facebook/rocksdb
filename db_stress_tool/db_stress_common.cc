@@ -12,16 +12,23 @@
 #include "db_stress_tool/db_stress_common.h"
 #include <cmath>
 
-rocksdb::DbStressEnvWrapper* db_stress_env = nullptr;
-enum rocksdb::CompressionType compression_type_e = rocksdb::kSnappyCompression;
-enum rocksdb::CompressionType bottommost_compression_type_e =
-    rocksdb::kSnappyCompression;
-enum rocksdb::ChecksumType checksum_type_e = rocksdb::kCRC32c;
+ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env = nullptr;
+#ifndef NDEBUG
+// If non-null, injects read error at a rate specified by the
+// read_fault_one_in flag
+std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+#endif // NDEBUG
+enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
+    ROCKSDB_NAMESPACE::kSnappyCompression;
+enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
+    ROCKSDB_NAMESPACE::kSnappyCompression;
+enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e =
+    ROCKSDB_NAMESPACE::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
 std::vector<double> sum_probs(100001);
 int64_t zipf_sum_size = 100000;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Zipfian distribution is generated based on a pre-calculated array.
 // It should be used before start the stress test.
@@ -62,7 +69,7 @@ void InitializeHotKeyGenerator(double alpha) {
 int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
   int64_t low = 1, mid, high = zipf_sum_size, zipf = 0;
   while (low <= high) {
-    mid = static_cast<int64_t>(std::floor((low + high) / 2));
+    mid = (low + high) / 2;
     if (sum_probs[mid] >= rand_seed && sum_probs[mid - 1] < rand_seed) {
       zipf = mid;
       break;
@@ -72,8 +79,7 @@ int64_t GetOneHotKeyID(double rand_seed, int64_t max_key) {
       low = mid + 1;
     }
   }
-  int64_t tmp_zipf_seed = static_cast<int64_t>(
-      std::floor(zipf * max_key / (static_cast<double>(zipf_sum_size))));
+  int64_t tmp_zipf_seed = zipf * max_key / zipf_sum_size;
   Random64 rand_local(tmp_zipf_seed);
   return rand_local.Next() % max_key;
 }
@@ -104,7 +110,7 @@ void PoolSizeChangeThread(void* v) {
       new_thread_pool_size = 1;
     }
     db_stress_env->SetBackgroundThreads(new_thread_pool_size,
-                                        rocksdb::Env::Priority::LOW);
+                                        ROCKSDB_NAMESPACE::Env::Priority::LOW);
     // Sleep up to 3 seconds
     db_stress_env->SleepForMicroseconds(
         thread->rand.Next() % FLAGS_compaction_thread_pool_adjust_interval *
@@ -220,5 +226,5 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

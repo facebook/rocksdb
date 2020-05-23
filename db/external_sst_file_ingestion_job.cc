@@ -24,7 +24,7 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
@@ -46,7 +46,7 @@ Status ExternalSstFileIngestionJob::Prepare(
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
         f.cf_id != cfd_->GetID()) {
       return Status::InvalidArgument(
-          "External file column family id dont match");
+          "External file column family id don't match");
     }
   }
 
@@ -55,7 +55,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
   } else if (num_files > 1) {
-    // Verify that passed files dont have overlapping ranges
+    // Verify that passed files don't have overlapping ranges
     autovector<const IngestedFileInfo*> sorted_files;
     for (size_t i = 0; i < num_files; i++) {
       sorted_files.push_back(&files_to_ingest_[i]);
@@ -148,7 +148,7 @@ Status ExternalSstFileIngestionJob::Prepare(
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncDir");
   if (status.ok()) {
     for (auto path_id : ingestion_path_ids) {
-      status = directories_->GetDataDir(path_id)->Fsync();
+      status = directories_->GetDataDir(path_id)->Fsync(IOOptions(), nullptr);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "Failed to sync directory %" ROCKSDB_PRIszt
@@ -212,7 +212,7 @@ Status ExternalSstFileIngestionJob::Run() {
 
   if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
     // We need to assign a global sequence number to all the files even
-    // if the dont overlap with any ranges since we have snapshots
+    // if the don't overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
   // It is safe to use this instead of LastAllocatedSequence since we are
@@ -255,11 +255,11 @@ Status ExternalSstFileIngestionJob::Run() {
           static_cast<uint64_t>(temp_current_time);
     }
 
-    edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key,
-                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
-                  false, kInvalidBlobFileNumber, oldest_ancester_time,
-                  current_time);
+    edit_.AddFile(
+        f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
+        f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
+        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
+        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName);
   }
   return status;
 }
@@ -588,7 +588,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
-    // We dont overlap with any keys in this level, but we still need to check
+    // We don't overlap with any keys in this level, but we still need to check
     // if our file can fit in it
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
@@ -646,7 +646,7 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     return Status::InvalidArgument("Global seqno is required, but disabled");
   } else if (file_to_ingest->global_seqno_offset == 0) {
     return Status::InvalidArgument(
-        "Trying to set global seqno for a file that dont have a global seqno "
+        "Trying to set global seqno for a file that don't have a global seqno "
         "field");
   }
 
@@ -726,6 +726,6 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

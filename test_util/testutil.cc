@@ -9,6 +9,7 @@
 
 #include "test_util/testutil.h"
 
+#include <fcntl.h>
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -20,8 +21,9 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
@@ -118,11 +120,69 @@ class Uint64ComparatorImpl : public Comparator {
 
   void FindShortSuccessor(std::string* /*key*/) const override { return; }
 };
+
+// A test implementation of comparator with 64-bit integer timestamp.
+class ComparatorWithU64TsImpl : public Comparator {
+ public:
+  ComparatorWithU64TsImpl()
+      : Comparator(/*ts_sz=*/sizeof(uint64_t)),
+        cmp_without_ts_(BytewiseComparator()) {
+    assert(cmp_without_ts_);
+    assert(cmp_without_ts_->timestamp_size() == 0);
+  }
+  const char* Name() const override { return "ComparatorWithU64Ts"; }
+  void FindShortSuccessor(std::string*) const override {}
+  void FindShortestSeparator(std::string*, const Slice&) const override {}
+  int Compare(const Slice& a, const Slice& b) const override {
+    int ret = CompareWithoutTimestamp(a, b);
+    size_t ts_sz = timestamp_size();
+    if (ret != 0) {
+      return ret;
+    }
+    // Compare timestamp.
+    // For the same user key with different timestamps, larger (newer) timestamp
+    // comes first.
+    return -CompareTimestamp(ExtractTimestampFromUserKey(a, ts_sz),
+                             ExtractTimestampFromUserKey(b, ts_sz));
+  }
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
+                              bool b_has_ts) const override {
+    const size_t ts_sz = timestamp_size();
+    assert(!a_has_ts || a.size() >= ts_sz);
+    assert(!b_has_ts || b.size() >= ts_sz);
+    Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
+    Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
+    return cmp_without_ts_->Compare(lhs, rhs);
+  }
+  int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
+    assert(ts1.size() == sizeof(uint64_t));
+    assert(ts2.size() == sizeof(uint64_t));
+    uint64_t lhs = DecodeFixed64(ts1.data());
+    uint64_t rhs = DecodeFixed64(ts2.data());
+    if (lhs < rhs) {
+      return -1;
+    } else if (lhs > rhs) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+ private:
+  const Comparator* cmp_without_ts_{nullptr};
+};
+
 }  // namespace
 
 const Comparator* Uint64Comparator() {
   static Uint64ComparatorImpl uint64comp;
   return &uint64comp;
+}
+
+const Comparator* ComparatorWithU64Ts() {
+  static ComparatorWithU64TsImpl comp_with_u64_ts;
+  return &comp_with_u64_ts;
 }
 
 WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
@@ -265,6 +325,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->paranoid_checks = rnd->Uniform(2);
   db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
+  db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
@@ -449,5 +510,22 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
+void SetupSyncPointsToMockDirectIO() {
+#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
+    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+#endif
+}
+
 }  // namespace test
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

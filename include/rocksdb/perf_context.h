@@ -11,7 +11,7 @@
 
 #include "rocksdb/perf_level.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A thread local context for gathering performance counter efficiently
 // and transparently.
@@ -221,6 +221,11 @@ struct PerfContext {
   uint64_t iter_prev_cpu_nanos;
   uint64_t iter_seek_cpu_nanos;
 
+  // Time spent in encrypting data. Populated when EncryptedEnv is used.
+  uint64_t encrypt_data_nanos;
+  // Time spent in decrypting data. Populated when EncryptedEnv is used.
+  uint64_t decrypt_data_nanos;
+
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;
 };
@@ -229,4 +234,4 @@ struct PerfContext {
 // if defined(NPERF_CONTEXT), then the pointer is not thread-local
 PerfContext* get_perf_context();
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -21,7 +21,7 @@
 #include "utilities/transactions/optimistic_transaction.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct WriteOptions;
 
@@ -59,13 +59,13 @@ Status OptimisticTransaction::Commit() {
   auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
                                             OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
-  OccValidationPolicy policy = txn_db_impl->GetValidatePolicy();
-  if (policy == OccValidationPolicy::kValidateParallel) {
-    return CommitWithParallelValidate();
-  } else if (policy == OccValidationPolicy::kValidateSerial) {
-    return CommitWithSerialValidate();
-  } else {
-    assert(0);
+  switch (txn_db_impl->GetValidatePolicy()) {
+    case OccValidationPolicy::kValidateParallel:
+      return CommitWithParallelValidate();
+    case OccValidationPolicy::kValidateSerial:
+      return CommitWithSerialValidate();
+    default:
+      assert(0);
   }
   // unreachable, just void compiler complain
   return Status::OK();
@@ -76,7 +76,7 @@ Status OptimisticTransaction::CommitWithSerialValidate() {
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
 
-  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
   Status s = db_impl->WriteWithCallback(
       write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
@@ -92,7 +92,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   auto txn_db_impl = static_cast_with_check<OptimisticTransactionDBImpl,
                                             OptimisticTransactionDB>(txn_db_);
   assert(txn_db_impl);
-  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
   assert(db_impl);
   const size_t space = txn_db_impl->GetLockBucketsSize();
   std::set<size_t> lk_idxes;
@@ -168,7 +168,7 @@ Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
   Status result;
 
-  auto db_impl = static_cast_with_check<DBImpl, DB>(db);
+  auto db_impl = static_cast_with_check<DBImpl>(db);
 
   // Since we are on the write thread and do not want to block other writers,
   // we will do a cache-only conflict check.  This can result in TryAgain
@@ -182,6 +182,6 @@ Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {
   return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

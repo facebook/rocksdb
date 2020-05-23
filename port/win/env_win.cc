@@ -40,7 +40,7 @@
 
 #include <algorithm>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
@@ -122,7 +122,7 @@ Status WinEnvIO::DeleteFile(const std::string& fname) {
 
 Status WinEnvIO::Truncate(const std::string& fname, size_t size) {
   Status s;
-  int result = rocksdb::port::Truncate(fname, size);
+  int result = ROCKSDB_NAMESPACE::port::Truncate(fname, size);
   if (result != 0) {
     s = IOError("Failed to truncate: " + fname, errno);
   }
@@ -955,6 +955,14 @@ Status WinEnvIO::NewLogger(const std::string& fname,
   return s;
 }
 
+Status WinEnvIO::IsDirectory(const std::string& path, bool* is_dir) {
+  BOOL ret = RX_PathIsDirectory(RX_FN(path).c_str());
+  if (is_dir) {
+    *is_dir = ret ? true : false;
+  }
+  return Status::OK();
+}
+
 uint64_t WinEnvIO::NowMicros() {
 
   if (GetSystemTimePreciseAsFileTime_ != NULL) {
@@ -1243,8 +1251,7 @@ void WinEnvThreads::StartThread(void(*function)(void* arg), void* arg) {
   state->user_function = function;
   state->arg = arg;
   try {
-
-    rocksdb::port::WindowsThread th(&StartThreadWrapper, state.get());
+    ROCKSDB_NAMESPACE::port::WindowsThread th(&StartThreadWrapper, state.get());
     state.release();
 
     std::lock_guard<std::mutex> lg(mu_);
@@ -1425,13 +1432,17 @@ Status WinEnv::UnlockFile(FileLock* lock) {
   return winenv_io_.UnlockFile(lock);
 }
 
-Status  WinEnv::GetTestDirectory(std::string* result) {
+Status WinEnv::GetTestDirectory(std::string* result) {
   return winenv_io_.GetTestDirectory(result);
 }
 
 Status WinEnv::NewLogger(const std::string& fname,
                          std::shared_ptr<Logger>* result) {
   return winenv_io_.NewLogger(fname, result);
+}
+
+Status WinEnv::IsDirectory(const std::string& path, bool* is_dir) {
+  return winenv_io_.IsDirectory(path, is_dir);
 }
 
 uint64_t WinEnv::NowMicros() {
@@ -1538,4 +1549,4 @@ std::string Env::GenerateUniqueId() {
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

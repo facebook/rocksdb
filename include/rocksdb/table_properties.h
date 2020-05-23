@@ -10,7 +10,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // -- Table Properties
 // Other than basic table properties, each table may also have the user
@@ -136,6 +136,11 @@ class TablePropertiesCollectorFactory {
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
+
+  // Can be overridden by sub-classes to return the Name, followed by
+  // configuration info that will // be logged to the info log when the
+  // DB is opened
+  virtual std::string ToString() const { return Name(); }
 };
 
 // TableProperties contains a bunch of read-only properties of its associated
@@ -177,8 +182,8 @@ struct TableProperties {
   uint64_t fixed_key_len = 0;
   // ID of column family for this SST file, corresponding to the CF identified
   // by column_family_name.
-  uint64_t column_family_id =
-      rocksdb::TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  uint64_t column_family_id = ROCKSDB_NAMESPACE::
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   // Timestamp of the latest key. 0 means unknown.
   // TODO(sagar0): Should be changed to latest_key_time ... but don't know the
   // full implications of backward compatibility. Hence retaining for now.
@@ -247,4 +252,4 @@ extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
 extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
                                  bool* property_present);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

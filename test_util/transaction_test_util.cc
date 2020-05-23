@@ -24,7 +24,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 RandomTransactionInserter::RandomTransactionInserter(
     Random64* rand, const WriteOptions& write_options,
@@ -139,7 +139,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
   std::vector<uint16_t> set_vec(num_sets_);
   std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
-  std::shuffle(set_vec.begin(), set_vec.end(), std::random_device{});
+  RandomShuffle(set_vec.begin(), set_vec.end());
 
   // For each set, pick a key at random and increment it
   for (uint16_t set_i : set_vec) {
@@ -296,7 +296,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
 
   std::vector<uint16_t> set_vec(num_sets);
   std::iota(set_vec.begin(), set_vec.end(), static_cast<uint16_t>(0));
-  std::shuffle(set_vec.begin(), set_vec.end(), std::random_device{});
+  RandomShuffle(set_vec.begin(), set_vec.end());
 
   // For each set of keys with the same prefix, sum all the values
   for (uint16_t set_i : set_vec) {
@@ -382,6 +382,6 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

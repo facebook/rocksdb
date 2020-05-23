@@ -5,19 +5,21 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/env_encryption.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <iostream>
 
-#include "rocksdb/env_encryption.h"
+#include "monitoring/perf_context_imp.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"
 
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -49,8 +51,12 @@ class EncryptedSequentialFile : public SequentialFile {
     if (!status.ok()) {
       return status;
     }
-    status = stream_->Decrypt(offset_, (char*)result->data(), result->size());
-    offset_ += result->size(); // We've already ready data from disk, so update offset_ even if decryption fails.
+    {
+      PERF_TIMER_GUARD(decrypt_data_nanos);
+      status = stream_->Decrypt(offset_, (char*)result->data(), result->size());
+    }
+    offset_ += result->size();  // We've already ready data from disk, so update
+                                // offset_ even if decryption fails.
     return status;
   }
 
@@ -98,7 +104,10 @@ class EncryptedSequentialFile : public SequentialFile {
       return status;
     }
     offset_ = offset + result->size();
-    status = stream_->Decrypt(offset, (char*)result->data(), result->size());
+    {
+      PERF_TIMER_GUARD(decrypt_data_nanos);
+      status = stream_->Decrypt(offset, (char*)result->data(), result->size());
+    }
     return status;
   }
 };
@@ -132,7 +141,10 @@ class EncryptedRandomAccessFile : public RandomAccessFile {
     if (!status.ok()) {
       return status;
     }
-    status = stream_->Decrypt(offset, (char*)result->data(), result->size());
+    {
+      PERF_TIMER_GUARD(decrypt_data_nanos);
+      status = stream_->Decrypt(offset, (char*)result->data(), result->size());
+    }
     return status;
   }
 
@@ -208,7 +220,10 @@ class EncryptedWritableFile : public WritableFileWrapper {
       // so that the next two lines can be replaced with buf.Append().
       memmove(buf.BufferStart(), data.data(), data.size());
       buf.Size(data.size());
-      status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      {
+        PERF_TIMER_GUARD(encrypt_data_nanos);
+        status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      }
       if (!status.ok()) {
         return status;
       }
@@ -232,7 +247,10 @@ class EncryptedWritableFile : public WritableFileWrapper {
       buf.AllocateNewBuffer(data.size());
       memmove(buf.BufferStart(), data.data(), data.size());
       buf.Size(data.size());
-      status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      {
+        PERF_TIMER_GUARD(encrypt_data_nanos);
+        status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      }
       if (!status.ok()) {
         return status;
       }
@@ -337,7 +355,10 @@ class EncryptedRandomRWFile : public RandomRWFile {
       buf.AllocateNewBuffer(data.size());
       memmove(buf.BufferStart(), data.data(), data.size());
       buf.Size(data.size());
-      status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      {
+        PERF_TIMER_GUARD(encrypt_data_nanos);
+        status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      }
       if (!status.ok()) {
         return status;
       }
@@ -358,7 +379,10 @@ class EncryptedRandomRWFile : public RandomRWFile {
     if (!status.ok()) {
       return status;
     }
-    status = stream_->Decrypt(offset, (char*)result->data(), result->size());
+    {
+      PERF_TIMER_GUARD(decrypt_data_nanos);
+      status = stream_->Decrypt(offset, (char*)result->data(), result->size());
+    }
     return status;
   }
 
@@ -873,9 +897,15 @@ Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
   // Now populate the rest of the prefix, starting from the third block.
   PopulateSecretPrefixPart(prefix + (2 * blockSize), prefixLength - (2 * blockSize), blockSize);
 
-  // Encrypt the prefix, starting from block 2 (leave block 0, 1 with initial counter & IV unencrypted)
+  // Encrypt the prefix, starting from block 2 (leave block 0, 1 with initial
+  // counter & IV unencrypted)
   CTRCipherStream cipherStream(cipher_, prefixIV.data(), initialCounter);
-  auto status = cipherStream.Encrypt(0, prefix + (2 * blockSize), prefixLength - (2 * blockSize));
+  Status status;
+  {
+    PERF_TIMER_GUARD(encrypt_data_nanos);
+    status = cipherStream.Encrypt(0, prefix + (2 * blockSize),
+                                  prefixLength - (2 * blockSize));
+  }
   if (!status.ok()) {
     return status;
   }
@@ -910,9 +940,15 @@ Status CTREncryptionProvider::CreateCipherStream(
                               ": read attempt would read beyond file bounds");
   }
 
-  // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1 with initial counter & IV are unencrypted)
+  // Decrypt the encrypted part of the prefix, starting from block 2 (block 0, 1
+  // with initial counter & IV are unencrypted)
   CTRCipherStream cipherStream(cipher_, iv.data(), initialCounter);
-  auto status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize), prefix.size() - (2 * blockSize));
+  Status status;
+  {
+    PERF_TIMER_GUARD(decrypt_data_nanos);
+    status = cipherStream.Decrypt(0, (char*)prefix.data() + (2 * blockSize),
+                                  prefix.size() - (2 * blockSize));
+  }
   if (!status.ok()) {
     return status;
   }
@@ -934,4 +970,4 @@ Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
 
 #endif // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

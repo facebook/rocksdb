@@ -19,7 +19,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static const std::string kRocksDbTFileExt = "sst";
 static const std::string kLevelDbTFileExt = "ldb";
@@ -77,6 +77,11 @@ std::string LogFileName(const std::string& name, uint64_t number) {
 std::string LogFileName(uint64_t number) {
   assert(number > 0);
   return MakeFileName(number, "log");
+}
+
+std::string BlobFileName(uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(number, kRocksDBBlobFileExt.c_str());
 }
 
 std::string BlobFileName(const std::string& blobdirname, uint64_t number) {
@@ -368,27 +373,27 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
   return true;
 }
 
-Status SetCurrentFile(Env* env, const std::string& dbname,
-                      uint64_t descriptor_number,
-                      Directory* directory_to_fsync) {
+IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
+                        uint64_t descriptor_number,
+                        FSDirectory* directory_to_fsync) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
   std::string tmp = TempFileName(dbname, descriptor_number);
-  Status s = WriteStringToFile(env, contents.ToString() + "\n", tmp, true);
+  IOStatus s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true);
   if (s.ok()) {
     TEST_KILL_RANDOM("SetCurrentFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
-    s = env->RenameFile(tmp, CurrentFileName(dbname));
+    s = fs->RenameFile(tmp, CurrentFileName(dbname), IOOptions(), nullptr);
     TEST_KILL_RANDOM("SetCurrentFile:1", rocksdb_kill_odds * REDUCE_ODDS2);
   }
   if (s.ok()) {
     if (directory_to_fsync != nullptr) {
-      s = directory_to_fsync->Fsync();
+      s = directory_to_fsync->Fsync(IOOptions(), nullptr);
     }
   } else {
-    env->DeleteFile(tmp);
+    fs->DeleteFile(tmp, IOOptions(), nullptr);
   }
   return s;
 }
@@ -414,8 +419,8 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   return s;
 }
 
-Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
-                    WritableFileWriter* file) {
+IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
+                      WritableFileWriter* file) {
   TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
   StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
   return file->Sync(db_options->use_fsync);
@@ -453,4 +458,16 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   return Status::OK();
 }
 
-}  // namespace rocksdb
+std::string NormalizePath(const std::string& path) {
+  std::string dst;
+  for (auto c : path) {
+    if (!dst.empty() && c == kFilePathSeparator &&
+        dst.back() == kFilePathSeparator) {
+      continue;
+    }
+    dst.push_back(c);
+  }
+  return dst;
+}
+
+}  // namespace ROCKSDB_NAMESPACE

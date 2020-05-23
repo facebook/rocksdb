@@ -7,13 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <string.h>
-#include "util/coding.h"
 #include "util/hash.h"
-#include "util/util.h"
+#include <string.h>
+#include "port/lang.h"
+#include "util/coding.h"
 #include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   // MurmurHash1 - fast but mediocre quality
@@ -80,4 +80,4 @@ uint64_t Hash64(const char* data, size_t n) {
   return XXH3p_64bits(data, n);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

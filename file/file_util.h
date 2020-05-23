@@ -13,7 +13,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
 extern Status CopyFile(FileSystem* fs, const std::string& source,
@@ -30,4 +30,20 @@ extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
 
 extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
 
-}  // namespace rocksdb
+inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
+                                         IOOptions& opts) {
+  if (!env) {
+    env = Env::Default();
+  }
+
+  if (ro.deadline.count()) {
+    std::chrono::microseconds now = std::chrono::microseconds(env->NowMicros());
+    if (now > ro.deadline) {
+      return IOStatus::TimedOut("Deadline exceeded");
+    }
+    opts.timeout = ro.deadline - now;
+  }
+  return IOStatus::OK();
+}
+
+}  // namespace ROCKSDB_NAMESPACE

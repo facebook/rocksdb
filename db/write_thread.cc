@@ -12,7 +12,7 @@
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 WriteThread::WriteThread(const ImmutableDBOptions& db_options)
     : max_yield_usec_(db_options.enable_write_thread_adaptive_yield
@@ -61,7 +61,7 @@ uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
 
 uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
                                 AdaptationContext* ctx) {
-  uint8_t state;
+  uint8_t state = 0;
 
   // 1. Busy loop using "pause" for 1 micro sec
   // 2. Else SOMETIMES busy loop using "yield" for 100 micro sec (default)
@@ -464,7 +464,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     }
 
     if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      // dont batch writes that don't want to be batched
+      // don't batch writes that don't want to be batched
       break;
     }
 
@@ -774,4 +774,4 @@ void WriteThread::WaitForMemTableWriters() {
   newest_memtable_writer_.store(nullptr);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

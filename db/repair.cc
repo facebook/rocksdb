@@ -83,7 +83,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -424,6 +424,7 @@ class Repairer {
       }
 
       LegacyFileSystemWrapper fs(env_);
+      IOStatus io_s;
       status = BuildTable(
           dbname_, env_, &fs, *cfd->ioptions(),
           *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_,
@@ -432,7 +433,7 @@ class Repairer {
           cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber,
           snapshot_checker, kNoCompression, 0 /* sample_for_compression */,
           CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, nullptr /* event_logger */,
+          TableFileCreationReason::kRecovery, &io_s, nullptr /* event_logger */,
           0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
@@ -528,7 +529,8 @@ class Repairer {
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr);
+          /*largest_compaction_key=*/nullptr,
+          /*allow_unprepared_value=*/false);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -586,7 +588,8 @@ class Repairer {
             table->meta.largest, table->meta.fd.smallest_seqno,
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
             table->meta.oldest_blob_file_number,
-            table->meta.oldest_ancester_time, table->meta.file_creation_time);
+            table->meta.oldest_ancester_time, table->meta.file_creation_time,
+            table->meta.file_checksum, table->meta.file_checksum_func_name);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
@@ -671,10 +674,6 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 
 Status RepairDB(const std::string& dbname, const Options& options) {
   Options opts(options);
-  if (opts.file_system == nullptr) {
-    opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-    ;
-  }
 
   DBOptions db_options(opts);
   ColumnFamilyOptions cf_options(opts);
@@ -685,6 +684,6 @@ Status RepairDB(const std::string& dbname, const Options& options) {
   return repairer.Run();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

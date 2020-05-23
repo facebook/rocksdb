@@ -9,7 +9,7 @@
 #include "utilities/transactions/write_unprepared_txn.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteUnpreparedTransactionTestBase : public TransactionTestBase {
  public:
@@ -147,9 +147,6 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
   const uint32_t kNumThreads = 10;
   const uint32_t kNumKeys = 5;
 
-  std::default_random_engine rand(static_cast<uint32_t>(
-      std::hash<std::thread::id>()(std::this_thread::get_id())));
-
   // Test with
   // 1. no snapshots set
   // 2. snapshot set on ReadOptions
@@ -164,7 +161,7 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
   for (uint32_t k = 0; k < kNumKeys * kNumThreads; k++) {
     keys.push_back("k" + ToString(k));
   }
-  std::shuffle(keys.begin(), keys.end(), rand);
+  RandomShuffle(keys.begin(), keys.end());
 
   // This counter will act as a "sequence number" to help us validate
   // visibility logic with snapshots. If we had direct access to the seqno of
@@ -182,8 +179,8 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
     ReadOptions read_options;
 
     for (uint32_t i = 0; i < kNumIter; i++) {
-      std::set<std::string> owned_keys(&keys[id * kNumKeys],
-                                       &keys[(id + 1) * kNumKeys]);
+      std::set<std::string> owned_keys(keys.begin() + id * kNumKeys,
+                                       keys.begin() + (id + 1) * kNumKeys);
       // Add unowned keys to make the workload more interesting, but this
       // increases row lock contention, so just do it sometimes.
       if (rnd.OneIn(2)) {
@@ -659,7 +656,56 @@ TEST_P(WriteUnpreparedTransactionTest, SavePoint) {
   delete txn;
 }
 
-}  // namespace rocksdb
+TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  Transaction* txn = db->BeginTransaction(woptions, txn_options);
+  auto wb = txn->GetWriteBatch()->GetWriteBatch();
+  ASSERT_OK(txn->Put("a", "a"));
+  ASSERT_OK(wb->Put("a_untrack", "a_untrack"));
+  txn->SetSavePoint();
+  ASSERT_OK(txn->Put("b", "b"));
+  ASSERT_OK(txn->Put("b_untrack", "b_untrack"));
+
+  ReadOptions roptions;
+  std::string value;
+  ASSERT_OK(txn->Get(roptions, "a", &value));
+  ASSERT_EQ(value, "a");
+  ASSERT_OK(txn->Get(roptions, "a_untrack", &value));
+  ASSERT_EQ(value, "a_untrack");
+  ASSERT_OK(txn->Get(roptions, "b", &value));
+  ASSERT_EQ(value, "b");
+  ASSERT_OK(txn->Get(roptions, "b_untrack", &value));
+  ASSERT_EQ(value, "b_untrack");
+
+  // b and b_untrack should be rolled back.
+  ASSERT_OK(txn->RollbackToSavePoint());
+  ASSERT_OK(txn->Get(roptions, "a", &value));
+  ASSERT_EQ(value, "a");
+  ASSERT_OK(txn->Get(roptions, "a_untrack", &value));
+  ASSERT_EQ(value, "a_untrack");
+  auto s = txn->Get(roptions, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "b_untrack", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Everything should be rolled back.
+  ASSERT_OK(txn->Rollback());
+  s = txn->Get(roptions, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "a_untrack", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "b_untrack", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn;
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

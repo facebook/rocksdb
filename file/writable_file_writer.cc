@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "db/version_edit.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -19,15 +20,18 @@
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
-Status WritableFileWriter::Append(const Slice& data) {
+namespace ROCKSDB_NAMESPACE {
+IOStatus WritableFileWriter::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();
-  Status s;
+  IOStatus s;
   pending_sync_ = true;
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
+
+  // Calculate the checksum of appended data
+  UpdateFileChecksum(data);
 
   {
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
@@ -92,7 +96,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   return s;
 }
 
-Status WritableFileWriter::Pad(const size_t pad_bytes) {
+IOStatus WritableFileWriter::Pad(const size_t pad_bytes) {
   assert(pad_bytes < kDefaultPageSize);
   size_t left = pad_bytes;
   size_t cap = buf_.Capacity() - buf_.CurrentSize();
@@ -105,7 +109,7 @@ Status WritableFileWriter::Pad(const size_t pad_bytes) {
     buf_.PadWith(append_bytes, 0);
     left -= append_bytes;
     if (left > 0) {
-      Status s = Flush();
+      IOStatus s = Flush();
       if (!s.ok()) {
         return s;
       }
@@ -114,12 +118,12 @@ Status WritableFileWriter::Pad(const size_t pad_bytes) {
   }
   pending_sync_ = true;
   filesize_ += pad_bytes;
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status WritableFileWriter::Close() {
+IOStatus WritableFileWriter::Close() {
   // Do not quit immediately on failure the file MUST be closed
-  Status s;
+  IOStatus s;
 
   // Possible to close it twice now as we MUST close
   // in __dtor, simply flushing is not enough
@@ -131,7 +135,7 @@ Status WritableFileWriter::Close() {
 
   s = Flush();  // flush cache to OS
 
-  Status interim;
+  IOStatus interim;
   // In direct I/O mode we write whole pages so
   // we need to let the file know where data ends.
   if (use_direct_io()) {
@@ -153,13 +157,18 @@ Status WritableFileWriter::Close() {
   writable_file_.reset();
   TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
 
+  if (s.ok() && checksum_generator_ != nullptr && !checksum_finalized_) {
+    checksum_generator_->Finalize();
+    checksum_finalized_ = true;
+  }
+
   return s;
 }
 
 // write out the cached data to the OS cache or storage if direct I/O
 // enabled
-Status WritableFileWriter::Flush() {
-  Status s;
+IOStatus WritableFileWriter::Flush() {
+  IOStatus s;
   TEST_KILL_RANDOM("WritableFileWriter::Flush:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
 
@@ -214,8 +223,25 @@ Status WritableFileWriter::Flush() {
   return s;
 }
 
-Status WritableFileWriter::Sync(bool use_fsync) {
-  Status s = Flush();
+std::string WritableFileWriter::GetFileChecksum() {
+  if (checksum_generator_ != nullptr) {
+    assert(checksum_finalized_);
+    return checksum_generator_->GetChecksum();
+  } else {
+    return kUnknownFileChecksum;
+  }
+}
+
+const char* WritableFileWriter::GetFileChecksumFuncName() const {
+  if (checksum_generator_ != nullptr) {
+    return checksum_generator_->Name();
+  } else {
+    return kUnknownFileChecksumFuncName.c_str();
+  }
+}
+
+IOStatus WritableFileWriter::Sync(bool use_fsync) {
+  IOStatus s = Flush();
   if (!s.ok()) {
     return s;
   }
@@ -228,23 +254,23 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:1", rocksdb_kill_odds);
   pending_sync_ = false;
-  return Status::OK();
+  return IOStatus::OK();
 }
 
-Status WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
+IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
   if (!writable_file_->IsSyncThreadSafe()) {
-    return Status::NotSupported(
+    return IOStatus::NotSupported(
         "Can't WritableFileWriter::SyncWithoutFlush() because "
         "WritableFile::IsSyncThreadSafe() is false");
   }
   TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:1");
-  Status s = SyncInternal(use_fsync);
+  IOStatus s = SyncInternal(use_fsync);
   TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:2");
   return s;
 }
 
-Status WritableFileWriter::SyncInternal(bool use_fsync) {
-  Status s;
+IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
+  IOStatus s;
   IOSTATS_TIMER_GUARD(fsync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
   auto prev_perf_level = GetPerfLevel();
@@ -258,7 +284,7 @@ Status WritableFileWriter::SyncInternal(bool use_fsync) {
   return s;
 }
 
-Status WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
+IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   IOSTATS_TIMER_GUARD(range_sync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
   return writable_file_->RangeSync(offset, nbytes, IOOptions(), nullptr);
@@ -266,8 +292,8 @@ Status WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
 
 // This method writes to disk the specified data and makes use of the rate
 // limiter if available
-Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
-  Status s;
+IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
+  IOStatus s;
   assert(!use_direct_io());
   const char* src = data;
   size_t left = size;
@@ -321,6 +347,12 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   return s;
 }
 
+void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
+  if (checksum_generator_ != nullptr) {
+    checksum_generator_->Update(data.data(), data.size());
+  }
+}
+
 // This flushes the accumulated data in the buffer. We pad data with zeros if
 // necessary to the whole page.
 // However, during automatic flushes padding would not be necessary.
@@ -330,9 +362,9 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 // only write on aligned
 // offsets.
 #ifndef ROCKSDB_LITE
-Status WritableFileWriter::WriteDirect() {
+IOStatus WritableFileWriter::WriteDirect() {
   assert(use_direct_io());
-  Status s;
+  IOStatus s;
   const size_t alignment = buf_.Alignment();
   assert((next_write_offset_ % alignment) == 0);
 
@@ -404,4 +436,4 @@ Status WritableFileWriter::WriteDirect() {
   return s;
 }
 #endif  // !ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

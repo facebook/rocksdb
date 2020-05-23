@@ -12,8 +12,9 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/sst_file_manager.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
@@ -40,6 +41,7 @@ StressTest::StressTest()
     }
 
     Options options;
+    options.env = db_stress_env;
     // Remove files without preserving manfiest files
 #ifndef ROCKSDB_LITE
     const Status s = !FLAGS_use_blob_db
@@ -500,6 +502,12 @@ void StressTest::OperateDb(ThreadState* thread) {
   const int delRangeBound = delBound + static_cast<int>(FLAGS_delrangepercent);
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
+#ifndef NDEBUG
+  if (FLAGS_read_fault_one_in) {
+    fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
+                                            FLAGS_read_fault_one_in);
+  }
+#endif // NDEBUG
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
     if (thread->shared->HasVerificationFailedYet() ||
@@ -591,13 +599,28 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
 #ifndef ROCKSDB_LITE
-      // Every 1 in N verify the one of the following: 1) GetLiveFiles
-      // 2) GetSortedWalFiles 3) GetCurrentWalFile. Each time, randomly select
-      // one of them to run the test.
-      if (thread->rand.OneInOpt(FLAGS_get_live_files_and_wal_files_one_in)) {
-        Status status = VerifyGetLiveAndWalFiles(thread);
+      // Verify GetLiveFiles with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in)) {
+        Status status = VerifyGetLiveFiles();
         if (!status.ok()) {
-          VerificationAbort(shared, "VerifyGetLiveAndWalFiles status not OK",
+          VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
+        }
+      }
+
+      // Verify GetSortedWalFiles with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_sorted_wal_files_one_in)) {
+        Status status = VerifyGetSortedWalFiles();
+        if (!status.ok()) {
+          VerificationAbort(shared, "VerifyGetSortedWalFiles status not OK",
+                            status);
+        }
+      }
+
+      // Verify GetCurrentWalFile with a 1 in N chance.
+      if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
+        Status status = VerifyGetCurrentWalFile();
+        if (!status.ok()) {
+          VerificationAbort(shared, "VerifyGetCurrentWalFile status not OK",
                             status);
         }
       }
@@ -771,7 +794,7 @@ std::vector<std::string> StressTest::GetWhiteBoxKeys(ThreadState* thread,
           k[i] = static_cast<char>(cur - 1);
           break;
         } else if (i > 0) {
-          k[i] = static_cast<char>(0xFF);
+          k[i] = 0xFFu;
         }
       }
     } else if (thread->rand.OneIn(2)) {
@@ -803,9 +826,17 @@ Status StressTest::TestIterate(ThreadState* thread,
   ReadOptions readoptionscopy = read_opts;
   readoptionscopy.snapshot = snapshot;
 
+  bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
     // When prefix extractor is used, it's useful to cover total order seek.
     readoptionscopy.total_order_seek = true;
+    expect_total_order = true;
+  } else if (thread->rand.OneIn(4)) {
+    readoptionscopy.total_order_seek = false;
+    readoptionscopy.auto_prefix_mode = true;
+    expect_total_order = true;
+  } else if (options_.prefix_extractor.get() == nullptr) {
+    expect_total_order = true;
   }
 
   std::string upper_bound_str;
@@ -879,6 +910,8 @@ Status StressTest::TestIterate(ThreadState* thread,
     // Record some options to op_logs;
     op_logs += "total_order_seek: ";
     op_logs += (readoptionscopy.total_order_seek ? "1 " : "0 ");
+    op_logs += "auto_prefix_mode: ";
+    op_logs += (readoptionscopy.auto_prefix_mode ? "1 " : "0 ");
     if (readoptionscopy.iterate_upper_bound != nullptr) {
       op_logs += "ub: " + upper_bound.ToString(true) + " ";
     }
@@ -899,9 +932,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     std::unique_ptr<Iterator> cmp_iter(db_->NewIterator(cmp_ro, cmp_cfh));
     bool diverged = false;
 
-    bool support_seek_first_or_last =
-        (options_.prefix_extractor.get() != nullptr) ||
-        readoptionscopy.total_order_seek;
+    bool support_seek_first_or_last = expect_total_order;
 
     LastIterateOp last_op;
     if (support_seek_first_or_last && thread->rand.OneIn(100)) {
@@ -929,8 +960,7 @@ Status StressTest::TestIterate(ThreadState* thread,
                    last_op, key, op_logs, &diverged);
 
     bool no_reverse =
-        (FLAGS_memtablerep == "prefix_hash" && !read_opts.total_order_seek &&
-         options_.prefix_extractor.get() != nullptr);
+        (FLAGS_memtablerep == "prefix_hash" && !expect_total_order);
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
       if (no_reverse || thread->rand.OneIn(2)) {
         iter->Next();
@@ -969,28 +999,23 @@ Status StressTest::TestIterate(ThreadState* thread,
 }
 
 #ifndef ROCKSDB_LITE
-// Test the return status of GetLiveFiles, GetSortedWalFiles, and
-// GetCurrentWalFile. Each time, randomly select one of them to run
-// and return the status.
-Status StressTest::VerifyGetLiveAndWalFiles(ThreadState* thread) {
-  int case_num = thread->rand.Uniform(3);
-  if (case_num == 0) {
-    std::vector<std::string> live_file;
-    uint64_t manifest_size;
-    return db_->GetLiveFiles(live_file, &manifest_size);
-  }
+// Test the return status of GetLiveFiles.
+Status StressTest::VerifyGetLiveFiles() const {
+  std::vector<std::string> live_file;
+  uint64_t manifest_size = 0;
+  return db_->GetLiveFiles(live_file, &manifest_size);
+}
 
-  if (case_num == 1) {
-    VectorLogPtr log_ptr;
-    return db_->GetSortedWalFiles(log_ptr);
-  }
+// Test the return status of GetSortedWalFiles.
+Status StressTest::VerifyGetSortedWalFiles() const {
+  VectorLogPtr log_ptr;
+  return db_->GetSortedWalFiles(log_ptr);
+}
 
-  if (case_num == 2) {
-    std::unique_ptr<LogFile> cur_wal_file;
-    return db_->GetCurrentWalFile(&cur_wal_file);
-  }
-  assert(false);
-  return Status::Corruption("Undefined case happens!");
+// Test the return status of GetCurrentWalFile.
+Status StressTest::VerifyGetCurrentWalFile() const {
+  std::unique_ptr<LogFile> cur_wal_file;
+  return db_->GetCurrentWalFile(&cur_wal_file);
 }
 #endif  // !ROCKSDB_LITE
 
@@ -1040,8 +1065,9 @@ void StressTest::VerifyIterator(ThreadState* thread,
     return;
   }
 
-  const SliceTransform* pe =
-      ro.total_order_seek ? nullptr : options_.prefix_extractor.get();
+  const SliceTransform* pe = (ro.total_order_seek || ro.auto_prefix_mode)
+                                 ? nullptr
+                                 : options_.prefix_extractor.get();
   const Comparator* cmp = options_.comparator;
 
   if (iter->Valid() && !cmp_iter->Valid()) {
@@ -1368,7 +1394,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
 void StressTest::TestCompactFiles(ThreadState* thread,
                                   ColumnFamilyHandle* column_family) {
-  rocksdb::ColumnFamilyMetaData cf_meta_data;
+  ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
   db_->GetColumnFamilyMetaData(column_family, &cf_meta_data);
 
   // Randomly compact up to three consecutive files from a level
@@ -1542,7 +1568,7 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
 
   const Snapshot* pre_snapshot = nullptr;
-  uint32_t pre_hash;
+  uint32_t pre_hash = 0;
   if (thread->rand.OneIn(2)) {
     // Do some validation by declaring a snapshot and compare the data before
     // and after the compaction
@@ -1701,6 +1727,8 @@ void StressTest::PrintEnv() const {
           FLAGS_max_write_batch_group_size_bytes);
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
+  fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
+  fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -1743,7 +1771,7 @@ void StressTest::Open() {
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
-        static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
+        static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
     if (FLAGS_prefix_size >= 0) {
       options_.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -1775,6 +1803,8 @@ void StressTest::Open() {
     options_.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options_.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    options_.compression_opts.parallel_threads =
+        FLAGS_compression_parallel_threads;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options_.inplace_update_support = FLAGS_in_place_update;
@@ -1798,6 +1828,7 @@ void StressTest::Open() {
     options_.avoid_unnecessary_blocking_io =
         FLAGS_avoid_unnecessary_blocking_io;
     options_.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+    options_.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
     options_.max_write_batch_group_size_bytes =
         FLAGS_max_write_batch_group_size_bytes;
     options_.level_compaction_dynamic_level_bytes =
@@ -1829,6 +1860,21 @@ void StressTest::Open() {
                                   : RateLimiter::Mode::kWritesOnly));
     if (FLAGS_rate_limit_bg_reads) {
       options_.new_table_reader_for_compaction_inputs = true;
+    }
+  }
+  if (FLAGS_sst_file_manager_bytes_per_sec > 0 ||
+      FLAGS_sst_file_manager_bytes_per_truncate > 0) {
+    Status status;
+    options_.sst_file_manager.reset(NewSstFileManager(
+        db_stress_env, options_.info_log, "" /* trash_dir */,
+        static_cast<int64_t>(FLAGS_sst_file_manager_bytes_per_sec),
+        true /* delete_existing_trash */, &status,
+        0.25 /* max_trash_db_ratio */,
+        FLAGS_sst_file_manager_bytes_per_truncate));
+    if (!status.ok()) {
+      fprintf(stderr, "SstFileManager creation failed: %s\n",
+              status.ToString().c_str());
+      exit(1);
     }
   }
 
@@ -2065,12 +2111,19 @@ void StressTest::Open() {
 
 void StressTest::Reopen(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
+  // BG jobs in WritePrepared must be canceled first because i) they can access
+  // the db via a callbac ii) they hold on to a snapshot and the upcoming
+  // ::Close would complain about it.
+  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
   bool bg_canceled = false;
-  if (thread->rand.OneIn(2)) {
-    const bool wait = static_cast<bool>(thread->rand.OneIn(2));
+  if (write_prepared || thread->rand.OneIn(2)) {
+    const bool wait =
+        write_prepared || static_cast<bool>(thread->rand.OneIn(2));
     CancelAllBackgroundWork(db_, wait);
     bg_canceled = wait;
   }
+  assert(!write_prepared || bg_canceled);
+  (void) bg_canceled;
 #else
   (void) thread;
 #endif
@@ -2081,9 +2134,7 @@ void StressTest::Reopen(ThreadState* thread) {
   column_families_.clear();
 
 #ifndef ROCKSDB_LITE
-  // BG jobs in WritePrepared hold on to a snapshot
-  const bool write_prepared = FLAGS_use_txn && FLAGS_txn_write_policy != 0;
-  if (thread->rand.OneIn(2) && (!write_prepared || bg_canceled)) {
+  if (thread->rand.OneIn(2)) {
     Status s = db_->Close();
     if (!s.ok()) {
       fprintf(stderr, "Non-ok close status: %s\n", s.ToString().c_str());
@@ -2116,5 +2167,5 @@ void StressTest::Reopen(ThreadState* thread) {
           num_times_reopened_);
   Open();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

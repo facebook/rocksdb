@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
@@ -31,7 +31,7 @@
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 class BlobDBTest : public testing::Test {
@@ -595,7 +595,7 @@ TEST_F(BlobDBTest, SstFileManager) {
   Options db_options;
 
   int files_scheduled_to_delete = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SstFileManagerImpl::ScheduleFileDeletion", [&](void *arg) {
         assert(arg);
         const std::string *const file_path =
@@ -629,7 +629,7 @@ TEST_F(BlobDBTest, SstFileManager) {
 
 TEST_F(BlobDBTest, SstFileManagerRestart) {
   int files_scheduled_to_delete = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SstFileManagerImpl::ScheduleFileDeletion", [&](void *arg) {
         assert(arg);
         const std::string *const file_path =
@@ -1371,6 +1371,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   Options options;
   options.env = mock_env_.get();
+  options.statistics = CreateDBStatistics();
 
   Open(bdb_options, options);
 
@@ -1504,6 +1505,17 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDBBlobIndex(blob_index_versions);
 
+  const Statistics *const statistics = options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED),
+            cutoff * kBlobsPerFile);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED),
+            cutoff * kBlobsPerFile * kLargeValueSize);
+
   // At this point, we should have 128 immutable non-TTL files with file numbers
   // 33..128 and 130..161. (129 was taken by the TTL blob file.)
   {
@@ -1520,6 +1532,47 @@ TEST_F(BlobDBTest, GarbageCollection) {
                 kBlobFileSize + BlobLogFooter::kSize);
     }
   }
+}
+
+TEST_F(BlobDBTest, GarbageCollectionFailure) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
+  bdb_options.disable_background_tasks = true;
+
+  Options db_options;
+  db_options.statistics = CreateDBStatistics();
+
+  Open(bdb_options, db_options);
+
+  // Write a couple of valid blobs.
+  Put("foo", "bar");
+  Put("dead", "beef");
+
+  // Write a fake blob reference into the base DB that cannot be parsed.
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(
+      &batch, blob_db_->DefaultColumnFamily()->GetID(), "key",
+      "not a valid blob index"));
+  ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+  auto blob_file = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+
+  ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsCorruption());
+
+  const Statistics *const statistics = db_options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED), 2);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED), 7);
 }
 
 // File should be evicted after expiration.
@@ -1872,7 +1925,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
       {"BlobDBTest.ShutdownWait:3", "BlobDBImpl::EvictExpiredFiles:3"},
   });
   // Force all tasks to be scheduled immediately.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TimeQueue::Add:item.end", [&](void *arg) {
         std::chrono::steady_clock::time_point *tp =
             static_cast<std::chrono::steady_clock::time_point *>(arg);
@@ -1880,7 +1933,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
             std::chrono::steady_clock::now() - std::chrono::milliseconds(10000);
       });
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlobDBImpl::EvictExpiredFiles:cb", [&](void * /*arg*/) {
         // Sleep 3 ms to increase the chance of data race.
         // We've synced up the code so that EvictExpiredFiles()
@@ -1920,7 +1973,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
 }
 
 }  //  namespace blob_db
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the ttl wrapper around rocksdb
 int main(int argc, char** argv) {

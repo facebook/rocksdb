@@ -14,7 +14,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct EnvOptions;
 
@@ -184,8 +184,8 @@ class PlainTableFactory : public TableFactory {
 
   void* GetOptions() override { return &table_options_; }
 
-  Status GetOptionString(std::string* /*opt_string*/,
-                         const std::string& /*delimiter*/) const override {
+  Status GetOptionString(const ConfigOptions& /*config_options*/,
+                         std::string* /*opt_string*/) const override {
     return Status::OK();
   }
 
@@ -193,31 +193,6 @@ class PlainTableFactory : public TableFactory {
   PlainTableOptions table_options_;
 };
 
-static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
-    {"user_key_len",
-     {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
-      OptionVerificationType::kNormal, false, 0}},
-    {"bloom_bits_per_key",
-     {offsetof(struct PlainTableOptions, bloom_bits_per_key), OptionType::kInt,
-      OptionVerificationType::kNormal, false, 0}},
-    {"hash_table_ratio",
-     {offsetof(struct PlainTableOptions, hash_table_ratio), OptionType::kDouble,
-      OptionVerificationType::kNormal, false, 0}},
-    {"index_sparseness",
-     {offsetof(struct PlainTableOptions, index_sparseness), OptionType::kSizeT,
-      OptionVerificationType::kNormal, false, 0}},
-    {"huge_page_tlb_size",
-     {offsetof(struct PlainTableOptions, huge_page_tlb_size),
-      OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
-    {"encoding_type",
-     {offsetof(struct PlainTableOptions, encoding_type),
-      OptionType::kEncodingType, OptionVerificationType::kByName, false, 0}},
-    {"full_scan_mode",
-     {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
-      OptionVerificationType::kNormal, false, 0}},
-    {"store_index_in_file",
-     {offsetof(struct PlainTableOptions, store_index_in_file),
-      OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

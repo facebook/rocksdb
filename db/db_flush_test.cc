@@ -18,7 +18,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBFlushTest : public DBTestBase {
  public:
@@ -741,15 +741,44 @@ TEST_P(DBAtomicFlushTest, CFDropRaceWithWaitForFlushMemTables) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
+  bool atomic_flush = GetParam();
+  if (!atomic_flush) {
+    return;
+  }
+  auto fault_injection_env = std::make_shared<FaultInjectionTestEnv>(env_);
+  Options options = CurrentOptions();
+  options.env = fault_injection_env.get();
+  options.create_if_missing = true;
+  options.atomic_flush = atomic_flush;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    ASSERT_OK(Put(static_cast<int>(cf), "a", "value"));
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+      [&](void* /*arg*/) { fault_injection_env->SetFilesystemActive(false); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  FlushOptions flush_opts;
+  Status s = db_->Flush(flush_opts, handles_);
+  ASSERT_NOK(s);
+  fault_injection_env->SetFilesystemActive(true);
+  Close();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
 INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

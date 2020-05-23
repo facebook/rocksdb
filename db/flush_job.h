@@ -43,7 +43,7 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImpl;
 class MemTable;
@@ -67,9 +67,10 @@ class FlushJob {
            std::vector<SequenceNumber> existing_snapshots,
            SequenceNumber earliest_write_conflict_snapshot,
            SnapshotChecker* snapshot_checker, JobContext* job_context,
-           LogBuffer* log_buffer, Directory* db_directory,
-           Directory* output_file_directory, CompressionType output_compression,
-           Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+           LogBuffer* log_buffer, FSDirectory* db_directory,
+           FSDirectory* output_file_directory,
+           CompressionType output_compression, Statistics* stats,
+           EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri);
 
@@ -88,6 +89,9 @@ class FlushJob {
     return &committed_flush_jobs_info_;
   }
 #endif  // !ROCKSDB_LITE
+
+  // Return the IO status
+  IOStatus io_status() const { return io_status_; }
 
  private:
   void ReportStartedFlush();
@@ -117,8 +121,8 @@ class FlushJob {
   SnapshotChecker* snapshot_checker_;
   JobContext* job_context_;
   LogBuffer* log_buffer_;
-  Directory* db_directory_;
-  Directory* output_file_directory_;
+  FSDirectory* db_directory_;
+  FSDirectory* output_file_directory_;
   CompressionType output_compression_;
   Statistics* stats_;
   EventLogger* event_logger_;
@@ -153,6 +157,7 @@ class FlushJob {
   Version* base_;
   bool pick_memtable_called;
   Env::Priority thread_pri_;
+  IOStatus io_status_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

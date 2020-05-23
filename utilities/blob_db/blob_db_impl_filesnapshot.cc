@@ -13,7 +13,7 @@
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 Status BlobDBImpl::DisableFileDeletions() {
@@ -32,7 +32,7 @@ Status BlobDBImpl::DisableFileDeletions() {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log,
-                 "Disalbed blob file deletions. count: %d", count);
+                 "Disabled blob file deletions. count: %d", count);
   return Status::OK();
 }
 
@@ -105,5 +105,5 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

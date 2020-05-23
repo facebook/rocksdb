@@ -24,12 +24,12 @@
 #include "utilities/transactions/write_prepared_txn_db.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 PessimisticTransactionDB::PessimisticTransactionDB(
     DB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(static_cast_with_check<DBImpl, DB>(db)),
+      db_impl_(static_cast_with_check<DBImpl>(db)),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.max_num_deadlocks,
@@ -60,7 +60,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
 PessimisticTransactionDB::PessimisticTransactionDB(
     StackableDB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(static_cast_with_check<DBImpl, DB>(db->GetRootDB())),
+      db_impl_(static_cast_with_check<DBImpl>(db->GetRootDB())),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.max_num_deadlocks,
@@ -113,7 +113,7 @@ Status PessimisticTransactionDB::Initialize(
   Status s = EnableAutoCompaction(compaction_enabled_cf_handles);
 
   // create 'real' transactions from recovered shell transactions
-  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl>(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtrxs = dbimpl->recovered_transactions();
 
@@ -569,8 +569,7 @@ bool PessimisticTransactionDB::TryStealingExpiredTransactionLocks(
 void PessimisticTransactionDB::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  auto txn_impl =
-      static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
@@ -628,5 +627,5 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   transactions_.erase(it);
 }
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

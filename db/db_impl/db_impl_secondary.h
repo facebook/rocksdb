@@ -11,7 +11,7 @@
 #include <vector>
 #include "db/db_impl/db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A wrapper class to hold log reader, log reporter, log status.
 class LogReaderContainer {
@@ -78,7 +78,8 @@ class DBImplSecondary : public DBImpl {
   // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_log_file_exist,
-                 bool error_if_data_exists_in_logs) override;
+                 bool error_if_data_exists_in_logs,
+                 uint64_t* = nullptr) override;
 
   // Implementations of the DB interface
   using DB::Get;
@@ -327,6 +328,6 @@ class DBImplSecondary : public DBImpl {
   std::unordered_map<ColumnFamilyData*, uint64_t> cfd_to_current_log_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

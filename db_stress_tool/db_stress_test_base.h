@@ -12,7 +12,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Transaction;
 class TransactionDB;
 
@@ -184,7 +184,10 @@ class StressTest {
 
   Status MaybeReleaseSnapshots(ThreadState* thread, uint64_t i);
 #ifndef ROCKSDB_LITE
-  Status VerifyGetLiveAndWalFiles(ThreadState* thread);
+  Status VerifyGetLiveFiles() const;
+  Status VerifyGetSortedWalFiles() const;
+  Status VerifyGetCurrentWalFile() const;
+
   virtual Status TestApproximateSize(
       ThreadState* thread, uint64_t iteration,
       const std::vector<int>& rand_column_families,
@@ -227,5 +230,5 @@ class StressTest {
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

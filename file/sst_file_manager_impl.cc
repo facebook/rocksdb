@@ -16,7 +16,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
@@ -316,8 +316,8 @@ void SstFileManagerImpl::ClearError() {
       // since the ErrorHandler::recovery_in_prog_ flag would be true
       cur_instance_ = error_handler;
       mu_.Unlock();
-      TEST_SYNC_POINT("SstFileManagerImpl::ClearError");
       s = error_handler->RecoverFromBGError();
+      TEST_SYNC_POINT("SstFileManagerImpl::ErrorCleared");
       mu_.Lock();
       // The DB instance might have been deleted while we were
       // waiting for the mutex, so check cur_instance_ to make sure its
@@ -555,4 +555,4 @@ SstFileManager* NewSstFileManager(Env* /*env*/,
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

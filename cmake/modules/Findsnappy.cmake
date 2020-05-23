@@ -1,29 +1,29 @@
 # - Find Snappy
 # Find the snappy compression library and includes
 #
-# snappy_INCLUDE_DIRS - where to find snappy.h, etc.
-# snappy_LIBRARIES - List of libraries when using snappy.
-# snappy_FOUND - True if snappy found.
+# Snappy_INCLUDE_DIRS - where to find snappy.h, etc.
+# Snappy_LIBRARIES - List of libraries when using snappy.
+# Snappy_FOUND - True if snappy found.
 
-find_path(snappy_INCLUDE_DIRS
+find_path(Snappy_INCLUDE_DIRS
   NAMES snappy.h
   HINTS ${snappy_ROOT_DIR}/include)
 
-find_library(snappy_LIBRARIES
+find_library(Snappy_LIBRARIES
   NAMES snappy
   HINTS ${snappy_ROOT_DIR}/lib)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(snappy DEFAULT_MSG snappy_LIBRARIES snappy_INCLUDE_DIRS)
+find_package_handle_standard_args(Snappy DEFAULT_MSG Snappy_LIBRARIES Snappy_INCLUDE_DIRS)
 
 mark_as_advanced(
-  snappy_LIBRARIES
-  snappy_INCLUDE_DIRS)
+  Snappy_LIBRARIES
+  Snappy_INCLUDE_DIRS)
 
-if(snappy_FOUND AND NOT (TARGET snappy::snappy))
-  add_library (snappy::snappy UNKNOWN IMPORTED)
-  set_target_properties(snappy::snappy
+if(Snappy_FOUND AND NOT (TARGET Snappy::snappy))
+  add_library (Snappy::snappy UNKNOWN IMPORTED)
+  set_target_properties(Snappy::snappy
     PROPERTIES
-      IMPORTED_LOCATION ${snappy_LIBRARIES}
-      INTERFACE_INCLUDE_DIRECTORIES ${snappy_INCLUDE_DIRS})
+      IMPORTED_LOCATION ${Snappy_LIBRARIES}
+      INTERFACE_INCLUDE_DIRECTORIES ${Snappy_INCLUDE_DIRS})
 endif()

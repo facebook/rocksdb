@@ -21,7 +21,7 @@
 #include <cstring>
 #include "status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class IOStatus : public Status {
  public:
@@ -170,6 +170,9 @@ inline IOStatus::IOStatus(Code _code, SubCode _subcode, const Slice& msg,
 }
 
 inline IOStatus::IOStatus(const IOStatus& s) : Status(s.code_, s.subcode_) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  s.checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   retryable_ = s.retryable_;
   data_loss_ = s.data_loss_;
   scope_ = s.scope_;
@@ -179,6 +182,10 @@ inline IOStatus& IOStatus::operator=(const IOStatus& s) {
   // The following condition catches both aliasing (when this == &s),
   // and the common case where both s and *this are ok.
   if (this != &s) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    s.checked_ = true;
+    checked_ = false;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     code_ = s.code_;
     subcode_ = s.subcode_;
     retryable_ = s.retryable_;
@@ -204,16 +211,18 @@ inline IOStatus& IOStatus::operator=(IOStatus&& s)
 #endif
 {
   if (this != &s) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    s.checked_ = true;
+    checked_ = false;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     code_ = std::move(s.code_);
     s.code_ = kOk;
     subcode_ = std::move(s.subcode_);
     s.subcode_ = kNone;
     retryable_ = s.retryable_;
-    retryable_ = false;
     data_loss_ = s.data_loss_;
-    data_loss_ = false;
     scope_ = s.scope_;
-    scope_ = kIOErrorScopeFileSystem;
+    s.scope_ = kIOErrorScopeFileSystem;
     delete[] state_;
     state_ = nullptr;
     std::swap(state_, s.state_);
@@ -222,11 +231,34 @@ inline IOStatus& IOStatus::operator=(IOStatus&& s)
 }
 
 inline bool IOStatus::operator==(const IOStatus& rhs) const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  checked_ = true;
+  rhs.checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   return (code_ == rhs.code_);
 }
 
 inline bool IOStatus::operator!=(const IOStatus& rhs) const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  checked_ = true;
+  rhs.checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   return !(*this == rhs);
 }
 
-}  // namespace rocksdb
+inline IOStatus status_to_io_status(Status&& status) {
+  if (status.ok()) {
+    // Fast path
+    return IOStatus::OK();
+  } else {
+    const char* state = status.getState();
+    if (state) {
+      return IOStatus(status.code(), status.subcode(),
+                      Slice(state, strlen(status.getState()) + 1), Slice());
+    } else {
+      return IOStatus(status.code(), status.subcode());
+    }
+  }
+}
+
+}  // namespace ROCKSDB_NAMESPACE

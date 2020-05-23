@@ -17,82 +17,87 @@
 #include "port/port.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemFile;
 class MockEnv : public EnvWrapper {
  public:
   explicit MockEnv(Env* base_env);
 
-  virtual ~MockEnv();
+  ~MockEnv() override;
 
   // Partial implementation of the Env interface.
-  virtual Status NewSequentialFile(const std::string& fname,
-                                   std::unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& soptions) override;
+  Status RegisterDbPaths(const std::vector<std::string>& /*paths*/) override {
+    return Status::OK();
+  }
 
-  virtual Status NewRandomAccessFile(const std::string& fname,
-                                     std::unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& soptions) override;
+  Status UnregisterDbPaths(const std::vector<std::string>& /*paths*/) override {
+    return Status::OK();
+  }
 
-  virtual Status NewRandomRWFile(const std::string& fname,
-                                 std::unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options) override;
+  Status NewSequentialFile(const std::string& fname,
+                           std::unique_ptr<SequentialFile>* result,
+                           const EnvOptions& soptions) override;
 
-  virtual Status ReuseWritableFile(const std::string& fname,
-                                   const std::string& old_fname,
-                                   std::unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options) override;
+  Status NewRandomAccessFile(const std::string& fname,
+                             std::unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& soptions) override;
 
-  virtual Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& env_options) override;
+  Status NewRandomRWFile(const std::string& fname,
+                         std::unique_ptr<RandomRWFile>* result,
+                         const EnvOptions& options) override;
 
-  virtual Status NewDirectory(const std::string& name,
-                              std::unique_ptr<Directory>* result) override;
+  Status ReuseWritableFile(const std::string& fname,
+                           const std::string& old_fname,
+                           std::unique_ptr<WritableFile>* result,
+                           const EnvOptions& options) override;
 
-  virtual Status FileExists(const std::string& fname) override;
+  Status NewWritableFile(const std::string& fname,
+                         std::unique_ptr<WritableFile>* result,
+                         const EnvOptions& env_options) override;
 
-  virtual Status GetChildren(const std::string& dir,
-                             std::vector<std::string>* result) override;
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override;
+
+  Status FileExists(const std::string& fname) override;
+
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* result) override;
 
   void DeleteFileInternal(const std::string& fname);
 
-  virtual Status DeleteFile(const std::string& fname) override;
+  Status DeleteFile(const std::string& fname) override;
 
-  virtual Status Truncate(const std::string& fname, size_t size) override;
+  Status Truncate(const std::string& fname, size_t size) override;
 
-  virtual Status CreateDir(const std::string& dirname) override;
+  Status CreateDir(const std::string& dirname) override;
 
-  virtual Status CreateDirIfMissing(const std::string& dirname) override;
+  Status CreateDirIfMissing(const std::string& dirname) override;
 
-  virtual Status DeleteDir(const std::string& dirname) override;
+  Status DeleteDir(const std::string& dirname) override;
 
-  virtual Status GetFileSize(const std::string& fname,
-                             uint64_t* file_size) override;
+  Status GetFileSize(const std::string& fname, uint64_t* file_size) override;
 
-  virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* time) override;
+  Status GetFileModificationTime(const std::string& fname,
+                                 uint64_t* time) override;
 
-  virtual Status RenameFile(const std::string& src,
-                            const std::string& target) override;
+  Status RenameFile(const std::string& src, const std::string& target) override;
 
-  virtual Status LinkFile(const std::string& src,
-                          const std::string& target) override;
+  Status LinkFile(const std::string& src, const std::string& target) override;
 
-  virtual Status NewLogger(const std::string& fname,
-                           std::shared_ptr<Logger>* result) override;
+  Status NewLogger(const std::string& fname,
+                   std::shared_ptr<Logger>* result) override;
 
-  virtual Status LockFile(const std::string& fname, FileLock** flock) override;
+  Status LockFile(const std::string& fname, FileLock** flock) override;
 
-  virtual Status UnlockFile(FileLock* flock) override;
+  Status UnlockFile(FileLock* flock) override;
 
-  virtual Status GetTestDirectory(std::string* path) override;
+  Status GetTestDirectory(std::string* path) override;
 
   // Results of these can be affected by FakeSleepForMicroseconds()
-  virtual Status GetCurrentTime(int64_t* unix_time) override;
-  virtual uint64_t NowMicros() override;
-  virtual uint64_t NowNanos() override;
+  Status GetCurrentTime(int64_t* unix_time) override;
+  uint64_t NowMicros() override;
+  uint64_t NowNanos() override;
 
   Status CorruptBuffer(const std::string& fname);
 
@@ -101,8 +106,6 @@ class MockEnv : public EnvWrapper {
   void FakeSleepForMicroseconds(int64_t micros);
 
  private:
-  std::string NormalizePath(const std::string path);
-
   // Map from filenames to MemFile objects, representing a simple file system.
   typedef std::map<std::string, MemFile*> FileSystem;
   port::Mutex mutex_;
@@ -111,4 +114,4 @@ class MockEnv : public EnvWrapper {
   std::atomic<int64_t> fake_sleep_micros_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -1,9 +1,13 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
+  cache/cache.cc                                                \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
+  db/blob/blob_file_addition.cc                                 \
+  db/blob/blob_file_garbage.cc                                  \
+  db/blob/blob_file_meta.cc                                     \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -29,7 +33,7 @@ LIB_SOURCES =                                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
-  db/error_handler.cc						\
+  db/error_handler.cc						                                \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
@@ -57,6 +61,7 @@ LIB_SOURCES =                                                   \
   db/trim_history_scheduler.cc                                  \
   db/version_builder.cc                                         \
   db/version_edit.cc                                            \
+  db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
   db/wal_manager.cc                                             \
   db/write_batch.cc                                             \
@@ -69,7 +74,7 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
-  env/fs_posix.cc                                           	\
+  env/fs_posix.cc                                           	  \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -88,6 +93,7 @@ LIB_SOURCES =                                                   \
   memory/arena.cc                                               \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
+  memory/memkind_kmem_allocator.cc                              \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -113,28 +119,35 @@ LIB_SOURCES =                                                   \
   options/options.cc                                            \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
-  options/options_sanity_check.cc                               \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
+  table/block_based/binary_search_index_reader.cc               \
   table/block_based/block.cc                                    \
   table/block_based/block_based_filter_block.cc                 \
   table/block_based/block_based_table_builder.cc                \
   table/block_based/block_based_table_factory.cc                \
+  table/block_based/block_based_table_iterator.cc               \
   table/block_based/block_based_table_reader.cc                 \
   table/block_based/block_builder.cc                            \
+  table/block_based/block_prefetcher.cc                         \
   table/block_based/block_prefix_index.cc                       \
   table/block_based/data_block_hash_index.cc                    \
   table/block_based/data_block_footer.cc                        \
   table/block_based/filter_block_reader_common.cc               \
-  table/block_based/filter_policy.cc                                                 \
+  table/block_based/filter_policy.cc                            \
   table/block_based/flush_block_policy.cc                       \
   table/block_based/full_filter_block.cc                        \
+  table/block_based/hash_index_reader.cc                        \
   table/block_based/index_builder.cc                            \
+  table/block_based/index_reader_common.cc                      \
   table/block_based/parsed_full_filter_block.cc                 \
   table/block_based/partitioned_filter_block.cc                 \
+  table/block_based/partitioned_index_iterator.cc               \
+  table/block_based/partitioned_index_reader.cc                 \
+  table/block_based/reader_common.cc                            \
   table/block_based/uncompression_dict_reader.cc                \
-  table/block_fetcher.cc                             		\
+  table/block_fetcher.cc                             		        \
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -173,6 +186,7 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
+  util/file_checksum_helper.cc      				\
   util/status.cc                                                \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
@@ -200,7 +214,7 @@ LIB_SOURCES =                                                   \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
-  utilities/merge_operators/sortlist.cc                  		\
+  utilities/merge_operators/sortlist.cc                  		    \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
@@ -233,21 +247,6 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
-  cloud/aws/aws_env.cc                                          \
-  cloud/aws/aws_kafka.cc                                        \
-  cloud/aws/aws_kinesis.cc                                      \
-  cloud/aws/aws_retry.cc                                        \
-  cloud/aws/aws_s3.cc                                           \
-  cloud/db_cloud_impl.cc                                        \
-  cloud/cloud_env.cc                                            \
-  cloud/cloud_env_impl.cc                                       \
-  cloud/cloud_env_options.cc                                    \
-  cloud/cloud_log_controller.cc                                 \
-  cloud/manifest_reader.cc                                      \
-  cloud/purge.cc                                                \
-  cloud/cloud_manifest.cc                                       \
-  cloud/cloud_storage_provider.cc                               \
-  db/db_impl/db_impl_remote_compaction.cc
 
 ifeq ($(ARMCRC_SOURCE),1)
 LIB_SOURCES +=\
@@ -276,6 +275,7 @@ ANALYZER_LIB_SOURCES =                                          \
 
 MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
+  test_util/fault_injection_test_fs.cc				\
   test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES =                                             \
@@ -306,12 +306,12 @@ FOLLY_SOURCES = \
   third-party/folly/folly/synchronization/WaitOptions.cpp                      \
 
 MAIN_SOURCES =                                                          \
-  cloud/db_cloud_test.cc                                                \
-  cloud/cloud_manifest_test.cc                                          \
-  db/remote_compaction.cc                                               \
   cache/cache_bench.cc                                                  \
   cache/cache_test.cc                                                   \
   db_stress_tool/db_stress.cc                                           \
+  db/blob/blob_file_addition_test.cc                                    \
+  db/blob/blob_file_garbage_test.cc                                     \
+  db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
   db/compaction/compaction_iterator_test.cc                             \
@@ -322,7 +322,7 @@ MAIN_SOURCES =                                                          \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/db_basic_test.cc                                                   \
-  db/db_blob_index_test.cc                                              \
+  db/db_with_timestamp_basic_test.cc					\
   db/db_block_cache_test.cc                                             \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
@@ -349,13 +349,15 @@ MAIN_SOURCES =                                                          \
   db/db_tailing_iter_test.cc                                            \
   db/db_test.cc                                                         \
   db/db_test2.cc                                                        \
+  db/db_logical_block_size_cache_test.cc                                \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
+  db/db_with_timestamp_compaction_test.cc                               \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/env_timed_test.cc                                                  \
-  db/error_handler_test.cc                                              \
+  db/error_handler_fs_test.cc						\
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -373,7 +375,7 @@ MAIN_SOURCES =                                                          \
   db/memtable_list_test.cc                                              \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
-  db/obsolete_files_test.cc						\
+  db/obsolete_files_test.cc						                                  \
   db/options_settable_test.cc                                           \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
@@ -395,11 +397,14 @@ MAIN_SOURCES =                                                          \
   db/write_controller_test.cc                                           \
   env/env_basic_test.cc                                                 \
   env/env_test.cc                                                       \
+  env/io_posix_test.cc                                                  \
   env/mock_env_test.cc                                                  \
+  file/random_access_file_reader_test.cc                                \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
+  memory/memkind_kmem_allocator_test.cc                                 \
   memtable/inlineskiplist_test.cc                                       \
   memtable/memtablerep_bench.cc                                         \
   memtable/skiplist_test.cc                                             \
@@ -410,6 +415,7 @@ MAIN_SOURCES =                                                          \
   monitoring/stats_history_test.cc                                      \
   options/options_test.cc                                               \
   table/block_based/block_based_filter_block_test.cc                    \
+  table/block_based/block_based_table_reader_test.cc                    \
   table/block_based/block_test.cc                                       \
   table/block_based/data_block_hash_index_test.cc                       \
   table/block_based/full_filter_block_test.cc                           \
@@ -421,7 +427,8 @@ MAIN_SOURCES =                                                          \
   table/sst_file_reader_test.cc                                         \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
-  third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
+  table/block_fetcher_test.cc                                           \
+  third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc                  \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc         \
   tools/db_bench.cc                                                     \
@@ -430,22 +437,26 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc				             	\
+  tools/trace_analyzer_test.cc				             	                    \
   trace_replay/block_cache_tracer_test.cc                               \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
+  util/defer_test.cc                                                    \
   util/dynamic_bloom_test.cc                                            \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
   util/random_test.cc                                                   \
   util/repeatable_thread_test.cc                                        \
+  util/slice_test.cc                                                    \
   util/slice_transform_test.cc                                          \
   util/timer_queue_test.cc                                              \
+  util/timer_test.cc                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
+  util/work_queue_test.cc                                               \
   utilities/backupable/backupable_db_test.cc                            \
   utilities/blob_db/blob_db_test.cc                                     \
   utilities/cassandra/cassandra_format_test.cc                          \
@@ -463,6 +474,7 @@ MAIN_SOURCES =                                                          \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/transaction_test.cc                            \
+  utilities/transactions/transaction_lock_mgr_test.cc                   \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/ttl/ttl_test.cc                                             \
@@ -486,6 +498,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/compression_options.cc                        \
+  java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
   java/rocksjni/ingest_external_file_options.cc               \

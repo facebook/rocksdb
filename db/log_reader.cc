@@ -11,13 +11,13 @@
 
 #include <stdio.h>
 #include "file/sequence_file_reader.h"
+#include "port/lang.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace log {
 
 Reader::Reporter::~Reporter() {
@@ -621,4 +621,4 @@ bool FragmentBufferedReader::TryReadFragment(
 }
 
 }  // namespace log
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -8,13 +8,8 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 
 #include <cinttypes>
-
 #include <algorithm>
-#include <condition_variable>
-#include <functional>
 #include <mutex>
-#include <string>
-#include <vector>
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
@@ -25,7 +20,7 @@
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct LockInfo {
   bool exclusive;
@@ -171,8 +166,7 @@ TransactionLockMgr::TransactionLockMgr(
       dlock_buffer_(max_num_deadlocks),
       mutex_factory_(mutex_factory) {
   assert(txn_db);
-  txn_db_impl_ =
-      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
+  txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}
@@ -202,7 +196,9 @@ void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
     InstrumentedMutexLock l(&lock_map_mutex_);
 
     auto lock_maps_iter = lock_maps_.find(column_family_id);
-    assert(lock_maps_iter != lock_maps_.end());
+    if (lock_maps_iter == lock_maps_.end()) {
+      return;
+    }
 
     lock_maps_.erase(lock_maps_iter);
   }  // lock_map_mutex_
@@ -255,12 +251,14 @@ std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
 bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
                                        const LockInfo& lock_info, Env* env,
                                        uint64_t* expire_time) {
+  if (lock_info.expiration_time == 0) {
+    *expire_time = 0;
+    return false;
+  }
+
   auto now = env->NowMicros();
-
-  bool expired =
-      (lock_info.expiration_time > 0 && lock_info.expiration_time <= now);
-
-  if (!expired && lock_info.expiration_time > 0) {
+  bool expired = lock_info.expiration_time <= now;
+  if (!expired) {
     // return how many microseconds until lock will be expired
     *expire_time = lock_info.expiration_time;
   } else {
@@ -272,9 +270,9 @@ bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
       bool success = txn_db_impl_->TryStealingExpiredTransactionLocks(id);
       if (!success) {
         expired = false;
+        *expire_time = 0;
         break;
       }
-      *expire_time = 0;
     }
   }
 
@@ -348,13 +346,11 @@ Status TransactionLockMgr::AcquireWithTimeout(
     do {
       // Decide how long to wait
       int64_t cv_end_time = -1;
-
-      // Check if held lock's expiration time is sooner than our timeout
-      if (expire_time_hint > 0 &&
-          (timeout < 0 || (timeout > 0 && expire_time_hint < end_time))) {
-        // expiration time is sooner than our timeout
+      if (expire_time_hint > 0 && end_time > 0) {
+        cv_end_time = std::min(expire_time_hint, end_time);
+      } else if (expire_time_hint > 0) {
         cv_end_time = expire_time_hint;
-      } else if (timeout >= 0) {
+      } else if (end_time > 0) {
         cv_end_time = end_time;
       }
 
@@ -741,5 +737,5 @@ void TransactionLockMgr::Resize(uint32_t target_size) {
   dlock_buffer_.Resize(target_size);
 }
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

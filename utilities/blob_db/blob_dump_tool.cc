@@ -20,7 +20,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 BlobDumpTool::BlobDumpTool()
@@ -101,7 +101,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s = reader_->Read(offset, size, result, buffer_.get());
+  Status s =
+      reader_->Read(IOOptions(), offset, size, result, buffer_.get(), nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -273,6 +274,6 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

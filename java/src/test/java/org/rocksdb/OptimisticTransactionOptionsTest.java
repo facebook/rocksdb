@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 import org.junit.Test;
-import org.rocksdb.util.DirectBytewiseComparator;
+import org.rocksdb.util.BytewiseComparator;
 
 import java.util.Random;
 
@@ -29,8 +29,9 @@ public class OptimisticTransactionOptionsTest {
   @Test
   public void comparator() {
     try (final OptimisticTransactionOptions opt = new OptimisticTransactionOptions();
-         final ComparatorOptions copt = new ComparatorOptions();
-         final DirectComparator comparator = new DirectBytewiseComparator(copt)) {
+         final ComparatorOptions copt = new ComparatorOptions()
+             .setUseDirectBuffer(true);
+         final AbstractComparator comparator = new BytewiseComparator(copt)) {
       opt.setComparator(comparator);
     }
   }

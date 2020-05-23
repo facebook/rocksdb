@@ -7,11 +7,11 @@
 #include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
 
-using rocksdb::Logger;
-using rocksdb::MergeOperator;
-using rocksdb::Slice;
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::MergeOperator;
+using ROCKSDB_NAMESPACE::Slice;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool SortList::FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const {
@@ -97,4 +97,4 @@ std::vector<int> SortList::Merge(std::vector<int>& left,
 std::shared_ptr<MergeOperator> MergeOperators::CreateSortOperator() {
   return std::make_shared<SortList>();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

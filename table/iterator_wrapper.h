@@ -14,7 +14,7 @@
 #include "table/internal_iterator.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A internal wrapper class with an interface similar to Iterator that caches
 // the valid() and key() results for an underlying iterator.
@@ -56,7 +56,7 @@ class IteratorWrapperBase {
   }
 
   // Iterator interface methods
-  bool Valid() const        { return valid_; }
+  bool Valid() const { return valid_; }
   Slice key() const {
     assert(Valid());
     return result_.key;
@@ -66,13 +66,34 @@ class IteratorWrapperBase {
     return iter_->value();
   }
   // Methods below require iter() != nullptr
-  Status status() const     { assert(iter_); return iter_->status(); }
+  Status status() const {
+    assert(iter_);
+    return iter_->status();
+  }
+  bool PrepareValue() {
+    assert(Valid());
+    if (result_.value_prepared) {
+      return true;
+    }
+    if (iter_->PrepareValue()) {
+      result_.value_prepared = true;
+      return true;
+    }
+
+    assert(!iter_->Valid());
+    valid_ = false;
+    return false;
+  }
   void Next() {
     assert(iter_);
     valid_ = iter_->NextAndGetResult(&result_);
     assert(!valid_ || iter_->status().ok());
   }
-  void Prev()               { assert(iter_); iter_->Prev();        Update(); }
+  void Prev() {
+    assert(iter_);
+    iter_->Prev();
+    Update();
+  }
   void Seek(const Slice& k) {
     assert(iter_);
     iter_->Seek(k);
@@ -83,8 +104,16 @@ class IteratorWrapperBase {
     iter_->SeekForPrev(k);
     Update();
   }
-  void SeekToFirst()        { assert(iter_); iter_->SeekToFirst(); Update(); }
-  void SeekToLast()         { assert(iter_); iter_->SeekToLast();  Update(); }
+  void SeekToFirst() {
+    assert(iter_);
+    iter_->SeekToFirst();
+    Update();
+  }
+  void SeekToLast() {
+    assert(iter_);
+    iter_->SeekToLast();
+    Update();
+  }
 
   bool MayBeOutOfLowerBound() {
     assert(Valid());
@@ -109,6 +138,10 @@ class IteratorWrapperBase {
     return iter_->IsValuePinned();
   }
 
+  bool IsValuePrepared() const {
+    return result_.value_prepared;
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();
@@ -116,6 +149,7 @@ class IteratorWrapperBase {
       assert(iter_->status().ok());
       result_.key = iter_->key();
       result_.may_be_out_of_upper_bound = true;
+      result_.value_prepared = false;
     }
   }
 
@@ -131,4 +165,4 @@ class Arena;
 template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewEmptyInternalIterator(Arena* arena);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

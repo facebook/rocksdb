@@ -11,7 +11,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
@@ -60,6 +60,12 @@ bool RunStressTest(StressTest* stress) {
   if (FLAGS_read_only) {
     stress->InitReadonlyDb(&shared);
   }
+
+#ifndef NDEBUG
+  if (FLAGS_sync_fault_injection) {
+    fault_fs_guard->SetFilesystemDirectWritable(false);
+  }
+#endif
 
   uint32_t n = shared.GetNumThreads();
 
@@ -159,5 +165,5 @@ bool RunStressTest(StressTest* stress) {
   }
   return true;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

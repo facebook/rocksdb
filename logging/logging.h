@@ -19,42 +19,49 @@
 
 inline const char* RocksLogShorterFileName(const char* file)
 {
-  // 15 is the length of "logging/logging.h".
+  // 18 is the length of "logging/logging.h".
   // If the name of this file changed, please change this number, too.
-  return file + (sizeof(__FILE__) > 15 ? sizeof(__FILE__) - 15 : 0);
+  return file + (sizeof(__FILE__) > 18 ? sizeof(__FILE__) - 18 : 0);
 }
 
 // Don't inclide file/line info in HEADER level
-#define ROCKS_LOG_HEADER(LGR, FMT, ...)                                          \
-  rocksdb::Log(InfoLogLevel::HEADER_LEVEL, LGR, FMT, ##__VA_ARGS__)
+#define ROCKS_LOG_HEADER(LGR, FMT, ...) \
+  ROCKSDB_NAMESPACE::Log(InfoLogLevel::HEADER_LEVEL, LGR, FMT, ##__VA_ARGS__)
 
-#define ROCKS_LOG_DEBUG(LGR, FMT, ...)                                           \
-  rocksdb::Log(InfoLogLevel::DEBUG_LEVEL, LGR, ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
-               RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_DEBUG(LGR, FMT, ...)                     \
+  ROCKSDB_NAMESPACE::Log(InfoLogLevel::DEBUG_LEVEL, LGR,   \
+                         ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
+                         RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
 
-#define ROCKS_LOG_INFO(LGR, FMT, ...)                                            \
-  rocksdb::Log(InfoLogLevel::INFO_LEVEL, LGR, ROCKS_LOG_PREPEND_FILE_LINE(FMT),  \
-               RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_INFO(LGR, FMT, ...)                      \
+  ROCKSDB_NAMESPACE::Log(InfoLogLevel::INFO_LEVEL, LGR,    \
+                         ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
+                         RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
 
-#define ROCKS_LOG_WARN(LGR, FMT, ...)                                            \
-  rocksdb::Log(InfoLogLevel::WARN_LEVEL, LGR, ROCKS_LOG_PREPEND_FILE_LINE(FMT),  \
-               RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_WARN(LGR, FMT, ...)                      \
+  ROCKSDB_NAMESPACE::Log(InfoLogLevel::WARN_LEVEL, LGR,    \
+                         ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
+                         RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
 
-#define ROCKS_LOG_ERROR(LGR, FMT, ...)                                           \
-  rocksdb::Log(InfoLogLevel::ERROR_LEVEL, LGR, ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
-               RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_ERROR(LGR, FMT, ...)                     \
+  ROCKSDB_NAMESPACE::Log(InfoLogLevel::ERROR_LEVEL, LGR,   \
+                         ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
+                         RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
 
-#define ROCKS_LOG_FATAL(LGR, FMT, ...)                                           \
-  rocksdb::Log(InfoLogLevel::FATAL_LEVEL, LGR, ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
-               RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_FATAL(LGR, FMT, ...)                     \
+  ROCKSDB_NAMESPACE::Log(InfoLogLevel::FATAL_LEVEL, LGR,   \
+                         ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
+                         RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
 
-#define ROCKS_LOG_BUFFER(LOG_BUF, FMT, ...)                                      \
-  rocksdb::LogToBuffer(LOG_BUF, ROCKS_LOG_PREPEND_FILE_LINE(FMT),                \
-                       RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_BUFFER(LOG_BUF, FMT, ...)                                 \
+  ROCKSDB_NAMESPACE::LogToBuffer(LOG_BUF, ROCKS_LOG_PREPEND_FILE_LINE(FMT), \
+                                 RocksLogShorterFileName(__FILE__),         \
+                                 ##__VA_ARGS__)
 
-#define ROCKS_LOG_BUFFER_MAX_SZ(LOG_BUF, MAX_LOG_SIZE, FMT, ...)                 \
-  rocksdb::LogToBuffer(LOG_BUF, MAX_LOG_SIZE, ROCKS_LOG_PREPEND_FILE_LINE(FMT),  \
-                       RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
+#define ROCKS_LOG_BUFFER_MAX_SZ(LOG_BUF, MAX_LOG_SIZE, FMT, ...) \
+  ROCKSDB_NAMESPACE::LogToBuffer(                                \
+      LOG_BUF, MAX_LOG_SIZE, ROCKS_LOG_PREPEND_FILE_LINE(FMT),   \
+      RocksLogShorterFileName(__FILE__), ##__VA_ARGS__)
 
 #define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
   ;  // due to overhead by default skip such lines

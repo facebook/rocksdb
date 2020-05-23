@@ -14,7 +14,7 @@
 #undef DeleteFile
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This class contains APIs to stack rocksdb wrappers.Eg. Stack TTL over base d
 class StackableDB : public DB {
@@ -451,22 +451,6 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
-  virtual Status ExecuteRemoteCompactionRequest(
-      const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result,
-      bool sanitize) override {
-    return db_->ExecuteRemoteCompactionRequest(inputParams, result, sanitize);
-  }
-
-  virtual Status RegisterPluggableCompactionService(
-      std::unique_ptr<PluggableCompactionService> rservice) override {
-    return db_->RegisterPluggableCompactionService(std::move(rservice));
-  }
-
-  virtual void UnRegisterPluggableCompactionService() override {
-    db_->UnRegisterPluggableCompactionService();
-  }
-
 #ifndef ROCKSDB_LITE
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();
@@ -478,4 +462,4 @@ class StackableDB : public DB {
   std::shared_ptr<DB> shared_db_ptr_;
 };
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

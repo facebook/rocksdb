@@ -13,29 +13,29 @@
 
 #include "port/win/port_win.h"
 
-#include <assert.h>
 #include <io.h>
-#include <stdio.h>
-#include <string.h>
-
-#include <chrono>
-#include <cstdlib>
-#include <exception>
-#include <memory>
-
 #include "port/port_dirent.h"
 #include "port/sys_time.h"
 
+#include <cstdlib>
+#include <stdio.h>
+#include <assert.h>
+#include <string.h>
+
+#include <memory>
+#include <exception>
+#include <chrono>
+
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 // utf8 <-> utf16
-#include <codecvt>
-#include <locale>
 #include <string>
+#include <locale>
+#include <codecvt>
 #endif
 
 #include "logging/logging.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const bool kDefaultToAdaptiveMutex = false;
 
@@ -43,7 +43,7 @@ namespace port {
 
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 std::string utf16_to_utf8(const std::wstring& utf16) {
-  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t> convert;
+  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>,wchar_t> convert;
   return convert.to_bytes(utf16);
 }
 
@@ -63,48 +63,30 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
 
   tv->tv_sec = static_cast<long>(secNow.count());
   tv->tv_usec = static_cast<long>(usNow.count() -
-                                  duration_cast<microseconds>(secNow).count());
+      duration_cast<microseconds>(secNow).count());
 }
 
-Mutex::Mutex(bool adaptive) { ::InitializeCriticalSection(&section_); }
-
-Mutex::~Mutex() { ::DeleteCriticalSection(&section_); }
-
-void Mutex::Lock() {
-  ::EnterCriticalSection(&section_);
-#ifndef NDEBUG
-  locked_ = true;
-#endif
-}
-
-void Mutex::Unlock() {
-#ifndef NDEBUG
-  locked_ = false;
-#endif
-  ::LeaveCriticalSection(&section_);
-}
-
-void Mutex::AssertHeld() {
-#ifndef NDEBUG
-  assert(locked_);
-#endif
-}
-
-CondVar::CondVar(Mutex* mu) : mu_(mu) { ::InitializeConditionVariable(&cv_); }
+Mutex::~Mutex() {}
 
 CondVar::~CondVar() {}
 
 void CondVar::Wait() {
+  // Caller must ensure that mutex is held prior to calling this method
+  std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
 #ifndef NDEBUG
   mu_->locked_ = false;
 #endif
-  ::SleepConditionVariableCS(&cv_, &(mu_->section_), INFINITE);
+  cv_.wait(lk);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
+  // Release ownership of the lock as we don't want it to be unlocked when
+  // it goes out of scope (as we adopted the lock and didn't lock it ourselves)
+  lk.release();
 }
 
 bool CondVar::TimedWait(uint64_t abs_time_us) {
+
   using namespace std::chrono;
 
   // MSVC++ library implements wait_until in terms of wait_for so
@@ -112,28 +94,33 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
   microseconds usAbsTime(abs_time_us);
 
   microseconds usNow(
-      duration_cast<microseconds>(system_clock::now().time_since_epoch()));
+    duration_cast<microseconds>(system_clock::now().time_since_epoch()));
   microseconds relTimeUs =
-      (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
+    (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
 
-  const BOOL cvStatus = ::SleepConditionVariableCS(
-      &cv_, &(mu_->section_),
-      static_cast<DWORD>(duration_cast<milliseconds>(relTimeUs).count()));
-
+  // Caller must ensure that mutex is held prior to calling this method
+  std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
+#ifndef NDEBUG
+  mu_->locked_ = false;
+#endif
+  std::cv_status cvStatus = cv_.wait_for(lk, relTimeUs);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
+  // Release ownership of the lock as we don't want it to be unlocked when
+  // it goes out of scope (as we adopted the lock and didn't lock it ourselves)
+  lk.release();
 
-  if ((!cvStatus) && (GetLastError() == ERROR_TIMEOUT)) {
+  if (cvStatus == std::cv_status::timeout) {
     return true;
   }
 
   return false;
 }
 
-void CondVar::Signal() { ::WakeConditionVariable(&cv_); }
+void CondVar::Signal() { cv_.notify_one(); }
 
-void CondVar::SignalAll() { WakeAllConditionVariable(&cv_); }
+void CondVar::SignalAll() { cv_.notify_all(); }
 
 int PhysicalCoreID() { return GetCurrentProcessorNumber(); }
 
@@ -143,12 +130,13 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 
 // Private structure, exposed only by pointer
 struct DIR {
-  HANDLE handle_;
-  bool firstread_;
+  HANDLE      handle_;
+  bool        firstread_;
   RX_WIN32_FIND_DATA data_;
   dirent entry_;
 
-  DIR() : handle_(INVALID_HANDLE_VALUE), firstread_(true) {}
+  DIR() : handle_(INVALID_HANDLE_VALUE),
+    firstread_(true) {}
 
   DIR(const DIR&) = delete;
   DIR& operator=(const DIR&) = delete;
@@ -222,10 +210,11 @@ int truncate(const char* path, int64_t length) {
     errno = EFAULT;
     return -1;
   }
-  return rocksdb::port::Truncate(path, length);
+  return ROCKSDB_NAMESPACE::port::Truncate(path, length);
 }
 
 int Truncate(std::string path, int64_t len) {
+
   if (len < 0) {
     errno = EINVAL;
     return -1;
@@ -233,10 +222,10 @@ int Truncate(std::string path, int64_t len) {
 
   HANDLE hFile =
       RX_CreateFile(RX_FN(path).c_str(), GENERIC_READ | GENERIC_WRITE,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    NULL,           // Security attrs
-                    OPEN_EXISTING,  // Truncate existing file only
-                    FILE_ATTRIBUTE_NORMAL, NULL);
+                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                 NULL,           // Security attrs
+                 OPEN_EXISTING,  // Truncate existing file only
+                 FILE_ATTRIBUTE_NORMAL, NULL);
 
   if (INVALID_HANDLE_VALUE == hFile) {
     auto lastError = GetLastError();
@@ -272,5 +261,14 @@ void Crash(const std::string& srcfile, int srcline) {
 
 int GetMaxOpenFiles() { return -1; }
 
+// Assume 4KB page size
+const size_t kPageSize = 4U * 1024U;
+
+void SetCpuPriority(ThreadId id, CpuPriority priority) {
+  // Not supported
+  (void)id;
+  (void)priority;
+}
+
 }  // namespace port
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

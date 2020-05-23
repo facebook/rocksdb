@@ -17,12 +17,12 @@
 #include "util/cast_util.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 TransactionBaseImpl::TransactionBaseImpl(DB* db,
                                          const WriteOptions& write_options)
     : db_(db),
-      dbimpl_(static_cast_with_check<DBImpl, DB>(db)),
+      dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
@@ -832,6 +832,6 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
 WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
   return &commit_time_batch_;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

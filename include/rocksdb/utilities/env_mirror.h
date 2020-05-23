@@ -25,7 +25,7 @@
 #include <vector>
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class SequentialFileMirror;
 class RandomAccessFileMirror;
@@ -175,6 +175,6 @@ class EnvMirror : public EnvWrapper {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

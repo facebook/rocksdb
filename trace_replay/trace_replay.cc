@@ -15,7 +15,7 @@
 #include "util/string_util.h"
 #include "util/threadpool_imp.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const std::string kTraceMagic = "feedcafedeadbeef";
 
@@ -321,6 +321,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     if (!s.ok()) {
       break;
     }
+    ra->cf_map = &cf_map_;
     ra->woptions = woptions;
     ra->roptions = roptions;
 
@@ -407,6 +408,7 @@ Status Replayer::ReadTrace(Trace* trace) {
 void Replayer::BGWorkGet(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
   uint32_t cf_id = 0;
@@ -429,6 +431,7 @@ void Replayer::BGWorkGet(void* arg) {
 void Replayer::BGWorkWriteBatch(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
   WriteBatch batch(ra->trace_entry.payload);
   ra->db->Write(ra->woptions, &batch);
   return;
@@ -437,6 +440,7 @@ void Replayer::BGWorkWriteBatch(void* arg) {
 void Replayer::BGWorkIterSeek(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
   uint32_t cf_id = 0;
@@ -461,6 +465,7 @@ void Replayer::BGWorkIterSeek(void* arg) {
 void Replayer::BGWorkIterSeekForPrev(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
+  assert(ra != nullptr);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
   uint32_t cf_id = 0;
@@ -482,4 +487,4 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
   return;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

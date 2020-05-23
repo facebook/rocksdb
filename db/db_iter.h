@@ -20,15 +20,15 @@
 #include "table/iterator_wrapper.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This file declares the factory functions of DBIter, in its original form
 // or a wrapped form with class ArenaWrappedDBIter, which is defined here.
 // Class DBIter, which is declared and implemented inside db_iter.cc, is
-// a iterator that converts internal keys (yielded by an InternalIterator)
+// an iterator that converts internal keys (yielded by an InternalIterator)
 // that were live at the specified sequence number into appropriate user
 // keys.
-// Each internal key is consist of a user key, a sequence number, and a value
+// Each internal key consists of a user key, a sequence number, and a value
 // type. DBIter deals with multiple key versions, tombstones, merge operands,
 // etc, and exposes an Iterator.
 // For example, DBIter may wrap following InternalIterator:
@@ -133,14 +133,12 @@ class DBIter final : public Iterator {
     local_stats_.BumpGlobalStatistics(statistics_);
     iter_.DeleteIter(arena_mode_);
   }
-  virtual void SetIter(InternalIterator* iter) {
+  void SetIter(InternalIterator* iter) {
     assert(iter_.iter() == nullptr);
     iter_.Set(iter);
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
-    return &range_del_agg_;
-  }
+  ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
   bool Valid() const override { return valid_; }
   Slice key() const override {
@@ -148,7 +146,8 @@ class DBIter final : public Iterator {
     if (start_seqnum_ > 0) {
       return saved_key_.GetInternalKey();
     } else {
-      return saved_key_.GetUserKey();
+      const Slice ukey_and_ts = saved_key_.GetUserKey();
+      return Slice(ukey_and_ts.data(), ukey_and_ts.size() - timestamp_size_);
     }
   }
   Slice value() const override {
@@ -171,6 +170,13 @@ class DBIter final : public Iterator {
       return status_;
     }
   }
+  Slice timestamp() const override {
+    assert(valid_);
+    assert(timestamp_size_ > 0);
+    const Slice ukey_and_ts = saved_key_.GetUserKey();
+    assert(timestamp_size_ < ukey_and_ts.size());
+    return ExtractTimestampFromUserKey(ukey_and_ts, timestamp_size_);
+  }
   bool IsBlob() const {
     assert(valid_ && (allow_blob_ || !is_blob_));
     return is_blob_;
@@ -180,11 +186,13 @@ class DBIter final : public Iterator {
 
   void Next() final override;
   void Prev() final override;
+  // 'target' does not contain timestamp, even if user timestamp feature is
+  // enabled.
   void Seek(const Slice& target) final override;
   void SeekForPrev(const Slice& target) final override;
   void SeekToFirst() final override;
   void SeekToLast() final override;
-  Env* env() { return env_; }
+  Env* env() const { return env_; }
   void set_sequence(uint64_t s) {
     sequence_ = s;
     if (read_callback_) {
@@ -202,10 +210,10 @@ class DBIter final : public Iterator {
   bool ReverseToBackward();
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is smaller than iterator lower bound.
-  void SetSavedKeyToSeekTarget(const Slice& /*target*/);
+  void SetSavedKeyToSeekTarget(const Slice& target);
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is larger than iterator upper bound.
-  void SetSavedKeyToSeekForPrevTarget(const Slice& /*target*/);
+  void SetSavedKeyToSeekForPrevTarget(const Slice& target);
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
   bool FindUserKeyBeforeSavedKey();
@@ -221,9 +229,10 @@ class DBIter final : public Iterator {
 
   // If prefix is not null, we need to set the iterator to invalid if no more
   // entry can be found within the prefix.
-  void PrevInternal(const Slice* /*prefix*/);
+  void PrevInternal(const Slice* prefix);
   bool TooManyInternalKeysSkipped(bool increment = true);
-  bool IsVisible(SequenceNumber sequence);
+  bool IsVisible(SequenceNumber sequence, const Slice& ts,
+                 bool* more_recent = nullptr);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -255,6 +264,20 @@ class DBIter final : public Iterator {
       local_stats_.skip_count_--;
     }
     num_internal_keys_skipped_ = 0;
+  }
+
+  bool expect_total_order_inner_iter() {
+    assert(expect_total_order_inner_iter_ || prefix_extractor_ != nullptr);
+    return expect_total_order_inner_iter_;
+  }
+
+  // If lower bound of timestamp is given by ReadOptions.iter_start_ts, we need
+  // to return versions of the same key. We cannot just skip if the key value
+  // is the same but timestamps are different but fall in timestamp range.
+  inline int CompareKeyForSkip(const Slice& a, const Slice& b) {
+    return timestamp_lb_ != nullptr
+               ? user_comparator_.Compare(a, b)
+               : user_comparator_.CompareWithoutTimestamp(a, b);
   }
 
   const SliceTransform* prefix_extractor_;
@@ -302,7 +325,9 @@ class DBIter final : public Iterator {
   // Means that we will pin all data blocks we read as long the Iterator
   // is not deleted, will be true if ReadOptions::pin_data is true
   const bool pin_thru_lifetime_;
-  const bool total_order_seek_;
+  // Expect the inner iterator to maintain a total order.
+  // prefix_extractor_ must be non-NULL if the value is false.
+  const bool expect_total_order_inner_iter_;
   bool allow_blob_;
   bool is_blob_;
   bool arena_mode_;
@@ -322,7 +347,11 @@ class DBIter final : public Iterator {
   // for diff snapshots we want the lower bound on the seqnum;
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
+  const Slice* const timestamp_ub_;
+  const Slice* const timestamp_lb_;
+  const size_t timestamp_size_;
 };
+
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
@@ -335,4 +364,4 @@ extern Iterator* NewDBIterator(
     ReadCallback* read_callback, DBImpl* db_impl = nullptr,
     ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
