@@ -300,7 +300,7 @@ script:
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
       ;;
     status_checked)
-      OPT=-DTRAVIS V=1 ASSERT_STATUS_CHECKED=1 make -j4 check
+      OPT=-DTRAVIS V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
       ;;
     esac
 notifications:
