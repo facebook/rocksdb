@@ -243,7 +243,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * the results using the DB's merge operator (if the batch contains any
    * merge requests).
    *
-   * Setting {@link ReadOptions#setSnapshot(long, long)} will affect what is
+   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is
    * read from the DB but will NOT change which keys are read from the batch
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
@@ -273,7 +273,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * the results using the DB's merge operator (if the batch contains any
    * merge requests).
    *
-   * Setting {@link ReadOptions#setSnapshot(long, long)} will affect what is
+   * Setting {@link ReadOptions#setSnapshot(Snapshot)} will affect what is
    * read from the DB but will NOT change which keys are read from the batch
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
