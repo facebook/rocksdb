@@ -626,10 +626,6 @@ TESTS = \
 	timer_test \
 	db_with_timestamp_compaction_test \
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	TESTS += folly_synchronization_distributed_mutex_test
-endif
-
 PARALLEL_TEST = \
 	backupable_db_test \
 	db_bloom_filter_test \
@@ -652,6 +648,11 @@ PARALLEL_TEST = \
 	transaction_lock_mgr_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+	TESTS += folly_synchronization_distributed_mutex_test
+	PARALLEL_TEST += folly_synchronization_distributed_mutex_test
+endif
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
@@ -972,8 +973,10 @@ check: all
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
+ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	$(PYTHON) tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
+endif
 endif
 endif
 	$(MAKE) check-format

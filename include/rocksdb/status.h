@@ -16,7 +16,17 @@
 
 #pragma once
 
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+
 #include <string>
+
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+#include "port/stack_trace.h"
+#endif
+
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -25,7 +35,16 @@ class Status {
  public:
   // Create a success status.
   Status() : code_(kOk), subcode_(kNone), sev_(kNoError), state_(nullptr) {}
-  ~Status() { delete[] state_; }
+  ~Status() {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    if (!checked_) {
+      fprintf(stderr, "Failed to check Status\n");
+      port::PrintStack();
+      abort();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    delete[] state_;
+  }
 
   // Copy the specified status.
   Status(const Status& s);
@@ -362,8 +381,6 @@ inline Status::Status(const Status& s, Severity sev)
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline Status& Status::operator=(const Status& s) {
-  // The following condition catches both aliasing (when this == &s),
-  // and the common case where both s and *this are ok.
   if (this != &s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
