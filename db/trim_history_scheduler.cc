@@ -34,10 +34,7 @@ ColumnFamilyData* TrimHistoryScheduler::TakeNextColumnFamily() {
       // success
       return cfd;
     }
-    if (cfd->Unref()) {
-      // no longer relevant, retry
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
 }
 
@@ -49,9 +46,7 @@ bool TrimHistoryScheduler::Empty() {
 void TrimHistoryScheduler::Clear() {
   ColumnFamilyData* cfd;
   while ((cfd = TakeNextColumnFamily()) != nullptr) {
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
   assert(Empty());
 }

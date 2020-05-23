@@ -20,7 +20,6 @@ namespace rocksdb {
 // of DB. Raw pointers defined in this struct do not have ownership to the data
 // they point to. Options contains std::shared_ptr to these data.
 struct ImmutableCFOptions {
-  ImmutableCFOptions();
   explicit ImmutableCFOptions(const Options& options);
 
   ImmutableCFOptions(const ImmutableDBOptions& db_options,
@@ -61,6 +60,8 @@ struct ImmutableCFOptions {
   InfoLogLevel info_log_level;
 
   Env* env;
+
+  FileSystem* fs;
 
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
@@ -151,7 +152,6 @@ struct MutableCFOptions {
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
-        snap_refresh_nanos(options.snap_refresh_nanos),
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
         ttl(options.ttl),
         periodic_compaction_seconds(options.periodic_compaction_seconds),
@@ -188,7 +188,6 @@ struct MutableCFOptions {
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
-        snap_refresh_nanos(0),
         max_bytes_for_level_multiplier(0),
         ttl(0),
         periodic_compaction_seconds(0),
@@ -240,7 +239,6 @@ struct MutableCFOptions {
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
-  uint64_t snap_refresh_nanos;
   double max_bytes_for_level_multiplier;
   uint64_t ttl;
   uint64_t periodic_compaction_seconds;

@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/dbformat.h"
 
-#include <cinttypes>
 #include <stdio.h>
+#include <cinttypes>
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/coding.h"

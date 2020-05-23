@@ -2,11 +2,13 @@
 #ifndef ROCKSDB_LITE
 
 #include "cloud/manifest_reader.h"
+
 #include "cloud/aws/aws_env.h"
 #include "cloud/cloud_manifest.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "db/version_set.h"
+#include "env/composite_env_wrapper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -30,14 +32,14 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
   {
     std::unique_ptr<SequentialFile> file;
     auto cloudManifestFile = CloudManifestFile(bucket_path);
-    s = cenv_->NewSequentialFileCloud(
-        bucket_prefix_, cloudManifestFile, &file, EnvOptions());
+    s = cenv_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile, &file,
+                                      EnvOptions());
     if (!s.ok()) {
       return s;
     }
     s = CloudManifest::LoadFromLog(
-        std::unique_ptr<SequentialFileReader>(
-            new SequentialFileReader(std::move(file), cloudManifestFile)),
+        std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
+            NewLegacySequentialFileWrapper(file), cloudManifestFile)),
         &cloud_manifest);
     if (!s.ok()) {
       return s;
@@ -53,7 +55,8 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
     if (!s.ok()) {
       return s;
     }
-    file_reader.reset(new SequentialFileReader(std::move(file), manifestFile));
+    file_reader.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(file), manifestFile));
   }
 
   // create a callback that gets invoked whil looping through the log records
@@ -112,10 +115,11 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
 
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(NULL,
-                     std::unique_ptr<SequentialFileReader>(
-                         new SequentialFileReader(std::move(file), fname)),
-                     &reporter, true /*checksum*/, 0);
+  log::Reader reader(
+      NULL,
+      std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
+          NewLegacySequentialFileWrapper(file), fname)),
+      &reporter, true /*checksum*/, 0);
 
   Slice record;
   std::string scratch;
@@ -135,5 +139,5 @@ Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
   }
   return s;
 }
-}
+}  // namespace rocksdb
 #endif /* ROCKSDB_LITE */

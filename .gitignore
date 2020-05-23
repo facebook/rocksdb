@@ -80,3 +80,4 @@ fbcode/
 fbcode
 travis-build/
 buckifier/*.pyc
+buckifier/__pycache__

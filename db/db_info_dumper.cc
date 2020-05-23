@@ -5,10 +5,10 @@
 
 #include "db/db_info_dumper.h"
 
-#include <cinttypes>
 #include <stdio.h>
-#include <string>
 #include <algorithm>
+#include <cinttypes>
+#include <string>
 #include <vector>
 
 #include "file/filename.h"

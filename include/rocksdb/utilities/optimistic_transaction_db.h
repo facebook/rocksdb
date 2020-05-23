@@ -31,6 +31,26 @@ struct OptimisticTransactionOptions {
   const Comparator* cmp = BytewiseComparator();
 };
 
+enum class OccValidationPolicy {
+  // Validate serially at commit stage, AFTER entering the write-group.
+  // Isolation validation is processed single-threaded(since in the
+  // write-group).
+  // May suffer from high mutex contention, as per this link:
+  // https://github.com/facebook/rocksdb/issues/4402
+  kValidateSerial = 0,
+  // Validate parallelly before commit stage, BEFORE entering the write-group to
+  // reduce mutex contention. Each txn acquires locks for its write-set
+  // records in some well-defined order.
+  kValidateParallel = 1
+};
+
+struct OptimisticTransactionDBOptions {
+  OccValidationPolicy validate_policy = OccValidationPolicy::kValidateParallel;
+
+  // works only if validate_policy == OccValidationPolicy::kValidateParallel
+  uint32_t occ_lock_buckets = (1 << 20);
+};
+
 class OptimisticTransactionDB : public StackableDB {
  public:
   // Open an OptimisticTransactionDB similar to DB::Open().
@@ -38,6 +58,13 @@ class OptimisticTransactionDB : public StackableDB {
                      OptimisticTransactionDB** dbptr);
 
   static Status Open(const DBOptions& db_options, const std::string& dbname,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle*>* handles,
+                     OptimisticTransactionDB** dbptr);
+
+  static Status Open(const DBOptions& db_options,
+                     const OptimisticTransactionDBOptions& occ_options,
+                     const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      OptimisticTransactionDB** dbptr);

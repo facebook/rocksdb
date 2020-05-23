@@ -11,11 +11,11 @@ int main() {
 }
 #else
 
+#include "file/writable_file_writer.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/file_reader_writer.h"
 #include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;

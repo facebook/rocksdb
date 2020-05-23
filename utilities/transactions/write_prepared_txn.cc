@@ -44,7 +44,7 @@ void WritePreparedTxn::MultiGet(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family,
                                 const size_t num_keys, const Slice* keys,
                                 PinnableSlice* values, Status* statuses,
-                                bool sorted_input) {
+                                const bool sorted_input) {
   SequenceNumber min_uncommitted, snap_seq;
   const SnapshotBackup backed_by_snapshot =
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);

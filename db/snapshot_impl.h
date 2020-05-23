@@ -148,6 +148,14 @@ class SnapshotList {
     }
   }
 
+  int64_t GetOldestSnapshotSequence() const {
+    if (empty()) {
+      return 0;
+    } else {
+      return oldest()->GetSequenceNumber();
+    }
+  }
+
   uint64_t count() const { return count_; }
 
  private:

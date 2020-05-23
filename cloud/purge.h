@@ -33,5 +33,5 @@ class Purge {
   CloudEnvImpl* cenv_;
   std::shared_ptr<Logger> info_log_;
 };
-}
+}  // namespace rocksdb
 #endif  // ROCKSDB_LITE

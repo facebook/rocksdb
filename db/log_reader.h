@@ -12,13 +12,12 @@
 #include <stdint.h>
 
 #include "db/log_format.h"
+#include "file/sequence_file_reader.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksdb/options.h"
 
 namespace rocksdb {
-
-class SequentialFileReader;
 class Logger;
 
 namespace log {

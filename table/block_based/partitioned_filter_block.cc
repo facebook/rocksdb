@@ -5,16 +5,10 @@
 
 #include "table/block_based/partitioned_filter_block.h"
 
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 #include <utility>
 
 #include "monitoring/perf_context_imp.h"
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block.h"
@@ -24,12 +18,12 @@
 namespace rocksdb {
 
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
-    const SliceTransform* prefix_extractor, bool whole_key_filtering,
+    const SliceTransform* _prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
     const bool use_value_delta_encoding,
     PartitionedIndexBuilder* const p_index_builder,
     const uint32_t partition_size)
-    : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
+    : FullFilterBlockBuilder(_prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval,
                                      true /*use_delta_encoding*/,
@@ -46,7 +40,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 
-void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
+void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
+    const Slice* next_key) {
   // Use == to send the request only once
   if (filters_in_partition_ == filters_per_partition_) {
     // Currently only index builder is in charge of cutting a partition. We keep
@@ -57,6 +52,16 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
     return;
   }
   filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
+
+  // Add the prefix of the next key before finishing the partition. This hack,
+  // fixes a bug with format_verison=3 where seeking for the prefix would lead
+  // us to the previous partition.
+  const bool add_prefix =
+      next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
+  if (add_prefix) {
+    FullFilterBlockBuilder::AddPrefix(*next_key);
+  }
+
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
@@ -64,8 +69,12 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
   Reset();
 }
 
+void PartitionedFilterBlockBuilder::Add(const Slice& key) {
+  MaybeCutAFilterBlock(&key);
+  FullFilterBlockBuilder::Add(key);
+}
+
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
-  MaybeCutAFilterBlock();
   filter_bits_builder_->AddKey(key);
   filters_in_partition_++;
   num_added_++;
@@ -93,7 +102,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
     }
     filters.pop_front();
   } else {
-    MaybeCutAFilterBlock();
+    MaybeCutAFilterBlock(nullptr);
   }
   // If there is no filter partition left, then return the index on filter
   // partitions
@@ -208,7 +217,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
     FilePrefetchBuffer* prefetch_buffer, const BlockHandle& fltr_blk_handle,
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<BlockContents>* filter_block) const {
+    CachableEntry<ParsedFullFilterBlock>* filter_block) const {
   assert(table());
   assert(filter_block);
   assert(filter_block->IsEmpty());
@@ -258,7 +267,7 @@ bool PartitionedFilterBlockReader::MayMatch(
     return false;
   }
 
-  CachableEntry<BlockContents> filter_partition_block;
+  CachableEntry<ParsedFullFilterBlock> filter_partition_block;
   s = GetFilterPartitionBlock(nullptr /* prefetch_buffer */, filter_handle,
                               no_io, get_context, lookup_context,
                               &filter_partition_block);
@@ -337,7 +346,7 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
   for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
 
-    CachableEntry<BlockContents> block;
+    CachableEntry<ParsedFullFilterBlock> block;
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(

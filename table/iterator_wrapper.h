@@ -12,6 +12,7 @@
 #include <set>
 
 #include "table/internal_iterator.h"
+#include "test_util/sync_point.h"
 
 namespace rocksdb {
 

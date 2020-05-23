@@ -16,13 +16,17 @@
 #include "db/dbformat.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
+#include "table/table_reader.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
 
 class VersionSet;
 
-const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
+constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
+constexpr uint64_t kInvalidBlobFileNumber = 0;
+constexpr uint64_t kUnknownOldestAncesterTime = 0;
+constexpr uint64_t kUnknownFileCreationTime = 0;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
@@ -52,7 +56,7 @@ struct FileDescriptor {
         smallest_seqno(_smallest_seqno),
         largest_seqno(_largest_seqno) {}
 
-  FileDescriptor(const FileDescriptor& fd) { *this=fd; }
+  FileDescriptor(const FileDescriptor& fd) { *this = fd; }
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
@@ -91,7 +95,7 @@ struct FileMetaData {
   InternalKey largest;             // Largest internal key served by table
 
   // Needs to be disposed when refs becomes 0.
-  Cache::Handle* table_reader_handle;
+  Cache::Handle* table_reader_handle = nullptr;
 
   FileSampledStats stats;
 
@@ -100,45 +104,58 @@ struct FileMetaData {
   // File size compensated by deletion entry.
   // This is updated in Version::UpdateAccumulatedStats() first time when the
   // file is created or loaded.  After it is updated (!= 0), it is immutable.
-  uint64_t compensated_file_size;
+  uint64_t compensated_file_size = 0;
   // These values can mutate, but they can only be read or written from
   // single-threaded LogAndApply thread
-  uint64_t num_entries;            // the number of entries.
-  uint64_t num_deletions;          // the number of deletion entries.
-  uint64_t raw_key_size;           // total uncompressed key size.
-  uint64_t raw_value_size;         // total uncompressed value size.
+  uint64_t num_entries = 0;     // the number of entries.
+  uint64_t num_deletions = 0;   // the number of deletion entries.
+  uint64_t raw_key_size = 0;    // total uncompressed key size.
+  uint64_t raw_value_size = 0;  // total uncompressed value size.
 
-  int refs;  // Reference count
+  int refs = 0;  // Reference count
 
-  bool being_compacted;        // Is this file undergoing compaction?
-  bool init_stats_from_file;   // true if the data-entry stats of this file
-                               // has initialized from file.
+  bool being_compacted = false;       // Is this file undergoing compaction?
+  bool init_stats_from_file = false;  // true if the data-entry stats of this
+                                      // file has initialized from file.
 
-  bool marked_for_compaction;  // True if client asked us nicely to compact this
-                               // file.
+  bool marked_for_compaction = false;  // True if client asked us nicely to
+                                       // compact this file.
 
-  FileMetaData()
-      : table_reader_handle(nullptr),
-        compensated_file_size(0),
-        num_entries(0),
-        num_deletions(0),
-        raw_key_size(0),
-        raw_value_size(0),
-        refs(0),
-        being_compacted(false),
-        init_stats_from_file(false),
-        marked_for_compaction(false) {}
+  // Used only in BlobDB. The file number of the oldest blob file this SST file
+  // refers to. 0 is an invalid value; BlobDB numbers the files starting from 1.
+  uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
+
+  // The file could be the compaction output from other SST files, which could
+  // in turn be outputs for compact older SST files. We track the memtable
+  // flush timestamp for the oldest SST file that eventaully contribute data
+  // to this file. 0 means the information is not available.
+  uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
+
+  // Unix time when the SST file is created.
+  uint64_t file_creation_time = kUnknownFileCreationTime;
+
+  FileMetaData() = default;
+
+  FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
+               const InternalKey& smallest_key, const InternalKey& largest_key,
+               const SequenceNumber& smallest_seq,
+               const SequenceNumber& largest_seq, bool marked_for_compact,
+               uint64_t oldest_blob_file, uint64_t _oldest_ancester_time,
+               uint64_t _file_creation_time)
+      : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
+        smallest(smallest_key),
+        largest(largest_key),
+        marked_for_compaction(marked_for_compact),
+        oldest_blob_file_number(oldest_blob_file),
+        oldest_ancester_time(_oldest_ancester_time),
+        file_creation_time(_file_creation_time) {
+    TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
+  }
 
   // REQUIRED: Keys must be given to the function in sorted order (it expects
   // the last key to be the largest).
-  void UpdateBoundaries(const Slice& key, SequenceNumber seqno) {
-    if (smallest.size() == 0) {
-      smallest.DecodeFrom(key);
-    }
-    largest.DecodeFrom(key);
-    fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
-    fd.largest_seqno = std::max(fd.largest_seqno, seqno);
-  }
+  void UpdateBoundaries(const Slice& key, const Slice& value,
+                        SequenceNumber seqno, ValueType value_type);
 
   // Unlike UpdateBoundaries, ranges do not need to be presented in any
   // particular order.
@@ -153,6 +170,29 @@ struct FileMetaData {
     }
     fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
     fd.largest_seqno = std::max(fd.largest_seqno, seqno);
+  }
+
+  // Try to get oldest ancester time from the class itself or table properties
+  // if table reader is already pinned.
+  // 0 means the information is not available.
+  uint64_t TryGetOldestAncesterTime() {
+    if (oldest_ancester_time != kUnknownOldestAncesterTime) {
+      return oldest_ancester_time;
+    } else if (fd.table_reader != nullptr &&
+               fd.table_reader->GetTableProperties() != nullptr) {
+      return fd.table_reader->GetTableProperties()->creation_time;
+    }
+    return kUnknownOldestAncesterTime;
+  }
+
+  uint64_t TryGetFileCreationTime() {
+    if (file_creation_time != kUnknownFileCreationTime) {
+      return file_creation_time;
+    } else if (fd.table_reader != nullptr &&
+               fd.table_reader->GetTableProperties() != nullptr) {
+      return fd.table_reader->GetTableProperties()->file_creation_time;
+    }
+    return kUnknownFileCreationTime;
   }
 };
 
@@ -191,6 +231,10 @@ struct LevelFilesBrief {
   }
 };
 
+// The state of a DB at any given time is referred to as a Version.
+// Any modification to the Version is considered a Version Edit. A Version is
+// constructed by joining a sequence of Version Edits. Version Edits are written
+// to the MANIFEST file.
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
@@ -245,21 +289,20 @@ class VersionEdit {
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
+  // REQUIRES: "oldest_blob_file_number" is the number of the oldest blob file
+  // referred to by this file if any, kInvalidBlobFileNumber otherwise.
   void AddFile(int level, uint64_t file, uint32_t file_path_id,
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
-               const SequenceNumber& largest_seqno,
-               bool marked_for_compaction) {
+               const SequenceNumber& largest_seqno, bool marked_for_compaction,
+               uint64_t oldest_blob_file_number, uint64_t oldest_ancester_time,
+               uint64_t file_creation_time) {
     assert(smallest_seqno <= largest_seqno);
-    FileMetaData f;
-    f.fd = FileDescriptor(file, file_path_id, file_size, smallest_seqno,
-                          largest_seqno);
-    f.smallest = smallest;
-    f.largest = largest;
-    f.fd.smallest_seqno = smallest_seqno;
-    f.fd.largest_seqno = largest_seqno;
-    f.marked_for_compaction = marked_for_compaction;
-    new_files_.emplace_back(level, std::move(f));
+    new_files_.emplace_back(
+        level, FileMetaData(file, file_path_id, file_size, smallest, largest,
+                            smallest_seqno, largest_seqno,
+                            marked_for_compaction, oldest_blob_file_number,
+                            oldest_ancester_time, file_creation_time));
   }
 
   void AddFile(int level, const FileMetaData& f) {

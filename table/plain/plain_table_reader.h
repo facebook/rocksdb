@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "db/dbformat.h"
+#include "file/random_access_file_reader.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -23,7 +24,6 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/plain/plain_table_index.h"
 #include "table/table_reader.h"
-#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -83,7 +83,8 @@ class PlainTableReader: public TableReader {
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
-                                TableReaderCaller caller, size_t compaction_readahead_size = 0) override;
+                                TableReaderCaller caller,
+                                size_t compaction_readahead_size = 0) override;
 
   void Prepare(const Slice& target) override;
 
@@ -164,7 +165,9 @@ class PlainTableReader: public TableReader {
   const ImmutableCFOptions& ioptions_;
   std::unique_ptr<Cleanable> dummy_cleanable_;
   uint64_t file_size_;
+ protected: // for testing
   std::shared_ptr<const TableProperties> table_properties_;
+ private:
 
   bool IsFixedLength() const {
     return user_key_len_ != kPlainTableVariableLength;

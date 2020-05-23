@@ -9,8 +9,8 @@
 #include <functional>
 #include <set>
 
-#include <cinttypes>
 #include <stdio.h>
+#include <cinttypes>
 
 #include "util/autovector.h"
 #include "util/kv_map.h"

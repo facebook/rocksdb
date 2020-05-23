@@ -32,6 +32,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   virtual ~PartitionedFilterBlockBuilder();
 
   void AddKey(const Slice& key) override;
+  void Add(const Slice& key) override;
 
   size_t NumAdded() const override { return num_added_; }
 
@@ -53,7 +54,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it
-  void MaybeCutAFilterBlock();
+  void MaybeCutAFilterBlock(const Slice* next_key);
   // Currently we keep the same number of partitions for filters and indexes.
   // This would allow for some potentioal optimizations in future. If such
   // optimizations did not realize we can use different number of partitions and
@@ -99,7 +100,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
       bool no_io, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
-      CachableEntry<BlockContents>* filter_block) const;
+      CachableEntry<ParsedFullFilterBlock>* filter_block) const;
 
   using FilterFunction = bool (FullFilterBlockReader::*)(
       const Slice& slice, const SliceTransform* prefix_extractor,
@@ -118,7 +119,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   bool index_value_is_full() const;
 
  protected:
-  std::unordered_map<uint64_t, CachableEntry<BlockContents>> filter_map_;
+  std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>
+      filter_map_;
 };
 
 }  // namespace rocksdb

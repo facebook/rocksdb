@@ -10,6 +10,6 @@ inline Aws::String ToAwsString(const std::string& s) {
   return Aws::String(s.data(), s.size());
 }
 
-}  // namepace rocksdb
+}  // namespace rocksdb
 
 #endif /* USE_AWS */

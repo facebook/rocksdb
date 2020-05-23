@@ -61,7 +61,7 @@ class WritePreparedTxn : public PessimisticTransaction {
                         ColumnFamilyHandle* column_family,
                         const size_t num_keys, const Slice* keys,
                         PinnableSlice* values, Status* statuses,
-                        bool sorted_input = false) override;
+                        const bool sorted_input = false) override;
 
   // Note: The behavior is undefined in presence of interleaved writes to the
   // same transaction.

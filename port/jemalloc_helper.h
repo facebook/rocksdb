@@ -32,8 +32,8 @@
 
 #if defined(OS_WIN) && defined(_MSC_VER)
 
-// MSVC does not have weak symbol support. As long as ROCKSDB_JEMALLOC is defined,
-// Jemalloc memory allocator is used.
+// MSVC does not have weak symbol support. As long as ROCKSDB_JEMALLOC is
+// defined, Jemalloc memory allocator is used.
 static inline bool HasJemalloc() { return true; }
 
 #else

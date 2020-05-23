@@ -506,7 +506,7 @@ class Statistics {
   virtual void recordInHistogram(uint32_t histogramType, uint64_t time) {
     // measureTime() is the old and inaccurate function name.
     // To keep backward compatible. If users implement their own
-    // statistics, which overrides meareTime() but doesn't override
+    // statistics, which overrides measureTime() but doesn't override
     // this function. We forward to measureTime().
     measureTime(histogramType, time);
   }
@@ -523,7 +523,7 @@ class Statistics {
   virtual bool getTickerMap(std::map<std::string, uint64_t>*) const {
     // Do nothing by default
     return false;
-  };
+  }
 
   // Override this function to disable particular histogram collection
   virtual bool HistEnabledForType(uint32_t type) const {

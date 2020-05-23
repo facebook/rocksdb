@@ -4,26 +4,31 @@
 set -e
 #set -x
 
-rm -rf /rocksdb-local
-cp -r /rocksdb-host /rocksdb-local
-cd /rocksdb-local
+# just in-case this is run outside Docker
+mkdir -p /rocksdb-local-build
 
-# Use scl devtoolset if available (i.e. CentOS <7)
+rm -rf /rocksdb-local-build/*
+cp -r /rocksdb-host/* /rocksdb-local-build
+cd /rocksdb-local-build
+
+# Use scl devtoolset if available
 if hash scl 2>/dev/null; then
 	if scl --list | grep -q 'devtoolset-7'; then
-		scl enable devtoolset-7 'make jclean clean'
+		# CentOS 7+
+		scl enable devtoolset-7 'make clean-not-downloaded'
 		scl enable devtoolset-7 'PORTABLE=1 make -j2 rocksdbjavastatic'
 	elif scl --list | grep -q 'devtoolset-2'; then
-		scl enable devtoolset-2 'make jclean clean'
+		# CentOS 5 or 6
+		scl enable devtoolset-2 'make clean-not-downloaded'
 		scl enable devtoolset-2 'PORTABLE=1 make -j2 rocksdbjavastatic'
 	else
 		echo "Could not find devtoolset"
 		exit 1;
 	fi
 else
-	make jclean clean
+	make clean-not-downloaded
         PORTABLE=1 make -j2 rocksdbjavastatic
 fi
 
-cp java/target/librocksdbjni-linux*.so java/target/rocksdbjni-*-linux*.jar /rocksdb-host/java/target
+cp java/target/librocksdbjni-linux*.so java/target/rocksdbjni-*-linux*.jar /rocksdb-java-target
 

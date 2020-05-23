@@ -137,6 +137,11 @@ class Replayer {
   // between the traces into consideration.
   Status Replay();
 
+  // Replay the provide trace stream, which is the same as Replay(), with
+  // multi-threads. Queries are scheduled in the thread pool job queue.
+  // User can set the number of threads in the thread pool.
+  Status MultiThreadReplay(uint32_t threads_num);
+
   // Enables fast forwarding a replay by reducing the delay between the ingested
   // traces.
   // fast_forward : Rate of replay speedup.
@@ -149,10 +154,36 @@ class Replayer {
   Status ReadFooter(Trace* footer);
   Status ReadTrace(Trace* trace);
 
+  // The background function for MultiThreadReplay to execute Get query
+  // based on the trace records.
+  static void BGWorkGet(void* arg);
+
+  // The background function for MultiThreadReplay to execute WriteBatch
+  // (Put, Delete, SingleDelete, DeleteRange) based on the trace records.
+  static void BGWorkWriteBatch(void* arg);
+
+  // The background function for MultiThreadReplay to execute Iterator (Seek)
+  // based on the trace records.
+  static void BGWorkIterSeek(void* arg);
+
+  // The background function for MultiThreadReplay to execute Iterator
+  // (SeekForPrev) based on the trace records.
+  static void BGWorkIterSeekForPrev(void* arg);
+
   DBImpl* db_;
+  Env* env_;
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   uint32_t fast_forward_;
+};
+
+// The passin arg of MultiThreadRepkay for each trace record.
+struct ReplayerWorkerArg {
+  DB* db;
+  Trace trace_entry;
+  std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
+  WriteOptions woptions;
+  ReadOptions roptions;
 };
 
 }  // namespace rocksdb

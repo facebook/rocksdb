@@ -67,9 +67,9 @@ class ColumnFamilyTestBase : public testing::Test {
 #ifndef ROCKSDB_LITE
     const char* test_env_uri = getenv("TEST_ENV_URI");
     if (test_env_uri) {
-      Status s = ObjectRegistry::NewInstance()->NewSharedObject(test_env_uri,
-                                                                &env_guard_);
-      base_env = env_guard_.get();
+      Env* test_env = nullptr;
+      Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
+      base_env = test_env;
       EXPECT_OK(s);
       EXPECT_NE(Env::Default(), base_env);
     }
@@ -2363,6 +2363,45 @@ TEST_P(ColumnFamilyTest, ReadDroppedColumnFamily) {
     Close();
     Destroy();
   }
+}
+
+TEST_P(ColumnFamilyTest, LiveIteratorWithDroppedColumnFamily) {
+  db_options_.create_missing_column_families = true;
+  db_options_.max_open_files = 20;
+  // delete obsolete files always
+  db_options_.delete_obsolete_files_period_micros = 0;
+  Open({"default", "one", "two"});
+  ColumnFamilyOptions options;
+  options.level0_file_num_compaction_trigger = 100;
+  options.level0_slowdown_writes_trigger = 200;
+  options.level0_stop_writes_trigger = 200;
+  options.write_buffer_size = 100000;  // small write buffer size
+  Reopen({options, options, options});
+
+  // 1MB should create ~10 files for each CF
+  int kKeysNum = 10000;
+  PutRandomData(1, kKeysNum, 100);
+
+  {
+    std::unique_ptr<Iterator> iterator(
+        db_->NewIterator(ReadOptions(), handles_[1]));
+    iterator->SeekToFirst();
+
+    DropColumnFamilies({1});
+
+    // Make sure iterator created can still be used.
+    int count = 0;
+    for (; iterator->Valid(); iterator->Next()) {
+      ASSERT_OK(iterator->status());
+      ++count;
+    }
+    ASSERT_OK(iterator->status());
+    ASSERT_EQ(count, kKeysNum);
+  }
+
+  Reopen();
+  Close();
+  Destroy();
 }
 
 TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {

@@ -9,7 +9,8 @@ Here is an [example](https://github.com/rockset/rocksdb-cloud/blob/master/cloud/
 ### Compile
 The compilation process assumes that the AWS c++ SDK is installed in
 the default location of /usr/local. You can follow the steps listed
-here https://github.com/aws/aws-sdk-cpp to install the c++ AWS sdk.
+here https://github.com/aws/aws-sdk-cpp (version 1.7.325 or later)
+to install the c++ AWS sdk.
 
 If you want to compile rocksdb with AWS support, please set the following
 environment variable USE_AWS=1. 

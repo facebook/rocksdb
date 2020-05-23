@@ -144,6 +144,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HdfsEnv.java
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
+  src/main/java/org/rocksdb/Holder.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
@@ -249,7 +250,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/NativeComparatorWrapperTest.java
   src/test/java/org/rocksdb/PlatformRandomHelper.java
   src/test/java/org/rocksdb/RocksDBExceptionTest.java
-  src/test/java/org/rocksdb/RocksMemoryResource.java
+  src/test/java/org/rocksdb/RocksNativeLibraryResource.java
   src/test/java/org/rocksdb/SnapshotTest.java
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
@@ -312,17 +313,19 @@ if(NOT EXISTS ${JAVA_TEST_LIBDIR})
   file(MAKE_DIRECTORY mkdir ${JAVA_TEST_LIBDIR})
 endif()
 
-if (DEFINED CUSTOM_REPO_URL)
-  set(SEARCH_REPO_URL ${CUSTOM_REPO_URL}/)
-  set(CENTRAL_REPO_URL ${CUSTOM_REPO_URL}/)
+if (DEFINED CUSTOM_DEPS_URL)
+  set(DEPS_URL ${CUSTOM_DEPS_URL}/)
 else ()
-  set(SEARCH_REPO_URL "http://search.maven.org/remotecontent?filepath=")
-  set(CENTRAL_REPO_URL "http://central.maven.org/maven2/")
+  # This is a URL for artifacts from a "fake" release on pdillinger's fork,
+  # so as not to put binaries in git (ew). We should move to hosting these
+  # under the facebook account on github, or something else more reliable
+  # than maven.org, which has been failing frequently from Travis.
+  set(DEPS_URL "https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}junit/junit/4.12/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}")
@@ -331,7 +334,7 @@ if(NOT EXISTS ${JAVA_JUNIT_JAR})
 endif()
 if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}")
@@ -340,7 +343,7 @@ if(NOT EXISTS ${JAVA_HAMCR_JAR})
 endif()
 if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}")
@@ -349,7 +352,7 @@ if(NOT EXISTS ${JAVA_MOCKITO_JAR})
 endif()
 if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}cglib/cglib/2.2.2/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}")
@@ -358,7 +361,7 @@ if(NOT EXISTS ${JAVA_CGLIB_JAR})
 endif()
 if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
-  file(DOWNLOAD ${CENTRAL_REPO_URL}org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}")
@@ -484,13 +487,13 @@ endif()
 set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
 add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
 add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
-target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
 if(NOT MINGW)
   set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
   add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers)
-  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${LIBS})
+  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
   set_target_properties(
     ${ROCKSDBJNI_SHARED_LIB}

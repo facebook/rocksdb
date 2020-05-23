@@ -28,41 +28,41 @@ class MockStorageProvider : public CloudStorageProvider {
                              const std::string& /*path_prefix*/) override {
     return notsup_;
   }
-  Status ListObjects(const std::string& /*bucket_name*/,
-                     const std::string& /*object_path*/,
-                     std::vector<std::string>* /*result*/) override {
+  Status ListCloudObjects(const std::string& /*bucket_name*/,
+                          const std::string& /*object_path*/,
+                          std::vector<std::string>* /*result*/) override {
     return notsup_;
   }
-  Status DeleteObject(const std::string& /*bucket_name*/,
-                      const std::string& /*object_path*/) override {
+  Status DeleteCloudObject(const std::string& /*bucket_name*/,
+                           const std::string& /*object_path*/) override {
     return notsup_;
   }
-  Status ExistsObject(const std::string& /*bucket_name*/,
-                      const std::string& /*object_path*/) override {
+  Status ExistsCloudObject(const std::string& /*bucket_name*/,
+                           const std::string& /*object_path*/) override {
     return notsup_;
   }
-  Status GetObjectSize(const std::string& /*bucket_name*/,
-                       const std::string& /*object_path*/,
-                       uint64_t* /*size*/) override {
+  Status GetCloudObjectSize(const std::string& /*bucket_name*/,
+                            const std::string& /*object_path*/,
+                            uint64_t* /*size*/) override {
     return notsup_;
   }
-  Status GetObjectModificationTime(const std::string& /*bucket_name*/,
-                                   const std::string& /*object_path*/,
-                                   uint64_t* /*time*/) override {
+  Status GetCloudObjectModificationTime(const std::string& /*bucket_name*/,
+                                        const std::string& /*object_path*/,
+                                        uint64_t* /*time*/) override {
     return notsup_;
   }
-  Status GetObjectMetadata(
-      const std::string& /*bucket_name*/, const std::string& /*object_path*/,
-      std::unordered_map<std::string, std::string>* /*metadata*/) override {
+  Status GetCloudObjectMetadata(const std::string& /*bucket_name*/,
+                                const std::string& /*object_path*/,
+                                CloudObjectInformation* /* info */) override {
     return notsup_;
   }
-  Status CopyObject(const std::string& /*bucket_name_src*/,
-                    const std::string& /*object_path_src*/,
-                    const std::string& /*bucket_name_dest*/,
-                    const std::string& /*object_path_dest*/) override {
+  Status CopyCloudObject(const std::string& /*bucket_name_src*/,
+                         const std::string& /*object_path_src*/,
+                         const std::string& /*bucket_name_dest*/,
+                         const std::string& /*object_path_dest*/) override {
     return notsup_;
   }
-  Status PutObjectMetadata(
+  Status PutCloudObjectMetadata(
       const std::string& /*bucket_name*/, const std::string& /*object_path*/,
       const std::unordered_map<std::string, std::string>& /*metadata*/)
       override {
@@ -83,15 +83,15 @@ class MockStorageProvider : public CloudStorageProvider {
     return notsup_;
   }
 
-  Status GetObject(const std::string& /*bucket_name*/,
-                   const std::string& /*object_path*/,
-                   const std::string& /*local_path*/) override {
+  Status GetCloudObject(const std::string& /*bucket_name*/,
+                        const std::string& /*object_path*/,
+                        const std::string& /*local_path*/) override {
     return notsup_;
   }
 
-  Status PutObject(const std::string& /*local_path*/,
-                   const std::string& /*bucket_name*/,
-                   const std::string& /*object_path*/) override {
+  Status PutCloudObject(const std::string& /*local_path*/,
+                        const std::string& /*bucket_name*/,
+                        const std::string& /*object_path*/) override {
     return notsup_;
   }
 

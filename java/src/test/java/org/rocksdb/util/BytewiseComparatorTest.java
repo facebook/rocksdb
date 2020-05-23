@@ -234,7 +234,7 @@ public class BytewiseComparatorTest {
           if (map.containsKey(key)) {
             map.remove(key);
           }
-          db.remove(new WriteOptions(), bytes(key));
+          db.delete(new WriteOptions(), bytes(key));
           break;
 
         default:
@@ -243,7 +243,7 @@ public class BytewiseComparatorTest {
     }
 
     try(final RocksIterator iter = db.newIterator(new ReadOptions())) {
-      final KVIter<String, String> result_iter = new KVIter(map);
+      final KVIter<String, String> result_iter = new KVIter<>(map);
 
       boolean is_valid = false;
       for (int i = 0; i < num_iter_ops; i++) {
@@ -398,7 +398,7 @@ public class BytewiseComparatorTest {
     };
   }
 
-  private class KVIter<K, V> implements RocksIteratorInterface {
+  private static class KVIter<K, V> implements RocksIteratorInterface {
 
     private final List<Map.Entry<K, V>> entries;
     private final java.util.Comparator<? super K> comparator;
@@ -409,10 +409,7 @@ public class BytewiseComparatorTest {
 
     public KVIter(final TreeMap<K, V> map) {
       this.entries = new ArrayList<>();
-      final Iterator<Map.Entry<K, V>> iterator = map.entrySet().iterator();
-      while(iterator.hasNext()) {
-        entries.add(iterator.next());
-      }
+      entries.addAll(map.entrySet());
       this.comparator = map.comparator();
     }
 
@@ -432,6 +429,7 @@ public class BytewiseComparatorTest {
       offset = entries.size() - 1;
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public void seek(final byte[] target) {
       for(offset = 0; offset < entries.size(); offset++) {
@@ -442,6 +440,7 @@ public class BytewiseComparatorTest {
       }
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public void seekForPrev(final byte[] target) {
       for(offset = entries.size()-1; offset >= 0; offset--) {
@@ -492,6 +491,7 @@ public class BytewiseComparatorTest {
       }
     }
 
+    @SuppressWarnings("unchecked")
     public K key() {
       if(!isValid()) {
         if(entries.isEmpty()) {
@@ -508,6 +508,7 @@ public class BytewiseComparatorTest {
       }
     }
 
+    @SuppressWarnings("unchecked")
     public V value() {
       if(!isValid()) {
         return (V)"";

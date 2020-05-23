@@ -24,7 +24,6 @@ namespace rocksdb {
 
 class S3ReadableFile;
 
-
 namespace detail {
 struct JobHandle;
 }  // namespace detail
@@ -55,9 +54,9 @@ struct JobHandle;
 class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
-  static Status NewAwsEnv(Env* env,
-                          const CloudEnvOptions& env_options,
-                          const std::shared_ptr<Logger> & info_log, CloudEnv** cenv);
+  static Status NewAwsEnv(Env* env, const CloudEnvOptions& env_options,
+                          const std::shared_ptr<Logger>& info_log,
+                          CloudEnv** cenv);
 
   virtual ~AwsEnv();
 
@@ -74,133 +73,20 @@ class AwsEnv : public CloudEnvImpl {
   // explicitly make the default region be us-west-2.
   static constexpr const char* default_region = "us-west-2";
 
-  virtual Status NewSequentialFile(const std::string& fname,
-                                   std::unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options) override;
-
-  virtual Status NewSequentialFileCloud(const std::string& bucket,
-                                        const std::string& fname,
-                                        std::unique_ptr<SequentialFile>* result,
-                                        const EnvOptions& options) override;
-
-  virtual Status NewRandomAccessFile(const std::string& fname,
-                                     std::unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options) override;
-
-  virtual Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) override;
-
-  virtual Status ReopenWritableFile(const std::string& /*fname*/,
-                                    std::unique_ptr<WritableFile>* /*result*/,
-                                    const EnvOptions& /*options*/) override;
-
-  virtual Status NewDirectory(const std::string& name,
-                              std::unique_ptr<Directory>* result) override;
-
-  virtual Status FileExists(const std::string& fname) override;
-
-  virtual Status GetChildren(const std::string& path,
-                             std::vector<std::string>* result) override;
-
   virtual Status DeleteFile(const std::string& fname) override;
-
-  virtual Status CreateDir(const std::string& name) override;
-
-  virtual Status CreateDirIfMissing(const std::string& name) override;
-
-  virtual Status DeleteDir(const std::string& name) override;
-
-  virtual Status GetFileSize(const std::string& fname, uint64_t* size) override;
-
-  virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* file_mtime) override;
-
-  virtual Status RenameFile(const std::string& src,
-                            const std::string& target) override;
-
-  virtual Status LinkFile(const std::string& src,
-                          const std::string& target) override;
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) override;
 
   virtual Status UnlockFile(FileLock* lock) override;
-
-  virtual Status NewLogger(const std::string& fname,
-                           std::shared_ptr<Logger>* result) override;
-
-  virtual void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr,
-                        void (*unschedFunction)(void* arg) = 0) override {
-    base_env_->Schedule(function, arg, pri, tag, unschedFunction);
-  }
-
-  virtual int UnSchedule(void* tag, Priority pri) override {
-    return base_env_->UnSchedule(tag, pri);
-  }
-
-  virtual void StartThread(void (*function)(void* arg), void* arg) override {
-    base_env_->StartThread(function, arg);
-  }
-
-  virtual void WaitForJoin() override { base_env_->WaitForJoin(); }
-
-  virtual unsigned int GetThreadPoolQueueLen(
-      Priority pri = LOW) const override {
-    return base_env_->GetThreadPoolQueueLen(pri);
-  }
-
-  virtual Status GetTestDirectory(std::string* path) override {
-    return base_env_->GetTestDirectory(path);
-  }
-
-  virtual uint64_t NowMicros() override { return base_env_->NowMicros(); }
-
-  virtual void SleepForMicroseconds(int micros) override {
-    base_env_->SleepForMicroseconds(micros);
-  }
-
-  virtual Status GetHostName(char* name, uint64_t len) override {
-    return base_env_->GetHostName(name, len);
-  }
-
-  virtual Status GetCurrentTime(int64_t* unix_time) override {
-    return base_env_->GetCurrentTime(unix_time);
-  }
-
-  virtual Status GetAbsolutePath(const std::string& db_path,
-                                 std::string* output_path) override {
-    return base_env_->GetAbsolutePath(db_path, output_path);
-  }
-
-  virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {
-    base_env_->SetBackgroundThreads(number, pri);
-  }
-  int GetBackgroundThreads(Priority pri) override {
-    return base_env_->GetBackgroundThreads(pri);
-  }
-
-  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
-    base_env_->IncBackgroundThreadsIfNeeded(number, pri);
-  }
-
-  virtual std::string TimeToString(uint64_t number) override {
-    return base_env_->TimeToString(number);
-  }
-
-  static uint64_t gettid();
-
-  virtual uint64_t GetThreadID() const override { return AwsEnv::gettid(); }
 
   std::string GetWALCacheDir();
 
   // Saves and retrieves the dbid->dirname mapping in S3
   Status SaveDbid(const std::string& bucket_name, const std::string& dbid,
                   const std::string& dirname) override;
-  Status GetPathForDbid(const std::string& bucket,
-                        const std::string& dbid, std::string* dirname) override;
-  Status GetDbidList(const std::string& bucket,
-                     DbidList* dblist) override;
+  Status GetPathForDbid(const std::string& bucket, const std::string& dbid,
+                        std::string* dirname) override;
+  Status GetDbidList(const std::string& bucket, DbidList* dblist) override;
   Status DeleteDbid(const std::string& bucket,
                     const std::string& dbid) override;
   Status DeleteCloudFileFromDest(const std::string& fname) override;
@@ -219,41 +105,17 @@ class AwsEnv : public CloudEnvImpl {
   // The AWS credentials are specified to the constructor via
   // access_key_id and secret_key.
   //
-  explicit AwsEnv(Env* underlying_env,
-                  const CloudEnvOptions& cloud_options,
-                  const std::shared_ptr<Logger> & info_log = nullptr);
-
-
+  explicit AwsEnv(Env* underlying_env, const CloudEnvOptions& cloud_options,
+                  const std::shared_ptr<Logger>& info_log = nullptr);
 
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
-
-  Status create_bucket_status_;
 
   std::mutex files_to_delete_mutex_;
   std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
   std::unordered_map<std::string, std::shared_ptr<detail::JobHandle>>
       files_to_delete_;
   Random64 rng_;
-
-  Status status();
-
-  // Validate options
-  Status CheckOption(const EnvOptions& options);
-
-
-  Status NewS3ReadableFile(const std::string& bucket, const std::string& fname,
-                           std::unique_ptr<S3ReadableFile>* result);
-
-  // Save IDENTITY file to S3. Update dbid registry.
-  Status SaveIdentitytoS3(const std::string& localfile,
-                          const std::string& target_idfile);
-
-  // Converts a local pathname to an object name in the src bucket
-  std::string srcname(const std::string& localname);
-
-  // Converts a local pathname to an object name in the dest bucket
-  std::string destname(const std::string& localname);
 };
 
 }  // namespace rocksdb

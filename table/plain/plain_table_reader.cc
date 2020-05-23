@@ -36,7 +36,6 @@
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/murmurhash.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
@@ -128,10 +127,11 @@ Status PlainTableReader::Open(
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
-  TableProperties* props = nullptr;
+  TableProperties* props_ptr = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions, &props,
+                               ioptions, &props_ptr,
                                true /* compression_type_missing */);
+  std::shared_ptr<TableProperties> props(props_ptr);
   if (!s.ok()) {
     return s;
   }
@@ -165,7 +165,7 @@ Status PlainTableReader::Open(
 
   std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
       ioptions, std::move(file), env_options, internal_comparator,
-      encoding_type, file_size, props, prefix_extractor));
+      encoding_type, file_size, props.get(), prefix_extractor));
 
   s = new_reader->MmapDataIfNeeded();
   if (!s.ok()) {
@@ -173,8 +173,9 @@ Status PlainTableReader::Open(
   }
 
   if (!full_scan_mode) {
-    s = new_reader->PopulateIndex(props, bloom_bits_per_key, hash_table_ratio,
-                                  index_sparseness, huge_page_tlb_size);
+    s = new_reader->PopulateIndex(props.get(), bloom_bits_per_key,
+                                  hash_table_ratio, index_sparseness,
+                                  huge_page_tlb_size);
     if (!s.ok()) {
       return s;
     }
@@ -183,6 +184,8 @@ Status PlainTableReader::Open(
     // can be used.
     new_reader->full_scan_mode_ = true;
   }
+  // PopulateIndex can add to the props, so don't store them until now
+  new_reader->table_properties_ = props;
 
   if (immortal_table && new_reader->file_info_.is_mmap_mode) {
     new_reader->dummy_cleanable_.reset(new Cleanable());
@@ -199,6 +202,9 @@ InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
     Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
     size_t /*compaction_readahead_size*/) {
+  // Not necessarily used here, but make sure this has been initialized
+  assert(table_properties_);
+
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
@@ -291,7 +297,6 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
                                        size_t index_sparseness,
                                        size_t huge_page_tlb_size) {
   assert(props != nullptr);
-  table_properties_.reset(props);
 
   BlockContents index_block_contents;
   Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
@@ -351,7 +356,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     // Allocate bloom filter here for total order mode.
     if (IsTotalOrderMode()) {
       AllocateBloom(bloom_bits_per_key,
-                    static_cast<uint32_t>(table_properties_->num_entries),
+                    static_cast<uint32_t>(props->num_entries),
                     huge_page_tlb_size);
     }
   } else if (bloom_in_file) {
@@ -367,9 +372,9 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
       }
     }
     // cast away const qualifier, because bloom_ won't be changed
-    bloom_.SetRawData(
-        const_cast<char*>(bloom_block->data()),
-        static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
+    bloom_.SetRawData(const_cast<char*>(bloom_block->data()),
+                      static_cast<uint32_t>(bloom_block->size()) * 8,
+                      num_blocks);
   } else {
     // Index in file but no bloom in file. Disable bloom filter in this case.
     enable_bloom_ = false;

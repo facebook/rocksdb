@@ -6,13 +6,13 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::Iterator methods from Java side.
 
+#include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <jni.h>
 
 #include "include/org_rocksdb_SstFileReaderIterator.h"
-#include "rocksjni/portal.h"
 #include "rocksdb/iterator.h"
+#include "rocksjni/portal.h"
 
 /*
  * Class:     org_rocksdb_SstFileReaderIterator
@@ -22,9 +22,9 @@
 void Java_org_rocksdb_SstFileReaderIterator_disposeInternal(JNIEnv* /*env*/,
                                                             jobject /*jobj*/,
                                                             jlong handle) {
-    auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
-    assert(it != nullptr);
-    delete it;
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  assert(it != nullptr);
+  delete it;
 }
 
 /*
@@ -35,7 +35,7 @@ void Java_org_rocksdb_SstFileReaderIterator_disposeInternal(JNIEnv* /*env*/,
 jboolean Java_org_rocksdb_SstFileReaderIterator_isValid0(JNIEnv* /*env*/,
                                                          jobject /*jobj*/,
                                                          jlong handle) {
-    return reinterpret_cast<rocksdb::Iterator*>(handle)->Valid();
+  return reinterpret_cast<rocksdb::Iterator*>(handle)->Valid();
 }
 
 /*
@@ -46,7 +46,7 @@ jboolean Java_org_rocksdb_SstFileReaderIterator_isValid0(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReaderIterator_seekToFirst0(JNIEnv* /*env*/,
                                                          jobject /*jobj*/,
                                                          jlong handle) {
-    reinterpret_cast<rocksdb::Iterator*>(handle)->SeekToFirst();
+  reinterpret_cast<rocksdb::Iterator*>(handle)->SeekToFirst();
 }
 
 /*
@@ -57,7 +57,7 @@ void Java_org_rocksdb_SstFileReaderIterator_seekToFirst0(JNIEnv* /*env*/,
 void Java_org_rocksdb_SstFileReaderIterator_seekToLast0(JNIEnv* /*env*/,
                                                         jobject /*jobj*/,
                                                         jlong handle) {
-    reinterpret_cast<rocksdb::Iterator*>(handle)->SeekToLast();
+  reinterpret_cast<rocksdb::Iterator*>(handle)->SeekToLast();
 }
 
 /*
@@ -65,9 +65,10 @@ void Java_org_rocksdb_SstFileReaderIterator_seekToLast0(JNIEnv* /*env*/,
  * Method:    next0
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReaderIterator_next0(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileReaderIterator_next0(JNIEnv* /*env*/,
+                                                  jobject /*jobj*/,
                                                   jlong handle) {
-    reinterpret_cast<rocksdb::Iterator*>(handle)->Next();
+  reinterpret_cast<rocksdb::Iterator*>(handle)->Next();
 }
 
 /*
@@ -75,9 +76,10 @@ void Java_org_rocksdb_SstFileReaderIterator_next0(JNIEnv* /*env*/, jobject /*job
  * Method:    prev0
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReaderIterator_prev0(JNIEnv* /*env*/, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileReaderIterator_prev0(JNIEnv* /*env*/,
+                                                  jobject /*jobj*/,
                                                   jlong handle) {
-    reinterpret_cast<rocksdb::Iterator*>(handle)->Prev();
+  reinterpret_cast<rocksdb::Iterator*>(handle)->Prev();
 }
 
 /*
@@ -86,21 +88,21 @@ void Java_org_rocksdb_SstFileReaderIterator_prev0(JNIEnv* /*env*/, jobject /*job
  * Signature: (J[BI)V
  */
 void Java_org_rocksdb_SstFileReaderIterator_seek0(JNIEnv* env, jobject /*jobj*/,
-                                                  jlong handle, jbyteArray jtarget,
+                                                  jlong handle,
+                                                  jbyteArray jtarget,
                                                   jint jtarget_len) {
-    jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-    if(target == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return;
-    }
+  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
+  if (target == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
-    rocksdb::Slice target_slice(
-            reinterpret_cast<char*>(target), jtarget_len);
+  rocksdb::Slice target_slice(reinterpret_cast<char*>(target), jtarget_len);
 
-    auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
-    it->Seek(target_slice);
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  it->Seek(target_slice);
 
-    env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
 }
 
 /*
@@ -108,23 +110,23 @@ void Java_org_rocksdb_SstFileReaderIterator_seek0(JNIEnv* env, jobject /*jobj*/,
  * Method:    seekForPrev0
  * Signature: (J[BI)V
  */
-void Java_org_rocksdb_SstFileReaderIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileReaderIterator_seekForPrev0(JNIEnv* env,
+                                                         jobject /*jobj*/,
                                                          jlong handle,
                                                          jbyteArray jtarget,
                                                          jint jtarget_len) {
-    jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
-    if(target == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return;
-    }
+  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
+  if (target == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
-    rocksdb::Slice target_slice(
-            reinterpret_cast<char*>(target), jtarget_len);
+  rocksdb::Slice target_slice(reinterpret_cast<char*>(target), jtarget_len);
 
-    auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
-    it->SeekForPrev(target_slice);
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  it->SeekForPrev(target_slice);
 
-    env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
 }
 
 /*
@@ -132,16 +134,17 @@ void Java_org_rocksdb_SstFileReaderIterator_seekForPrev0(JNIEnv* env, jobject /*
  * Method:    status0
  * Signature: (J)V
  */
-void Java_org_rocksdb_SstFileReaderIterator_status0(JNIEnv* env, jobject /*jobj*/,
+void Java_org_rocksdb_SstFileReaderIterator_status0(JNIEnv* env,
+                                                    jobject /*jobj*/,
                                                     jlong handle) {
-    auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
-    rocksdb::Status s = it->status();
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  rocksdb::Status s = it->status();
 
-    if (s.ok()) {
-        return;
-    }
+  if (s.ok()) {
+    return;
+  }
 
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
 /*
@@ -149,19 +152,21 @@ void Java_org_rocksdb_SstFileReaderIterator_status0(JNIEnv* env, jobject /*jobj*
  * Method:    key0
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_SstFileReaderIterator_key0(JNIEnv* env, jobject /*jobj*/,
+jbyteArray Java_org_rocksdb_SstFileReaderIterator_key0(JNIEnv* env,
+                                                       jobject /*jobj*/,
                                                        jlong handle) {
-    auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
-    rocksdb::Slice key_slice = it->key();
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  rocksdb::Slice key_slice = it->key();
 
-    jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
-    if(jkey == nullptr) {
-        // exception thrown: OutOfMemoryError
-        return nullptr;
-    }
-    env->SetByteArrayRegion(jkey, 0, static_cast<jsize>(key_slice.size()),
-                            const_cast<jbyte*>(reinterpret_cast<const jbyte*>(key_slice.data())));
-    return jkey;
+  jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
+  if (jkey == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+  env->SetByteArrayRegion(
+      jkey, 0, static_cast<jsize>(key_slice.size()),
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(key_slice.data())));
+  return jkey;
 }
 
 /*

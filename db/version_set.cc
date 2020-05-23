@@ -30,6 +30,9 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "file/filename.h"
+#include "file/random_access_file_reader.h"
+#include "file/read_write_util.h"
+#include "file/writable_file_writer.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
@@ -47,7 +50,6 @@
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
-#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -851,7 +853,7 @@ namespace {
 class LevelIterator final : public InternalIterator {
  public:
   LevelIterator(TableCache* table_cache, const ReadOptions& read_options,
-                const EnvOptions& env_options,
+                const FileOptions& file_options,
                 const InternalKeyComparator& icomparator,
                 const LevelFilesBrief* flevel,
                 const SliceTransform* prefix_extractor, bool should_sample,
@@ -861,11 +863,12 @@ class LevelIterator final : public InternalIterator {
                     compaction_boundaries = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
-        env_options_(env_options),
+        file_options_(file_options),
         icomparator_(icomparator),
         user_comparator_(icomparator.user_comparator()),
         flevel_(flevel),
-        prefix_extractor_(prefix_extractor),
+        prefix_extractor_(read_options.total_order_seek ? nullptr
+                                                        : prefix_extractor),
         file_read_hist_(file_read_hist),
         should_sample_(should_sample),
         caller_(caller),
@@ -932,7 +935,8 @@ class LevelIterator final : public InternalIterator {
   }
 
  private:
-  void SkipEmptyFileForward();
+  // Return true if at least one invalid file is seen and skipped.
+  bool SkipEmptyFileForward();
   void SkipEmptyFileBackward();
   void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
@@ -971,7 +975,7 @@ class LevelIterator final : public InternalIterator {
     }
     CheckMayBeOutOfLowerBound();
     return table_cache_->NewIterator(
-        read_options_, env_options_, icomparator_, *file_meta.file_metadata,
+        read_options_, file_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_, smallest_compaction_key,
@@ -994,7 +998,7 @@ class LevelIterator final : public InternalIterator {
 
   TableCache* table_cache_;
   const ReadOptions read_options_;
-  const EnvOptions& env_options_;
+  const FileOptions& file_options_;
   const InternalKeyComparator& icomparator_;
   const UserComparatorWrapper user_comparator_;
   const LevelFilesBrief* flevel_;
@@ -1040,7 +1044,32 @@ void LevelIterator::Seek(const Slice& target) {
   if (file_iter_.iter() != nullptr) {
     file_iter_.Seek(target);
   }
-  SkipEmptyFileForward();
+  if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
+      file_iter_.iter() != nullptr && file_iter_.Valid()) {
+    // We've skipped the file we initially positioned to. In the prefix
+    // seek case, it is likely that the file is skipped because of
+    // prefix bloom or hash, where more keys are skipped. We then check
+    // the current key and invalidate the iterator if the prefix is
+    // already passed.
+    // When doing prefix iterator seek, when keys for one prefix have
+    // been exhausted, it can jump to any key that is larger. Here we are
+    // enforcing a stricter contract than that, in order to make it easier for
+    // higher layers (merging and DB iterator) to reason the correctness:
+    // 1. Within the prefix, the result should be accurate.
+    // 2. If keys for the prefix is exhausted, it is either positioned to the
+    //    next key after the prefix, or make the iterator invalid.
+    // A side benefit will be that it invalidates the iterator earlier so that
+    // the upper level merging iterator can merge fewer child iterators.
+    Slice target_user_key = ExtractUserKey(target);
+    Slice file_user_key = ExtractUserKey(file_iter_.key());
+    if (prefix_extractor_->InDomain(target_user_key) &&
+        (!prefix_extractor_->InDomain(file_user_key) ||
+         user_comparator_.Compare(
+             prefix_extractor_->Transform(target_user_key),
+             prefix_extractor_->Transform(file_user_key)) != 0)) {
+      SetFileIterator(nullptr);
+    }
+  }
   CheckMayBeOutOfLowerBound();
 }
 
@@ -1094,25 +1123,28 @@ void LevelIterator::Prev() {
   SkipEmptyFileBackward();
 }
 
-void LevelIterator::SkipEmptyFileForward() {
+bool LevelIterator::SkipEmptyFileForward() {
+  bool seen_empty_file = false;
   while (file_iter_.iter() == nullptr ||
          (!file_iter_.Valid() && file_iter_.status().ok() &&
           !file_iter_.iter()->IsOutOfBound())) {
+    seen_empty_file = true;
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {
       // Already at the last file
       SetFileIterator(nullptr);
-      return;
+      break;
     }
     if (KeyReachedUpperBound(file_smallest_key(file_index_ + 1))) {
       SetFileIterator(nullptr);
-      return;
+      break;
     }
     InitFileIterator(file_index_ + 1);
     if (file_iter_.iter() != nullptr) {
       file_iter_.SeekToFirst();
     }
   }
+  return seen_empty_file;
 }
 
 void LevelIterator::SkipEmptyFileBackward() {
@@ -1174,7 +1206,7 @@ class BaseReferencedVersionBuilder {
  public:
   explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd)
       : version_builder_(new VersionBuilder(
-            cfd->current()->version_set()->env_options(), cfd->table_cache(),
+            cfd->current()->version_set()->file_options(), cfd->table_cache(),
             cfd->current()->storage_info(), cfd->ioptions()->info_log)),
         version_(cfd->current()) {
     version_->Ref();
@@ -1195,7 +1227,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   auto table_cache = cfd_->table_cache();
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
-      env_options_, cfd_->internal_comparator(), file_meta->fd, tp,
+      file_options_, cfd_->internal_comparator(), file_meta->fd, tp,
       mutable_cf_options_.prefix_extractor.get(), true /* no io */);
   if (s.ok()) {
     return s;
@@ -1209,7 +1241,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
 
   // 2. Table is not present in table cache, we'll read the table properties
   // directly from the properties block in the file.
-  std::unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<FSRandomAccessFile> file;
   std::string file_name;
   if (fname != nullptr) {
     file_name = *fname;
@@ -1218,7 +1250,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
       TableFileName(ioptions->cf_paths, file_meta->fd.GetNumber(),
                     file_meta->fd.GetPathId());
   }
-  s = ioptions->env->NewRandomAccessFile(file_name, &file, env_options_);
+  s = ioptions->fs->NewRandomAccessFile(file_name, file_options_, &file,
+                                        nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -1388,7 +1421,7 @@ size_t Version::GetMemoryUsageByTableReaders() {
   for (auto& file_level : storage_info_.level_files_brief_) {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
-          env_options_, cfd_->internal_comparator(), file_level.files[i].fd,
+          file_options_, cfd_->internal_comparator(), file_level.files[i].fd,
           mutable_cf_options_.prefix_extractor.get());
     }
   }
@@ -1420,16 +1453,15 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         assert(!ioptions->cf_paths.empty());
         file_path = ioptions->cf_paths.back().path;
       }
+      const uint64_t file_number = file->fd.GetNumber();
       files.emplace_back(SstFileMetaData{
-          MakeTableFileName("", file->fd.GetNumber()),
-          file_path,
-          static_cast<size_t>(file->fd.GetFileSize()),
-          file->fd.smallest_seqno,
-          file->fd.largest_seqno,
-          file->smallest.user_key().ToString(),
+          MakeTableFileName("", file_number), file_number, file_path,
+          static_cast<size_t>(file->fd.GetFileSize()), file->fd.smallest_seqno,
+          file->fd.largest_seqno, file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
-          file->being_compacted});
+          file->being_compacted, file->oldest_blob_file_number,
+          file->TryGetOldestAncesterTime(), file->TryGetFileCreationTime()});
       files.back().num_entries = file->num_entries;
       files.back().num_deletions = file->num_deletions;
       level_size += file->fd.GetFileSize();
@@ -1448,6 +1480,24 @@ uint64_t Version::GetSstFilesSize() {
     }
   }
   return sst_files_size;
+}
+
+void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
+  uint64_t oldest_time = port::kMaxUint64;
+  for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
+    for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
+      assert(meta->fd.table_reader != nullptr);
+      uint64_t file_creation_time = meta->TryGetFileCreationTime();
+      if (file_creation_time == kUnknownFileCreationTime) {
+        *creation_time = 0;
+        return;
+      }
+      if (file_creation_time < oldest_time) {
+        oldest_time = file_creation_time;
+      }
+    }
+  }
+  *creation_time = oldest_time;
 }
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
@@ -1498,7 +1548,7 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 }
 
 void Version::AddIterators(const ReadOptions& read_options,
-                           const EnvOptions& soptions,
+                           const FileOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder,
                            RangeDelAggregator* range_del_agg) {
   assert(storage_info_.finalized_);
@@ -1510,7 +1560,7 @@ void Version::AddIterators(const ReadOptions& read_options,
 }
 
 void Version::AddIteratorsForLevel(const ReadOptions& read_options,
-                                   const EnvOptions& soptions,
+                                   const FileOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
                                    int level,
                                    RangeDelAggregator* range_del_agg) {
@@ -1565,7 +1615,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
 }
 
 Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
-                                         const EnvOptions& env_options,
+                                         const FileOptions& file_options,
                                          const Slice& smallest_user_key,
                                          const Slice& largest_user_key,
                                          int level, bool* overlap) {
@@ -1589,7 +1639,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         continue;
       }
       ScopedArenaIterator iter(cfd_->table_cache()->NewIterator(
-          read_options, env_options, cfd_->internal_comparator(),
+          read_options, file_options, cfd_->internal_comparator(),
           *file->file_metadata, &range_del_agg,
           mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
@@ -1606,7 +1656,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
   } else if (storage_info_.LevelFilesBrief(level).num_files > 0) {
     auto mem = arena.AllocateAligned(sizeof(LevelIterator));
     ScopedArenaIterator iter(new (mem) LevelIterator(
-        cfd_->table_cache(), read_options, env_options,
+        cfd_->table_cache(), read_options, file_options,
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
         mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
@@ -1670,7 +1720,7 @@ VersionStorageInfo::VersionStorageInfo(
 }
 
 Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
-                 const EnvOptions& env_opt,
+                 const FileOptions& file_opt,
                  const MutableCFOptions mutable_cf_options,
                  uint64_t version_number)
     : env_(vset->env_),
@@ -1695,7 +1745,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       next_(this),
       prev_(this),
       refs_(0),
-      env_options_(env_opt),
+      file_options_(file_opt),
       mutable_cf_options_(mutable_cf_options),
       version_number_(version_number) {}
 
@@ -1868,6 +1918,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         &iter->max_covering_tombstone_seq, this->env_, nullptr,
         merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
         tracing_mget_id);
+    // MergeInProgress status, if set, has been transferred to the get_context
+    // state, so we set status to ok here. From now on, the iter status will
+    // be used for IO errors, and get_context state will be used for any
+    // key level errors
+    *(iter->s) = Status::OK();
   }
   int get_ctx_index = 0;
   for (auto iter = range->begin(); iter != range->end();
@@ -1912,6 +1967,15 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
+      // The Status in the KeyContext takes precedence over GetContext state
+      // Status may be an error if there were any IO errors in the table
+      // reader. We never expect Status to be NotFound(), as that is
+      // determined by get_context
+      assert(!status->IsNotFound());
+      if (!status->ok()) {
+        file_range.MarkKeyDone(iter);
+        continue;
+      }
 
       if (get_context.sample()) {
         sample_file_read_inc(f->file_metadata);
@@ -2062,6 +2126,9 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
 }
 
 void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
+  TEST_SYNC_POINT_CALLBACK("VersionStorageInfo::UpdateAccumulatedStats",
+                           nullptr);
+
   assert(file_meta->init_stats_from_file);
   accumulated_file_size_ += file_meta->fd.GetFileSize();
   accumulated_raw_key_size_ += file_meta->raw_key_size;
@@ -2281,13 +2348,11 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
   auto status = ioptions.env->GetCurrentTime(&_current_time);
   if (status.ok()) {
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
-    for (auto f : files) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 &&
-            creation_time < (current_time - mutable_cf_options.ttl)) {
+    for (FileMetaData* f : files) {
+      if (!f->being_compacted) {
+        uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
+        if (oldest_ancester_time != 0 &&
+            oldest_ancester_time < (current_time - mutable_cf_options.ttl)) {
           ttl_expired_files_count++;
         }
       }
@@ -2439,12 +2504,11 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
   for (int level = 0; level < num_levels() - 1; level++) {
-    for (auto f : files_[level]) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
-            f->fd.table_reader->GetTableProperties()->creation_time;
-        if (creation_time > 0 && creation_time < (current_time - ttl)) {
+    for (FileMetaData* f : files_[level]) {
+      if (!f->being_compacted) {
+        uint64_t oldest_ancester_time = f->TryGetOldestAncesterTime();
+        if (oldest_ancester_time > 0 &&
+            oldest_ancester_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
       }
@@ -2465,26 +2529,30 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
     return;
   }
   const uint64_t current_time = static_cast<uint64_t>(temp_current_time);
+
+  // If periodic_compaction_seconds is larger than current time, periodic
+  // compaction can't possibly be triggered.
+  if (periodic_compaction_seconds > current_time) {
+    return;
+  }
+
   const uint64_t allowed_time_limit =
       current_time - periodic_compaction_seconds;
 
   for (int level = 0; level < num_levels(); level++) {
     for (auto f : files_[level]) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
+      if (!f->being_compacted) {
         // Compute a file's modification time in the following order:
         // 1. Use file_creation_time table property if it is > 0.
         // 2. Use creation_time table property if it is > 0.
         // 3. Use file's mtime metadata if the above two table properties are 0.
         // Don't consider the file at all if the modification time cannot be
         // correctly determined based on the above conditions.
-        uint64_t file_modification_time =
-            f->fd.table_reader->GetTableProperties()->file_creation_time;
-        if (file_modification_time == 0) {
-          file_modification_time =
-              f->fd.table_reader->GetTableProperties()->creation_time;
+        uint64_t file_modification_time = f->TryGetFileCreationTime();
+        if (file_modification_time == kUnknownFileCreationTime) {
+          file_modification_time = f->TryGetOldestAncesterTime();
         }
-        if (file_modification_time == 0) {
+        if (file_modification_time == kUnknownOldestAncesterTime) {
           auto file_path = TableFileName(ioptions.cf_paths, f->fd.GetNumber(),
                                          f->fd.GetPathId());
           status = ioptions.env->GetFileModificationTime(
@@ -3377,6 +3445,10 @@ std::string Version::DebugString(bool hex, bool print_stats) const {
       r.append(" .. ");
       r.append(files[i]->largest.DebugString(hex));
       r.append("]");
+      if (files[i]->oldest_blob_file_number != kInvalidBlobFileNumber) {
+        r.append(" blob_file:");
+        AppendNumberTo(&r, files[i]->oldest_blob_file_number);
+      }
       if (print_stats) {
         r.append("(");
         r.append(ToString(
@@ -3455,7 +3527,7 @@ void AtomicGroupReadBuffer::Clear() {
 
 VersionSet::VersionSet(const std::string& dbname,
                        const ImmutableDBOptions* _db_options,
-                       const EnvOptions& storage_options, Cache* table_cache,
+                       const FileOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller,
                        BlockCacheTracer* const block_cache_tracer)
@@ -3463,6 +3535,7 @@ VersionSet::VersionSet(const std::string& dbname,
           dbname, _db_options, storage_options, table_cache,
           write_buffer_manager, write_controller, block_cache_tracer)),
       env_(_db_options->env),
+      fs_(_db_options->fs.get()),
       dbname_(dbname),
       db_options_(_db_options),
       next_file_number_(2),
@@ -3475,7 +3548,7 @@ VersionSet::VersionSet(const std::string& dbname,
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
-      env_options_(storage_options),
+      file_options_(storage_options),
       block_cache_tracer_(block_cache_tracer) {}
 
 VersionSet::~VersionSet() {
@@ -3601,7 +3674,7 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (version == nullptr) {
-        version = new Version(last_writer->cfd, this, env_options_,
+        version = new Version(last_writer->cfd, this, file_options_,
                               last_writer->mutable_cf_options,
                               current_version_number_++);
         versions.push_back(version);
@@ -3697,6 +3770,10 @@ Status VersionSet::ProcessManifestWrites(
     pending_manifest_file_number_ = manifest_file_number_;
   }
 
+  // Local cached copy of state variable(s). WriteCurrentStateToManifest()
+  // reads its content after releasing db mutex to avoid race with
+  // SwitchMemtable().
+  std::unordered_map<uint32_t, MutableCFState> curr_state;
   if (new_descriptor_log) {
     // if we are writing out new snapshot make sure to persist max column
     // family.
@@ -3704,10 +3781,14 @@ Status VersionSet::ProcessManifestWrites(
       first_writer.edit_list.front()->SetMaxColumnFamily(
           column_family_set_->GetMaxColumnFamily());
     }
+    for (const auto* cfd : *column_family_set_) {
+      assert(curr_state.find(cfd->GetID()) == curr_state.end());
+      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
+    }
   }
 
   {
-    EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
+    FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
@@ -3734,19 +3815,19 @@ Status VersionSet::ProcessManifestWrites(
                      pending_manifest_file_number_);
       std::string descriptor_fname =
           DescriptorFileName(dbname_, pending_manifest_file_number_);
-      std::unique_ptr<WritableFile> descriptor_file;
-      s = NewWritableFile(env_, descriptor_fname, &descriptor_file,
-                          opt_env_opts);
+      std::unique_ptr<FSWritableFile> descriptor_file;
+      s = NewWritableFile(fs_, descriptor_fname, &descriptor_file,
+                          opt_file_opts);
       if (s.ok()) {
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
 
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_env_opts, env_,
+            std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
             nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(descriptor_log_.get());
+        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get());
       }
     }
 
@@ -3772,8 +3853,9 @@ Status VersionSet::ProcessManifestWrites(
                          rocksdb_kill_odds * REDUCE_ODDS2);
 #ifndef NDEBUG
         if (batch_edits.size() > 1 && batch_edits.size() - 1 == idx) {
-          TEST_SYNC_POINT(
-              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0");
+          TEST_SYNC_POINT_CALLBACK(
+              "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
+              nullptr);
           TEST_SYNC_POINT(
               "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:1");
         }
@@ -3833,9 +3915,7 @@ Status VersionSet::ProcessManifestWrites(
     } else if (first_writer.edit_list.front()->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
       first_writer.cfd->SetDropped();
-      if (first_writer.cfd->Unref()) {
-        delete first_writer.cfd;
-      }
+      first_writer.cfd->UnrefAndTryDelete();
     } else {
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
@@ -3887,12 +3967,15 @@ Status VersionSet::ProcessManifestWrites(
     for (auto v : versions) {
       delete v;
     }
+    // If manifest append failed for whatever reason, the file could be
+    // corrupted. So we need to force the next version update to start a
+    // new manifest file.
+    descriptor_log_.reset();
     if (new_descriptor_log) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
                      manifest_file_number_, pending_manifest_file_number_);
-      descriptor_log_.reset();
       env_->DeleteFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_));
     }
@@ -4113,8 +4196,7 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
       builders.erase(builder);
       cfd = column_family_set_->GetColumnFamily(edit.column_family_);
       assert(cfd != nullptr);
-      if (cfd->Unref()) {
-        delete cfd;
+      if (cfd->UnrefAndTryDelete()) {
         cfd = nullptr;
       } else {
         // who else can have reference to cfd!?
@@ -4199,15 +4281,16 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   return Status::OK();
 }
 
-Status VersionSet::GetCurrentManifestPath(const std::string& dbname, Env* env,
+Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
+                                          FileSystem* fs,
                                           std::string* manifest_path,
                                           uint64_t* manifest_file_number) {
-  assert(env != nullptr);
+  assert(fs != nullptr);
   assert(manifest_path != nullptr);
   assert(manifest_file_number != nullptr);
 
   std::string fname;
-  Status s = ReadFileToString(env, CurrentFileName(dbname), &fname);
+  Status s = ReadFileToString(fs, CurrentFileName(dbname), &fname);
   if (!s.ok()) {
     return s;
   }
@@ -4309,7 +4392,7 @@ Status VersionSet::Recover(
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
-  Status s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+  Status s = GetCurrentManifestPath(dbname_, fs_, &manifest_path,
                                     &manifest_file_number_);
   if (!s.ok()) {
     return s;
@@ -4320,9 +4403,10 @@ Status VersionSet::Recover(
 
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
   {
-    std::unique_ptr<SequentialFile> manifest_file;
-    s = env_->NewSequentialFile(manifest_path, &manifest_file,
-                                env_->OptimizeForManifestRead(env_options_));
+    std::unique_ptr<FSSequentialFile> manifest_file;
+    s = fs_->NewSequentialFile(manifest_path,
+                               fs_->OptimizeForManifestRead(file_options_),
+                               &manifest_file, nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -4331,7 +4415,8 @@ Status VersionSet::Recover(
                                  db_options_->log_readahead_size));
   }
   uint64_t current_manifest_file_size;
-  s = env_->GetFileSize(manifest_path, &current_manifest_file_size);
+  s = fs_->GetFileSize(manifest_path, IOOptions(), &current_manifest_file_size,
+                       nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -4438,7 +4523,7 @@ Status VersionSet::Recover(
           true /* is_initial_load */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
 
-      Version* v = new Version(cfd, this, env_options_,
+      Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
       builder->SaveTo(v->storage_info());
@@ -4483,23 +4568,24 @@ Status VersionSet::Recover(
 }
 
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
-                                      const std::string& dbname, Env* env) {
+                                      const std::string& dbname,
+                                      FileSystem* fs) {
   // these are just for performance reasons, not correcntes,
   // so we're fine using the defaults
-  EnvOptions soptions;
+  FileOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   uint64_t manifest_file_number;
-  Status s = GetCurrentManifestPath(dbname, env, &manifest_path,
-                                    &manifest_file_number);
+  Status s =
+      GetCurrentManifestPath(dbname, fs, &manifest_path, &manifest_file_number);
   if (!s.ok()) {
     return s;
   }
 
   std::unique_ptr<SequentialFileReader> file_reader;
   {
-    std::unique_ptr<SequentialFile> file;
-    s = env->NewSequentialFile(manifest_path, &file, soptions);
+    std::unique_ptr<FSSequentialFile> file;
+    s = fs->NewSequentialFile(manifest_path, soptions, &file, nullptr);
     if (!s.ok()) {
       return s;
   }
@@ -4553,7 +4639,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
 #ifndef ROCKSDB_LITE
 Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         const Options* options,
-                                        const EnvOptions& env_options,
+                                        const FileOptions& file_options,
                                         int new_levels) {
   if (new_levels <= 1) {
     return Status::InvalidArgument(
@@ -4566,7 +4652,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, env_options, tc.get(), &wb, &wc,
+  VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr);
   Status status;
 
@@ -4642,9 +4728,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   std::unique_ptr<SequentialFileReader> file_reader;
   Status s;
   {
-    std::unique_ptr<SequentialFile> file;
-    s = options.env->NewSequentialFile(
-        dscname, &file, env_->OptimizeForManifestRead(env_options_));
+    std::unique_ptr<FSSequentialFile> file;
+    s = options.file_system->NewSequentialFile(
+        dscname,
+        options.file_system->OptimizeForManifestRead(file_options_), &file,
+        nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -4726,8 +4814,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         comparators.erase(edit.column_family_);
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         assert(cfd != nullptr);
-        cfd->Unref();
-        delete cfd;
+        cfd->UnrefAndTryDelete();
         cfd = nullptr;
       } else {
         if (!cf_in_builders) {
@@ -4805,7 +4892,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       assert(builders_iter != builders.end());
       auto builder = builders_iter->second->version_builder();
 
-      Version* v = new Version(cfd, this, env_options_,
+      Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
       builder->SaveTo(v->storage_info());
@@ -4859,7 +4946,9 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
   }
 }
 
-Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
+Status VersionSet::WriteCurrentStateToManifest(
+    const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+    log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -4921,10 +5010,14 @@ Status VersionSet::WriteCurrentStateToManifest(log::Writer* log) {
           edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->fd.smallest_seqno, f->fd.largest_seqno,
-                       f->marked_for_compaction);
+                       f->marked_for_compaction, f->oldest_blob_file_number,
+                       f->oldest_ancester_time, f->file_creation_time);
         }
       }
-      edit.SetLogNumber(cfd->GetLogNumber());
+      const auto iter = curr_state.find(cfd->GetID());
+      assert(iter != curr_state.end());
+      uint64_t log_number = iter->second.log_number;
+      edit.SetLogNumber(log_number);
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
@@ -5181,7 +5274,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
 
 InternalIterator* VersionSet::MakeInputIterator(
     const Compaction* c, RangeDelAggregator* range_del_agg,
-    const EnvOptions& env_options_compactions) {
+    const FileOptions& file_options_compactions) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -5206,7 +5299,8 @@ InternalIterator* VersionSet::MakeInputIterator(
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
-              read_options, env_options_compactions, cfd->internal_comparator(),
+              read_options, file_options_compactions,
+              cfd->internal_comparator(),
               *flevel->files[i].file_metadata, range_del_agg,
               c->mutable_cf_options()->prefix_extractor.get(),
               /*table_reader_ptr=*/nullptr,
@@ -5219,7 +5313,7 @@ InternalIterator* VersionSet::MakeInputIterator(
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = new LevelIterator(
-            cfd->table_cache(), read_options, env_options_compactions,
+            cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
             c->mutable_cf_options()->prefix_extractor.get(),
             /*should_sample=*/false,
@@ -5329,7 +5423,9 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
           assert(!cfd->ioptions()->cf_paths.empty());
           filemetadata.db_path = cfd->ioptions()->cf_paths.back().path;
         }
-        filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
+        const uint64_t file_number = file->fd.GetNumber();
+        filemetadata.name = MakeTableFileName("", file_number);
+        filemetadata.file_number = file_number;
         filemetadata.level = level;
         filemetadata.size = static_cast<size_t>(file->fd.GetFileSize());
         filemetadata.smallestkey = file->smallest.user_key().ToString();
@@ -5341,6 +5437,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.being_compacted = file->being_compacted;
         filemetadata.num_entries = file->num_entries;
         filemetadata.num_deletions = file->num_deletions;
+        filemetadata.oldest_blob_file_number = file->oldest_blob_file_number;
         metadata->push_back(filemetadata);
       }
     }
@@ -5369,7 +5466,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   MutableCFOptions dummy_cf_options;
   Version* dummy_versions =
-      new Version(nullptr, this, env_options_, dummy_cf_options);
+      new Version(nullptr, this, file_options_, dummy_cf_options);
   // Ref() dummy version once so that later we can call Unref() to delete it
   // by avoiding calling "delete" explicitly (~Version is private)
   dummy_versions->Ref();
@@ -5377,7 +5474,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions,
       cf_options);
 
-  Version* v = new Version(new_cfd, this, env_options_,
+  Version* v = new Version(new_cfd, this, file_options_,
                            *new_cfd->GetLatestMutableCFOptions(),
                            current_version_number_++);
 
@@ -5421,11 +5518,11 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
 
 ReactiveVersionSet::ReactiveVersionSet(const std::string& dbname,
                                        const ImmutableDBOptions* _db_options,
-                                       const EnvOptions& _env_options,
+                                       const FileOptions& _file_options,
                                        Cache* table_cache,
                                        WriteBufferManager* write_buffer_manager,
                                        WriteController* write_controller)
-    : VersionSet(dbname, _db_options, _env_options, table_cache,
+    : VersionSet(dbname, _db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
                  /*block_cache_tracer=*/nullptr),
       number_of_edits_to_skip_(0) {}
@@ -5556,7 +5653,7 @@ Status ReactiveVersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      Version* v = new Version(cfd, this, env_options_,
+      Version* v = new Version(cfd, this, file_options_,
                                *cfd->GetLatestMutableCFOptions(),
                                current_version_number_++);
       builder->SaveTo(v->storage_info());
@@ -5724,7 +5821,8 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     return Status::OK();
   }
   if (active_version_builders_.find(edit.column_family_) ==
-      active_version_builders_.end() && !cfd->IsDropped()) {
+          active_version_builders_.end() &&
+      !cfd->IsDropped()) {
     std::unique_ptr<BaseReferencedVersionBuilder> builder_guard(
         new BaseReferencedVersionBuilder(cfd));
     active_version_builders_.insert(
@@ -5748,8 +5846,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
     // secondary instance. (Is it possible that the ref count for cfd is 0 but
     // the ref count for its versions is higher than 0?)
     cfd->SetDropped();
-    if (cfd->Unref()) {
-      delete cfd;
+    if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
     }
     active_version_builders_.erase(builder_iter);
@@ -5776,7 +5873,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
         &s);
 
     if (s.ok()) {
-      auto version = new Version(cfd, this, env_options_,
+      auto version = new Version(cfd, this, file_options_,
                                  *cfd->GetLatestMutableCFOptions(),
                                  current_version_number_++);
       builder->SaveTo(version->storage_info());
@@ -5819,9 +5916,9 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   Status s;
   do {
     std::string manifest_path;
-    s = GetCurrentManifestPath(dbname_, env_, &manifest_path,
+    s = GetCurrentManifestPath(dbname_, fs_, &manifest_path,
                                &manifest_file_number_);
-    std::unique_ptr<SequentialFile> manifest_file;
+    std::unique_ptr<FSSequentialFile> manifest_file;
     if (s.ok()) {
       if (nullptr == manifest_reader->get() ||
           manifest_reader->get()->file()->file_name() != manifest_path) {
@@ -5831,9 +5928,9 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
         TEST_SYNC_POINT(
             "ReactiveVersionSet::MaybeSwitchManifest:"
             "AfterGetCurrentManifestPath:1");
-        s = env_->NewSequentialFile(
-            manifest_path, &manifest_file,
-            env_->OptimizeForManifestRead(env_options_));
+        s = fs_->NewSequentialFile(manifest_path,
+                                   env_->OptimizeForManifestRead(file_options_),
+                                   &manifest_file, nullptr);
       } else {
         // No need to switch manifest.
         break;
