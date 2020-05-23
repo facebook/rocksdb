@@ -33,7 +33,7 @@ Status VerifyChecksum(const ChecksumType type, const char* buf, size_t len,
       actual = XXH32(buf, static_cast<int>(len), 0);
       break;
     case kxxHash64:
-      actual = static_cast<uint32_t>(XXH64(buf, static_cast<int>(len), 0) &
+      actual = static_cast<uint32_t>(XXH64(buf, len, 0) &
                                      uint64_t{0xffffffff});
       break;
     default:

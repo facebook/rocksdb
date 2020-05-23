@@ -49,7 +49,7 @@ inline void BlockFetcher::CheckBlockChecksum() {
         break;
       case kxxHash64:
         actual = static_cast<uint32_t>(
-            XXH64(data, static_cast<int>(block_size_) + 1, 0) &
+            XXH64(data, block_size_ + 1u, 0) &
             uint64_t{0xffffffff});
         break;
       default:

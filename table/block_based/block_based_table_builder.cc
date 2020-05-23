@@ -1110,7 +1110,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         XXH64_state_t* const state = XXH64_createState();
         XXH64_reset(state, 0);
         XXH64_update(state, block_contents.data(),
-                     static_cast<uint32_t>(block_contents.size()));
+                     block_contents.size());
         XXH64_update(state, trailer, 1);  // Extend  to cover block type
         EncodeFixed32(
             trailer_without_type,
