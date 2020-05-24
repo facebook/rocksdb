@@ -326,7 +326,6 @@ class NonBatchedOpsStressTest : public StressTest {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-      RollbackTxn(txn);
 #endif
     }
 
@@ -421,6 +420,11 @@ class NonBatchedOpsStressTest : public StressTest {
 
     if (readoptionscopy.snapshot) {
       db_->ReleaseSnapshot(readoptionscopy.snapshot);
+    }
+    if (use_txn) {
+#ifndef ROCKSDB_LITE
+      RollbackTxn(txn);
+#endif
     }
     return statuses;
   }
