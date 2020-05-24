@@ -562,6 +562,7 @@ TESTS = \
 	prefix_test \
 	skiplist_test \
 	write_buffer_manager_test \
+	int64subtract_test \
 	stringappend_test \
 	cassandra_format_test \
 	cassandra_functional_test \
@@ -1366,6 +1367,9 @@ random_test: util/random_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 option_change_migration_test: utilities/option_change_migration/option_change_migration_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+int64subtract_test: utilities/merge_operators/int64subtract_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
