@@ -1743,22 +1743,20 @@ void BlockBasedTable::RetrieveMultipleBlocks(
           BlockContents(Slice(req.result.data() + req_offset, handle.size()));
     }
 #ifndef NDEBUG
-      raw_block_contents.is_raw_block = true;
+    raw_block_contents.is_raw_block = true;
 #endif
 
     if (s.ok() && options.verify_checksums) {
       PERF_TIMER_GUARD(block_checksum_time);
       const char* data = req.result.data();
-      uint32_t expected =
-          DecodeFixed32(data + req_offset + handle.size() + 1);
+      uint32_t expected = DecodeFixed32(data + req_offset + handle.size() + 1);
       // Since the scratch might be shared. the offset of the data block in
       // the buffer might not be 0. req.result.data() only point to the
       // begin address of each read request, we need to add the offset
       // in each read request. Checksum is stored in the block trailer,
       // which is handle.size() + 1.
-      s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
-                                            data + req_offset,
-                                            handle.size() + 1, expected);
+      s = ROCKSDB_NAMESPACE::VerifyChecksum(
+          footer.checksum(), data + req_offset, handle.size() + 1, expected);
       TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
     }
 
