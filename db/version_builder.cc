@@ -134,7 +134,8 @@ class VersionBuilder::Rep {
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
   // on invalid levels don't cancel out.
-  std::map<int, std::unordered_set<uint64_t>> invalid_levels_;
+  using InvalidLevels = std::map<int, std::unordered_set<uint64_t>>;
+  InvalidLevels invalid_levels_;
   // Whether there are invalid new files or invalid deletion on levels larger
   // than num_levels_.
   bool has_invalid_levels_;
@@ -477,24 +478,54 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileAddition(int level, const FileMetaData& meta) {
-    if (level < num_levels_) {
-      FileMetaData* const f = new FileMetaData(meta);
-      f->refs = 1;
+    const uint64_t file_number = meta.fd.GetNumber();
 
-      assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
-             levels_[level].added_files.end());
-      levels_[level].deleted_files.erase(f->fd.GetNumber());
-      levels_[level].added_files[f->fd.GetNumber()] = f;
-    } else {
-      uint64_t number = meta.fd.GetNumber();
-      auto& lvls = invalid_levels_[level];
-      if (lvls.count(number) == 0) {
-        lvls.insert(number);
-      } else {
-        // Creating an already existing file on invalid level.
-        has_invalid_levels_ = true;
+    if (level >= num_levels_) {
+      auto level_it = invalid_levels_.lower_bound(level);
+      if (level_it == invalid_levels_.end() || level_it->first != level) {
+        level_it = invalid_levels_.insert(
+            level_it,
+            InvalidLevels::value_type(level, std::unordered_set<uint64_t>()));
       }
+
+      auto& level_files = level_it->second;
+
+      auto file_it = level_files.find(file_number);
+      if (file_it != level_files.end()) {
+        has_invalid_levels_ = true;
+        return Status::Corruption();  // TODO: message
+      }
+
+      level_files.insert(file_number);
+
+      return Status::OK();
     }
+
+    auto& level_state = levels_[level];
+
+    auto& add_files = level_state.added_files;
+    if (add_files.find(file_number) != add_files.end()) {
+      return Status::Corruption();  // TODO: message
+    }
+
+    assert(base_vstorage_);
+    const auto location = base_vstorage_->GetFileLocation(file_number);
+    // TODO: make sure it got deleted from original location
+    if (location.IsValid() && location.GetLevel() >= level) {
+      return Status::Corruption();  // TODO: message
+    }
+
+    auto& del_files = level_state.deleted_files;
+    auto del_it = del_files.find(file_number);
+    if (del_it != del_files.end()) {
+      del_files.erase(del_it);
+    }
+
+    FileMetaData* const f = new FileMetaData(meta);
+    f->refs = 1;
+
+    add_files.insert(std::unordered_map<uint64_t, FileMetaData*>::value_type(
+        file_number, f));
 
     return Status::OK();
   }
