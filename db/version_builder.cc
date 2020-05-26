@@ -511,9 +511,22 @@ class VersionBuilder::Rep {
 
     assert(base_vstorage_);
     const auto location = base_vstorage_->GetFileLocation(file_number);
-    // TODO: make sure it got deleted from original location
-    if (location.IsValid() && location.GetLevel() >= level) {
-      return Status::Corruption();  // TODO: message
+    if (location.IsValid()) {
+      const int orig_level = location.GetLevel();
+      if (orig_level >= num_levels_) {
+        auto level_it = invalid_levels_.find(orig_level);
+        if (level_it != invalid_levels_.end()) {
+          const auto& orig_level_files = level_it->second;
+          if (orig_level_files.find(file_number) != orig_level_files.end()) {
+            return Status::Corruption();  // TODO: message
+          }
+        } else {
+          const auto& orig_level_del = levels_[orig_level].deleted_files;
+          if (orig_level_del.find(file_number) == orig_level_del.end()) {
+            return Status::Corruption();  // TODO: message
+          }
+        }
+      }
     }
 
     auto& del_files = level_state.deleted_files;
