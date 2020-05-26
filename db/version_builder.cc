@@ -360,54 +360,6 @@ class VersionBuilder::Rep {
     return ret_s;
   }
 
-  Status CheckConsistencyForDeletes(uint64_t number, int level) {
-#ifdef NDEBUG
-    if (!base_vstorage_->force_consistency_checks()) {
-      // Dont run consistency checks in release mode except if
-      // explicitly asked to
-      return Status::OK();
-    }
-#endif
-    // a file to be deleted better exist in the previous version
-    bool found = false;
-    for (int l = 0; !found && l < num_levels_; l++) {
-      const std::vector<FileMetaData*>& base_files =
-          base_vstorage_->LevelFiles(l);
-      for (size_t i = 0; i < base_files.size(); i++) {
-        FileMetaData* f = base_files[i];
-        if (f->fd.GetNumber() == number) {
-          found = true;
-          break;
-        }
-      }
-    }
-    // if the file did not exist in the previous version, then it
-    // is possibly moved from lower level to higher level in current
-    // version
-    for (int l = level + 1; !found && l < num_levels_; l++) {
-      auto& level_added = levels_[l].added_files;
-      auto got = level_added.find(number);
-      if (got != level_added.end()) {
-        found = true;
-        break;
-      }
-    }
-
-    // maybe this file was added in a previous edit that was Applied
-    if (!found) {
-      auto& level_added = levels_[level].added_files;
-      auto got = level_added.find(number);
-      if (got != level_added.end()) {
-        found = true;
-      }
-    }
-    if (!found) {
-      fprintf(stderr, "not found %" PRIu64 "\n", number);
-      return Status::Corruption("not found " + NumberToString(number));
-    }
-    return Status::OK();
-  }
-
   bool CheckConsistencyForNumLevels() {
     // Make sure there are no files on or beyond num_levels().
     if (has_invalid_levels_) {
@@ -479,24 +431,47 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileDeletion(int level, uint64_t file_number) {
-    if (level < num_levels_) {
-      levels_[level].deleted_files.insert(file_number);
-      Status s = CheckConsistencyForDeletes(file_number, level);
-      if (!s.ok()) {
-        return s;
+    if (level >= num_levels_) {
+      auto level_it = invalid_levels_.find(level);
+      if (level_it == invalid_levels_.end()) {
+        has_invalid_levels_ = true;
+        return Status::Corruption();  // TODO: message
       }
 
-      auto exising = levels_[level].added_files.find(file_number);
-      if (exising != levels_[level].added_files.end()) {
-        UnrefFile(exising->second);
-        levels_[level].added_files.erase(exising);
-      }
-    } else {
-      if (invalid_levels_[level].erase(file_number) == 0) {
-        // Deleting an non-existing file on invalid level.
+      auto& level_files = level_it->second;
+
+      auto file_it = level_files.find(file_number);
+      if (file_it == level_files.end()) {
         has_invalid_levels_ = true;
+        return Status::Corruption();  // TODO: message
+      }
+
+      level_files.erase(file_it);
+
+      return Status::OK();
+    }
+
+    auto& level_state = levels_[level];
+
+    auto& del_files = level_state.deleted_files;
+    if (del_files.find(file_number) != del_files.end()) {
+      return Status::Corruption();  // TODO: message
+    }
+
+    auto& add_files = level_state.added_files;
+    auto add_it = add_files.find(file_number);
+    if (add_it != add_files.end()) {
+      UnrefFile(add_it->second);
+      add_files.erase(add_it);
+    } else {
+      assert(base_vstorage_);
+      const auto location = base_vstorage_->GetFileLocation(file_number);
+      if (!location.IsValid()) {
+        return Status::Corruption();  // TODO: message
       }
     }
+
+    del_files.insert(file_number);
 
     return Status::OK();
   }
