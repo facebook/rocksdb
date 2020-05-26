@@ -504,6 +504,7 @@ class VersionBuilder::Rep {
     auto& level_state = levels_[level];
 
     auto& add_files = level_state.added_files;
+    // TODO: the file cannot be on any other level either
     if (add_files.find(file_number) != add_files.end()) {
       return Status::Corruption();  // TODO: message
     }
