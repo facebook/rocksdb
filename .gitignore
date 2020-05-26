@@ -81,3 +81,7 @@ fbcode
 travis-build/
 buckifier/*.pyc
 buckifier/__pycache__
+
+compile_commands.json
+.vscode
+.clangd
