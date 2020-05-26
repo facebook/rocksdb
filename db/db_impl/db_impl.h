@@ -838,8 +838,7 @@ class DBImpl : public DB {
   // Allow compaction with a set of explicitly specified snapshots
   virtual Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result,
-      bool sanitize) override;
+      PluggableCompactionResult* result, bool sanitize) override;
 
   // This registered service will be called to do a remote compaction
   virtual Status RegisterPluggableCompactionService(
@@ -2094,15 +2093,12 @@ class DBImpl : public DB {
   std::shared_ptr<PluggableCompactionService> remote_compaction_service_;
 
   Status doCompact(const CompactionOptions& compact_options,
-      ColumnFamilyData* cfd,
-      Version* version,
-      const std::vector<FilesInOneLevel>& input_file_names,
-      int output_level,
-      const std::vector<SequenceNumber>& existing_snapshots,
-      bool unitTests,
-      JobContext* job_context,
-      LogBuffer* log_buffer,
-      PluggableCompactionResult* result);
+                   ColumnFamilyData* cfd, Version* version,
+                   const std::vector<FilesInOneLevel>& input_file_names,
+                   int output_level,
+                   const std::vector<SequenceNumber>& existing_snapshots,
+                   bool unitTests, JobContext* job_context,
+                   LogBuffer* log_buffer, PluggableCompactionResult* result);
 
   bool wal_in_db_path_;
 };

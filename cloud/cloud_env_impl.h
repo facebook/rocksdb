@@ -12,6 +12,7 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+class CloudScheduler;
 class CloudStorageReadableFile;
 
 //
@@ -71,6 +72,8 @@ class CloudEnvImpl : public CloudEnv {
   Status CreateDirIfMissing(const std::string& name) override;
 
   Status DeleteDir(const std::string& name) override;
+
+  Status DeleteFile(const std::string& fname) override;
 
   Status NewLogger(const std::string& fname,
                    std::shared_ptr<Logger>* result) override {
@@ -218,6 +221,17 @@ class CloudEnvImpl : public CloudEnv {
     return base_env_->GetThreadList(thread_list);
   }
 
+  Status DeleteCloudFileFromDest(const std::string& fname) override;
+  Status CopyLocalFileToDest(const std::string& local_name,
+                             const std::string& cloud_name) override;
+
+  void RemoveFileFromDeletionQueue(const std::string& filename);
+
+  void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    file_deletion_delay_ = delay;
+  }
+
  protected:
   // Checks to see if the input fname exists in the dest or src bucket
   Status ExistsCloudObject(const std::string& fname);
@@ -285,6 +299,8 @@ class CloudEnvImpl : public CloudEnv {
   bool purger_is_running_;
   std::thread purge_thread_;
 
+  std::shared_ptr<CloudScheduler> scheduler_;
+
   // A background thread that deletes orphaned objects in cloud storage
   void Purger();
   void StopPurger();
@@ -299,6 +315,9 @@ class CloudEnvImpl : public CloudEnv {
 
   // scratch space in local dir
   static constexpr const char* SCRATCH_LOCAL_DIR = "/tmp";
+  std::mutex files_to_delete_mutex_;
+  std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
+  std::unordered_map<std::string, int> files_to_delete_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

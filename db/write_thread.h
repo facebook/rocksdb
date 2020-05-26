@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <stdint.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>

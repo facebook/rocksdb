@@ -8,9 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+
 #include "db/forward_iterator.h"
-#include "util/stderr_logger.h"
 #include "rocksdb/env_encryption.h"
+#include "util/stderr_logger.h"
 #ifdef USE_AWS
 #include "cloud/cloud_env_impl.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
@@ -85,7 +86,7 @@ DBTestBase::DBTestBase(const std::string path)
   // Randomize the test path so that multiple tests can run in parallel
   srand(static_cast<unsigned int>(time(nullptr)));
   std::string mypath = path + "_" + std::to_string(rand());
-  
+
   env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
   info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
   s3_env_ = CreateNewAwsEnv(mypath, env_);
@@ -187,45 +188,45 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
 }
 
 bool DBTestBase::ShouldSkipAwsOptions(int option_config) {
-    // AWS Env doesn't work with DirectIO
-    return option_config == kDirectIO;
+  // AWS Env doesn't work with DirectIO
+  return option_config == kDirectIO;
 }
 
 // Switch to a fresh database with the next option configuration to
 // test.  Return false if there are no more configurations to test.
 bool DBTestBase::ChangeOptions(int skip_mask) {
   while (true) {
-   for (option_config_++; option_config_ < kEnd; option_config_++) {
-     if (ShouldSkipOptions(option_config_, skip_mask)) {
-       continue;
-     }
-     if (option_env_ == kAwsEnv && ShouldSkipAwsOptions(option_config_)) {
-         continue;
-     }
-     break;
-   }
-   if (option_config_ >= kEnd) {
+    for (option_config_++; option_config_ < kEnd; option_config_++) {
+      if (ShouldSkipOptions(option_config_, skip_mask)) {
+        continue;
+      }
+      if (option_env_ == kAwsEnv && ShouldSkipAwsOptions(option_config_)) {
+        continue;
+      }
+      break;
+    }
+    if (option_config_ >= kEnd) {
 #ifndef USE_AWS
-     // If not built for AWS, skip it
-     if (option_env_ + 1 == kAwsEnv) {
-       option_env_++;
-     }
+      // If not built for AWS, skip it
+      if (option_env_ + 1 == kAwsEnv) {
+        option_env_++;
+      }
 #endif
-     if (option_env_ + 1 >= kEndEnv) {
-       Destroy(last_options_);
-       return false;
-     } else {
-       option_env_++;
-       option_config_ = kDefault;
-       continue;
-     }
-   } else {
-     auto options = CurrentOptions();
-     options.create_if_missing = true;
-     DestroyAndReopen(options);
-     return true;
-   }
- }
+      if (option_env_ + 1 >= kEndEnv) {
+        Destroy(last_options_);
+        return false;
+      } else {
+        option_env_++;
+        option_config_ = kDefault;
+        continue;
+      }
+    } else {
+      auto options = CurrentOptions();
+      options.create_if_missing = true;
+      DestroyAndReopen(options);
+      return true;
+    }
+  }
 }
 
 // Switch between different compaction styles.
@@ -620,8 +621,8 @@ Options DBTestBase::GetOptions(
     case kAwsEnv: {
       assert(s3_env_);
       options.env = s3_env_;
-      options.recycle_log_file_num = 0; // do not reuse log files
-      options.allow_mmap_reads = false; // mmap is incompatible with S3
+      options.recycle_log_file_num = 0;  // do not reuse log files
+      options.allow_mmap_reads = false;  // mmap is incompatible with S3
       break;
     }
 #endif /* USE_AWS */
@@ -644,7 +645,7 @@ Options DBTestBase::GetOptions(
 }
 
 #ifdef USE_AWS
-  Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env *parent) {
+Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   if (!prefix.empty()) {
     fprintf(stderr, "Creating new AWS env with prefix %s\n", prefix.c_str());
   }
@@ -747,7 +748,7 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   ASSERT_OK(DestroyDB(dbname_, options, column_families));
 #ifdef USE_AWS
   if (s3_env_) {
-    AwsEnv* aenv = static_cast<AwsEnv *>(s3_env_);
+    AwsEnv* aenv = static_cast<AwsEnv*>(s3_env_);
     Status st = aenv->GetCloudEnvOptions().storage_provider->EmptyBucket(
         aenv->GetSrcBucketName(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());

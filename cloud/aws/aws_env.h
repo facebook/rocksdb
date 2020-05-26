@@ -19,12 +19,7 @@
 #include <unordered_map>
 
 namespace ROCKSDB_NAMESPACE {
-
 class S3ReadableFile;
-
-namespace detail {
-struct JobHandle;
-}  // namespace detail
 
 //
 // The S3 environment for rocksdb. This class overrides all the
@@ -56,7 +51,7 @@ class AwsEnv : public CloudEnvImpl {
                           const std::shared_ptr<Logger>& info_log,
                           CloudEnv** cenv);
 
-  virtual ~AwsEnv();
+  virtual ~AwsEnv() {}
 
   const char* Name() const override { return "aws"; }
 
@@ -70,8 +65,6 @@ class AwsEnv : public CloudEnvImpl {
   // standard-region which might not satisfy read-your-own-writes. So,
   // explicitly make the default region be us-west-2.
   static constexpr const char* default_region = "us-west-2";
-
-  virtual Status DeleteFile(const std::string& fname) override;
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) override;
 
@@ -87,16 +80,6 @@ class AwsEnv : public CloudEnvImpl {
   Status GetDbidList(const std::string& bucket, DbidList* dblist) override;
   Status DeleteDbid(const std::string& bucket,
                     const std::string& dbid) override;
-  Status DeleteCloudFileFromDest(const std::string& fname) override;
-  Status CopyLocalFileToDest(const std::string& local_name,
-                             const std::string& cloud_name) override;
-
-  void RemoveFileFromDeletionQueue(const std::string& filename);
-
-  void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
-    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
-    file_deletion_delay_ = delay;
-  }
 
  private:
   //
@@ -109,10 +92,6 @@ class AwsEnv : public CloudEnvImpl {
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
 
-  std::mutex files_to_delete_mutex_;
-  std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
-  std::unordered_map<std::string, std::shared_ptr<detail::JobHandle>>
-      files_to_delete_;
   Random64 rng_;
 };
 

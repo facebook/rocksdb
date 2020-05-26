@@ -10,11 +10,13 @@
 
 #include <stdint.h>
 #include <stdio.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -1496,21 +1498,21 @@ class DB {
   // are returned in PluggableCompactionResult.
   virtual Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& /* inputParams */,
-      PluggableCompactionResult* /* result */,
-      bool /* doSanitize */) {
-    return Status::NotSupported("ExecuteRemoteCompactionRequest() is not implemented.");
+      PluggableCompactionResult* /* result */, bool /* doSanitize */) {
+    return Status::NotSupported(
+        "ExecuteRemoteCompactionRequest() is not implemented.");
   }
 
   // Register a pluggable compaction service endpoint that will be called
   // when a compaction needs to be done.
   virtual Status RegisterPluggableCompactionService(
       std::unique_ptr<PluggableCompactionService>) {
-    return Status::NotSupported("RegisterPluggableCompactionService not supported");
+    return Status::NotSupported(
+        "RegisterPluggableCompactionService not supported");
   }
 
   // Remove any pluggable compaction
-  virtual void UnRegisterPluggableCompactionService() {
-  }
+  virtual void UnRegisterPluggableCompactionService() {}
 };
 
 // Destroy the contents of the specified database.

@@ -4,10 +4,9 @@
 
 #ifdef USE_AWS
 
-#include <cinttypes>
-
 #include <algorithm>
 #include <chrono>
+#include <cinttypes>
 
 #include "cloud/aws/aws_env.h"
 #include "cloud/aws/aws_file.h"

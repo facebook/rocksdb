@@ -453,8 +453,7 @@ class StackableDB : public DB {
 
   virtual Status ExecuteRemoteCompactionRequest(
       const PluggableCompactionParam& inputParams,
-      PluggableCompactionResult* result,
-      bool sanitize) override {
+      PluggableCompactionResult* result, bool sanitize) override {
     return db_->ExecuteRemoteCompactionRequest(inputParams, result, sanitize);
   }
 
