@@ -360,8 +360,7 @@ class VersionBuilder::Rep {
     return ret_s;
   }
 
-  Status CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
-                                    int level) {
+  Status CheckConsistencyForDeletes(uint64_t number, int level) {
 #ifdef NDEBUG
     if (!base_vstorage_->force_consistency_checks()) {
       // Dont run consistency checks in release mode except if
@@ -479,6 +478,52 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  Status ApplyFileDeletion(int level, uint64_t file_number) {
+    if (level < num_levels_) {
+      levels_[level].deleted_files.insert(file_number);
+      Status s = CheckConsistencyForDeletes(file_number, level);
+      if (!s.ok()) {
+        return s;
+      }
+
+      auto exising = levels_[level].added_files.find(file_number);
+      if (exising != levels_[level].added_files.end()) {
+        UnrefFile(exising->second);
+        levels_[level].added_files.erase(exising);
+      }
+    } else {
+      if (invalid_levels_[level].erase(file_number) == 0) {
+        // Deleting an non-existing file on invalid level.
+        has_invalid_levels_ = true;
+      }
+    }
+
+    return Status::OK();
+  }
+
+  Status ApplyFileAddition(int level, const FileMetaData& meta) {
+    if (level < num_levels_) {
+      FileMetaData* const f = new FileMetaData(meta);
+      f->refs = 1;
+
+      assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
+             levels_[level].added_files.end());
+      levels_[level].deleted_files.erase(f->fd.GetNumber());
+      levels_[level].added_files[f->fd.GetNumber()] = f;
+    } else {
+      uint64_t number = meta.fd.GetNumber();
+      auto& lvls = invalid_levels_[level];
+      if (lvls.count(number) == 0) {
+        lvls.insert(number);
+      } else {
+        // Creating an already existing file on invalid level.
+        has_invalid_levels_ = true;
+      }
+    }
+
+    return Status::OK();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
     Status s = CheckConsistency(base_vstorage_);
@@ -487,50 +532,24 @@ class VersionBuilder::Rep {
     }
 
     // Delete files
-    const auto& del = edit->GetDeletedFiles();
-    for (const auto& del_file : del) {
-      const auto level = del_file.first;
-      const auto number = del_file.second;
-      if (level < num_levels_) {
-        levels_[level].deleted_files.insert(number);
-        s = CheckConsistencyForDeletes(edit, number, level);
-        if (!s.ok()) {
-          return s;
-        }
+    for (const auto& deleted_file : edit->GetDeletedFiles()) {
+      const int level = deleted_file.first;
+      const uint64_t file_number = deleted_file.second;
 
-        auto exising = levels_[level].added_files.find(number);
-        if (exising != levels_[level].added_files.end()) {
-          UnrefFile(exising->second);
-          levels_[level].added_files.erase(exising);
-        }
-      } else {
-        if (invalid_levels_[level].erase(number) == 0) {
-          // Deleting an non-existing file on invalid level.
-          has_invalid_levels_ = true;
-        }
+      s = ApplyFileDeletion(level, file_number);
+      if (!s.ok()) {
+        return s;
       }
     }
 
     // Add new files
     for (const auto& new_file : edit->GetNewFiles()) {
       const int level = new_file.first;
-      if (level < num_levels_) {
-        FileMetaData* f = new FileMetaData(new_file.second);
-        f->refs = 1;
+      const FileMetaData& meta = new_file.second;
 
-        assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
-               levels_[level].added_files.end());
-        levels_[level].deleted_files.erase(f->fd.GetNumber());
-        levels_[level].added_files[f->fd.GetNumber()] = f;
-      } else {
-        uint64_t number = new_file.second.fd.GetNumber();
-        auto& lvls = invalid_levels_[level];
-        if (lvls.count(number) == 0) {
-          lvls.insert(number);
-        } else {
-          // Creating an already existing file on invalid level.
-          has_invalid_levels_ = true;
-        }
+      s = ApplyFileAddition(level, meta);
+      if (!s.ok()) {
+        return s;
       }
     }
 
