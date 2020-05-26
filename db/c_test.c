@@ -93,6 +93,16 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
   }
 }
 
+// Compares first 16 bytes of the given options.
+// This function can be used to check for differences in the first
+// fields of the options, such as create_if_missing.
+static unsigned char CheckOptionsEqual(const rocksdb_options_t* left,
+                                       const rocksdb_options_t* right) {
+  // The value of 16 is chosen to be less than the options size,
+  // but big enough to include at least several fields.
+  return memcmp(left, right, 16) == 0;
+}
+
 static void Free(char** ptr) {
   if (*ptr) {
     free(*ptr);
@@ -1459,6 +1469,23 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     rocksdb_cuckoo_options_destroy(cuckoo_options);
+  }
+
+  StartPhase("options");
+  {
+    rocksdb_options_t* o;
+    o = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(o, 1);
+
+    rocksdb_options_t* copy;
+    copy = rocksdb_options_create_copy(o);
+    CheckCondition(CheckOptionsEqual(o, copy));
+
+    rocksdb_options_set_create_if_missing(copy, 0);
+    CheckCondition(!CheckOptionsEqual(o, copy));
+
+    rocksdb_options_destroy(copy);
+    rocksdb_options_destroy(o);
   }
 
   StartPhase("iterate_upper_bound");

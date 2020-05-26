@@ -771,6 +771,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_set_options_cf(
 
 extern ROCKSDB_LIBRARY_API rocksdb_options_t* rocksdb_options_create();
 extern ROCKSDB_LIBRARY_API void rocksdb_options_destroy(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API rocksdb_options_t* rocksdb_options_create_copy(
+    rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_increase_parallelism(
     rocksdb_options_t* opt, int total_threads);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_optimize_for_point_lookup(
