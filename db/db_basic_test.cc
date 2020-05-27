@@ -1252,7 +1252,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
-                        testing::Bool());
+                         testing::Bool());
 
 TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
   do {
@@ -1559,7 +1559,7 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
 }
 
 INSTANTIATE_TEST_SUITE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
-                        ::testing::Bool());
+                         ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest : public DBBasicTest,
@@ -1651,7 +1651,7 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
-                        testing::Values(true, false));
+                         testing::Values(true, false));
 
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
@@ -2415,16 +2415,16 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_SUITE_P(ParallelIO, DBBasicTestWithParallelIO,
-                        // Params are as follows -
-                        // Param 0 - Compressed cache enabled
-                        // Param 1 - Uncompressed cache enabled
-                        // Param 2 - Data compression enabled
-                        // Param 3 - ReadOptions::fill_cache
-                        // Param 4 - CompressionOptions::parallel_threads
-                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Values(1, 4)));
+INSTANTIATE_TEST_SUITE_P(
+    ParallelIO, DBBasicTestWithParallelIO,
+    // Params are as follows -
+    // Param 0 - Compressed cache enabled
+    // Param 1 - Uncompressed cache enabled
+    // Param 2 - Data compression enabled
+    // Param 3 - ReadOptions::fill_cache
+    // Param 4 - CompressionOptions::parallel_threads
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool(), ::testing::Values(1, 4)));
 
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature

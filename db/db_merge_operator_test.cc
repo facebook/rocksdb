@@ -211,7 +211,7 @@ class MergeOperatorPinningTest : public DBMergeOperatorTest,
 };
 
 INSTANTIATE_TEST_SUITE_P(MergeOperatorPinningTest, MergeOperatorPinningTest,
-                        ::testing::Bool());
+                         ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
 TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {

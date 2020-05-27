@@ -771,7 +771,7 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
-                        testing::Bool());
+                         testing::Bool());
 
 INSTANTIATE_TEST_SUITE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 

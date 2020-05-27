@@ -1217,18 +1217,15 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
   EXPECT_TRUE(found_spanning >= 2);
 }
 
-INSTANTIATE_TEST_SUITE_P(DBBloomFilterTestVaryPrefixAndFormatVer,
-                        DBBloomFilterTestVaryPrefixAndFormatVer,
-                        ::testing::Values(
-                            // (use_prefix, format_version)
-                            std::make_tuple(false, 2),
-                            std::make_tuple(false, 3),
-                            std::make_tuple(false, 4),
-                            std::make_tuple(false, 5),
-                            std::make_tuple(true, 2),
-                            std::make_tuple(true, 3),
-                            std::make_tuple(true, 4),
-                            std::make_tuple(true, 5)));
+INSTANTIATE_TEST_SUITE_P(
+    DBBloomFilterTestVaryPrefixAndFormatVer,
+    DBBloomFilterTestVaryPrefixAndFormatVer,
+    ::testing::Values(
+        // (use_prefix, format_version)
+        std::make_tuple(false, 2), std::make_tuple(false, 3),
+        std::make_tuple(false, 4), std::make_tuple(false, 5),
+        std::make_tuple(true, 2), std::make_tuple(true, 3),
+        std::make_tuple(true, 4), std::make_tuple(true, 5)));
 
 #ifndef ROCKSDB_LITE
 namespace {

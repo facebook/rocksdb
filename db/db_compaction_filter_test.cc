@@ -56,8 +56,8 @@ INSTANTIATE_TEST_SUITE_P(
 #else
 // Run fewer cases in valgrind
 INSTANTIATE_TEST_SUITE_P(CompactionFilterWithOption,
-                        DBTestCompactionFilterWithCompactParam,
-                        ::testing::Values(DBTestBase::OptionConfig::kDefault));
+                         DBTestCompactionFilterWithCompactParam,
+                         ::testing::Values(DBTestBase::OptionConfig::kDefault));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 class KeepFilter : public CompactionFilter {

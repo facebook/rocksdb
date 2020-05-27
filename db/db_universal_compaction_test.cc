@@ -749,8 +749,8 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
 }
 
 INSTANTIATE_TEST_SUITE_P(MultiLevels, DBTestUniversalCompactionMultiLevels,
-                        ::testing::Combine(::testing::Values(3, 20),
-                                           ::testing::Bool()));
+                         ::testing::Combine(::testing::Values(3, 20),
+                                            ::testing::Bool()));
 
 class DBTestUniversalCompactionParallel :
     public DBTestUniversalCompactionBase {
@@ -938,8 +938,8 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Parallel, DBTestUniversalCompactionParallel,
-                        ::testing::Combine(::testing::Values(1, 10),
-                                           ::testing::Values(false)));
+                         ::testing::Combine(::testing::Values(1, 10),
+                                            ::testing::Values(false)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
@@ -1838,8 +1838,8 @@ TEST_P(DBTestUniversalCompaction, FinalSortedRunCompactFilesConflict) {
 }
 
 INSTANTIATE_TEST_SUITE_P(NumLevels, DBTestUniversalCompaction,
-                        ::testing::Combine(::testing::Values(1, 3, 5),
-                                           ::testing::Bool()));
+                         ::testing::Combine(::testing::Values(1, 3, 5),
+                                            ::testing::Bool()));
 
 class DBTestUniversalManualCompactionOutputPathId
     : public DBTestUniversalCompactionBase {
@@ -1908,9 +1908,9 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
 }
 
 INSTANTIATE_TEST_SUITE_P(OutputPathId,
-                        DBTestUniversalManualCompactionOutputPathId,
-                        ::testing::Combine(::testing::Values(1, 8),
-                                           ::testing::Bool()));
+                         DBTestUniversalManualCompactionOutputPathId,
+                         ::testing::Combine(::testing::Values(1, 8),
+                                            ::testing::Bool()));
 
 TEST_F(DBTestUniversalCompaction2, BasicL0toL1) {
   const int kNumKeys = 3000;

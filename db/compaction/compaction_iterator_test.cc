@@ -698,7 +698,7 @@ TEST_P(CompactionIteratorTest, RemoveSingleDeletionAtBottomLevel) {
 }
 
 INSTANTIATE_TEST_SUITE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
-                        testing::Values(true, false));
+                         testing::Values(true, false));
 
 // Tests how CompactionIterator work together with SnapshotChecker.
 class CompactionIteratorWithSnapshotCheckerTest

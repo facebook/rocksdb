@@ -2882,7 +2882,7 @@ TEST_P(DBIteratorTest, IterateWithLowerBoundAcrossFileBoundary) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBIteratorTestInstance, DBIteratorTest,
-                        testing::Values(true, false));
+                         testing::Values(true, false));
 
 // Tests how DBIter work with ReadCallback
 class DBIteratorWithReadCallbackTest : public DBIteratorTest {};

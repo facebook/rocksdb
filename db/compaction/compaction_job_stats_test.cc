@@ -1018,7 +1018,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
 }
 
 INSTANTIATE_TEST_SUITE_P(CompactionJobStatsTest, CompactionJobStatsTest,
-                        ::testing::Values(1, 4));
+                         ::testing::Values(1, 4));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

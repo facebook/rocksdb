@@ -759,11 +759,12 @@ TEST_P(CacheTest, GetCharge) {
 std::shared_ptr<Cache> (*new_clock_cache_func)(
     size_t, int, bool, CacheMetadataChargePolicy) = NewClockCache;
 INSTANTIATE_TEST_SUITE_P(CacheTestInstance, CacheTest,
-                        testing::Values(kLRU, kClock));
+                         testing::Values(kLRU, kClock));
 #else
 INSTANTIATE_TEST_SUITE_P(CacheTestInstance, CacheTest, testing::Values(kLRU));
 #endif  // SUPPORT_CLOCK_CACHE
-INSTANTIATE_TEST_SUITE_P(CacheTestInstance, LRUCacheTest, testing::Values(kLRU));
+INSTANTIATE_TEST_SUITE_P(CacheTestInstance, LRUCacheTest,
+                         testing::Values(kLRU));
 
 }  // namespace ROCKSDB_NAMESPACE
 

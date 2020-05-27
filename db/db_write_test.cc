@@ -316,9 +316,9 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBWriteTestInstance, DBWriteTest,
-                        testing::Values(DBTestBase::kDefault,
-                                        DBTestBase::kConcurrentWALWrites,
-                                        DBTestBase::kPipelinedWrite));
+                         testing::Values(DBTestBase::kDefault,
+                                         DBTestBase::kConcurrentWALWrites,
+                                         DBTestBase::kPipelinedWrite));
 
 }  // namespace ROCKSDB_NAMESPACE
 

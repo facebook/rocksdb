@@ -841,7 +841,7 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
 }
 
 INSTANTIATE_TEST_SUITE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
-                        ::testing::Bool());
+                         ::testing::Bool());
 
 // this will make sure that backup does not copy the same file twice
 TEST_F(BackupableDBTest, NoDoubleCopy_And_AutoGC) {

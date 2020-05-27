@@ -2843,16 +2843,16 @@ TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresents) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ExternalSSTFileTest, ExternalSSTFileTest,
-                        testing::Values(std::make_tuple(false, false),
-                                        std::make_tuple(false, true),
-                                        std::make_tuple(true, false),
-                                        std::make_tuple(true, true)));
+                         testing::Values(std::make_tuple(false, false),
+                                         std::make_tuple(false, true),
+                                         std::make_tuple(true, false),
+                                         std::make_tuple(true, true)));
 
 INSTANTIATE_TEST_SUITE_P(ExternSSTFileLinkFailFallbackTest,
-                        ExternSSTFileLinkFailFallbackTest,
-                        testing::Values(std::make_tuple(true, false),
-                                        std::make_tuple(true, true),
-                                        std::make_tuple(false, false)));
+                         ExternSSTFileLinkFailFallbackTest,
+                         testing::Values(std::make_tuple(true, false),
+                                         std::make_tuple(true, true),
+                                         std::make_tuple(false, false)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

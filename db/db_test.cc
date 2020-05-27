@@ -6434,8 +6434,8 @@ TEST_F(DBTest, UnsupportedManualSync) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBTestWithParam, DBTestWithParam,
-                        ::testing::Combine(::testing::Values(1, 4),
-                                           ::testing::Bool()));
+                         ::testing::Combine(::testing::Values(1, 4),
+                                            ::testing::Bool()));
 
 TEST_F(DBTest, PauseBackgroundWorkTest) {
   Options options = CurrentOptions();

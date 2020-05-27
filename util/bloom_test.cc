@@ -900,8 +900,8 @@ TEST_P(FullBloomTest, CorruptFilters) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Full, FullBloomTest,
-                        testing::Values(BloomFilterPolicy::kLegacyBloom,
-                                        BloomFilterPolicy::kFastLocalBloom));
+                         testing::Values(BloomFilterPolicy::kLegacyBloom,
+                                         BloomFilterPolicy::kFastLocalBloom));
 
 }  // namespace ROCKSDB_NAMESPACE
 

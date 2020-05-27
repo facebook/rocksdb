@@ -1257,10 +1257,10 @@ TEST_F(ExternalSSTFileBasicTest, OverlappingFiles) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
-                        testing::Values(std::make_tuple(true, true),
-                                        std::make_tuple(true, false),
-                                        std::make_tuple(false, true),
-                                        std::make_tuple(false, false)));
+                         testing::Values(std::make_tuple(true, true),
+                                         std::make_tuple(true, false),
+                                         std::make_tuple(false, true),
+                                         std::make_tuple(false, false)));
 
 #endif  // ROCKSDB_LITE
 

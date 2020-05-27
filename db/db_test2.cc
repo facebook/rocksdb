@@ -85,7 +85,7 @@ TEST_P(PrefixFullBloomWithReverseComparator,
 }
 
 INSTANTIATE_TEST_SUITE_P(PrefixFullBloomWithReverseComparator,
-                        PrefixFullBloomWithReverseComparator, testing::Bool());
+                         PrefixFullBloomWithReverseComparator, testing::Bool());
 
 TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
@@ -350,10 +350,10 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 }
 
 INSTANTIATE_TEST_SUITE_P(DBTestSharedWriteBufferAcrossCFs,
-                        DBTestSharedWriteBufferAcrossCFs,
-                        ::testing::Values(std::make_tuple(true, false),
-                                          std::make_tuple(false, false),
-                                          std::make_tuple(false, true)));
+                         DBTestSharedWriteBufferAcrossCFs,
+                         ::testing::Values(std::make_tuple(true, false),
+                                           std::make_tuple(false, false),
+                                           std::make_tuple(false, true)));
 
 TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   std::string dbname2 = test::PerThreadDBPath("db_shared_wb_db2");
@@ -1863,10 +1863,10 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
 }
 
 INSTANTIATE_TEST_SUITE_P(PinL0IndexAndFilterBlocksTest,
-                        PinL0IndexAndFilterBlocksTest,
-                        ::testing::Values(std::make_tuple(true, false),
-                                          std::make_tuple(false, false),
-                                          std::make_tuple(false, true)));
+                         PinL0IndexAndFilterBlocksTest,
+                         ::testing::Values(std::make_tuple(true, false),
+                                           std::make_tuple(false, false),
+                                           std::make_tuple(false, true)));
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, MaxCompactionBytesTest) {
