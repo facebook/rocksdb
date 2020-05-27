@@ -462,7 +462,8 @@ class VersionBuilder::Rep {
       assert(invalid_level_sizes_[level] > 0);
       --invalid_level_sizes_[level];
 
-      table_file_levels_[file_number] = -1;
+      table_file_levels_[file_number] =
+          VersionStorageInfo::FileLocation::Invalid().GetLevel();
 
       return Status::OK();
     }
@@ -480,7 +481,8 @@ class VersionBuilder::Rep {
       del_files.insert(file_number);
     }
 
-    table_file_levels_[file_number] = -1;
+    table_file_levels_[file_number] =
+        VersionStorageInfo::FileLocation::Invalid().GetLevel();
 
     return Status::OK();
   }
@@ -492,7 +494,8 @@ class VersionBuilder::Rep {
 
     const int current_level = GetCurrentLevelForTableFile(file_number);
 
-    if (current_level >= 0) {
+    if (current_level !=
+        VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
       if (level >= num_levels_) {
         has_invalid_levels_ = true;
       }
