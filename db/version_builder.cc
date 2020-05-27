@@ -529,9 +529,11 @@ class VersionBuilder::Rep {
 
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
-    Status s = CheckConsistency(base_vstorage_);
-    if (!s.ok()) {
-      return s;
+    {
+      const Status s = CheckConsistency(base_vstorage_);
+      if (!s.ok()) {
+        return s;
+      }
     }
 
     // Delete files
@@ -539,7 +541,7 @@ class VersionBuilder::Rep {
       const int level = deleted_file.first;
       const uint64_t file_number = deleted_file.second;
 
-      s = ApplyFileDeletion(level, file_number);
+      const Status s = ApplyFileDeletion(level, file_number);
       if (!s.ok()) {
         return s;
       }
@@ -550,7 +552,7 @@ class VersionBuilder::Rep {
       const int level = new_file.first;
       const FileMetaData& meta = new_file.second;
 
-      s = ApplyFileAddition(level, meta);
+      const Status s = ApplyFileAddition(level, meta);
       if (!s.ok()) {
         return s;
       }
@@ -558,7 +560,7 @@ class VersionBuilder::Rep {
 
     // Add new blob files
     for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
-      s = ApplyBlobFileAddition(blob_file_addition);
+      const Status s = ApplyBlobFileAddition(blob_file_addition);
       if (!s.ok()) {
         return s;
       }
@@ -566,13 +568,13 @@ class VersionBuilder::Rep {
 
     // Increase the amount of garbage for blob files affected by GC
     for (const auto& blob_file_garbage : edit->GetBlobFileGarbages()) {
-      s = ApplyBlobFileGarbage(blob_file_garbage);
+      const Status s = ApplyBlobFileGarbage(blob_file_garbage);
       if (!s.ok()) {
         return s;
       }
     }
 
-    return s;
+    return Status::OK();
   }
 
   static std::shared_ptr<BlobFileMetaData> CreateMetaDataForNewBlobFile(
