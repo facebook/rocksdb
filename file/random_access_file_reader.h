@@ -15,6 +15,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 

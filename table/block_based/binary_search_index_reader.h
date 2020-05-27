@@ -20,6 +20,7 @@ class BinarySearchIndexReader : public BlockBasedTable::IndexReaderCommon {
   // On success, index_reader will be populated; otherwise it will remain
   // unmodified.
   static Status Create(const BlockBasedTable* table,
+                       const ReadOptions& ro,
                        FilePrefetchBuffer* prefetch_buffer, bool use_cache,
                        bool prefetch, bool pin,
                        BlockCacheLookupContext* lookup_context,

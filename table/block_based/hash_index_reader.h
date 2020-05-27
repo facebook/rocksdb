@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class HashIndexReader : public BlockBasedTable::IndexReaderCommon {
  public:
   static Status Create(const BlockBasedTable* table,
+                       const ReadOptions& ro,
                        FilePrefetchBuffer* prefetch_buffer,
                        InternalIterator* meta_index_iter, bool use_cache,
                        bool prefetch, bool pin,

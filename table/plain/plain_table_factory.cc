@@ -49,6 +49,7 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
       OptionTypeFlags::kNone, 0}}};
 
 Status PlainTableFactory::NewTableReader(
+    const ReadOptions& /*ro*/,
     const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table,

@@ -119,7 +119,8 @@ bool FullFilterBlockReader::KeyMayMatch(
 }
 
 std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
-    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+    const BlockBasedTable* table, const ReadOptions& ro,
+    FilePrefetchBuffer* prefetch_buffer,
     bool use_cache, bool prefetch, bool pin,
     BlockCacheLookupContext* lookup_context) {
   assert(table);
@@ -128,7 +129,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 
   CachableEntry<ParsedFullFilterBlock> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ro,
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {

@@ -193,10 +193,12 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
-Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
+Status ReadProperties(const ReadOptions& read_options,
+                      const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
-                      TableProperties** table_properties, bool verify_checksum,
+                      TableProperties** table_properties,
+                      bool /*verify_checksum*/,
                       BlockHandle* ret_block_handle,
                       CacheAllocationPtr* verification_buf,
                       bool /*compression_type_missing*/,
@@ -210,8 +212,6 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   }
 
   BlockContents block_contents;
-  ReadOptions read_options;
-  read_options.verify_checksums = verify_checksum;
   Status s;
   PersistentCacheOptions cache_options;
 
@@ -368,7 +368,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            FilePrefetchBuffer* prefetch_buffer) {
   // -- Read metaindex block
   Footer footer;
-  auto s = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
+  IOOptions opts;
+  auto s = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
                               table_magic_number);
   if (!s.ok()) {
     return s;
@@ -405,7 +406,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
 
   TableProperties table_properties;
   if (found_properties_block == true) {
-    s = ReadProperties(meta_iter->value(), file, prefetch_buffer, footer,
+    ReadOptions ro;
+    s = ReadProperties(ro, meta_iter->value(), file, prefetch_buffer, footer,
                        ioptions, properties, false /* verify_checksum */,
                        nullptr /* ret_block_hanel */,
                        nullptr /* ret_block_contents */,
@@ -438,8 +440,9 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      bool /*compression_type_missing*/,
                      MemoryAllocator* memory_allocator) {
   Footer footer;
-  auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
-                              &footer, table_magic_number);
+  IOOptions opts;
+  auto s = ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
+                              file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -480,7 +483,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      MemoryAllocator* memory_allocator) {
   Status status;
   Footer footer;
-  status = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
+  IOOptions opts;
+  status = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
                               table_magic_number);
   if (!status.ok()) {
     return status;

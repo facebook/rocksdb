@@ -87,7 +87,8 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
-  static Status Open(const ImmutableCFOptions& ioptions,
+  static Status Open(const ReadOptions& ro,
+                     const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
@@ -205,7 +206,8 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual void CacheDependencies(bool /* pin */) {}
+    virtual void CacheDependencies(const ReadOptions& /*ro*/,
+                                   bool /* pin */) {}
   };
 
   class IndexReaderCommon;
@@ -379,7 +381,8 @@ class BlockBasedTable : public TableReader {
   // Optionally, user can pass a preloaded meta_index_iter for the index that
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
-  Status CreateIndexReader(FilePrefetchBuffer* prefetch_buffer,
+  Status CreateIndexReader(const ReadOptions& ro,
+                           FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* preloaded_meta_index_iter,
                            bool use_cache, bool prefetch, bool pin,
                            BlockCacheLookupContext* lookup_context,
@@ -401,24 +404,30 @@ class BlockBasedTable : public TableReader {
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status PrefetchTail(
+      const ReadOptions& ro,
       RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadMetaIndexBlock(const ReadOptions& ro,
+                            FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,
                             std::unique_ptr<InternalIterator>* iter);
-  Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
+  Status TryReadPropertiesWithGlobalSeqno(const ReadOptions& ro,
+                                          FilePrefetchBuffer* prefetch_buffer,
                                           const Slice& handle_value,
                                           TableProperties** table_properties);
-  Status ReadPropertiesBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadPropertiesBlock(const ReadOptions& ro,
+                             FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
                              const SequenceNumber largest_seqno);
-  Status ReadRangeDelBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadRangeDelBlock(const ReadOptions& ro,
+                           FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
                            const InternalKeyComparator& internal_comparator,
                            BlockCacheLookupContext* lookup_context);
   Status PrefetchIndexAndFilterBlocks(
+      const ReadOptions& ro,
       FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
       BlockBasedTable* new_table, bool prefetch_all,
       const BlockBasedTableOptions& table_options, const int level,
@@ -433,6 +442,7 @@ class BlockBasedTable : public TableReader {
 
   // Create the filter from the filter block.
   std::unique_ptr<FilterBlockReader> CreateFilterBlockReader(
+      const ReadOptions& ro,
       FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
       bool pin, BlockCacheLookupContext* lookup_context);
 

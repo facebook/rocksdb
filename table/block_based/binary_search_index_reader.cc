@@ -10,7 +10,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 Status BinarySearchIndexReader::Create(
-    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
+    const BlockBasedTable* table, const ReadOptions& ro,
+    FilePrefetchBuffer* prefetch_buffer,
     bool use_cache, bool prefetch, bool pin,
     BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
@@ -22,7 +23,7 @@ Status BinarySearchIndexReader::Create(
   CachableEntry<Block> index_block;
   if (prefetch || !use_cache) {
     const Status s =
-        ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
+        ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
                        /*get_context=*/nullptr, lookup_context, &index_block);
     if (!s.ok()) {
       return s;
