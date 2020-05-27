@@ -469,9 +469,9 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket,
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] Bucket %s GetPathForDbid dbid %s", bucket.c_str(), dbid.c_str());
 
-  std::unordered_map<std::string, std::string> metadata;
+  CloudObjectInformation info;
   Status st = cloud_env_options.storage_provider->GetCloudObjectMetadata(
-      bucket, dbidkey, &metadata);
+      bucket, dbidkey, &info);
   if (!st.ok()) {
     if (st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -487,8 +487,8 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket,
 
   // Find "dirname" metadata that stores the pathname of the db
   const char* kDirnameTag = "dirname";
-  auto it = metadata.find(kDirnameTag);
-  if (it != metadata.end()) {
+  auto it = info.metadata.find(kDirnameTag);
+  if (it != info.metadata.end()) {
     *dirname = it->second;
   } else {
     st = Status::NotFound("GetPathForDbid");
