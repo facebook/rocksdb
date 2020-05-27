@@ -136,8 +136,8 @@ class VersionBuilder::Rep {
   // on invalid levels don't cancel out.
   using InvalidLevels = std::map<int, std::unordered_set<uint64_t>>;
   InvalidLevels invalid_levels_;
-  // Balance of table file additions and deletions by table file number.
-  std::unordered_map<uint64_t, int> table_file_balances_;
+  // Current levels of table files affected by additions/deletions.
+  std::unordered_map<uint64_t, int> table_file_levels_;
   // Whether there are invalid new files or invalid deletion on levels larger
   // than num_levels_.
   bool has_invalid_levels_;
@@ -433,21 +433,18 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
-  bool IsFileInVersion(uint64_t file_number) const {
-    assert(base_vstorage_);
-
-    int result = base_vstorage_->GetFileLocation(file_number).IsValid() ? 1 : 0;
-
-    auto it = table_file_balances_.find(file_number);
-    if (it != table_file_balances_.end()) {
-      result += it->second;
+  int GetLevelForTableFile(uint64_t file_number) const {
+    auto it = table_file_levels_.find(file_number);
+    if (it != table_file_levels_.end()) {
+      return it->second;
     }
 
-    return result > 0;
+    assert(base_vstorage_);
+    return base_vstorage_->GetFileLocation(file_number).GetLevel();
   }
 
   Status ApplyFileDeletion(int level, uint64_t file_number) {
-    if (!IsFileInVersion(file_number)) {
+    if (GetLevelForTableFile(file_number) < 0) {
       return Status::Corruption();  // TODO: message
     }
 
@@ -467,7 +464,7 @@ class VersionBuilder::Rep {
       }
 
       level_files.erase(file_it);
-      --table_file_balances_[file_number];
+      table_file_levels_[file_number] = -1;
 
       return Status::OK();
     }
@@ -493,7 +490,7 @@ class VersionBuilder::Rep {
     }
 
     del_files.insert(file_number);
-    --table_file_balances_[file_number];
+    table_file_levels_[file_number] = -1;
 
     return Status::OK();
   }
@@ -501,7 +498,7 @@ class VersionBuilder::Rep {
   Status ApplyFileAddition(int level, const FileMetaData& meta) {
     const uint64_t file_number = meta.fd.GetNumber();
 
-    if (IsFileInVersion(file_number)) {
+    if (GetLevelForTableFile(file_number) >= 0) {
       return Status::Corruption();  // TODO: message
     }
 
@@ -522,7 +519,7 @@ class VersionBuilder::Rep {
       }
 
       level_files.insert(file_number);
-      ++table_file_balances_[file_number];
+      table_file_levels_[file_number] = level;
 
       return Status::OK();
     }
@@ -565,7 +562,7 @@ class VersionBuilder::Rep {
 
     add_files.insert(std::unordered_map<uint64_t, FileMetaData*>::value_type(
         file_number, f));
-    ++table_file_balances_[file_number];
+    table_file_levels_[file_number] = level;
 
     return Status::OK();
   }
