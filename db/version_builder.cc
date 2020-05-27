@@ -455,7 +455,17 @@ class VersionBuilder::Rep {
         has_invalid_levels_ = true;
       }
 
-      return Status::Corruption();  // TODO: message
+      std::ostringstream oss;
+      oss << "Cannot delete table file #" << file_number << " from level "
+          << level << " since it is ";
+      if (current_level ==
+          VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
+        oss << "not in the LSM tree";
+      } else {
+        oss << "on level " << current_level;
+      }
+
+      return Status::Corruption("VersionBuilder", oss.str());
     }
 
     if (level >= num_levels_) {
@@ -500,7 +510,10 @@ class VersionBuilder::Rep {
         has_invalid_levels_ = true;
       }
 
-      return Status::Corruption();  // TODO: message
+      std::ostringstream oss;
+      oss << "Cannot add table file #" << file_number << " to level " << level
+          << " since it is already in the LSM tree on level " << current_level;
+      return Status::Corruption("VersionBuilder", oss.str());
     }
 
     if (level >= num_levels_) {
