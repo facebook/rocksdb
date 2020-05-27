@@ -17,7 +17,7 @@ struct ClientConfiguration;
 }  // namespace Client
 }  // namespace Aws
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CloudEnv;
 class CloudLogController;
@@ -469,4 +469,4 @@ class CloudEnv : public Env {
                           CloudEnv** cenv);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

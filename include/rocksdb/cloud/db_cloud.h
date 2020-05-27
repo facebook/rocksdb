@@ -10,7 +10,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Database with Cloud support.
@@ -68,5 +68,5 @@ class DBCloud : public StackableDB {
   explicit DBCloud(DB* db) : StackableDB(db) {}
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
