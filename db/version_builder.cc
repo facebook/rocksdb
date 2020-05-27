@@ -130,17 +130,16 @@ class VersionBuilder::Rep {
   VersionSet* version_set_;
   int num_levels_;
   LevelState* levels_;
-  // Store states of levels larger than num_levels_. We do this instead of
+  // Store sizes of levels larger than num_levels_. We do this instead of
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
   // on invalid levels don't cancel out.
-  using InvalidLevels = std::map<int, std::unordered_set<uint64_t>>;
-  InvalidLevels invalid_levels_;
-  // Current levels of table files affected by additions/deletions.
-  std::unordered_map<uint64_t, int> table_file_levels_;
+  std::unordered_map<int, int> invalid_level_sizes_;
   // Whether there are invalid new files or invalid deletion on levels larger
   // than num_levels_.
   bool has_invalid_levels_;
+  // Current levels of table files affected by additions/deletions.
+  std::unordered_map<uint64_t, int> table_file_levels_;
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
 
@@ -368,11 +367,14 @@ class VersionBuilder::Rep {
     if (has_invalid_levels_) {
       return false;
     }
-    for (auto& level : invalid_levels_) {
-      if (level.second.size() > 0) {
+
+    for (const auto& pair : invalid_level_sizes_) {
+      const int level_size = pair.second;
+      if (level_size != 0) {
         return false;
       }
     }
+
     return true;
   }
 
@@ -433,7 +435,7 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
-  int GetLevelForTableFile(uint64_t file_number) const {
+  int GetCurrentLevelForTableFile(uint64_t file_number) const {
     auto it = table_file_levels_.find(file_number);
     if (it != table_file_levels_.end()) {
       return it->second;
@@ -444,26 +446,28 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileDeletion(int level, uint64_t file_number) {
-    if (GetLevelForTableFile(file_number) < 0) {
+    const int current_level = GetCurrentLevelForTableFile(file_number);
+
+    if (current_level < 0) {
+      if (level >= num_levels_) {
+        has_invalid_levels_ = true;
+      }
+
+      return Status::Corruption();  // TODO: message
+    }
+
+    if (level != current_level) {
+      if (level >= num_levels_) {
+        has_invalid_levels_ = true;
+      }
+
       return Status::Corruption();  // TODO: message
     }
 
     if (level >= num_levels_) {
-      auto level_it = invalid_levels_.find(level);
-      if (level_it == invalid_levels_.end()) {
-        has_invalid_levels_ = true;
-        return Status::Corruption();  // TODO: message
-      }
+      assert(invalid_level_sizes_[level] > 0);
+      --invalid_level_sizes_[level];
 
-      auto& level_files = level_it->second;
-
-      auto file_it = level_files.find(file_number);
-      if (file_it == level_files.end()) {
-        has_invalid_levels_ = true;
-        return Status::Corruption();  // TODO: message
-      }
-
-      level_files.erase(file_it);
       table_file_levels_[file_number] = -1;
 
       return Status::OK();
@@ -471,25 +475,17 @@ class VersionBuilder::Rep {
 
     auto& level_state = levels_[level];
 
-    auto& del_files = level_state.deleted_files;
-    if (del_files.find(file_number) != del_files.end()) {
-      return Status::Corruption();  // TODO: message
-    }
-
     auto& add_files = level_state.added_files;
     auto add_it = add_files.find(file_number);
     if (add_it != add_files.end()) {
       UnrefFile(add_it->second);
       add_files.erase(add_it);
-    } else {
-      assert(base_vstorage_);
-      const auto location = base_vstorage_->GetFileLocation(file_number);
-      if (!location.IsValid()) {
-        return Status::Corruption();  // TODO: message
-      }
     }
 
+    auto& del_files = level_state.deleted_files;
+    assert(del_files.find(file_number) == del_files.end());
     del_files.insert(file_number);
+
     table_file_levels_[file_number] = -1;
 
     return Status::OK();
@@ -498,58 +494,22 @@ class VersionBuilder::Rep {
   Status ApplyFileAddition(int level, const FileMetaData& meta) {
     const uint64_t file_number = meta.fd.GetNumber();
 
-    if (GetLevelForTableFile(file_number) >= 0) {
+    if (GetCurrentLevelForTableFile(file_number) >= 0) {
+      if (level >= num_levels_) {
+        has_invalid_levels_ = true;
+      }
+
       return Status::Corruption();  // TODO: message
     }
 
     if (level >= num_levels_) {
-      auto level_it = invalid_levels_.lower_bound(level);
-      if (level_it == invalid_levels_.end() || level_it->first != level) {
-        level_it = invalid_levels_.insert(
-            level_it,
-            InvalidLevels::value_type(level, std::unordered_set<uint64_t>()));
-      }
-
-      auto& level_files = level_it->second;
-
-      auto file_it = level_files.find(file_number);
-      if (file_it != level_files.end()) {
-        has_invalid_levels_ = true;
-        return Status::Corruption();  // TODO: message
-      }
-
-      level_files.insert(file_number);
+      ++invalid_level_sizes_[level];
       table_file_levels_[file_number] = level;
 
       return Status::OK();
     }
 
     auto& level_state = levels_[level];
-
-    auto& add_files = level_state.added_files;
-    if (add_files.find(file_number) != add_files.end()) {
-      return Status::Corruption();  // TODO: message
-    }
-
-    assert(base_vstorage_);
-    const auto location = base_vstorage_->GetFileLocation(file_number);
-    if (location.IsValid()) {
-      const int orig_level = location.GetLevel();
-      if (orig_level >= num_levels_) {
-        auto level_it = invalid_levels_.find(orig_level);
-        if (level_it != invalid_levels_.end()) {
-          const auto& orig_level_files = level_it->second;
-          if (orig_level_files.find(file_number) != orig_level_files.end()) {
-            return Status::Corruption();  // TODO: message
-          }
-        } else {
-          const auto& orig_level_del = levels_[orig_level].deleted_files;
-          if (orig_level_del.find(file_number) == orig_level_del.end()) {
-            return Status::Corruption();  // TODO: message
-          }
-        }
-      }
-    }
 
     auto& del_files = level_state.deleted_files;
     auto del_it = del_files.find(file_number);
@@ -560,8 +520,11 @@ class VersionBuilder::Rep {
     FileMetaData* const f = new FileMetaData(meta);
     f->refs = 1;
 
+    auto& add_files = level_state.added_files;
+    assert(add_files.find(file_number) == add_files.end());
     add_files.insert(std::unordered_map<uint64_t, FileMetaData*>::value_type(
         file_number, f));
+
     table_file_levels_[file_number] = level;
 
     return Status::OK();
