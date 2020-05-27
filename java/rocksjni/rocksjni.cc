@@ -3068,6 +3068,45 @@ void Java_org_rocksdb_RocksDB_ingestExternalFile(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    createColumnFamilyWithImport
+ * Signature: (JJLjava/lang/String;JJ)J
+ */
+jlong Java_org_rocksdb_RocksDB_createColumnFamilyWithImport(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_options_handle,
+    jstring jcf_name, jlong jimport_options_handle,
+    jlong jexport_import_files_meatadata_handle) {
+  auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* column_family_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(
+          jcf_options_handle);
+  const char* cf_name = env->GetStringUTFChars(jcf_name, nullptr);
+  if (cf_name == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+  auto* import_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ImportColumnFamilyOptions*>(
+          jimport_options_handle);
+  auto* export_import_files_metadata =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(
+          jexport_import_files_meatadata_handle);
+  ROCKSDB_NAMESPACE::ColumnFamilyHandle* cf_handle;
+
+  ROCKSDB_NAMESPACE::Status s = db->CreateColumnFamilyWithImport(
+      *column_family_options, cf_name, *import_options,
+      *export_import_files_metadata, &cf_handle);
+
+  env->ReleaseStringUTFChars(jcf_name, cf_name);
+
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+
+  return reinterpret_cast<jlong>(cf_handle);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    verifyChecksum
  * Signature: (J)V
  */

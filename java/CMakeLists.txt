@@ -139,6 +139,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Env.java
   src/main/java/org/rocksdb/EnvOptions.java
   src/main/java/org/rocksdb/Experimental.java
+  src/main/java/org/rocksdb/ExportImportFilesMetaData.java
   src/main/java/org/rocksdb/Filter.java
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
@@ -147,6 +148,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
+  src/main/java/org/rocksdb/ImportColumnFamilyOptions.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java

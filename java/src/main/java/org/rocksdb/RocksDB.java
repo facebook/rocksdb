@@ -3982,6 +3982,41 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * createColumnFamilyWithImport will create a new column family with
+   * columnFamilyName and import external SST files specified in importMetadata into
+   * this column family.
+   * (1) External SST files can be created using SstFileWriter.
+   * (2) External SST files can be exported from a particular column family in
+   *     an existing DB.
+   * Option in importOptions specifies whether the external files are copied or
+   * moved (default is copy). When option specifies copy, managing files at
+   * externalFilePath is caller's responsibility. When option specifies a
+   * move, the call ensures that the specified files at externalFilePath are
+   * deleted on successful return and files are not modified on any error
+   * return.
+   * On error return, column family handle returned will be null.
+   * ColumnFamily will be present on successful return and will not be present
+   * on error return. ColumnFamily may be present on any crash during this call.
+   *
+   * @param columnFamilyOptions options to be used with
+   *     the new column family.
+   * @param columnFamilyName name for the new column family
+   * @param importOptions import options for the new column family
+   * @param importMetadata import metadata for the new column family
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public ColumnFamilyHandle createColumnFamilyWithImport(
+      final ColumnFamilyOptions columnFamilyOptions, final String columnFamilyName,
+      final ImportColumnFamilyOptions importOptions, final ExportImportFilesMetaData importMetadata)
+      throws RocksDBException {
+    return new ColumnFamilyHandle(this,
+        createColumnFamilyWithImport(nativeHandle_, columnFamilyOptions.nativeHandle_,
+            columnFamilyName, importOptions.nativeHandle_, importMetadata.nativeHandle_));
+  }
+
+  /**
    * Verify checksum
    *
    * @throws RocksDBException if the checksum is not valid
@@ -4510,6 +4545,9 @@ public class RocksDB extends RocksObject {
       final long columnFamilyHandle,  final String[] filePathList,
       final int filePathListLen, final long ingestExternalFileOptionsHandle)
       throws RocksDBException;
+  private native long createColumnFamilyWithImport(final long handle,
+      final long columnFamilyOptionsHandle, final String columnFamilyName,
+      final long importOptionsHandle, final long importMetadataHandle) throws RocksDBException;
   private native void verifyChecksum(final long handle) throws RocksDBException;
   private native long getDefaultColumnFamily(final long handle);
   private native Map<String, TableProperties> getPropertiesOfAllTables(
