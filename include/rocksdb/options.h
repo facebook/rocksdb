@@ -1356,6 +1356,13 @@ struct ReadOptions {
   // processing a batch
   std::chrono::microseconds deadline;
 
+  // It limits the maximum cumulative value size of the keys in batch while
+  // reading through MultiGet. Once the cumulative value size exceeds this
+  // soft limit then all the remaining keys are returned with status Aborted.
+  //
+  // Default: std::numeric_limits<uint64_t>::max()
+  uint64_t value_size_soft_limit;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

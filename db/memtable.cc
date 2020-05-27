@@ -929,8 +929,18 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
     if (found_final_value) {
       iter->value->PinSelf();
+      range->AddValueSize(iter->value->size());
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
+      if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        // Set all remaining keys in range to Abort
+        for (auto range_iter = range->begin(); range_iter != range->end();
+             ++range_iter) {
+          range->MarkKeyDone(range_iter);
+          *(range_iter->s) = Status::Aborted();
+        }
+        break;
+      }
     }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
