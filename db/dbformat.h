@@ -437,7 +437,7 @@ class IterKey {
   // Update the sequence number in the internal key.  Guarantees not to
   // invalidate slices to the key (and the user key).
   void UpdateInternalKey(uint64_t seq, ValueType t) {
-    // assert(!IsKeyPinned());
+    assert(!IsKeyPinned());
     assert(key_size_ >= 8);
     uint64_t newval = (seq << 8) | t;
     EncodeFixed64(&buf_[key_size_ - 8], newval);
