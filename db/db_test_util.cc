@@ -650,7 +650,7 @@ Options DBTestBase::GetOptions(
   }
 
   // get AWS credentials
-  rocksdb::CloudEnvOptions coptions;
+  CloudEnvOptions coptions;
   CloudEnv* cenv = nullptr;
   std::string region;
   coptions.TEST_Initialize("dbtest.", prefix, region);

@@ -1491,7 +1491,7 @@ TEST_F(CloudTest, SharedBlockCache) {
   cloud_env_options_.keep_local_sst_files = false;
 
   // Share the block cache.
-  rocksdb::BlockBasedTableOptions bbto;
+  BlockBasedTableOptions bbto;
   bbto.block_cache = NewLRUCache(10 * 1024 * 1024);
   bbto.format_version = 4;
   options_.table_factory.reset(NewBlockBasedTableFactory(bbto));

@@ -82,7 +82,8 @@ int main() {
   }
 
   // print all values in the database
-  rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+  ROCKSDB_NAMESPACE::Iterator* it =
+      db->NewIterator(ROCKSDB_NAMESPACE::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::cout << it->key().ToString() << ": " << it->value().ToString()
               << std::endl;
@@ -93,7 +94,7 @@ int main() {
 
   // verify that the data is somewhat sane by manaully scanning for cfs
   std::vector<std::string> cf_names;
-  s = rocksdb::DB::ListColumnFamilies(options, kDBPath, &cf_names);
+  s = ROCKSDB_NAMESPACE::DB::ListColumnFamilies(options, kDBPath, &cf_names);
   for (std::string cf: cf_names) {
     std::cout << " Found Column Family " << cf;
   }
