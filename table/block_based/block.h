@@ -449,12 +449,16 @@ class DataBlockIter final : public BlockIter<Slice> {
   mutable uint32_t last_bitmap_offset_;
   struct CachedPrevEntry {
     explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
-                             size_t _key_offset, size_t _key_size, Slice _value)
+                             size_t _key_offset, size_t _key_size, Slice _value,
+                             SequenceNumber _stored_seqno,
+                             ValueType _stored_value_type)
         : offset(_offset),
           key_ptr(_key_ptr),
           key_offset(_key_offset),
           key_size(_key_size),
-          value(_value) {}
+          value(_value),
+          stored_seqno(_stored_seqno),
+          stored_value_type(_stored_value_type) {}
 
     // offset of entry in block
     uint32_t offset;
@@ -466,6 +470,11 @@ class DataBlockIter final : public BlockIter<Slice> {
     size_t key_size;
     // value slice pointing to data in block
     Slice value;
+    // Original seqno stored in block, if replaced by global seqno.
+    SequenceNumber stored_seqno = 0;
+    // Original value type stored in block, if seqno is replaced by global
+    // seqno.
+    ValueType stored_value_type = kMaxValue;
   };
   std::string prev_entries_keys_buff_;
   std::vector<CachedPrevEntry> prev_entries_;

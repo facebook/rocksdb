@@ -190,6 +190,8 @@ void DataBlockIter::Prev() {
     current_ = current_prev_entry.offset;
     key_.SetKey(current_key, false /* copy */);
     value_ = current_prev_entry.value;
+    stored_seqno_ = current_prev_entry.stored_seqno;
+    stored_value_type_ = current_prev_entry.stored_value_type;
 
     return;
   }
@@ -222,14 +224,16 @@ void DataBlockIter::Prev() {
     if (key_.IsKeyPinned()) {
       // The key is not delta encoded
       prev_entries_.emplace_back(current_, current_key.data(), 0,
-                                 current_key.size(), value());
+                                 current_key.size(), value(), stored_seqno_,
+                                 stored_value_type_);
     } else {
       // The key is delta encoded, cache decoded key in buffer
       size_t new_key_offset = prev_entries_keys_buff_.size();
       prev_entries_keys_buff_.append(current_key.data(), current_key.size());
 
       prev_entries_.emplace_back(current_, nullptr, new_key_offset,
-                                 current_key.size(), value());
+                                 current_key.size(), value(), stored_seqno_,
+                                 stored_value_type_);
     }
     // Loop until end of current entry hits the start of original entry
   } while (NextEntryOffset() < original);
@@ -525,7 +529,20 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       key_.SetKey(Slice(p, non_shared), false /* copy */);
       key_pinned_ = true;
     } else {
+      // Restore original seqno of the previous key, since the seqno can be
+      // part of the prefix shared with the next key.
       if (global_seqno_ != kDisableGlobalSequenceNumber) {
+        // In case global seqno presents, the key must has been unpinned.
+        // However if the key is from prev_entries cache, the buffer is not
+        // owned by the key. In this case, let the key own the buffer
+        // before restoring original seqno.
+        //
+        // We may consider having prev_entries cache hold IterKey to avoid
+        // the extra memcopy.
+        assert(!key_pinned_);
+        if (key_.IsKeyPinned()) {
+          key_.OwnKey();
+        }
         key_.UpdateInternalKey(stored_seqno_, stored_value_type_);
       }
       // This key share `shared` bytes with prev key, we need to decode it

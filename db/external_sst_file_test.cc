@@ -2842,6 +2842,63 @@ TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresents) {
   ASSERT_EQ(value, Get(key2));
 }
 
+TEST_P(ExternalSSTFileTest,
+       ReverseIterateDirectionWithDeltaEncodedKeysWithGlobalSeqno) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  constexpr size_t kValueSize = 8;
+  Random rnd(301);
+  std::string value(RandomString(&rnd, kValueSize));
+
+  ASSERT_OK(Put("ad", value));
+
+  // Get a Snapshot to make RocksDB assign global seqno to ingested sst files.
+  auto snap = dbfull()->GetSnapshot();
+
+  std::string fname = sst_files_dir_ + "test_file";
+  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(fname));
+  ASSERT_OK(writer.Put("aa", value));
+  ASSERT_OK(writer.Put("ab", value));
+  std::string prefix = "ab";
+  PutFixed64(&prefix, PackSequenceAndType(0, kTypeValue));
+  prefix += "cdefghijkl";
+  std::string key1 = prefix + "1";
+  std::string key2 = prefix + "2";
+  ASSERT_OK(writer.Put(key1, value));
+  ASSERT_OK(writer.Put(key2, value));
+  ASSERT_OK(writer.Delete("ad"));
+  ASSERT_OK(writer.Put("ae", value));
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer.Finish(&info));
+
+  ASSERT_OK(dbfull()->IngestExternalFile({info.file_path},
+                                         IngestExternalFileOptions()));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekForPrev("ad");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key2, iter->key().ToString());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key1, iter->key().ToString());
+  // The internal iterator is now positioned at "ab" (the previous key of
+  // current key). With an previous issue, "ab" will be updated with original
+  // sequence number and value type of "ad" by mistake. The mistake is
+  // propogated to key1 then key2, making wrong result returned from iterator.
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key2, iter->key().ToString());
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("ae", iter->key().ToString());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  dbfull()->ReleaseSnapshot(snap);
+}
+
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,
                         testing::Values(std::make_tuple(false, false),
                                         std::make_tuple(false, true),
