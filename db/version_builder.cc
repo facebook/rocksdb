@@ -474,11 +474,11 @@ class VersionBuilder::Rep {
     if (add_it != add_files.end()) {
       UnrefFile(add_it->second);
       add_files.erase(add_it);
+    } else {
+      auto& del_files = level_state.deleted_files;
+      assert(del_files.find(file_number) == del_files.end());
+      del_files.insert(file_number);
     }
-
-    auto& del_files = level_state.deleted_files;
-    assert(del_files.find(file_number) == del_files.end());
-    del_files.insert(file_number);
 
     table_file_levels_[file_number] = -1;
 
@@ -513,15 +513,14 @@ class VersionBuilder::Rep {
     auto del_it = del_files.find(file_number);
     if (del_it != del_files.end()) {
       del_files.erase(del_it);
+    } else {
+      FileMetaData* const f = new FileMetaData(meta);
+      f->refs = 1;
+
+      auto& add_files = level_state.added_files;
+      assert(add_files.find(file_number) == add_files.end());
+      add_files[file_number] = f;
     }
-
-    FileMetaData* const f = new FileMetaData(meta);
-    f->refs = 1;
-
-    auto& add_files = level_state.added_files;
-    assert(add_files.find(file_number) == add_files.end());
-    add_files.insert(std::unordered_map<uint64_t, FileMetaData*>::value_type(
-        file_number, f));
 
     table_file_levels_[file_number] = level;
 
