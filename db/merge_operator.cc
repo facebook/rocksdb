@@ -48,6 +48,21 @@ bool MergeOperator::PartialMergeMulti(const Slice& key,
   return true;
 }
 
+bool SimpleAssociativeMergeOperator::Merge(const Slice& key, const Slice* left,
+                                           const Slice& right,
+                                           std::string* result,
+                                           Logger* logger) const {
+  if (!left) {
+    // Handle non-existence of a prior value by promoting merge operand
+    // to a value.
+    assert(result->empty());
+    result->assign(right.data(), right.size());
+    return true;
+  } else {
+    return BinaryMerge(key, *left, right, result, logger);
+  }
+}
+
 // Given a "real" merge from the library, call the user's
 // associative merge function one-by-one on each of the operands.
 // NOTE: It is assumed that the client's merge-operator will handle any errors.

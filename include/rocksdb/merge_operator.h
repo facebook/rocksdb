@@ -27,19 +27,27 @@ class Logger;
 //
 // To use merge, the client needs to provide an object implementing one of
 // the following interfaces:
-//  a) AssociativeMergeOperator - for most simple semantics (always take
-//    two values, and merge them into one value, which is then put back
-//    into rocksdb); numeric addition and string concatenation are examples;
+//  a) SimpleAssociativeMergeOperator - simplest interface for implementing
+//    many but not all kinds of merge semantics. The implementation always
+//    takes two inputs (values or merge operands) and merges them to one
+//    value.
+//    Requires: operator is associative, and no distinction between values
+//    and merge operands.
+//    Examples: numeric addition, and string concatenation.
+//    Non-examples: numeric subtraction (not associative), editable document
+//    (values are documents, merge operands are edits)
 //
-//  b) MergeOperator - the generic class for all the more abstract / complex
+//  b - rarely useful) AssociativeMergeOperator - not as simple as
+//    SimpleAssociativeMergeOperator because left side input is optional.
+//    Not as general as MergeOperator.
+//
+//  c) MergeOperator - the generic class for all the more abstract / complex
 //    operations; one method (FullMergeV2) to merge a Put/Delete value with a
 //    merge operand; and another method (PartialMerge) that merges multiple
-//    operands together. this is especially useful if your key values have
+//    operands together. This is especially useful if your key values have
 //    complex structures but you would still like to support client-specific
-//    incremental updates.
-//
-// AssociativeMergeOperator is simpler to implement. MergeOperator is simply
-// more powerful.
+//    incremental updates, including if the byte interpretation of merge
+//    operands is different from values.
 //
 // Refer to rocksdb-merge wiki for more details and example implementations.
 //
@@ -140,7 +148,7 @@ class MergeOperator {
   // DB::Merge(key, *new_value) would yield the same result as a call
   // to DB::Merge(key, left_op) followed by DB::Merge(key, right_op).
   //
-  // The string that new_value is pointing to will be empty.
+  // The string that new_value is pointing to should be empty initially.
   //
   // The default implementation of PartialMergeMulti will use this function
   // as a helper, for backward compatibility.  Any successor class of
@@ -179,7 +187,7 @@ class MergeOperator {
   // the same result as subquential individual calls to DB::Merge(key, operand)
   // for each operand in operand_list from front() to back().
   //
-  // The string that new_value is pointing to will be empty.
+  // The string that new_value is pointing to should be empty initially.
   //
   // The PartialMergeMulti function will be called when there are at least two
   // operands.
@@ -222,27 +230,37 @@ class MergeOperator {
   }
 };
 
-// The simpler, associative merge operator.
+// Base of SimpleAssociativeMergeOperator that allows customizing how a merge
+// operand is combined with a non-existant value association, such as
+// canonicalizing operands in some way before promoting them to values.
+// Since this is rarely needed, SimpleAssociativeMergeOperator is generally
+// recommended instead.
+//
+// In mathematical terms: implementations of this class must satisfy
+// associativity, like SimpleAssociativeMergeOperator, but null might not
+// be an identity element of the operator, unlike
+// SimpleAssociativeMergeOperator.
 class AssociativeMergeOperator : public MergeOperator {
  public:
   ~AssociativeMergeOperator() override {}
 
-  // Gives the client a way to express the read -> modify -> write semantics
-  // key:           (IN) The key that's associated with this merge operation.
-  // existing_value:(IN) null indicates the key does not exist before this op
-  // value:         (IN) the value to update/merge the existing_value with
-  // new_value:    (OUT) Client is responsible for filling the merge result
-  // here. The string that new_value is pointing to will be empty.
-  // logger:        (IN) Client could use this to log errors during merge.
+  // Merges two values/operands (left side optional) to express the
+  // read -> modify -> write semantics
+  // key:           (IN) The key associated with this merge (often unused)
+  // left:          (IN) a value or operand sequenced before the right input,
+  // or null indicating a merge with a non-existant or deleted value binding.
+  // right:         (IN) an operand or merge result to merge with.
+  // result:       (OUT) Client is responsible for filling the merge result
+  // here. The string that result is pointing to should be empty initially.
+  // logger:        (IN) Client can use this to log errors during merge.
   //
   // Return true on success.
   // All values passed in will be client-specific values. So if this method
   // returns false, it is because client specified bad data or there was
   // internal corruption. The client should assume that this will be treated
   // as an error by the library.
-  virtual bool Merge(const Slice& key, const Slice* existing_value,
-                     const Slice& value, std::string* new_value,
-                     Logger* logger) const = 0;
+  virtual bool Merge(const Slice& key, const Slice* left, const Slice& right,
+                     std::string* result, Logger* logger) const = 0;
 
  private:
   // Default implementations of the MergeOperator functions
@@ -252,6 +270,52 @@ class AssociativeMergeOperator : public MergeOperator {
   bool PartialMerge(const Slice& key, const Slice& left_operand,
                     const Slice& right_operand, std::string* new_value,
                     Logger* logger) const override;
+};
+
+// A simple merge operator based on an associative binary operator on
+// values/operands. Implementations must satisfy associativity,
+//      merge(merge(x, y), z) == merge(x, merge(y, z))
+// so that a single implementation can be used for both
+// 1) combining an existing associated value with a merge operand, and
+// 2) combining two merge operands (for partial merge)
+//
+// When extending this class, DB::Merge(opts, k, v) will be equivalent to
+// DB::Put(opts, k, v) when k has no existing value binding. Under this
+// simplified construction, there needs to be a unified interpretation of
+// values (what keys map to) and merge operands (passed to DB::Merge).
+// Justification: the overrider of AssociativeMergeOperator::Merge is not
+// told which it is operating on and (for SimpleAssociativeMergeOperator
+// only) an operand is simply promoted to a value when there's no existing
+// value to merge it with.
+//
+// In mathematical terms: null (no binding) is treated as an identity
+// element of the operator, so does not need to be handled by the
+// implementation, unlike AssociativeMergeOperator.
+class SimpleAssociativeMergeOperator : public AssociativeMergeOperator {
+ public:
+  ~SimpleAssociativeMergeOperator() override {}
+
+  // Merges two values/operands to express the read -> modify -> write
+  // semantics
+  // key:           (IN) The key associated with this merge (often unused)
+  // left:          (IN) a value/operand sequenced before the right input.
+  // right:         (IN) a value/operand to merge with.
+  // result:       (OUT) Client is responsible for filling the merge result
+  // here. The string that result is pointing to should be empty initially.
+  // logger:        (IN) Client can use this to log errors during merge.
+  //
+  // Return true on success.
+  // All values passed in will be client-specific values. So if this method
+  // returns false, it is because client specified bad data or there was
+  // internal corruption. The client should assume that this will be treated
+  // as an error by the library.
+  virtual bool BinaryMerge(const Slice& key, const Slice& left,
+                           const Slice& right, std::string* result,
+                           Logger* logger) const = 0;
+
+ private:
+  bool Merge(const Slice& key, const Slice* left, const Slice& right,
+             std::string* result, Logger* logger) const final;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

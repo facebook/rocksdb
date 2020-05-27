@@ -21,25 +21,18 @@ StringAppendOperator::StringAppendOperator(char delim_char)
 }
 
 // Implementation for the merge operation (concatenates two strings)
-bool StringAppendOperator::Merge(const Slice& /*key*/,
-                                 const Slice* existing_value,
-                                 const Slice& value, std::string* new_value,
-                                 Logger* /*logger*/) const {
-  // Clear the *new_value for writing.
-  assert(new_value);
-  new_value->clear();
+bool StringAppendOperator::BinaryMerge(const Slice& /*key*/, const Slice& left,
+                                       const Slice& right, std::string* result,
+                                       Logger* /*logger*/) const {
+  assert(result);
+  assert(result->empty());
 
-  if (!existing_value) {
-    // No existing_value. Set *new_value = value
-    new_value->assign(value.data(),value.size());
-  } else {
-    // Generic append (existing_value != null).
-    // Reserve *new_value to correct size, and apply concatenation.
-    new_value->reserve(existing_value->size() + 1 + value.size());
-    new_value->assign(existing_value->data(),existing_value->size());
-    new_value->append(1,delim_);
-    new_value->append(value.data(), value.size());
-  }
+  // Generic append.
+  // Reserve *result to correct size, and apply concatenation.
+  result->reserve(left.size() + 1 + right.size());
+  result->assign(left.data(), left.size());
+  result->append(1, delim_);
+  result->append(right.data(), right.size());
 
   return true;
 }

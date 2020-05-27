@@ -10,22 +10,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class StringAppendOperator : public AssociativeMergeOperator {
+class StringAppendOperator : public SimpleAssociativeMergeOperator {
  public:
   // Constructor: specify delimiter
   explicit StringAppendOperator(char delim_char);
 
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const Slice& value,
-                     std::string* new_value,
-                     Logger* logger) const override;
+  virtual bool BinaryMerge(const Slice& key, const Slice& left,
+                           const Slice& right, std::string* result,
+                           Logger* logger) const override;
 
   virtual const char* Name() const override;
 
  private:
   char delim_;         // The delimiter is inserted between elements
-
 };
 
 }  // namespace ROCKSDB_NAMESPACE
