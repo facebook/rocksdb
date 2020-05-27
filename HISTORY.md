@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+## 6.10.1 (5/27/2020)
+### Bug fix
+* Remove "u'<string>'" in TARGETS file.
+* Fix db_stress_lib target in buck.
+
 ## 6.10 (5/2/2020)
 ### Behavior Changes
 * Disable delete triggered compaction (NewCompactOnDeletionCollectorFactory) in universal compaction mode and num_levels = 1 in order to avoid a corruption bug.
