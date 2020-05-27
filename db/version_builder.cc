@@ -446,15 +446,9 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileDeletion(int level, uint64_t file_number) {
+    assert(level >= 0);
+
     const int current_level = GetCurrentLevelForTableFile(file_number);
-
-    if (current_level < 0) {
-      if (level >= num_levels_) {
-        has_invalid_levels_ = true;
-      }
-
-      return Status::Corruption();  // TODO: message
-    }
 
     if (level != current_level) {
       if (level >= num_levels_) {
@@ -492,9 +486,13 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileAddition(int level, const FileMetaData& meta) {
+    assert(level >= 0);
+
     const uint64_t file_number = meta.fd.GetNumber();
 
-    if (GetCurrentLevelForTableFile(file_number) >= 0) {
+    const int current_level = GetCurrentLevelForTableFile(file_number);
+
+    if (current_level >= 0) {
       if (level >= num_levels_) {
         has_invalid_levels_ = true;
       }
