@@ -446,7 +446,7 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileDeletion(int level, uint64_t file_number) {
-    assert(level >= 0);
+    assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
 
     const int current_level = GetCurrentLevelForTableFile(file_number);
 
@@ -498,7 +498,7 @@ class VersionBuilder::Rep {
   }
 
   Status ApplyFileAddition(int level, const FileMetaData& meta) {
-    assert(level >= 0);
+    assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
 
     const uint64_t file_number = meta.fd.GetNumber();
 
