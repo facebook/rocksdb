@@ -675,7 +675,7 @@ Status S3StorageProvider::PutCloudObjectMetadata(
     const std::unordered_map<std::string, std::string>& metadata) {
   Aws::S3::Model::PutObjectRequest request;
   Aws::Map<Aws::String, Aws::String> aws_metadata;
-  for (const auto m : metadata) {
+  for (const auto& m : metadata) {
     aws_metadata[ToAwsString(m.first)] = ToAwsString(m.second);
   }
   request.SetBucket(ToAwsString(bucket_name));
@@ -736,7 +736,7 @@ Status S3StorageProvider::HeadObject(
   }
   auto& res = outcome.GetResult();
   if (metadata != nullptr) {
-    for (const auto m : res.GetMetadata()) {
+    for (const auto& m : res.GetMetadata()) {
       (*metadata)[m.first.c_str()] = m.second.c_str();
     }
   }
