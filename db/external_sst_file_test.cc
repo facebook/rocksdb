@@ -2801,7 +2801,7 @@ TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
   GenerateAndAddExternalFile(options, data);
 }
 
-TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresents) {
+TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresent) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
   constexpr size_t kValueSize = 8;
@@ -2840,6 +2840,61 @@ TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresents) {
   ASSERT_EQ(value, Get(key1));
   // You will get error here
   ASSERT_EQ(value, Get(key2));
+}
+
+TEST_P(ExternalSSTFileTest,
+       DeltaEncodingWhileGlobalSeqnoPresentIteratorSwitch) {
+  // Regression test for bug where global seqno corrupted the shared bytes
+  // buffer when switching from reverse iteration to forward iteration.
+  constexpr size_t kValueSize = 8;
+  Options options = CurrentOptions();
+
+  Random rnd(301);
+  std::string value(RandomString(&rnd, kValueSize));
+
+  std::string key0 = "aa";
+  std::string key1 = "ab";
+  // Make the prefix of key2 is same with key1 add zero seqno. The tail of every
+  // key is composed as (seqno << 8 | value_type), and here `1` represents
+  // ValueType::kTypeValue
+  std::string key2 = "ab";
+  PutFixed64(&key2, PackSequenceAndType(0, kTypeValue));
+  key2 += "cdefghijkl";
+  std::string key3 = key2 + "_";
+
+  // Write some key to make global seqno larger than zero
+  ASSERT_OK(Put(key0, value));
+
+  std::string fname = sst_files_dir_ + "test_file";
+  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(fname));
+
+  // key0 is a dummy to ensure the turnaround point (key1) comes from Prev
+  // cache rather than block (restart keys are pinned in block).
+  ASSERT_OK(writer.Put(key0, value));
+  ASSERT_OK(writer.Put(key1, value));
+  ASSERT_OK(writer.Put(key2, value));
+  ASSERT_OK(writer.Put(key3, value));
+
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer.Finish(&info));
+
+  ASSERT_OK(dbfull()->IngestExternalFile({info.file_path},
+                                         IngestExternalFileOptions()));
+  ReadOptions read_opts;
+  // Prevents Seek() when switching directions, which circumvents the bug.
+  read_opts.total_order_seek = true;
+  Iterator* iter = db_->NewIterator(read_opts);
+  // Scan backwards to key2. File iterator will then be positioned at key1.
+  iter->Seek(key3);
+  ASSERT_EQ(key3, iter->key());
+  iter->Prev();
+  ASSERT_EQ(key2, iter->key());
+  // Scan forwards and make sure key3 is present. Previously key3 would be
+  // corrupted by the global seqno from key1.
+  iter->Next();
+  ASSERT_EQ(key3, iter->key());
+  delete iter;
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,

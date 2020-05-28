@@ -188,8 +188,13 @@ void DataBlockIter::Prev() {
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
-    key_.SetKey(current_key, false /* copy */);
+    raw_key_.SetKey(current_key, false /* copy */);
     value_ = current_prev_entry.value;
+    key_ = applied_key_.UpdateAndGetKey();
+    // This is kind of odd in that applied_key_ may say the key is pinned while
+    // key_pinned_ ends up being false. That'll only happen when the key resides
+    // in a transient caching buffer.
+    key_pinned_ = key_pinned_ && applied_key_.IsKeyPinned();
 
     return;
   }
@@ -217,9 +222,9 @@ void DataBlockIter::Prev() {
     if (!ParseNextDataKey<DecodeEntry>()) {
       break;
     }
-    Slice current_key = key();
+    Slice current_key = raw_key_.GetKey();
 
-    if (key_.IsKeyPinned()) {
+    if (raw_key_.IsKeyPinned()) {
       // The key is not delta encoded
       prev_entries_.emplace_back(current_, current_key.data(), 0,
                                  current_key.size(), value());
@@ -252,7 +257,8 @@ void DataBlockIter::Seek(const Slice& target) {
   SeekToRestartPoint(index);
 
   // Linear search (within restart block) for first key >= target
-  while (ParseNextDataKey<DecodeEntry>() && Compare(key_, seek_key) < 0) {
+  while (ParseNextDataKey<DecodeEntry>() &&
+         comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) < 0) {
   }
 }
 
@@ -273,8 +279,8 @@ void DataBlockIter::Seek(const Slice& target) {
 //
 // If the return value is TRUE, iter location has two possibilies:
 // 1) If iter is valid, it is set to a location as if set by BinarySeek. In
-//    this case, it points to the first key_ with a larger user_key or a
-//    matching user_key with a seqno no greater than the seeking seqno.
+//    this case, it points to the first key with a larger user_key or a matching
+//    user_key with a seqno no greater than the seeking seqno.
 // 2) If the iter is invalid, it means that either all the user_key is less
 //    than the seek_user_key, or the block ends with a matching user_key but
 //    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
@@ -330,7 +336,8 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     //
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
-    if (!ParseNextDataKey<DecodeEntry>(limit) || Compare(key_, target) >= 0) {
+    if (!ParseNextDataKey<DecodeEntry>(limit) ||
+        comparator_->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -355,13 +362,13 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (user_comparator_->Compare(key_.GetUserKey(), target_user_key) != 0) {
+  if (user_comparator_->Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;
   }
 
   // Here we are conservative and only support a limited set of cases
-  ValueType value_type = ExtractValueType(key_.GetKey());
+  ValueType value_type = ExtractValueType(applied_key_.UpdateAndGetKey());
   if (value_type != ValueType::kTypeValue &&
       value_type != ValueType::kTypeDeletion &&
       value_type != ValueType::kTypeSingleDeletion &&
@@ -411,7 +418,8 @@ void IndexBlockIter::Seek(const Slice& target) {
   SeekToRestartPoint(index);
 
   // Linear search (within restart block) for first key >= target
-  while (ParseNextIndexKey() && Compare(key_, seek_key) < 0) {
+  while (ParseNextIndexKey() &&
+         comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) < 0) {
   }
 }
 
@@ -431,12 +439,14 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   SeekToRestartPoint(index);
 
   // Linear search (within restart block) for first key >= seek_key
-  while (ParseNextDataKey<DecodeEntry>() && Compare(key_, seek_key) < 0) {
+  while (ParseNextDataKey<DecodeEntry>() &&
+         comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) < 0) {
   }
   if (!Valid()) {
     SeekToLast();
   } else {
-    while (Valid() && Compare(key_, seek_key) > 0) {
+    while (Valid() &&
+           comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) > 0) {
       Prev();
     }
   }
@@ -493,7 +503,7 @@ void BlockIter<TValue>::CorruptionError() {
   current_ = restarts_;
   restart_index_ = num_restarts_;
   status_ = Status::Corruption("bad entry in block");
-  key_.Clear();
+  raw_key_.Clear();
   value_.clear();
 }
 
@@ -515,49 +525,37 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
   // Decode next entry
   uint32_t shared, non_shared, value_length;
   p = DecodeEntryFunc()(p, limit, &shared, &non_shared, &value_length);
-  if (p == nullptr || key_.Size() < shared) {
+  if (p == nullptr || raw_key_.Size() < shared) {
     CorruptionError();
     return false;
   } else {
     if (shared == 0) {
       // If this key doesn't share any bytes with prev key then we don't need
       // to decode it and can use its address in the block directly.
-      key_.SetKey(Slice(p, non_shared), false /* copy */);
-      key_pinned_ = true;
+      raw_key_.SetKey(Slice(p, non_shared), false /* copy */);
     } else {
-      if (global_seqno_ != kDisableGlobalSequenceNumber) {
-        key_.UpdateInternalKey(stored_seqno_, stored_value_type_);
-      }
       // This key share `shared` bytes with prev key, we need to decode it
-      key_.TrimAppend(shared, p, non_shared);
-      key_pinned_ = false;
+      raw_key_.TrimAppend(shared, p, non_shared);
     }
+    key_ = applied_key_.UpdateAndGetKey();
+    key_pinned_ = applied_key_.IsKeyPinned();
 
+#ifndef NDEBUG
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // If we are reading a file with a global sequence number we should
       // expect that all encoded sequence numbers are zeros and any value
       // type is kTypeValue, kTypeMerge, kTypeDeletion, or kTypeRangeDeletion.
-      assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
-
-      uint64_t packed = ExtractInternalKeyFooter(key_.GetKey());
-      UnPackSequenceAndType(packed, &stored_seqno_, &stored_value_type_);
-      assert(stored_value_type_ == ValueType::kTypeValue ||
-             stored_value_type_ == ValueType::kTypeMerge ||
-             stored_value_type_ == ValueType::kTypeDeletion ||
-             stored_value_type_ == ValueType::kTypeRangeDeletion);
-
-      if (key_pinned_) {
-        // TODO(tec): Investigate updating the seqno in the loaded block
-        // directly instead of doing a copy and update.
-
-        // We cannot use the key address in the block directly because
-        // we have a global_seqno_ that will overwrite the encoded one.
-        key_.OwnKey();
-        key_pinned_ = false;
-      }
-
-      key_.UpdateInternalKey(global_seqno_, stored_value_type_);
+      uint64_t packed = ExtractInternalKeyFooter(raw_key_.GetKey());
+      SequenceNumber seqno;
+      ValueType value_type;
+      UnPackSequenceAndType(packed, &seqno, &value_type);
+      assert(value_type == ValueType::kTypeValue ||
+             value_type == ValueType::kTypeMerge ||
+             value_type == ValueType::kTypeDeletion ||
+             value_type == ValueType::kTypeRangeDeletion);
+      assert(seqno == 0);
     }
+#endif  // NDEBUG
 
     value_ = Slice(p + non_shared, value_length);
     if (shared == 0) {
@@ -591,20 +589,20 @@ bool IndexBlockIter::ParseNextIndexKey() {
   } else {
     p = DecodeEntry()(p, limit, &shared, &non_shared, &value_length);
   }
-  if (p == nullptr || key_.Size() < shared) {
+  if (p == nullptr || raw_key_.Size() < shared) {
     CorruptionError();
     return false;
   }
   if (shared == 0) {
     // If this key doesn't share any bytes with prev key then we don't need
     // to decode it and can use its address in the block directly.
-    key_.SetKey(Slice(p, non_shared), false /* copy */);
-    key_pinned_ = true;
+    raw_key_.SetKey(Slice(p, non_shared), false /* copy */);
   } else {
     // This key share `shared` bytes with prev key, we need to decode it
-    key_.TrimAppend(shared, p, non_shared);
-    key_pinned_ = false;
+    raw_key_.TrimAppend(shared, p, non_shared);
   }
+  key_ = applied_key_.UpdateAndGetKey();
+  key_pinned_ = applied_key_.IsKeyPinned();
   value_ = Slice(p + non_shared, value_length);
   if (shared == 0) {
     while (restart_index_ + 1 < num_restarts_ &&
@@ -683,7 +681,8 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
       return false;
     }
     Slice mid_key(key_ptr, non_shared);
-    int cmp = comp->Compare(mid_key, target);
+    raw_key_.SetKey(mid_key, false /* copy */);
+    int cmp = comp->Compare(applied_key_.UpdateAndGetKey(), target);
     if (cmp < 0) {
       // Key at "mid" is smaller than "target". Therefore all
       // blocks before "mid" are uninteresting.
@@ -717,7 +716,8 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
     return 1;  // Return target is smaller
   }
   Slice block_key(key_ptr, non_shared);
-  return Compare(block_key, target);
+  raw_key_.SetKey(block_key, false /* copy */);
+  return comparator_->Compare(applied_key_.UpdateAndGetKey(), target);
 }
 
 // Binary search in block_ids to find the first block
