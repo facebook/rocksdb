@@ -488,7 +488,7 @@ class VersionBuilder::Rep {
     } else {
       auto& del_files = level_state.deleted_files;
       assert(del_files.find(file_number) == del_files.end());
-      del_files.insert(file_number);
+      del_files.emplace(file_number);
     }
 
     table_file_levels_[file_number] =
@@ -535,7 +535,7 @@ class VersionBuilder::Rep {
 
       auto& add_files = level_state.added_files;
       assert(add_files.find(file_number) == add_files.end());
-      add_files[file_number] = f;
+      add_files.emplace(file_number, f);
     }
 
     table_file_levels_[file_number] = level;
