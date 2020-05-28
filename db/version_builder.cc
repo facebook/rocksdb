@@ -362,7 +362,7 @@ class VersionBuilder::Rep {
     return ret_s;
   }
 
-  bool CheckConsistencyForNumLevels() {
+  bool CheckConsistencyForNumLevels() const {
     // Make sure there are no files on or beyond num_levels().
     if (has_invalid_levels_) {
       return false;
