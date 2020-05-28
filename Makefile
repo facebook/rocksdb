@@ -8,7 +8,8 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-PYTHON?=$(shell which python)
+# Allow missing "unversioned" python, as in CentOS 8
+PYTHON?=$(shell which python || which python3 || echo python)
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
