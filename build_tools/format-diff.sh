@@ -26,7 +26,7 @@ while getopts ':ch' OPTION; do
   esac
 done
 
-if [ -z $CLANG_FORMAT_DIFF ]
+if [ -z "$CLANG_FORMAT_DIFF" ]
 then
 CLANG_FORMAT_DIFF="clang-format-diff.py"
 fi
@@ -53,18 +53,17 @@ then
     then
       PATH=$PATH:.
     else
-      CLANG_FORMAT_DIFF="python ./clang-format-diff.py"
+      CLANG_FORMAT_DIFF="${PYTHON:-python} ./clang-format-diff.py"
     fi
   fi
 fi
 
-# Check argparse, a library that clang-format-diff.py requires.
-python 2>/dev/null << EOF
-import argparse
-EOF
-
-if [ "$?" != 0 ]
+# Dry run to confirm dependencies like argparse
+if $CLANG_FORMAT_DIFF --help >/dev/null < /dev/null
 then
+  true # Good
+else
+  echo
   echo "To run clang-format-diff.py, we'll need the library "argparse" to be"
   echo "installed. You can try either of the follow ways to install it:"
   echo "  1. Manually download argparse: https://pypi.python.org/pypi/argparse"
