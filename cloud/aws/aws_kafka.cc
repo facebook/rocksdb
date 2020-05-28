@@ -429,7 +429,7 @@ Status CloudLogControllerImpl::CreateKafkaController(
       "In order to use Kafka, make sure you're compiling with "
       "USE_KAFKA=1");
 #else
-  output->reset(new rocksdb::cloud::kafka::KafkaController());
+  output->reset(new ROCKSDB_NAMESPACE::cloud::kafka::KafkaController());
   return Status::OK();
 #endif  // USE_KAFKA
 }

@@ -1263,12 +1263,14 @@ enum RepFactory {
 
 // create Factory for creating S3 Envs
 #ifdef USE_AWS
-rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
-                           std::unique_ptr<rocksdb::Env>* result) {
+ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
+    const std::string& dbpath,
+    std::unique_ptr<ROCKSDB_NAMESPACE::Env>* result) {
   fprintf(stderr, "Creating AwsEnv for path %s\n", dbpath.c_str());
-  std::shared_ptr<rocksdb::Logger> info_log;
-  info_log.reset(new rocksdb::StderrLogger(rocksdb::InfoLogLevel::WARN_LEVEL));
-  rocksdb::CloudEnvOptions coptions;
+  std::shared_ptr<ROCKSDB_NAMESPACE::Logger> info_log;
+  info_log.reset(new ROCKSDB_NAMESPACE::StderrLogger(
+      ROCKSDB_NAMESPACE::InfoLogLevel::WARN_LEVEL));
+  ROCKSDB_NAMESPACE::CloudEnvOptions coptions;
   std::string region;
   if (FLAGS_aws_access_id.size() != 0) {
     coptions.credentials.InitializeSimple(FLAGS_aws_access_id,
@@ -1279,22 +1281,24 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
 
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
   coptions.TEST_Initialize("dbbench.", "", region);
-  rocksdb::CloudEnv* s;
-  rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(
-      rocksdb::Env::Default(), coptions, std::move(info_log), &s);
+  ROCKSDB_NAMESPACE::CloudEnv* s;
+  ROCKSDB_NAMESPACE::Status st = ROCKSDB_NAMESPACE::AwsEnv::NewAwsEnv(
+      ROCKSDB_NAMESPACE::Env::Default(), coptions, std::move(info_log), &s);
   assert(st.ok());
-  ((rocksdb::CloudEnvImpl*)s)->TEST_DisableCloudManifest();
+  ((ROCKSDB_NAMESPACE::CloudEnvImpl*)s)->TEST_DisableCloudManifest();
   result->reset(s);
   return s;
 }
 
 static const auto& s3_reg =
-    rocksdb::ObjectLibrary::Default() -> Register<rocksdb::Env>(
-        "s3://.*", [](const std::string& uri,
-                      std::unique_ptr<rocksdb::Env>* env_guard, std::string*) {
-          CreateAwsEnv(uri, env_guard);
-          return env_guard->get();
-        });
+    ROCKSDB_NAMESPACE::ObjectLibrary::Default()
+        -> Register<ROCKSDB_NAMESPACE::Env>(
+            "s3://.*", [](const std::string& uri,
+                          std::unique_ptr<ROCKSDB_NAMESPACE::Env>* env_guard,
+                          std::string*) {
+              CreateAwsEnv(uri, env_guard);
+              return env_guard->get();
+            });
 #endif /* USE_AWS */
 
 static enum RepFactory StringToRepFactory(const char* ctype) {

@@ -21,8 +21,6 @@ class CloudStorageReadableFileImpl : public CloudStorageReadableFile {
 
   virtual Status Skip(uint64_t n) override;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
-
  protected:
   virtual Status DoCloudRead(uint64_t offset, size_t n, char* scratch,
                              uint64_t* bytes_read) const = 0;
@@ -124,6 +122,7 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
 
   virtual Status DoNewCloudReadableFile(
       const std::string& bucket, const std::string& fname, uint64_t fsize,
+      const std::string& content_hash,
       std::unique_ptr<CloudStorageReadableFile>* result,
       const EnvOptions& options) = 0;
 

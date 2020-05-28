@@ -110,7 +110,8 @@ int main() {
   assert(value == "value");
 
   // print all values in the database
-  rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+  ROCKSDB_NAMESPACE::Iterator* it =
+      db->NewIterator(ROCKSDB_NAMESPACE::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::cout << it->key().ToString() << ": " << it->value().ToString()
               << std::endl;
