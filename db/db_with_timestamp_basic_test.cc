@@ -497,6 +497,14 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   read_opts.timestamp = &ts;
   s = db_->Get(read_opts, "a", &value);
   ASSERT_TRUE(s.IsNotFound());
+
+  // Time-travel to the past before deletion
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  read_opts.timestamp = &ts;
+  s = db_->Get(read_opts, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("value0", value);
   Close();
 }
 
@@ -627,7 +635,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   const size_t kNumL0Files =
       static_cast<size_t>(Options().level0_file_num_compaction_trigger);
   {
-    // Generate an L1 at ts=1
+    // Generate enough L0 files with ts=1 to trigger compaction to L1
     std::string ts_str = Timestamp(1, 0);
     Slice ts = ts_str;
     WriteOptions wopts;
@@ -1019,15 +1027,10 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
     for (size_t i = 0; i != write_ts_list.size(); ++i) {
       Slice write_ts = write_ts_list[i];
       write_opts.timestamp = &write_ts;
-      uint64_t key = kMinKey;
-      do {
+      for (uint64_t key = kMaxKey; key >= kMinKey; --key) {
         Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
         ASSERT_OK(s);
-        if (key == kMaxKey) {
-          break;
-        }
-        ++key;
-      } while (true);
+      }
     }
   }
   const std::vector<std::string> read_ts_list = {Timestamp(5, 0xffffffff),

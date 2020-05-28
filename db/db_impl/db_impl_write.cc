@@ -1848,7 +1848,11 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   const Slice* ts = opt.timestamp;
   assert(ts != nullptr);
   const size_t ts_sz = ts->size();
-  WriteBatch batch(key.size() + ts_sz + 24, /*max_bytes=*/0, ts_sz);
+  constexpr size_t kKeyAndValueLenSize = 11;
+  constexpr size_t kWriteBatchOverhead =
+      WriteBatchInternal::kHeader + sizeof(ValueType) + kKeyAndValueLenSize;
+  WriteBatch batch(key.size() + ts_sz + kWriteBatchOverhead, /*max_bytes=*/0,
+                   ts_sz);
   Status s = batch.Delete(column_family, key);
   if (!s.ok()) {
     return s;
