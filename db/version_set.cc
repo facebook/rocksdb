@@ -2621,10 +2621,9 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
 
   const uint64_t file_number = f->fd.GetNumber();
 
-  FileLocation& file_location = file_locations_[file_number];
-  assert(!file_location.IsValid());
-
-  file_location = FileLocation(level, level_files->size() - 1);
+  assert(file_locations_.find(file_number) == file_locations_.end());
+  file_locations_.emplace(FileLocations::value_type(
+      file_number, FileLocation(level, level_files->size() - 1)));
 }
 
 void VersionStorageInfo::AddBlobFile(
