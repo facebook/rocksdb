@@ -908,7 +908,14 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  PutLengthPrefixedSlice(&b->rep_, key);
+  if (0 == b->timestamp_size_) {
+    PutLengthPrefixedSlice(&b->rep_, key);
+  } else {
+    PutVarint32(&b->rep_,
+                static_cast<uint32_t>(key.size() + b->timestamp_size_));
+    b->rep_.append(key.data(), key.size());
+    b->rep_.append(b->timestamp_size_, '\0');
+  }
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
                           std::memory_order_relaxed);
@@ -930,7 +937,11 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  PutLengthPrefixedSliceParts(&b->rep_, key);
+  if (0 == b->timestamp_size_) {
+    PutLengthPrefixedSliceParts(&b->rep_, key);
+  } else {
+    PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
+  }
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
                           std::memory_order_relaxed);
@@ -1546,7 +1557,14 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
 
-    auto ret_status = DeleteImpl(column_family_id, key, Slice(), kTypeDeletion);
+    ColumnFamilyData* cfd = cf_mems_->current();
+    assert(!cfd || cfd->user_comparator());
+    const size_t ts_sz = (cfd && cfd->user_comparator())
+                             ? cfd->user_comparator()->timestamp_size()
+                             : 0;
+    const ValueType delete_type =
+        (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
+    auto ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);

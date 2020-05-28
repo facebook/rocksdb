@@ -449,6 +449,65 @@ TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
   Close();
 }
 
+// Create two L0, and compact them to a new L1. In this test, L1 is L_bottom.
+// Two L0s:
+//       f1                                  f2
+// <a, 1, kTypeValue>    <a, 3, kTypeDeletionWithTimestamp>...<b, 2, kTypeValue>
+// Since f2.smallest < f1.largest < f2.largest
+// f1 and f2 will be the inputs of a real compaction instead of trivial move.
+TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.num_levels = 2;
+  options.level0_file_num_compaction_trigger = 2;
+  DestroyAndReopen(options);
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+  ASSERT_OK(db_->Put(write_opts, "a", "value0"));
+  ASSERT_OK(Flush());
+
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  write_opts.timestamp = &ts;
+  ASSERT_OK(db_->Put(write_opts, "b", "value0"));
+  ts_str = Timestamp(3, 0);
+  ts = ts_str;
+  write_opts.timestamp = &ts;
+  ASSERT_OK(db_->Delete(write_opts, "a"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ReadOptions read_opts;
+  ts_str = Timestamp(1, 0);
+  ts = ts_str;
+  read_opts.timestamp = &ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("value0", value);
+
+  ts_str = Timestamp(3, 0);
+  ts = ts_str;
+  read_opts.timestamp = &ts;
+  s = db_->Get(read_opts, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Time-travel to the past before deletion
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  read_opts.timestamp = &ts;
+  s = db_->Get(read_opts, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("value0", value);
+  Close();
+}
+
 class DBBasicTestWithTimestampCompressionSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
@@ -534,6 +593,104 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
   };
   verify_db_func();
   Close();
+}
+
+TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  const int kNumKeysPerFile = 1024;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy = std::get<0>(GetParam());
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  const CompressionType comp_type = std::get<1>(GetParam());
+#if LZ4_VERSION_NUMBER < 10400  // r124+
+  if (comp_type == kLZ4Compression || comp_type == kLZ4HCCompression) {
+    return;
+  }
+#endif  // LZ4_VERSION_NUMBER >= 10400
+  if (!ZSTD_Supported() && comp_type == kZSTD) {
+    return;
+  }
+  if (!Zlib_Supported() && comp_type == kZlibCompression) {
+    return;
+  }
+
+  options.compression = comp_type;
+  options.compression_opts.max_dict_bytes = std::get<2>(GetParam());
+  if (comp_type == kZSTD) {
+    options.compression_opts.zstd_max_train_bytes = std::get<2>(GetParam());
+  }
+  options.compression_opts.parallel_threads = std::get<3>(GetParam());
+  options.target_file_size_base = 1 << 26;  // 64MB
+
+  DestroyAndReopen(options);
+
+  const size_t kNumL0Files =
+      static_cast<size_t>(Options().level0_file_num_compaction_trigger);
+  {
+    // Generate enough L0 files with ts=1 to trigger compaction to L1
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    WriteOptions wopts;
+    wopts.timestamp = &ts;
+    for (size_t i = 0; i != kNumL0Files; ++i) {
+      for (int j = 0; j != kNumKeysPerFile; ++j) {
+        ASSERT_OK(db_->Put(wopts, Key1(j), "value" + std::to_string(i)));
+      }
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // Generate another L0 at ts=3
+    ts_str = Timestamp(3, 0);
+    ts = ts_str;
+    wopts.timestamp = &ts;
+    for (int i = 0; i != kNumKeysPerFile; ++i) {
+      std::string key_str = Key1(i);
+      Slice key(key_str);
+      if ((i % 3) == 0) {
+        ASSERT_OK(db_->Delete(wopts, key));
+      } else {
+        ASSERT_OK(db_->Put(wopts, key, "new_value"));
+      }
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    // Populate memtable at ts=5
+    ts_str = Timestamp(5, 0);
+    ts = ts_str;
+    wopts.timestamp = &ts;
+    for (int i = 0; i != kNumKeysPerFile; ++i) {
+      std::string key_str = Key1(i);
+      Slice key(key_str);
+      if ((i % 3) == 1) {
+        ASSERT_OK(db_->Delete(wopts, key));
+      } else if ((i % 3) == 2) {
+        ASSERT_OK(db_->Put(wopts, key, "new_value_2"));
+      }
+    }
+  }
+  {
+    std::string ts_str = Timestamp(6, 0);
+    Slice ts = ts_str;
+    ReadOptions ropts;
+    ropts.timestamp = &ts;
+    for (uint64_t i = 0; i != static_cast<uint64_t>(kNumKeysPerFile); ++i) {
+      std::string value;
+      Status s = db_->Get(ropts, Key1(i), &value);
+      if ((i % 3) == 2) {
+        ASSERT_OK(s);
+        ASSERT_EQ("new_value_2", value);
+      } else {
+        ASSERT_TRUE(s.IsNotFound());
+      }
+    }
+  }
 }
 
 #ifndef ROCKSDB_LITE
@@ -870,15 +1027,10 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
     for (size_t i = 0; i != write_ts_list.size(); ++i) {
       Slice write_ts = write_ts_list[i];
       write_opts.timestamp = &write_ts;
-      uint64_t key = kMinKey;
-      do {
+      for (uint64_t key = kMaxKey; key >= kMinKey; --key) {
         Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(i));
         ASSERT_OK(s);
-        if (key == kMaxKey) {
-          break;
-        }
-        ++key;
-      } while (true);
+      }
     }
   }
   const std::vector<std::string> read_ts_list = {Timestamp(5, 0xffffffff),
@@ -961,6 +1113,90 @@ INSTANTIATE_TEST_CASE_P(
                               NewBloomFilterPolicy(20 /*bits_per_key*/,
                                                    false))),
         ::testing::Bool()));
+
+class DBBasicTestWithTsIterTombstones
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<
+          std::tuple<std::shared_ptr<const SliceTransform>,
+                     std::shared_ptr<const FilterPolicy>, int>> {
+ public:
+  DBBasicTestWithTsIterTombstones()
+      : DBBasicTestWithTimestampBase("/db_basic_ts_iter_tombstones") {}
+};
+
+TEST_P(DBBasicTestWithTsIterTombstones, ForwardIterDelete) {
+  constexpr size_t kNumKeysPerFile = 128;
+  Options options = CurrentOptions();
+  options.env = env_;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.prefix_extractor = std::get<0>(GetParam());
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy = std::get<1>(GetParam());
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.num_levels = std::get<2>(GetParam());
+  DestroyAndReopen(options);
+  std::vector<std::string> write_ts_strs = {Timestamp(2, 0), Timestamp(4, 0)};
+  constexpr uint64_t kMaxKey = 0xffffffffffffffff;
+  constexpr uint64_t kMinKey = 0xfffffffffffff000;
+  // Insert kMinKey...kMaxKey
+  uint64_t key = kMinKey;
+  WriteOptions write_opts;
+  Slice ts = write_ts_strs[0];
+  write_opts.timestamp = &ts;
+  do {
+    Status s = db_->Put(write_opts, Key1(key), "value" + std::to_string(key));
+    ASSERT_OK(s);
+    if (kMaxKey == key) {
+      break;
+    }
+    ++key;
+  } while (true);
+  // Delete them all
+  ts = write_ts_strs[1];
+  write_opts.timestamp = &ts;
+  for (key = kMaxKey; key >= kMinKey; --key) {
+    Status s;
+    if (0 != (key % 2)) {
+      s = db_->Put(write_opts, Key1(key), "value1" + std::to_string(key));
+    } else {
+      s = db_->Delete(write_opts, Key1(key));
+    }
+    ASSERT_OK(s);
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  {
+    std::string read_ts = Timestamp(4, 0);
+    ts = read_ts;
+    ReadOptions read_opts;
+    read_opts.total_order_seek = true;
+    read_opts.timestamp = &ts;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    size_t count = 0;
+    key = kMinKey + 1;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++count, key += 2) {
+      ASSERT_EQ(Key1(key), iter->key());
+      ASSERT_EQ("value1" + std::to_string(key), iter->value());
+    }
+    ASSERT_EQ((kMaxKey - kMinKey + 1) / 2, count);
+  }
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Timestamp, DBBasicTestWithTsIterTombstones,
+    ::testing::Combine(
+        ::testing::Values(
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),
+        ::testing::Values(std::shared_ptr<const FilterPolicy>(nullptr),
+                          std::shared_ptr<const FilterPolicy>(
+                              NewBloomFilterPolicy(10, false)),
+                          std::shared_ptr<const FilterPolicy>(
+                              NewBloomFilterPolicy(20, false))),
+        ::testing::Values(2, 6)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -303,6 +303,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         return false;
 
       case kTypeDeletion:
+      case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion:
         // TODO(noetzli): Verify correctness once merge of single-deletes
