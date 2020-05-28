@@ -21,7 +21,7 @@
 #include "table/format.h"
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // using namespace rocksdb;
 // Create a index builder based on its type.
 IndexBuilder* IndexBuilder::CreateIndexBuilder(
@@ -219,4 +219,4 @@ Status PartitionedIndexBuilder::Finish(
 }
 
 size_t PartitionedIndexBuilder::NumPartitions() const { return partition_cnt_; }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Base class for internal table properties collector.
 class IntTblPropCollector {
@@ -104,4 +104,4 @@ class UserKeyTablePropertiesCollectorFactory
   std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

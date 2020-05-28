@@ -26,7 +26,7 @@
 #define ROCKSDB_FIELD_UNUSED
 #endif  // __clang__
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Logger;
 
@@ -212,4 +212,4 @@ class ConcurrentArena : public Allocator {
   ConcurrentArena& operator=(const ConcurrentArena&) = delete;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

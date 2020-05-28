@@ -5,7 +5,7 @@
 
 #include "rocksdb/flush_block_policy.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // FlushBlockEveryKeyPolicy currently used only in tests.
 
@@ -38,4 +38,4 @@ class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

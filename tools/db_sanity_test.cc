@@ -20,7 +20,7 @@
 #include "port/port.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class SanityTest {
  public:
@@ -273,7 +273,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
 }
 }  // namespace
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   std::string path, command;
@@ -291,7 +291,7 @@ int main(int argc, char** argv) {
     path += "/";
   }
 
-  bool sanity_ok = rocksdb::RunSanityTests(command, path);
+  bool sanity_ok = ROCKSDB_NAMESPACE::RunSanityTests(command, path);
 
   return sanity_ok ? 0 : 1;
 }

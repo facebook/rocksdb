@@ -170,7 +170,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setComparator(
-      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator comparator) {
     assert (isOwningHandle());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
             comparator.getComparatorType().getValue());
@@ -989,7 +989,7 @@ public class ColumnFamilyOptions extends RocksObject
   // NOTE: If you add new member variables, please update the copy constructor above!
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;
-  private AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private AbstractComparator comparator_;
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
   private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
       compactionFilterFactory_;

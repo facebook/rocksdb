@@ -14,7 +14,7 @@
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 Status CopyFile(FileSystem* fs, const std::string& source,
@@ -121,4 +121,4 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   return same;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

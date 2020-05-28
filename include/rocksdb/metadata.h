@@ -13,7 +13,7 @@
 
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 struct ColumnFamilyMetaData;
 struct LevelMetaData;
 struct SstFileMetaData;
@@ -70,7 +70,9 @@ struct SstFileMetaData {
                   const std::string& _smallestkey,
                   const std::string& _largestkey, uint64_t _num_reads_sampled,
                   bool _being_compacted, uint64_t _oldest_blob_file_number,
-                  uint64_t _oldest_ancester_time, uint64_t _file_creation_time)
+                  uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
+                  std::string& _file_checksum,
+                  std::string& _file_checksum_func_name)
       : size(_size),
         name(_file_name),
         file_number(_file_number),
@@ -85,7 +87,9 @@ struct SstFileMetaData {
         num_deletions(0),
         oldest_blob_file_number(_oldest_blob_file_number),
         oldest_ancester_time(_oldest_ancester_time),
-        file_creation_time(_file_creation_time) {}
+        file_creation_time(_file_creation_time),
+        file_checksum(_file_checksum),
+        file_checksum_func_name(_file_checksum_func_name) {}
 
   // File size in bytes.
   size_t size;
@@ -117,6 +121,18 @@ struct SstFileMetaData {
   // Timestamp when the SST file is created, provided by Env::GetCurrentTime().
   // 0 if the information is not available.
   uint64_t file_creation_time;
+
+  // The checksum of a SST file, the value is decided by the file content and
+  // the checksum algorithm used for this SST file. The checksum function is
+  // identified by the file_checksum_func_name. If the checksum function is
+  // not specified, file_checksum is "0" by default.
+  std::string file_checksum;
+
+  // The name of the checksum function used to generate the file checksum
+  // value. If file checksum is not enabled (e.g., sst_file_checksum_func is
+  // null), file_checksum_func_name is UnknownFileChecksumFuncName, which is
+  // "Unknown".
+  std::string file_checksum_func_name;
 };
 
 // The full set of metadata associated with each SST file.
@@ -132,4 +148,4 @@ struct ExportImportFilesMetaData {
   std::string db_comparator_name;       // Used to safety check at import.
   std::vector<LiveFileMetaData> files;  // Vector of file metadata.
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -48,7 +48,7 @@
 #include "util/string_util.h"
 #include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
@@ -1164,6 +1164,9 @@ Status BlockBasedTableBuilder::Finish() {
   if (ok()) {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
+  if (r->file != nullptr) {
+    file_checksum_ = r->file->GetFileChecksum();
+  }
   r->state = Rep::State::kClosed;
   return r->status;
 }
@@ -1199,8 +1202,16 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
   return ret;
 }
 
+const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
+  if (rep_->file != nullptr) {
+    return rep_->file->GetFileChecksumFuncName();
+  } else {
+    return kUnknownFileChecksumFuncName.c_str();
+  }
+}
+
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
 const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
     "partitionedfilter.";
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -24,7 +24,7 @@
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
@@ -255,11 +255,11 @@ Status ExternalSstFileIngestionJob::Run() {
           static_cast<uint64_t>(temp_current_time);
     }
 
-    edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
-                  f.fd.GetFileSize(), f.smallest_internal_key,
-                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
-                  false, kInvalidBlobFileNumber, oldest_ancester_time,
-                  current_time);
+    edit_.AddFile(
+        f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
+        f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
+        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
+        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName);
   }
   return status;
 }
@@ -726,6 +726,6 @@ Status ExternalSstFileIngestionJob::SyncIngestedFile(TWritableFile* file) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

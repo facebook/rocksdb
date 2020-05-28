@@ -12,7 +12,7 @@
 
 #include "rocksdb/options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 /**
  * Defines all the parameters of the pluggable compaction interface.
@@ -106,4 +106,4 @@ struct OutputFile {
   SequenceNumber largest_seqno;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

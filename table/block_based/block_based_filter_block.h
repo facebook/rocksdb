@@ -26,7 +26,7 @@
 #include "table/format.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A BlockBasedFilterBlockBuilder is used to construct all of the filters for a
 // particular Table.  It generates a single string which is stored as
@@ -116,4 +116,4 @@ class BlockBasedFilterBlockReader
                 BlockCacheLookupContext* lookup_context) const;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

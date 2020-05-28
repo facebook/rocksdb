@@ -17,7 +17,7 @@
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Test variations of WriteImpl.
 class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
@@ -79,18 +79,18 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   Flush();
   Put("foo" + std::to_string(thread_num.fetch_add(1)), "bar");
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-    "WriteThread::JoinBatchGroup:Start", unblock_main_thread_func);
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
-    {{"DBWriteTest::WriteThreadHangOnWriteStall:1",
-      "DBImpl::BackgroundCallFlush:start"},
-     {"DBWriteTest::WriteThreadHangOnWriteStall:2",
-      "DBImpl::WriteImpl:BeforeLeaderEnters"},
-     // Make compaction start wait for the write stall to be detected and
-     // implemented by a write group leader
-     {"DBWriteTest::WriteThreadHangOnWriteStall:3",
-      "BackgroundCallCompaction:0"}});
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Start", unblock_main_thread_func);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBWriteTest::WriteThreadHangOnWriteStall:1",
+        "DBImpl::BackgroundCallFlush:start"},
+       {"DBWriteTest::WriteThreadHangOnWriteStall:2",
+        "DBImpl::WriteImpl:BeforeLeaderEnters"},
+       // Make compaction start wait for the write stall to be detected and
+       // implemented by a write group leader
+       {"DBWriteTest::WriteThreadHangOnWriteStall:3",
+        "BackgroundCallCompaction:0"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Schedule creation of 4th L0 file without waiting. This will seal the
   // memtable and then wait for a sync point before writing the file. We need
@@ -279,7 +279,7 @@ TEST_P(DBWriteTest, LockWalInEffect) {
 
 TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     Options options = GetOptions();
-    options.statistics = rocksdb::CreateDBStatistics();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.statistics->set_stats_level(StatsLevel::kAll);
     Reopen(options);
     std::string wal_key_prefix = "WAL_KEY_";
@@ -292,14 +292,16 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     for (int t = 0; t < 10; t++) {
         threads[t] = std::thread([t, wal_key_prefix, wal_value, no_wal_key_prefix, no_wal_value, this] {
             for(int i = 0; i < 10; i++) {
-                rocksdb::WriteOptions write_option_disable;
-                write_option_disable.disableWAL = true;
-                rocksdb::WriteOptions write_option_default;
-                std::string no_wal_key = no_wal_key_prefix + std::to_string(t) + "_" + std::to_string(i);
-                this->Put(no_wal_key, no_wal_value, write_option_disable);
-                std::string wal_key = wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
-                this->Put(wal_key, wal_value, write_option_default);
-                dbfull()->SyncWAL();
+              ROCKSDB_NAMESPACE::WriteOptions write_option_disable;
+              write_option_disable.disableWAL = true;
+              ROCKSDB_NAMESPACE::WriteOptions write_option_default;
+              std::string no_wal_key = no_wal_key_prefix + std::to_string(t) +
+                                       "_" + std::to_string(i);
+              this->Put(no_wal_key, no_wal_value, write_option_disable);
+              std::string wal_key =
+                  wal_key_prefix + std::to_string(i) + "_" + std::to_string(i);
+              this->Put(wal_key, wal_value, write_option_default);
+              dbfull()->SyncWAL();
             }
             return 0;
         });
@@ -307,7 +309,8 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     for (auto& t: threads) {
         t.join();
     }
-    uint64_t bytes_num = options.statistics->getTickerCount(rocksdb::Tickers::WAL_FILE_BYTES);
+    uint64_t bytes_num = options.statistics->getTickerCount(
+        ROCKSDB_NAMESPACE::Tickers::WAL_FILE_BYTES);
     // written WAL size should less than 100KB (even included HEADER & FOOTER overhead)
     ASSERT_LE(bytes_num, 1024 * 100);
 }
@@ -317,10 +320,10 @@ INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                                         DBTestBase::kConcurrentWALWrites,
                                         DBTestBase::kPipelinedWrite));
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

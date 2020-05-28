@@ -19,7 +19,7 @@
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 /******************** Readablefile ******************/
 CloudStorageReadableFileImpl::CloudStorageReadableFileImpl(
@@ -361,4 +361,4 @@ Status CloudStorageProviderImpl::PutCloudObject(
   return DoPutCloudObject(local_file, bucket_name, object_path, fsize);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

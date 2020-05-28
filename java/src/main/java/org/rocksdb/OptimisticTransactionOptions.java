@@ -37,7 +37,7 @@ public class OptimisticTransactionOptions extends RocksObject
    * @return this OptimisticTransactionOptions instance
    */
   public OptimisticTransactionOptions setComparator(
-      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator comparator) {
     assert(isOwningHandle());
     setComparator(nativeHandle_, comparator.nativeHandle_);
     return this;

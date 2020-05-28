@@ -21,7 +21,7 @@
 #include <cstring>
 #include "status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class IOStatus : public Status {
  public:
@@ -229,4 +229,4 @@ inline bool IOStatus::operator!=(const IOStatus& rhs) const {
   return !(*this == rhs);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

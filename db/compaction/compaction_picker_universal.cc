@@ -23,7 +23,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 // A helper class that form universal compactions. The class is used by
 // UniversalCompactionPicker::PickCompaction().
@@ -1100,6 +1100,6 @@ Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {
 
   return c;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

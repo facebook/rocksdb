@@ -11,7 +11,7 @@
 
 DECLARE_int32(compact_files_one_in);
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
@@ -218,5 +218,5 @@ class DbStressListener : public EventListener {
   std::vector<ColumnFamilyDescriptor> column_families_;
   std::atomic<int> num_pending_file_creations_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

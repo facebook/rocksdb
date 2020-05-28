@@ -18,7 +18,7 @@
 #include <list>
 #include <unordered_map>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class S3ReadableFile;
 
@@ -116,6 +116,6 @@ class AwsEnv : public CloudEnvImpl {
   Random64 rng_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // USE_AWS

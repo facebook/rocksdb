@@ -11,17 +11,17 @@
 #include "test_util/testharness.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class LockTest : public testing::Test {
  public:
   static LockTest* current_;
   std::string file_;
-  rocksdb::Env* env_;
+  ROCKSDB_NAMESPACE::Env* env_;
 
   LockTest()
       : file_(test::PerThreadDBPath("db_testlock_file")),
-        env_(rocksdb::Env::Default()) {
+        env_(ROCKSDB_NAMESPACE::Env::Default()) {
     current_ = this;
   }
 
@@ -133,7 +133,7 @@ TEST_F(LockTest, LockBySameThread) {
 
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -11,7 +11,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // All writes to this DB can be configured to be persisted
@@ -44,5 +44,5 @@ class DBCloudImpl : public DBCloud {
 
   explicit DBCloudImpl(DB* db);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

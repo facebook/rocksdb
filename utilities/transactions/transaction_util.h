@@ -18,7 +18,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct TransactionKeyMapInfo {
   // Earliest sequence number that is relevant to this transaction for this key
@@ -98,6 +98,6 @@ class TransactionUtil {
                          SequenceNumber min_uncommitted = kMaxSequenceNumber);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

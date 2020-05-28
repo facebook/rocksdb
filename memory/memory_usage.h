@@ -7,7 +7,7 @@
 
 #include <unordered_map>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Helper methods to estimate memroy usage by std containers.
 
@@ -22,4 +22,4 @@ size_t ApproximateMemoryUsage(
          umap.bucket_count() * sizeof(void*);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -24,7 +24,7 @@
 
 using std::string;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class OptimisticTransactionTest
     : public testing::Test,
@@ -370,10 +370,10 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
       // For the second attempt, hold flush from beginning. The memtable
       // will be switched to immutable after calling TEST_SwitchMemtable()
       // while CheckKey() is called.
-      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"OptimisticTransactionTest.CheckKeySkipOldMemtable",
             "FlushJob::Start"}});
-      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     }
 
     // force a memtable flush. The memtable should still be kept
@@ -430,7 +430,7 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
     ASSERT_TRUE(s.ok());
 
     TEST_SYNC_POINT("OptimisticTransactionTest.CheckKeySkipOldMemtable");
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
     SetPerfLevel(PerfLevel::kDisable);
 
@@ -1515,7 +1515,7 @@ INSTANTIATE_TEST_CASE_P(
     testing::Values(OccValidationPolicy::kValidateSerial,
                     OccValidationPolicy::kValidateParallel));
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

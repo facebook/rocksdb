@@ -122,7 +122,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/CompactRangeOptions.java
   src/main/java/org/rocksdb/CompactionStopStyle.java
   src/main/java/org/rocksdb/CompactionStyle.java
-  src/main/java/org/rocksdb/Comparator.java
   src/main/java/org/rocksdb/ComparatorOptions.java
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
@@ -131,7 +130,6 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
-  src/main/java/org/rocksdb/DirectComparator.java
   src/main/java/org/rocksdb/DirectSlice.java
   src/main/java/org/rocksdb/EncodingType.java
   src/main/java/org/rocksdb/Env.java
@@ -181,6 +179,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
+  src/main/java/org/rocksdb/ReusedSynchronisationType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
   src/main/java/org/rocksdb/RocksDB.java
@@ -236,9 +235,10 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteBufferManager.java
+  src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
-  src/main/java/org/rocksdb/util/DirectBytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
+  src/main/java/org/rocksdb/util/IntComparator.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
@@ -316,11 +316,9 @@ endif()
 if (DEFINED CUSTOM_DEPS_URL)
   set(DEPS_URL ${CUSTOM_DEPS_URL}/)
 else ()
-  # This is a URL for artifacts from a "fake" release on pdillinger's fork,
-  # so as not to put binaries in git (ew). We should move to hosting these
-  # under the facebook account on github, or something else more reliable
-  # than maven.org, which has been failing frequently from Travis.
-  set(DEPS_URL "https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps")
+  # Using a Facebook AWS account for S3 storage. (maven.org has a history
+  # of failing in Travis builds.)
+  set(DEPS_URL "https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
@@ -400,11 +398,9 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.CompactionOptionsFIFO
           org.rocksdb.CompactionOptionsUniversal
           org.rocksdb.CompactRangeOptions
-          org.rocksdb.Comparator
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
           org.rocksdb.DBOptions
-          org.rocksdb.DirectComparator
           org.rocksdb.DirectSlice
           org.rocksdb.Env
           org.rocksdb.EnvOptions
