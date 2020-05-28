@@ -122,4 +122,49 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   return same;
 }
 
+IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
+                                 FileChecksumGenFactory* checksum_factory,
+                                 std::string* checksum) {
+  if (checksum_factory == nullptr) {
+    return IOStatus::InvalidArgument("Checksum factory is invalid");
+  }
+  FileChecksumGenContext gen_context;
+  std::unique_ptr<FileChecksumGenerator> checksum_generator =
+      checksum_factory->CreateFileChecksumGenerator(gen_context);
+  const FileOptions soptions;
+  size_t size;
+  IOStatus io_s;
+  std::unique_ptr<SequentialFileReader> reader;
+  {
+    std::unique_ptr<FSSequentialFile> r_file;
+    io_s = fs->NewSequentialFile(file_path, soptions, &r_file, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    io_s = fs->GetFileSize(file_path, IOOptions(), &size, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    reader.reset(new SequentialFileReader(std::move(r_file), file_path));
+  }
+
+  char buffer[4096];
+  Slice slice;
+  while (size > 0) {
+    size_t bytes_to_read = std::min(sizeof(buffer), size);
+    io_s = status_to_io_status(reader->Read(bytes_to_read, &slice, buffer));
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    if (slice.size() == 0) {
+      return IOStatus::Corruption("file too small");
+    }
+    checksum_generator->Update(buffer, slice.size());
+    size -= slice.size();
+  }
+  checksum_generator->Finalize();
+  *checksum = checksum_generator->GetChecksum();
+  return IOStatus::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE

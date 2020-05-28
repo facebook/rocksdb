@@ -10,6 +10,7 @@
 #include "options/db_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -29,6 +30,10 @@ extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
                            const bool force_fg);
 
 extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
+
+extern IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory, std::string* checksum);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
                                          IOOptions& opts) {

@@ -4180,7 +4180,8 @@ Status DBImpl::IngestExternalFiles(
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     exec_results[i].second = ingestion_jobs[i].Prepare(
-        args[i].external_files, start_file_number, super_version);
+        args[i].external_files, args[i].files_checksum,
+        args[i].files_checksum_func_name, start_file_number, super_version);
     exec_results[i].first = true;
     CleanupSuperVersion(super_version);
   }
@@ -4191,7 +4192,8 @@ Status DBImpl::IngestExternalFiles(
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     exec_results[0].second = ingestion_jobs[0].Prepare(
-        args[0].external_files, next_file_number, super_version);
+        args[0].external_files, args[0].files_checksum,
+        args[0].files_checksum_func_name, next_file_number, super_version);
     exec_results[0].first = true;
     CleanupSuperVersion(super_version);
   }
