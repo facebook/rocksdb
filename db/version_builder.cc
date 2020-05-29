@@ -505,6 +505,14 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 
+    const uint64_t blob_file_number =
+        GetBlobFileNumberForTableFile(level, file_number);
+
+    if (blob_file_number != kInvalidBlobFileNumber &&
+        IsBlobFileInVersion(blob_file_number)) {
+      blob_file_meta_deltas_[blob_file_number].UnlinkSst(file_number);
+    }
+
     auto& level_state = levels_[level];
 
     auto& add_files = level_state.added_files;
@@ -635,16 +643,6 @@ class VersionBuilder::Rep {
       const Status s = ApplyFileDeletion(level, file_number);
       if (!s.ok()) {
         return s;
-      }
-
-      if (level < num_levels_) {
-        const uint64_t blob_file_number =
-            GetBlobFileNumberForTableFile(level, file_number);
-
-        if (blob_file_number != kInvalidBlobFileNumber &&
-            IsBlobFileInVersion(blob_file_number)) {
-          blob_file_meta_deltas_[blob_file_number].UnlinkSst(file_number);
-        }
       }
     }
 
