@@ -249,6 +249,25 @@ Status ExternalSstFileIngestionJob::Prepare(
             files_to_ingest_[i].file_checksum_func_name =
                 files_checksum_func_name[i];
           }
+        } else {
+          // Checksum verification is not enabled, we trust the ingested
+          // checksum if the checksum function name matches. If the
+          // checksum function name does not match, fail the ingestion
+          for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+            if (files_checksum_func_name[i] != db_checksum_func_name) {
+              status = Status::Corruption(
+                  "Checksum function name does not match with the checksum "
+                  "function name of this DB");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  external_files_paths[i].c_str(), status.ToString().c_str());
+              break;
+            }
+            files_to_ingest_[i].file_checksum = files_checksum[i];
+            files_to_ingest_[i].file_checksum_func_name =
+                files_checksum_func_name[i];
+          }
         }
       }
     }
