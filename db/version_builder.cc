@@ -575,7 +575,8 @@ class VersionBuilder::Rep {
 
     table_file_levels_[file_number] = level;
 
-    if (meta.oldest_blob_file_number != kInvalidBlobFileNumber) {
+    if (meta.oldest_blob_file_number != kInvalidBlobFileNumber &&
+        IsBlobFileInVersion(meta.oldest_blob_file_number)) {
       // TODO: check that blob file exists in version
       blob_file_meta_deltas_[meta.oldest_blob_file_number].LinkSst(
           meta.fd.GetNumber());
