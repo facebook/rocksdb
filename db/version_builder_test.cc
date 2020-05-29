@@ -367,6 +367,140 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
+TEST_F(VersionBuilderTest, ApplyFileDeletionIncorrectLevel) {
+  constexpr int level = 1;
+  constexpr uint64_t file_number = 2345;
+  constexpr char smallest[] = "bar";
+  constexpr char largest[] = "foo";
+
+  Add(level, file_number, smallest, largest);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit edit;
+
+  constexpr int incorrect_level = 3;
+
+  edit.DeleteFile(incorrect_level, file_number);
+
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Cannot delete table file #2345 from level 3 since "
+                          "it is on level 1"));
+}
+
+TEST_F(VersionBuilderTest, ApplyFileDeletionNotInLSMTree) {
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit edit;
+
+  constexpr int level = 3;
+  constexpr uint64_t file_number = 1234;
+
+  edit.DeleteFile(level, file_number);
+
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Cannot delete table file #1234 from level 3 since "
+                          "it is not in the LSM tree"));
+}
+
+TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
+  constexpr int level = 1;
+  constexpr uint64_t file_number = 2345;
+  constexpr char smallest[] = "bar";
+  constexpr char largest[] = "foo";
+
+  Add(level, file_number, smallest, largest);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit edit;
+
+  constexpr int new_level = 2;
+  constexpr uint32_t path_id = 0;
+  constexpr uint64_t file_size = 10000;
+  constexpr SequenceNumber smallest_seqno = 100;
+  constexpr SequenceNumber largest_seqno = 1000;
+  constexpr bool marked_for_compaction = false;
+
+  edit.AddFile(new_level, file_number, path_id, file_size,
+               GetInternalKey(smallest), GetInternalKey(largest),
+               smallest_seqno, largest_seqno, marked_for_compaction,
+               kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, kUnknownFileChecksum,
+               kUnknownFileChecksumFuncName);
+
+  const Status s = builder.Apply(&edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Cannot add table file #2345 to level 2 since it is "
+                          "already in the LSM tree on level 1"));
+}
+
+TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit edit;
+
+  constexpr int level = 3;
+  constexpr uint64_t file_number = 2345;
+  constexpr uint32_t path_id = 0;
+  constexpr uint64_t file_size = 10000;
+  constexpr char smallest[] = "bar";
+  constexpr char largest[] = "foo";
+  constexpr SequenceNumber smallest_seqno = 100;
+  constexpr SequenceNumber largest_seqno = 1000;
+  constexpr bool marked_for_compaction = false;
+
+  edit.AddFile(level, file_number, path_id, file_size, GetInternalKey(smallest),
+               GetInternalKey(largest), smallest_seqno, largest_seqno,
+               marked_for_compaction, kInvalidBlobFileNumber,
+               kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  VersionEdit other_edit;
+
+  constexpr int new_level = 2;
+
+  other_edit.AddFile(new_level, file_number, path_id, file_size,
+                     GetInternalKey(smallest), GetInternalKey(largest),
+                     smallest_seqno, largest_seqno, marked_for_compaction,
+                     kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
+                     kUnknownFileCreationTime, kUnknownFileChecksum,
+                     kUnknownFileChecksumFuncName);
+
+  const Status s = builder.Apply(&other_edit);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(std::strstr(s.getState(),
+                          "Cannot add table file #2345 to level 2 since it is "
+                          "already in the LSM tree on level 3"));
+}
+
 TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
