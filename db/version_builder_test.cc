@@ -54,7 +54,7 @@ class VersionBuilderTest : public testing::Test {
     return InternalKey(ukey, smallest_seq, kTypeValue);
   }
 
-  void Add(int level, uint32_t file_number, const char* smallest,
+  void Add(int level, uint64_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            uint64_t num_entries = 0, uint64_t num_deletions = 0,
