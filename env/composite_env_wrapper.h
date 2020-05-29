@@ -523,7 +523,9 @@ class CompositeEnvWrapper : public Env {
     return env_target_->GetThreadPoolQueueLen(pri);
   }
   Status GetTestDirectory(std::string* path) override {
-    return env_target_->GetTestDirectory(path);
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->GetTestDirectory(io_opts, path, &dbg);
   }
   uint64_t NowMicros() override { return env_target_->NowMicros(); }
   uint64_t NowNanos() override { return env_target_->NowNanos(); }

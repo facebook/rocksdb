@@ -224,20 +224,6 @@ class PosixEnv : public CompositeEnvWrapper {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
-  Status GetTestDirectory(std::string* result) override {
-    const char* env = getenv("TEST_TMPDIR");
-    if (env && env[0] != '\0') {
-      *result = env;
-    } else {
-      char buf[100];
-      snprintf(buf, sizeof(buf), "/tmp/rocksdbtest-%d", int(geteuid()));
-      *result = buf;
-    }
-    // Directory may already exist
-    CreateDir(*result);
-    return Status::OK();
-  }
-
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
