@@ -544,8 +544,11 @@ class OptionTypeInfo {
   // @param start     The position in opts to start looking for the token
   // @parem ed        Returns the end position in opts of the token
   // @param token     Returns the token
-  // @returns OK if a token was found or InvalidArgument if the input is
-  // mal-formed.
+  // @returns OK if a token was found
+  // @return InvalidArgument if the braces mismatch
+  //          (e.g. "{a={b=c;}" ) -- missing closing brace
+  // @return InvalidArgument if an expected delimiter is not found
+  //        e.g. "{a=b}c=d;" -- missing delimiter before "c"
   static Status NextToken(const std::string& opts, char delimiter, size_t start,
                           size_t* end, std::string* token);
 
@@ -643,7 +646,12 @@ Status SerializeVector(const ConfigOptions& config_options,
       if (i > 0) {
         result += separator;
       }
-      result += elem_str;
+      // If the element contains embedded separators, put it inside of brackets
+      if (result.find(separator) != std::string::npos) {
+        result += "{" + elem_str + "}";
+      } else {
+        result += elem_str;
+      }
     }
   }
   if (result.find("=") != std::string::npos) {

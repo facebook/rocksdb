@@ -3462,10 +3462,26 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
                                  reinterpret_cast<char*>(&vec2), &mismatch));
   ASSERT_EQ(mismatch, "v");
 
+  // Test vectors with inner brackets
+  TestAndCompareOption(config_options, vec_info, "v", "a:{b}:c:d", &vec1,
+                       &vec2);
+  ASSERT_EQ(vec1.size(), 4);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b");
+  ASSERT_EQ(vec1[2], "c");
+  ASSERT_EQ(vec1[3], "d");
+
   OptionTypeInfo bar_info = OptionTypeInfo::Vector<std::string>(
       0, OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
       {0, OptionType::kString}, '|');
   TestAndCompareOption(config_options, vec_info, "v", "x|y|z", &vec1, &vec2);
+  // Test vectors with inner vector
+  TestAndCompareOption(config_options, bar_info, "v",
+                       "a|{b1|b2}|{c1|c2|{d1|d2}}", &vec1, &vec2);
+  ASSERT_EQ(vec1.size(), 3);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b1|b2");
+  ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
