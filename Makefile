@@ -8,8 +8,8 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-# Allow missing "unversioned" python, as in CentOS 8
-PYTHON?=$(shell which python || which python3 || echo python)
+# Default to python3. Some distros like CentOS 8 do not have `python`.
+PYTHON?=$(shell which python3 || which python || echo python3)
 export PYTHON
 
 CLEAN_FILES = # deliberately empty, so we can append below.

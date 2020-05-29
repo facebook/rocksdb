@@ -53,7 +53,7 @@ then
     then
       PATH=$PATH:.
     else
-      CLANG_FORMAT_DIFF="${PYTHON:-python} ./clang-format-diff.py"
+      CLANG_FORMAT_DIFF="${PYTHON:-python3} ./clang-format-diff.py"
     fi
   fi
 fi
