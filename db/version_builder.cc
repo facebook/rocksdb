@@ -639,11 +639,11 @@ class VersionBuilder::Rep {
 
       if (level < num_levels_) {
         const uint64_t blob_file_number =
-            GetBlobFileNumberForTableFile(level, number);
+            GetBlobFileNumberForTableFile(level, file_number);
 
         if (blob_file_number != kInvalidBlobFileNumber &&
             IsBlobFileInVersion(blob_file_number)) {
-          blob_file_meta_deltas_[blob_file_number].UnlinkSst(number);
+          blob_file_meta_deltas_[blob_file_number].UnlinkSst(file_number);
         }
       }
     }
