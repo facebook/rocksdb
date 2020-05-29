@@ -134,7 +134,7 @@ class VersionBuilder::Rep {
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
   // on invalid levels don't cancel out.
-  std::unordered_map<int, int> invalid_level_sizes_;
+  std::unordered_map<int, size_t> invalid_level_sizes_;
   // Whether there are invalid new files or invalid deletion on levels larger
   // than num_levels_.
   bool has_invalid_levels_;
