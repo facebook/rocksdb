@@ -32,6 +32,9 @@ namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
+
+static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper>
+    trace_env_wrapper_guard;
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -76,6 +79,12 @@ int db_stress_tool(int argc, char** argv) {
     }
   } else {
     raw_env = Env::Default();
+  }
+
+  if (!FLAGS_trace_path.empty()) {
+    // Use non-fault-injected env for RocksDB Trace.
+    trace_env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
+    trace_env = trace_env_wrapper_guard.get();
   }
 
 #ifndef NDEBUG
@@ -262,11 +271,17 @@ int db_stress_tool(int argc, char** argv) {
   }
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
-  if (RunStressTest(stress.get())) {
-    return 0;
-  } else {
-    return 1;
+
+  if (!FLAGS_trace_path.empty()) {
+    Env* trace_env = trace_env_wrapper_guard.get();
+    if (trace_env == nullptr) {
+      fprintf(stderr, "Trace enabled, but trace_env is null.\n");
+      exit(1);
+    }
   }
+  bool result = RunStressTest(stress.get()) ? 0 : 1;
+
+  return result;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

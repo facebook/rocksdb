@@ -114,6 +114,9 @@ bool RunStressTest(StressTest* stress) {
       shared.GetCondVar()->Wait();
     }
 
+    // Stop tracing the verification
+    stress->EndTrace();
+
     now = db_stress_env->NowMicros();
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "%s Limited verification already done during gets\n",

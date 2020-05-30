@@ -13,6 +13,11 @@
 #include <cmath>
 
 ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env = nullptr;
+// The Env used by TraceWriter.  It will be the same as db_stress_env
+// when fault-injection features are off.  In case fault-injection
+// is on, this is the same Env with db_stress_env without fault-injection.
+ROCKSDB_NAMESPACE::DbStressEnvWrapper* trace_env = nullptr;
+
 #ifndef NDEBUG
 // If non-null, injects read error at a rate specified by the
 // read_fault_one_in flag

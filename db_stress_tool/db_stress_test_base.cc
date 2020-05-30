@@ -399,6 +399,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     s = db_->Flush(FlushOptions(), column_families_);
   }
   if (s.ok()) {
+    EndTrace();
     for (auto cf : column_families_) {
       delete cf;
     }
@@ -1727,8 +1728,14 @@ void StressTest::PrintEnv() const {
           FLAGS_max_write_batch_group_size_bytes);
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
-  fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
-  fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
+  fprintf(stdout, "Read fault one in         : %d\n",
+          FLAGS_read_fault_one_in);
+  fprintf(stdout, "Sync fault injection      : %d\n",
+          FLAGS_sync_fault_injection);
+  fprintf(stdout, "Trace Path                : %s\n",
+          FLAGS_trace_path.c_str());
+  fprintf(stdout, "Max Trace Size            : %" PRIu64 "\n",
+          FLAGS_max_trace_size_in_bytes);
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -2107,6 +2114,8 @@ void StressTest::Open() {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
     exit(1);
   }
+
+  MaybeStartTrace();
 }
 
 void StressTest::Reopen(ThreadState* thread) {
@@ -2143,6 +2152,7 @@ void StressTest::Reopen(ThreadState* thread) {
     assert(s.ok());
   }
 #endif
+  EndTrace();
   delete db_;
   db_ = nullptr;
 #ifndef ROCKSDB_LITE
@@ -2167,5 +2177,79 @@ void StressTest::Reopen(ThreadState* thread) {
           num_times_reopened_);
   Open();
 }
+
+void StressTest::MaybeStartTrace() {
+#ifndef ROCKSDB_LITE
+  if (FLAGS_trace_path.empty()) {
+    return;
+  }
+  trace_enabled_ = true;
+
+  if (FLAGS_use_txn) {
+    fprintf(stderr, "--trace_path with --use_txn is not supported.\n");
+    trace_enabled_ = false;
+  }
+
+  if (FLAGS_use_blob_db) {
+    fprintf(stderr, "--trace_path with --use_blob_db is not supported.\n");
+    trace_enabled_ = false;
+  }
+
+  if (trace_env == nullptr) {
+    fprintf(stderr, "trace_env is null.  Disable --trace.\n");
+    trace_enabled_ = false;
+  }
+
+  if (trace_enabled_ == false) {
+    fprintf(stderr, "--trace_path is disabled.\n");
+    return;
+  }
+
+  EnvOptions trace_env_options(options_);
+  std::unique_ptr<TraceWriter> trace_writer;
+
+  Status s = NewFileTraceWriter(
+      trace_env, trace_env_options, FLAGS_trace_path, &trace_writer);
+  if (!s.ok()) {
+    trace_enabled_ = false;
+    fprintf(stderr, "NewFileTraceWriter() failed -- %s\n",
+        s.ToString().c_str());
+    return;
+  }
+
+  TraceOptions trace_opts;
+  trace_opts.max_trace_file_size = FLAGS_max_trace_size_in_bytes;
+
+  s = db_->StartTrace(trace_opts, std::move(trace_writer));
+  if (!s.ok()) {
+    trace_enabled_ = false;
+    fprintf(stderr, "StartTrace() failed -- %s\n",
+        s.ToString().c_str());
+    return;
+  }
+
+  if (trace_enabled_) {
+    fprintf(stderr, "Tracing the stress_test to: [%s]\n",
+        FLAGS_trace_path.c_str());
+  }
+#endif
+}
+
+void StressTest::EndTrace() {
+#ifndef ROCKSDB_LITE
+  if (trace_enabled_) {
+    if (db_ == nullptr) {
+      fprintf(stderr, "db_ == nullptr in StressTest::EndTrace().\n");
+      return;
+    }
+    Status s = db_->EndTrace();
+    if (!s.ok()) {
+      fprintf(stderr, "Encountered an error ending the trace, %s\n",
+              s.ToString().c_str());
+    }
+  }
+#endif
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
