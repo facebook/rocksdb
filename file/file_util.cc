@@ -132,7 +132,7 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   std::unique_ptr<FileChecksumGenerator> checksum_generator =
       checksum_factory->CreateFileChecksumGenerator(gen_context);
   const FileOptions soptions;
-  size_t size;
+  uint64_t size;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> reader;
   {
@@ -151,7 +151,7 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   char buffer[4096];
   Slice slice;
   while (size > 0) {
-    size_t bytes_to_read = std::min(sizeof(buffer), size);
+    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
     io_s = status_to_io_status(reader->Read(bytes_to_read, &slice, buffer));
     if (!io_s.ok()) {
       return io_s;
