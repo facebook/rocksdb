@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ for
-// ROCKSDB_NAMESPACE::FilterPolicy.
 
 #include <jni.h>
 

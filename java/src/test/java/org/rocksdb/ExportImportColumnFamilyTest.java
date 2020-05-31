@@ -35,53 +35,24 @@ public class ExportImportColumnFamilyTest {
 
   @Test(expected = RocksDBException.class)
   public void exportColumnFamily() throws RocksDBException {
-    RocksDB db = null;
-    Options options = null;
-    Checkpoint checkpoint = null;
-    ExportImportFilesMetaData metadata = null;
-    try {
-      options = new Options().setCreateIfMissing(true);
-      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       db.put("key".getBytes(), "value".getBytes());
-      checkpoint = Checkpoint.create(db);
-      metadata = checkpoint.exportColumnFamily(
-          db.getDefaultColumnFamily(), exportFolder.getRoot().getAbsolutePath() + "/export1");
-      assertThat(metadata).isNotNull();
-      assertThat(metadata.files().size()).isEqualTo(1);
-    } finally {
-      if (db != null) {
-        db.close();
-      }
 
-      if (options != null) {
-        options.close();
-      }
-
-      if (checkpoint != null) {
-        checkpoint.close();
-      }
-
-      if (metadata != null) {
-        metadata.close();
+      try (
+          final Checkpoint checkpoint = Checkpoint.create(db);
+          final ExportImportFilesMetaData metadata = checkpoint.exportColumnFamily(
+              db.getDefaultColumnFamily(), exportFolder.getRoot().getAbsolutePath() + "/export1")) {
+        assertThat(metadata).isNotNull();
+        assertThat(metadata.files().size()).isEqualTo(1);
       }
     }
   }
 
   @Test
   public void importColumnFamily() throws RocksDBException, UnsupportedEncodingException {
-    EnvOptions envOptions = null;
-    Options options = null;
-    SstFileWriter sstFileWriter = null;
-    ExportImportFilesMetaData metadata = null;
-    RocksDB db = null;
-    ColumnFamilyHandle cfHandle = null;
-    ColumnFamilyOptions cfOpts = null;
-    ImportColumnFamilyOptions importOpts = null;
-    try {
-      envOptions = new EnvOptions();
-      options = new Options();
-      sstFileWriter = new SstFileWriter(envOptions, options);
-
+    try (final EnvOptions envOptions = new EnvOptions(); Options options = new Options();
+         final SstFileWriter sstFileWriter = new SstFileWriter(envOptions, options)) {
       final String sstName = "test.sst";
       final String sstPath = sstFolder.getRoot().getAbsolutePath() + "/" + sstName;
       sstFileWriter.open(sstPath);
@@ -98,109 +69,41 @@ public class ExportImportColumnFamilyTest {
           sstFolder.getRoot().getAbsolutePath(), 0, 10, 19, "sourceSmallestKey".getBytes("UTF-8"),
           "sourcelargestKey".getBytes("UTF-8"), 0, false, 0, 0));
 
-      db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-      metadata = new ExportImportFilesMetaData("comparatorName", files);
-      cfOpts = new ColumnFamilyOptions();
-      importOpts = new ImportColumnFamilyOptions();
-      cfHandle = db.createColumnFamilyWithImport(cfOpts, "toto", importOpts, metadata);
-
-      assertThat(cfHandle).isNotNull();
-      assertThat(db.get(cfHandle, "key1".getBytes())).isEqualTo("value1".getBytes());
-      assertThat(db.get(cfHandle, "key2".getBytes())).isEqualTo("value2".getBytes());
-    } finally {
-      if (envOptions != null) {
-        envOptions.close();
-      }
-
-      if (options != null) {
-        options.close();
-      }
-
-      if (sstFileWriter != null) {
-        sstFileWriter.close();
-      }
-
-      if (metadata != null) {
-        metadata.close();
-      }
-
-      if (db != null) {
-        db.close();
-      }
-
-      if (cfHandle != null) {
-        cfHandle.close();
-      }
-
-      if (cfOpts != null) {
-        cfOpts.close();
-      }
-
-      if (importOpts != null) {
-        importOpts.close();
+      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+           final ExportImportFilesMetaData metadata =
+               new ExportImportFilesMetaData("comparatorName", files);
+           final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
+           final ImportColumnFamilyOptions importOpts = new ImportColumnFamilyOptions();
+           final ColumnFamilyHandle cfHandle =
+               db.createColumnFamilyWithImport(cfOpts, "toto", importOpts, metadata)) {
+        assertThat(cfHandle).isNotNull();
+        assertThat(db.get(cfHandle, "key1".getBytes())).isEqualTo("value1".getBytes());
+        assertThat(db.get(cfHandle, "key2".getBytes())).isEqualTo("value2".getBytes());
       }
     }
   }
 
   @Test(expected = RocksDBException.class)
   public void exportImportColumnFamily() throws RocksDBException {
-    RocksDB db = null;
-    Options options = null;
-    Checkpoint checkpoint = null;
-    ExportImportFilesMetaData metadata = null;
-    try {
-      options = new Options().setCreateIfMissing(true);
-      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/db1");
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/db1")) {
       db.put("key".getBytes(), "value".getBytes());
-      checkpoint = Checkpoint.create(db);
-      metadata = checkpoint.exportColumnFamily(
-          db.getDefaultColumnFamily(), exportFolder.getRoot().getAbsolutePath() + "/export1");
-    } finally {
-      if (db != null) {
-        db.close();
-      }
 
-      if (checkpoint != null) {
-        checkpoint.close();
-      }
-    }
+      try (
+          final Checkpoint checkpoint = Checkpoint.create(db);
+          final ExportImportFilesMetaData metadata = checkpoint.exportColumnFamily(
+              db.getDefaultColumnFamily(), exportFolder.getRoot().getAbsolutePath() + "/export1")) {
+        assertThat(metadata).isNotNull();
 
-    assertThat(options).isNotNull();
-    assertThat(metadata).isNotNull();
-
-    ColumnFamilyHandle cfHandle = null;
-    ColumnFamilyOptions cfOpts = null;
-    ImportColumnFamilyOptions importOpts = null;
-    try {
-      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/db2");
-      cfOpts = new ColumnFamilyOptions();
-      importOpts = new ImportColumnFamilyOptions();
-      cfHandle = db.createColumnFamilyWithImport(cfOpts, "toto", importOpts, metadata);
-      assertThat(cfHandle).isNotNull();
-      assertThat(db.get(cfHandle, "key".getBytes())).isEqualTo("value".getBytes());
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-
-      if (options != null) {
-        options.close();
-      }
-
-      if (metadata != null) {
-        metadata.close();
-      }
-
-      if (cfHandle != null) {
-        cfHandle.close();
-      }
-
-      if (cfOpts != null) {
-        cfOpts.close();
-      }
-
-      if (importOpts != null) {
-        importOpts.close();
+        try (final RocksDB dbNew =
+                 RocksDB.open(options, dbFolder.getRoot().getAbsolutePath() + "/db2");
+             final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
+             final ImportColumnFamilyOptions importOpts = new ImportColumnFamilyOptions();
+             final ColumnFamilyHandle cfHandle =
+                 dbNew.createColumnFamilyWithImport(cfOpts, "toto", importOpts, metadata)) {
+          assertThat(cfHandle).isNotNull();
+          assertThat(db.get(cfHandle, "key".getBytes())).isEqualTo("value".getBytes());
+        }
       }
     }
   }

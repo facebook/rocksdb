@@ -72,8 +72,7 @@ void Java_org_rocksdb_Checkpoint_createCheckpoint(JNIEnv* env, jobject /*jobj*/,
  * Method:    exportColumnFamily
  * Signature: (JJLjava/lang/String;)J
  */
-jlong Java_org_rocksdb_Checkpoint_exportColumnFamily(JNIEnv* env,
-                                                     jobject /*jobj*/,
+jlong Java_org_rocksdb_Checkpoint_exportColumnFamily(JNIEnv* env, jobject,
                                                      jlong jcheckpoint_handle,
                                                      jlong jcf_handle,
                                                      jstring jexport_dir) {

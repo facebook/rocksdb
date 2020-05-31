@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ for
-// ROCKSDB_NAMESPACE::FilterPolicy.
 
 #include <jni.h>
 
@@ -30,7 +29,7 @@ jlong Java_org_rocksdb_ImportColumnFamilyOptions_newImportColumnFamilyOptions(
 jlong Java_org_rocksdb_ImportColumnFamilyOptions_newImportColumnFamilyOptions__Z(
     JNIEnv*, jclass, jboolean jmove_files) {
   auto* options = new ROCKSDB_NAMESPACE::ImportColumnFamilyOptions();
-  options->move_files = static_cast<bool>(jmove_files);
+  options->move_files = (jmove_files == JNI_TRUE);
   return reinterpret_cast<jlong>(options);
 }
 

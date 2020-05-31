@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ for
-// ROCKSDB_NAMESPACE::FilterPolicy.
 
 #include <jni.h>
 
@@ -44,7 +43,6 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
     return;
   }
 
-  has_exception = JNI_FALSE;
   std::string path =
       ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jpath, &has_exception);
   if (has_exception == JNI_TRUE) {
@@ -53,7 +51,6 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
     return;
   }
 
-  has_exception = JNI_FALSE;
   const std::string smallestkey =
       ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
           env, jsmallest_key, jsmallest_key_len,
@@ -66,7 +63,6 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
     return;
   }
 
-  has_exception = JNI_FALSE;
   const std::string largestkey =
       ROCKSDB_NAMESPACE::JniUtil::byteString<std::string>(
           env, jlargest_key, jlargest_key_len,
