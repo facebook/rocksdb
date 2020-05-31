@@ -17,7 +17,7 @@
  * Method:    newExportImportFilesMetaData
  * Signature: ()J
  */
-jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData__(
+jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData(
     JNIEnv*, jclass) {
   auto* metadata = new ROCKSDB_NAMESPACE::ExportImportFilesMetaData();
   return reinterpret_cast<jlong>(metadata);
@@ -64,9 +64,8 @@ jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData__L
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ExportImportFilesMetaData_disposeInternal(JNIEnv*,
-                                                                jobject,
-                                                                jlong jhandle) {
+void Java_org_rocksdb_ExportImportFilesMetaData_disposeInternal(
+    JNIEnv* /*env*/, jobject /*jobj*/, jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(jhandle);
   delete metadata;

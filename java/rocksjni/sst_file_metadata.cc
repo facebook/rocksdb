@@ -17,7 +17,7 @@
  * Method:    newSstFileMetaData
  * Signature: ()J
  */
-jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__(JNIEnv*, jclass) {
+jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData(JNIEnv*, jclass) {
   auto* metadata = new ROCKSDB_NAMESPACE::SstFileMetaData();
   return reinterpret_cast<jlong>(metadata);
 }

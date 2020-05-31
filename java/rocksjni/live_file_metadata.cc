@@ -17,7 +17,7 @@
  * Method:    newLiveFileMetaData
  * Signature: ()J
  */
-jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__(JNIEnv*, jclass) {
+jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData(JNIEnv*, jclass) {
   auto* metadata = new ROCKSDB_NAMESPACE::LiveFileMetaData();
   return reinterpret_cast<jlong>(metadata);
 }

@@ -16,7 +16,7 @@
  * Method:    newImportColumnFamilyOptions
  * Signature: ()J
  */
-jlong Java_org_rocksdb_ImportColumnFamilyOptions_newImportColumnFamilyOptions__(
+jlong Java_org_rocksdb_ImportColumnFamilyOptions_newImportColumnFamilyOptions(
     JNIEnv*, jclass) {
   auto* options = new ROCKSDB_NAMESPACE::ImportColumnFamilyOptions();
   return reinterpret_cast<jlong>(options);
