@@ -89,8 +89,9 @@ jstring Java_org_rocksdb_ExportImportFilesMetaData_dbComparatorName(
  * Method:    files
  * Signature: (J)[Lorg/rocksdb/LiveFileMetaData;
  */
-jobjectArray Java_org_rocksdb_ExportImportFilesMetaData_files(
-    JNIEnv* env, jobject, jlong jhandle) {
+jobjectArray Java_org_rocksdb_ExportImportFilesMetaData_files(JNIEnv* env,
+                                                              jobject,
+                                                              jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(jhandle);
 
