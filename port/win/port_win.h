@@ -16,10 +16,6 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-// Assume that for everywhere
-#undef PLATFORM_IS_LITTLE_ENDIAN
-#define PLATFORM_IS_LITTLE_ENDIAN true
-
 #include <windows.h>
 #include <string>
 #include <string.h>
@@ -70,11 +66,7 @@ typedef SSIZE_T ssize_t;
 
 #endif
 
-#ifndef PLATFORM_IS_LITTLE_ENDIAN
-#define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
-#endif
-
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #define PREFETCH(addr, rw, locality)
 
@@ -122,31 +114,59 @@ const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 #endif //_MSC_VER
 
-const bool kLittleEndian = true;
+// "Windows is designed to run on little-endian computer architectures."
+// https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
+constexpr bool kLittleEndian = true;
+#undef PLATFORM_IS_LITTLE_ENDIAN
 
 class CondVar;
 
 class Mutex {
  public:
-  /* implicit */ Mutex(bool adaptive = false);
+
+   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
+#ifndef NDEBUG
+     : locked_(false)
+#endif
+   { }
+
   ~Mutex();
 
-  void Lock();
-  void Unlock();
+  void Lock() {
+    mutex_.lock();
+#ifndef NDEBUG
+    locked_ = true;
+#endif
+  }
+
+  void Unlock() {
+#ifndef NDEBUG
+    locked_ = false;
+#endif
+    mutex_.unlock();
+  }
 
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld();
+  void AssertHeld() {
+#ifndef NDEBUG
+    assert(locked_);
+#endif
+  }
 
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;
   void operator=(const Mutex&) = delete;
 
  private:
+
   friend class CondVar;
 
-  CRITICAL_SECTION section_;
+  std::mutex& getLock() {
+    return mutex_;
+  }
 
+  std::mutex mutex_;
 #ifndef NDEBUG
   bool locked_;
 #endif
@@ -176,7 +196,9 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu);
+  explicit CondVar(Mutex* mu) : mu_(mu) {
+  }
+
   ~CondVar();
   void Wait();
   bool TimedWait(uint64_t expiration_time);
@@ -191,7 +213,7 @@ class CondVar {
   CondVar& operator=(CondVar&&) = delete;
 
  private:
-  CONDITION_VARIABLE cv_;
+  std::condition_variable cv_;
   Mutex* mu_;
 };
 
@@ -242,6 +264,8 @@ inline void cacheline_aligned_free(void *memblock) {
   _aligned_free(memblock);
 #endif
 }
+
+extern const size_t kPageSize;
 
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
 // could not be worked around with by -mno-ms-bitfields
@@ -318,8 +342,8 @@ std::wstring utf8_to_utf16(const std::string& utf8);
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES
 
 #define RX_FILESTRING std::wstring
-#define RX_FN(a) rocksdb::port::utf8_to_utf16(a)
-#define FN_TO_RX(a) rocksdb::port::utf16_to_utf8(a)
+#define RX_FN(a) ROCKSDB_NAMESPACE::port::utf8_to_utf16(a)
+#define FN_TO_RX(a) ROCKSDB_NAMESPACE::port::utf16_to_utf8(a)
 #define RX_FNLEN(a) ::wcslen(a)
 
 #define RX_DeleteFile DeleteFileW
@@ -371,4 +395,4 @@ using port::pthread_setspecific;
 using port::pthread_getspecific;
 using port::truncate;
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
