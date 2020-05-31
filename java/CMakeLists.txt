@@ -29,10 +29,13 @@ set(JNI_NATIVE_SOURCES
         rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
+        rocksjni/export_import_files_metadata.cc
         rocksjni/filter.cc
+        rocksjni/import_column_family_options.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
         rocksjni/jnicallback.cc
+        rocksjni/live_file_metadata.cc
         rocksjni/loggerjnicallback.cc
         rocksjni/lru_cache.cc
         rocksjni/memory_util.cc
@@ -53,6 +56,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/slice.cc
         rocksjni/snapshot.cc
         rocksjni/sst_file_manager.cc
+        rocksjni/sst_file_metadata.cc
         rocksjni/sst_file_writerjni.cc
         rocksjni/sst_file_readerjni.cc
         rocksjni/sst_file_reader_iterator.cc
