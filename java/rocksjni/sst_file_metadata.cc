@@ -40,7 +40,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
   if (has_exception == JNI_TRUE) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, "Could not copy jstring to std::string");
-    return;
+    return 0;
   }
 
   std::string path =
@@ -48,7 +48,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
   if (has_exception == JNI_TRUE) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, "Could not copy jstring to std::string");
-    return;
+    return 0;
   }
 
   const std::string smallestkey =
@@ -60,7 +60,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
           &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
-    return;
+    return 0;
   }
 
   const std::string largestkey =
@@ -72,7 +72,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
           &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
-    return;
+    return 0;
   }
 
   metadata->name = file_name;

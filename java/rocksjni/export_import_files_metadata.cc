@@ -37,7 +37,7 @@ jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData__L
       env, jdb_comparator_name, &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
-    return;
+    return 0;
   }
 
   metadata->db_comparator_name = db_comparator_name;
@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData__L
   jlong* jfh = env->GetLongArrayElements(jfile_handles, nullptr);
   if (jfh == nullptr) {
     // exception thrown: OutOfMemoryError
-    return;
+    return 0;
   }
 
   const jsize jlen = env->GetArrayLength(jfile_handles);
@@ -77,7 +77,7 @@ void Java_org_rocksdb_ExportImportFilesMetaData_disposeInternal(
  * Signature: (J)Ljava/lang/String;
  */
 jstring Java_org_rocksdb_ExportImportFilesMetaData_dbComparatorName(
-    JNIEnv*, jobject, jlong jhandle) {
+    JNIEnv* env, jobject, jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(jhandle);
   return ROCKSDB_NAMESPACE::JniUtil::toJavaString(
