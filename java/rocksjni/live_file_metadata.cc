@@ -29,10 +29,10 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData(JNIEnv*, jclass) {
 jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_String_Ljava_lang_String_JJJ3BI3BIJZJJ(
     JNIEnv* env, jclass, jbyteArray jcolumn_family_name,
     jint jcolumn_family_name_len, jint jlevel, jstring jfile_name,
-    jstring jpath, jlong jsize, jlong jsmallest_seqno, jlong jlargest_seqno,
-    jbyteArray jsmallest_key, jint jsmallest_key_len, jbyteArray jlargest_key,
-    jint jlargest_key_len, jlong jnum_reads_sampled, jboolean jbeing_compacted,
-    jlong jnum_entries, jlong jnum_deletions) {
+    jstring jpath, jlong jfile_size, jlong jsmallest_seqno,
+    jlong jlargest_seqno, jbyteArray jsmallest_key, jint jsmallest_key_len,
+    jbyteArray jlargest_key, jint jlargest_key_len, jlong jnum_reads_sampled,
+    jboolean jbeing_compacted, jlong jnum_entries, jlong jnum_deletions) {
   auto* metadata = new ROCKSDB_NAMESPACE::LiveFileMetaData();
 
   jboolean has_exception = JNI_FALSE;
@@ -92,7 +92,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
   metadata->level = static_cast<int>(jlevel);
   metadata->name = file_name;
   metadata->db_path = path;
-  metadata->size = static_cast<size_t>(jsize);
+  metadata->size = static_cast<size_t>(jfile_size);
   metadata->smallest_seqno =
       static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(jsmallest_seqno);
   metadata->largest_seqno =

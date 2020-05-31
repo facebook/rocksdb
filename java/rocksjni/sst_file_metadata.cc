@@ -27,7 +27,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData(JNIEnv*, jclass) {
  * Signature: (Ljava/lang/String;Ljava/lang/String;JJJ[BI[BIJZJJ)J
  */
 jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Ljava_lang_String_JJJ3BI3BIJZJJ(
-    JNIEnv* env, jclass, jstring jfile_name, jstring jpath, jlong jsize,
+    JNIEnv* env, jclass, jstring jfile_name, jstring jpath, jlong jfile_size,
     jlong jsmallest_seqno, jlong jlargest_seqno, jbyteArray jsmallest_key,
     jint jsmallest_key_len, jbyteArray jlargest_key, jint jlargest_key_len,
     jlong jnum_reads_sampled, jboolean jbeing_compacted, jlong jnum_entries,
@@ -77,7 +77,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
 
   metadata->name = file_name;
   metadata->db_path = path;
-  metadata->size = static_cast<size_t>(jsize);
+  metadata->size = static_cast<size_t>(jfile_size);
   metadata->smallest_seqno =
       static_cast<ROCKSDB_NAMESPACE::SequenceNumber>(jsmallest_seqno);
   metadata->largest_seqno =
