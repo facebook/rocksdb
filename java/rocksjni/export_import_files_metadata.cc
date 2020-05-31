@@ -28,7 +28,8 @@ jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData(
  * Signature: (Ljava/lang/String;[J)J
  */
 jlong Java_org_rocksdb_ExportImportFilesMetaData_newExportImportFilesMetaData__Ljava_lang_String_3J(
-    JNIEnv*, jclass, jstring jdb_comparator_name, jlongArray jfile_handles) {
+    JNIEnv* env, jclass, jstring jdb_comparator_name,
+    jlongArray jfile_handles) {
   auto* metadata = new ROCKSDB_NAMESPACE::ExportImportFilesMetaData();
 
   jboolean has_exception = JNI_FALSE;
@@ -88,14 +89,15 @@ jstring Java_org_rocksdb_ExportImportFilesMetaData_dbComparatorName(
  * Method:    files
  * Signature: (J)[Lorg/rocksdb/LiveFileMetaData;
  */
-jobjectArray Java_org_rocksdb_ExportImportFilesMetaData_files(JNIEnv*, jobject,
+jobjectArray Java_org_rocksdb_ExportImportFilesMetaData_files(JNIEnv* env,
+                                                              jobject,
                                                               jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::ExportImportFilesMetaData*>(jhandle);
 
   const jsize jlen = static_cast<jsize>(metadata->files.size());
-  jobjectArray jfiles =
-      env->NewObjectArray(jlen, LiveFileMetaDataJni::getJClass(env), nullptr);
+  jobjectArray jfiles = env->NewObjectArray(
+      jlen, ROCKSDB_NAMESPACE::LiveFileMetaDataJni::getJClass(env), nullptr);
   if (jfiles == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
@@ -103,7 +105,9 @@ jobjectArray Java_org_rocksdb_ExportImportFilesMetaData_files(JNIEnv*, jobject,
 
   jsize i = 0;
   for (auto it = metadata->files.begin(); it != metadata->files.end(); ++it) {
-    jobject jfile = LiveFileMetaDataJni::fromCppLiveFileMetaData(env, &(*it));
+    jobject jfile =
+        ROCKSDB_NAMESPACE::LiveFileMetaDataJni::fromCppLiveFileMetaData(env,
+                                                                        &(*it));
     if (jfile == nullptr) {
       // exception occurred
       env->DeleteLocalRef(jfiles);

@@ -27,7 +27,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData(JNIEnv*, jclass) {
  * Signature: (Ljava/lang/String;Ljava/lang/String;JJJ[BI[BIJZJJ)J
  */
 jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Ljava_lang_String_JJJ3BI3BIJZJJ(
-    JNIEnv*, jclass, jstring jfile_name, jstring jpath, jlong jsize,
+    JNIEnv* env, jclass, jstring jfile_name, jstring jpath, jlong jsize,
     jlong jsmallest_seqno, jlong jlargest_seqno, jbyteArray jsmallest_key,
     jint jsmallest_key_len, jbyteArray jlargest_key, jint jlargest_key_len,
     jlong jnum_reads_sampled, jboolean jbeing_compacted, jlong jnum_entries,
@@ -75,7 +75,6 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
     return;
   }
 
-  metadata->column_family_name = column_family_name;
   metadata->name = file_name;
   metadata->db_path = path;
   metadata->size = static_cast<size_t>(jsize);
@@ -86,7 +85,7 @@ jlong Java_org_rocksdb_SstFileMetaData_newSstFileMetaData__Ljava_lang_String_Lja
   metadata->smallestkey = smallestkey;
   metadata->largestkey = largestkey;
   metadata->num_reads_sampled = static_cast<uint64_t>(jnum_reads_sampled);
-  metadata->being_compacted = (jbeing_compacted == NI_TRUE);
+  metadata->being_compacted = (jbeing_compacted == JNI_TRUE);
   metadata->num_entries = static_cast<uint64_t>(jnum_entries);
   metadata->num_deletions = static_cast<uint64_t>(jnum_deletions);
 
@@ -110,7 +109,7 @@ void Java_org_rocksdb_SstFileMetaData_disposeInternal(JNIEnv*, jobject,
  * Method:    fileName
  * Signature: (J)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_SstFileMetaData_fileName(JNIEnv*, jobject,
+jstring Java_org_rocksdb_SstFileMetaData_fileName(JNIEnv* env, jobject,
                                                   jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileMetaData*>(jhandle);
@@ -122,7 +121,8 @@ jstring Java_org_rocksdb_SstFileMetaData_fileName(JNIEnv*, jobject,
  * Method:    path
  * Signature: (J)Ljava/lang/String;
  */
-jstring Java_org_rocksdb_SstFileMetaData_path(JNIEnv*, jobject, jlong jhandle) {
+jstring Java_org_rocksdb_SstFileMetaData_path(JNIEnv* env, jobject,
+                                              jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileMetaData*>(jhandle);
   return ROCKSDB_NAMESPACE::JniUtil::toJavaString(env, &metadata->db_path,
@@ -169,7 +169,7 @@ jlong Java_org_rocksdb_SstFileMetaData_largestSeqno(JNIEnv*, jobject,
  * Method:    smallestKey
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_SstFileMetaData_smallestKey(JNIEnv*, jobject,
+jbyteArray Java_org_rocksdb_SstFileMetaData_smallestKey(JNIEnv* env, jobject,
                                                         jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileMetaData*>(jhandle);
@@ -181,7 +181,7 @@ jbyteArray Java_org_rocksdb_SstFileMetaData_smallestKey(JNIEnv*, jobject,
  * Method:    largestKey
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_SstFileMetaData_largestKey(JNIEnv*, jobject,
+jbyteArray Java_org_rocksdb_SstFileMetaData_largestKey(JNIEnv* env, jobject,
                                                        jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::SstFileMetaData*>(jhandle);

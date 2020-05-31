@@ -27,7 +27,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData(JNIEnv*, jclass) {
  * Signature: ([BIILjava/lang/String;Ljava/lang/String;JJJ[BI[BIJZJJ)J
  */
 jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_String_Ljava_lang_String_JJJ3BI3BIJZJJ(
-    JNIEnv*, jclass, jbyteArray jcolumn_family_name,
+    JNIEnv* env, jclass, jbyteArray jcolumn_family_name,
     jint jcolumn_family_name_len, jint jlevel, jstring jfile_name,
     jstring jpath, jlong jsize, jlong jsmallest_seqno, jlong jlargest_seqno,
     jbyteArray jsmallest_key, jint jsmallest_key_len, jbyteArray jlargest_key,
@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
           &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
-    return;
+    return 0;
   }
 
   std::string file_name = ROCKSDB_NAMESPACE::JniUtil::copyStdString(
@@ -53,7 +53,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
   if (has_exception == JNI_TRUE) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, "Could not copy jstring to std::string");
-    return;
+    return 0;
   }
 
   std::string path =
@@ -61,7 +61,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
   if (has_exception == JNI_TRUE) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, "Could not copy jstring to std::string");
-    return;
+    return 0;
   }
 
   const std::string smallestkey =
@@ -73,7 +73,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
           &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
-    return;
+    return 0;
   }
 
   const std::string largestkey =
@@ -85,7 +85,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
           &has_exception);
   if (has_exception == JNI_TRUE) {
     // exception occurred
-    return;
+    return 0;
   }
 
   metadata->column_family_name = column_family_name;
@@ -100,7 +100,7 @@ jlong Java_org_rocksdb_LiveFileMetaData_newLiveFileMetaData__3BIILjava_lang_Stri
   metadata->smallestkey = smallestkey;
   metadata->largestkey = largestkey;
   metadata->num_reads_sampled = static_cast<uint64_t>(jnum_reads_sampled);
-  metadata->being_compacted = (jbeing_compacted == NI_TRUE);
+  metadata->being_compacted = (jbeing_compacted == JNI_TRUE);
   metadata->num_entries = static_cast<uint64_t>(jnum_entries);
   metadata->num_deletions = static_cast<uint64_t>(jnum_deletions);
 
@@ -124,7 +124,8 @@ void Java_org_rocksdb_LiveFileMetaData_disposeInternal(JNIEnv*, jobject,
  * Method:    columnFamilyName
  * Signature: (J)[B
  */
-jbyteArray Java_org_rocksdb_LiveFileMetaData_columnFamilyName(JNIEnv*, jobject,
+jbyteArray Java_org_rocksdb_LiveFileMetaData_columnFamilyName(JNIEnv* env,
+                                                              jobject,
                                                               jlong jhandle) {
   auto* metadata =
       reinterpret_cast<ROCKSDB_NAMESPACE::LiveFileMetaData*>(jhandle);
