@@ -130,28 +130,22 @@ Status DBImplReadOnly::NewIterators(
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool /*error_if_log_file_exist*/) {
-  if (access(dbname.c_str(), F_OK) == -1) {
-    // directory does not exist
-    return Status::NotFound("'" + dbname + "': No such file or directory");
-  } else {
-    std::string path_to_current = dbname;
-    if (!dbname.empty() && dbname.back() == '/') {
-      path_to_current += "CURRENT";
-    } else {
-      path_to_current += "/CURRENT";
-    }
 
-    if (access(path_to_current.c_str(), F_OK) == -1) {
-      // not a RocksDB
-      return Status::NotFound("'" + path_to_current +
-                              "': No such file or directory");
-    }
+  const std::shared_ptr<FileSystem>& fs = options.env->GetFileSystem();
+  // Attempt to read "CURRENT" file
+  // If no such file, then we should not write anything
+  // to the file system
+  std::string manifest_path;
+  uint64_t manifest_file_number;
+  Status s = VersionSet::GetCurrentManifestPath(
+      dbname, fs.get(), &manifest_path, &manifest_file_number);
+  if (!s.ok()) {
+    return s;
   }
 
   *dbptr = nullptr;
 
   // Try to first open DB as fully compacted DB
-  Status s;
   s = CompactedDBImpl::Open(options, dbname, dbptr);
   if (s.ok()) {
     return s;
