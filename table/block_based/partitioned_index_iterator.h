@@ -122,6 +122,7 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
   }
 
  private:
+  friend class BlockBasedTableReaderTest_VerifyChecksum_Test;
   const BlockBasedTable* table_;
   const ReadOptions read_options_;
 #ifndef NDEBUG

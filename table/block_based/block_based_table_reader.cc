@@ -2837,6 +2837,9 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
       break;
     }
   }
+  if (s.ok()) {
+    s = index_iter->status();
+  }
   return s;
 }
 

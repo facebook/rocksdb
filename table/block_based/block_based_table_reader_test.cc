@@ -3,7 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/partitioned_index_iterator.h"
 
 #include "db/table_properties_collector.h"
 #include "options/options_helper.h"
@@ -32,6 +34,11 @@ class BlockBasedTableReaderTest
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+
+    BlockBasedTableOptions opts;
+    opts.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    opts.no_block_cache = true;
+    table_factory_.reset(static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }
 
   void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
@@ -50,7 +57,7 @@ class BlockBasedTableReaderTest
     ColumnFamilyOptions cf_options;
     MutableCFOptions moptions(cf_options);
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
-    std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
+    std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
                             compression_type, 0 /* sample_for_compression */,
                             CompressionOptions(), false /* skip_filters */,
@@ -79,19 +86,21 @@ class BlockBasedTableReaderTest
 
     std::unique_ptr<TableReader> table_reader;
     ASSERT_OK(BlockBasedTable::Open(ioptions, EnvOptions(),
-                                    table_factory_.table_options(), comparator,
+                                    table_factory_->table_options(), comparator,
                                     std::move(file), file_size, &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
 
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+
+  const std::shared_ptr<FileSystem>& fs() const { return fs_; }
+
  private:
   std::string test_dir_;
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
-  BlockBasedTableFactory table_factory_;
-
-  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+  std::unique_ptr<BlockBasedTableFactory> table_factory_;
 
   void WriteToFile(const std::string& content, const std::string& filename) {
     std::unique_ptr<FSWritableFile> f;
@@ -217,6 +226,69 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
     ASSERT_TRUE(table->TEST_KeyInCache(ReadOptions(), keys[i]));
     ASSERT_EQ(values[i].ToString(), kv[keys[i].ToString()]);
   }
+}
+
+TEST_P(BlockBasedTableReaderTest, VerifyChecksum) {
+  // Prepare key-value pairs to occupy multiple blocks.
+  // Each value is 256B, every 16 pairs constitute 1 block.
+  // Adjacent blocks contain values with different compression complexity:
+  // human readable strings are easier to compress than random strings.
+  Random rnd(101);
+  std::map<std::string, std::string> kv;
+  {
+    uint32_t key = 0;
+    for (int block = 0; block < 800; block++) {
+      for (int i = 0; i < 16; i++) {
+        char k[9] = {0};
+        // Internal key is constructed directly from this key,
+        // and internal key size is required to be >= 8 bytes,
+        // so use %08u as the format string.
+        sprintf(k, "%08u", key);
+        std::string v;
+        test::RandomString(&rnd, 256, &v);
+        kv[std::string(k)] = v;
+        key++;
+      }
+    }
+  }
+
+  std::string table_name =
+      "BlockBasedTableReaderTest" + CompressionTypeToString(compression_type_);
+  CreateTable(table_name, compression_type_, kv);
+
+  std::unique_ptr<BlockBasedTable> table;
+  Options options;
+  ImmutableCFOptions ioptions(options);
+  FileOptions foptions;
+  foptions.use_direct_reads = use_direct_reads_;
+  InternalKeyComparator comparator(options.comparator);
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+
+  IndexBlockIter iiter_on_stack;
+  BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
+  InternalIteratorBase<IndexValue>* iiter = table->NewIndexIterator(
+      ReadOptions(), /*disable_prefix_seek=*/false, &iiter_on_stack,
+      /*get_context=*/nullptr, &context);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+  if (iiter != &iiter_on_stack) {
+    iiter_unique_ptr = std::unique_ptr<InternalIteratorBase<IndexValue>>(iiter);
+  }
+  ASSERT_OK(iiter->status());
+  iiter->SeekToFirst();
+  BlockHandle handle = static_cast<ParititionedIndexIterator*>(iiter)->index_iter_->value().handle;
+  table.reset();
+
+  std::string garbage;
+  test::RandomString(&rnd, std::min<int>(static_cast<int>(handle.size()), 128), &garbage);
+  std::string contents;
+  Status s = ReadFileToString(fs().get(), Path(table_name), &contents);
+  ASSERT_OK(s);
+  contents.replace(handle.offset(), garbage.length(), garbage);
+  ASSERT_OK(WriteStringToFile(fs().get(), contents, Path(table_name), true/*should_sync*/));
+
+  NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
+  s = table->VerifyChecksum(ReadOptions(), TableReaderCaller::kUserVerifyChecksum);
+  ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
 // Param 1: compression type
