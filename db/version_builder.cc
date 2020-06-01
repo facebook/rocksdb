@@ -369,7 +369,7 @@ class VersionBuilder::Rep {
     }
 
     for (const auto& pair : invalid_level_sizes_) {
-      const int level_size = pair.second;
+      const size_t level_size = pair.second;
       if (level_size != 0) {
         return false;
       }
