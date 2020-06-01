@@ -1731,7 +1731,6 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // We allocated a buffer for this block. Give ownership of it to
       // BlockContents so it can free the memory
       assert(req.result.data() == req.scratch);
-      assert(req.result.size() == block_size(handle));
       assert(req_offset == 0);
       std::unique_ptr<char[]> raw_block(req.scratch);
       raw_block_contents = BlockContents(std::move(raw_block), handle.size());
