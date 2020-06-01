@@ -1732,8 +1732,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // We allocated a buffer for this block. Give ownership of it to
         // BlockContents so it can free the memory
         assert(req.result.data() == req.scratch);
-        assert(req_offset == 0);
         assert(req.result.size() == block_size(handle));
+        assert(req_offset == 0);
         std::unique_ptr<char[]> raw_block(req.scratch);
         raw_block_contents = BlockContents(std::move(raw_block), handle.size());
       } else {
@@ -1757,9 +1757,8 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
         // which is handle.size() + 1.
-        s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
-                                              data + req_offset,
-                                              handle.size() + 1, expected);
+        s = ROCKSDB_NAMESPACE::VerifyChecksum(
+            footer.checksum(), data + req_offset, handle.size() + 1, expected);
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     } else if (!use_shared_buffer) {
