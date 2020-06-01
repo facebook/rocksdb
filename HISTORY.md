@@ -17,6 +17,7 @@
 * BlobDB now explicitly disallows using the default column family's storage directories as blob directory.
 * DeleteRange now returns `Status::InvalidArgument` if the range's end key comes before its start key according to the user comparator. Previously the behavior was undefined.
 * ldb now uses options.force_consistency_checks = true by default and "--disable_consistency_checks" is added to disable it.
+* DB::OpenForReadOnly no longer creates files or directories if the named DB does not exist, unless create_if_missing is set to true.
 
 ### New Feature
 * sst_dump to add a new --readahead_size argument. Users can specify read size when scanning the data. Sst_dump also tries to prefetch tail part of the SST files so usually some number of I/Os are saved there too.

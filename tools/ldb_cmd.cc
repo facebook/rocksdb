@@ -2445,6 +2445,7 @@ void BatchPutCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(BatchPutCommand::Name());
   ret.append(" <key> <value> [<key> <value>] [..]");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2731,7 +2732,8 @@ PutCommand::PutCommand(const std::vector<std::string>& params,
 void PutCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(PutCommand::Name());
-  ret.append(" <key> <value> ");
+  ret.append(" <key> <value>");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
