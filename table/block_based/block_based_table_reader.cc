@@ -1727,39 +1727,43 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     }
 
     BlockContents raw_block_contents;
-    if (!use_shared_buffer) {
-      // We allocated a buffer for this block. Give ownership of it to
-      // BlockContents so it can free the memory
-      assert(req.result.data() == req.scratch);
-      assert(req.result.size() == block_size(handle));
-      assert(req_offset == 0);
-      std::unique_ptr<char[]> raw_block(req.scratch);
-      raw_block_contents = BlockContents(std::move(raw_block), handle.size());
-    } else {
-      // We used the scratch buffer or direct io buffer
-      // which are shared by the blocks.
-      // raw_block_contents does not have the ownership.
-      raw_block_contents =
-          BlockContents(Slice(req.result.data() + req_offset, handle.size()));
-    }
+    if (s.ok()) {
+      if (!use_shared_buffer) {
+        // We allocated a buffer for this block. Give ownership of it to
+        // BlockContents so it can free the memory
+        assert(req.result.data() == req.scratch);
+        assert(req.result.size() == block_size(handle));
+        assert(req_offset == 0);
+        std::unique_ptr<char[]> raw_block(req.scratch);
+        raw_block_contents = BlockContents(std::move(raw_block), handle.size());
+      } else {
+        // We used the scratch buffer or direct io buffer
+        // which are shared by the blocks.
+        // raw_block_contents does not have the ownership.
+        raw_block_contents =
+            BlockContents(Slice(req.result.data() + req_offset, handle.size()));
+      }
 #ifndef NDEBUG
       raw_block_contents.is_raw_block = true;
 #endif
 
-    if (s.ok() && options.verify_checksums) {
-      PERF_TIMER_GUARD(block_checksum_time);
-      const char* data = req.result.data();
-      uint32_t expected =
-          DecodeFixed32(data + req_offset + handle.size() + 1);
-      // Since the scratch might be shared. the offset of the data block in
-      // the buffer might not be 0. req.result.data() only point to the
-      // begin address of each read request, we need to add the offset
-      // in each read request. Checksum is stored in the block trailer,
-      // which is handle.size() + 1.
-      s = ROCKSDB_NAMESPACE::VerifyChecksum(footer.checksum(),
-                                            data + req_offset,
-                                            handle.size() + 1, expected);
-      TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
+      if (options.verify_checksums) {
+        PERF_TIMER_GUARD(block_checksum_time);
+        const char* data = req.result.data();
+        uint32_t expected =
+            DecodeFixed32(data + req_offset + handle.size() + 1);
+        // Since the scratch might be shared. the offset of the data block in
+        // the buffer might not be 0. req.result.data() only point to the
+        // begin address of each read request, we need to add the offset
+        // in each read request. Checksum is stored in the block trailer,
+        // which is handle.size() + 1.
+        s = ROCKSDB_NAMESPACE::VerifyChecksum(
+            footer.checksum(), data + req_offset, handle.size() + 1, expected);
+        TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
+      }
+    } else if (!use_shared_buffer) {
+      // Free the allocated scratch buffer.
+      delete[] req.scratch;
     }
 
     if (s.ok()) {
