@@ -1,13 +1,9 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include "cloud/db_cloud_impl.h"
 
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
@@ -26,7 +22,7 @@
 #include "util/xxhash.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 /**
@@ -410,5 +406,5 @@ Status DBCloudImpl::ExecuteRemoteCompactionRequest(
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -24,7 +24,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 RandomTransactionInserter::RandomTransactionInserter(
     Random64* rand, const WriteOptions& write_options,
@@ -382,6 +382,6 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

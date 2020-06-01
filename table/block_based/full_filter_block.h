@@ -19,7 +19,7 @@
 #include "table/block_based/parsed_full_filter_block.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class FilterPolicy;
 class FilterBitsBuilder;
@@ -136,4 +136,4 @@ class FullFilterBlockReader
   size_t prefix_extractor_full_length_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

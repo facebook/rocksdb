@@ -7,7 +7,7 @@
 
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DB;
 
@@ -35,4 +35,4 @@ class PreReleaseCallback {
                           uint64_t log_number, size_t index, size_t total) = 0;
 };
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

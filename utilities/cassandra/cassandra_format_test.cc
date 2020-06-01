@@ -10,9 +10,9 @@
 #include "utilities/cassandra/serialize.h"
 #include "utilities/cassandra/test_utils.h"
 
-using namespace rocksdb::cassandra;
+using namespace ROCKSDB_NAMESPACE::cassandra;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
 
 TEST(ColumnTest, Column) {
@@ -359,7 +359,7 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   EXPECT_FALSE(changed);
 }
 } // namespace cassandra
-} // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

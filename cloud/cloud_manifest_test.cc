@@ -7,7 +7,7 @@
 #include "rocksdb/env.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CloudManifestTest : public testing::Test {
  public:
@@ -71,7 +71,7 @@ TEST_F(CloudManifestTest, BasicTest) {
   }
 }
 
-}  //  namespace rocksdb
+}  //  namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

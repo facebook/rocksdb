@@ -54,7 +54,7 @@
 
 #include "cloud/aws/aws_env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace anon {
 class AtomicCounter {
@@ -1015,4 +1015,4 @@ class DBTestBase : public testing::Test {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

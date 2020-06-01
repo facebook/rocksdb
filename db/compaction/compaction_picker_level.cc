@@ -15,7 +15,7 @@
 #include "logging/log_buffer.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
@@ -555,4 +555,4 @@ Compaction* LevelCompactionPicker::PickCompaction(
                                  log_buffer, mutable_cf_options, ioptions_);
   return builder.PickCompaction();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

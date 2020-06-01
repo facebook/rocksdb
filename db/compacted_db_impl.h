@@ -9,7 +9,7 @@
 #include <vector>
 #include "db/db_impl/db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CompactedDBImpl : public DBImpl {
  public:
@@ -109,5 +109,5 @@ class CompactedDBImpl : public DBImpl {
   const Comparator* user_comparator_;
   LevelFilesBrief files_;
 };
-}
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

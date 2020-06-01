@@ -8,7 +8,7 @@
 #include "logging/logging.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 // Looks through the "type" factories for one that matches "name".
 // If found, returns the pointer to the Entry matching this name.
@@ -84,4 +84,4 @@ void ObjectRegistry::Dump(Logger *logger) const {
 }
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

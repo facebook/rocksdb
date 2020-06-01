@@ -28,7 +28,7 @@
 #include <unistd.h>
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CloudTest : public testing::Test {
  public:
@@ -1491,7 +1491,7 @@ TEST_F(CloudTest, SharedBlockCache) {
   cloud_env_options_.keep_local_sst_files = false;
 
   // Share the block cache.
-  rocksdb::BlockBasedTableOptions bbto;
+  BlockBasedTableOptions bbto;
   bbto.block_cache = NewLRUCache(10 * 1024 * 1024);
   bbto.format_version = 4;
   options_.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -1535,7 +1535,7 @@ TEST_F(CloudTest, SharedBlockCache) {
       cloud_env_options_.src_bucket.GetObjectPath() + "-clone");
 }
 
-}  //  namespace rocksdb
+}  //  namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the cloud wrapper around rocksdb
 int main(int argc, char** argv) {

@@ -23,7 +23,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
@@ -1128,4 +1128,4 @@ bool CompactionPicker::GetOverlappingL0Files(
   return true;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

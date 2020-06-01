@@ -17,7 +17,7 @@
 #include "port/port.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemFile;
 class MockEnv : public EnvWrapper {
@@ -111,4 +111,4 @@ class MockEnv : public EnvWrapper {
   std::atomic<int64_t> fake_sleep_micros_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

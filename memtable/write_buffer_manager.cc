@@ -11,7 +11,7 @@
 #include <mutex>
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 namespace {
 const size_t kSizeDummyEntry = 256 * 1024;
@@ -127,4 +127,4 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
   (void)mem;
 #endif  // ROCKSDB_LITE
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

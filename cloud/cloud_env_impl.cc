@@ -20,7 +20,7 @@
 #include "rocksdb/status.h"
 #include "util/xxhash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base,
                            const std::shared_ptr<Logger>& l)
@@ -1701,5 +1701,5 @@ Status CloudEnvImpl::Prepare() {
   }
   return s;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -19,7 +19,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 bool CloudEnvOptions::GetNameFromEnvironment(const char* name, const char* alt,
                                              std::string* result) {
@@ -160,5 +160,5 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const CloudEnvOptions& options,
 }
 #endif
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

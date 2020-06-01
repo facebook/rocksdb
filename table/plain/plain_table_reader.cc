@@ -39,7 +39,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -205,7 +205,9 @@ InternalIterator* PlainTableReader::NewIterator(
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
-  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
+  // Auto prefix mode is not implemented in PlainTable.
+  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek &&
+                         !options.auto_prefix_mode;
   if (arena == nullptr) {
     return new PlainTableIterator(this, use_prefix_seek);
   } else {
@@ -769,5 +771,5 @@ Status PlainTableIterator::status() const {
   return status_;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -21,7 +21,7 @@
 #include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace blob_db {
 
@@ -316,5 +316,5 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -10,7 +10,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MockStorageProvider : public CloudStorageProvider {
  public:
@@ -301,4 +301,4 @@ class MockCloudEnv : public CloudEnv {
   Status notsup_;
   std::string empty_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

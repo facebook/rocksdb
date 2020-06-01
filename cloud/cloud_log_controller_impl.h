@@ -7,7 +7,7 @@
 
 #include "rocksdb/cloud/cloud_log_controller.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CloudEnv;
 class CloudEnvOptions;
 
@@ -82,4 +82,4 @@ class CloudLogControllerImpl : public CloudLogController {
   std::unique_ptr<std::thread> tid_;
   std::atomic<bool> running_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -20,7 +20,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Env::~Env() {
 }
@@ -378,28 +378,8 @@ Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
-  EnvOptions soptions;
-  data->clear();
-  std::unique_ptr<SequentialFile> file;
-  Status s = env->NewSequentialFile(fname, &file, soptions);
-  if (!s.ok()) {
-    return s;
-  }
-  static const int kBufferSize = 8192;
-  char* space = new char[kBufferSize];
-  while (true) {
-    Slice fragment;
-    s = file->Read(kBufferSize, &fragment, space);
-    if (!s.ok()) {
-      break;
-    }
-    data->append(fragment.data(), fragment.size());
-    if (fragment.empty()) {
-      break;
-    }
-  }
-  delete[] space;
-  return s;
+  LegacyFileSystemWrapper lfsw(env);
+  return ReadFileToString(&lfsw, fname, data);
 }
 
 EnvWrapper::~EnvWrapper() {
@@ -492,4 +472,4 @@ Status NewEnvLogger(const std::string& fname, Env* env,
   return Status::OK();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -13,7 +13,7 @@
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 class DBSecondaryTest : public DBTestBase {
@@ -860,10 +860,10 @@ TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
 }
 #endif  //! ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

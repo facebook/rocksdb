@@ -9,7 +9,7 @@
 #include "utilities/transactions/write_unprepared_txn.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteUnpreparedTransactionTestBase : public TransactionTestBase {
  public:
@@ -659,7 +659,56 @@ TEST_P(WriteUnpreparedTransactionTest, SavePoint) {
   delete txn;
 }
 
-}  // namespace rocksdb
+TEST_P(WriteUnpreparedTransactionTest, UntrackedKeys) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  Transaction* txn = db->BeginTransaction(woptions, txn_options);
+  auto wb = txn->GetWriteBatch()->GetWriteBatch();
+  ASSERT_OK(txn->Put("a", "a"));
+  ASSERT_OK(wb->Put("a_untrack", "a_untrack"));
+  txn->SetSavePoint();
+  ASSERT_OK(txn->Put("b", "b"));
+  ASSERT_OK(txn->Put("b_untrack", "b_untrack"));
+
+  ReadOptions roptions;
+  std::string value;
+  ASSERT_OK(txn->Get(roptions, "a", &value));
+  ASSERT_EQ(value, "a");
+  ASSERT_OK(txn->Get(roptions, "a_untrack", &value));
+  ASSERT_EQ(value, "a_untrack");
+  ASSERT_OK(txn->Get(roptions, "b", &value));
+  ASSERT_EQ(value, "b");
+  ASSERT_OK(txn->Get(roptions, "b_untrack", &value));
+  ASSERT_EQ(value, "b_untrack");
+
+  // b and b_untrack should be rolled back.
+  ASSERT_OK(txn->RollbackToSavePoint());
+  ASSERT_OK(txn->Get(roptions, "a", &value));
+  ASSERT_EQ(value, "a");
+  ASSERT_OK(txn->Get(roptions, "a_untrack", &value));
+  ASSERT_EQ(value, "a_untrack");
+  auto s = txn->Get(roptions, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "b_untrack", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Everything should be rolled back.
+  ASSERT_OK(txn->Rollback());
+  s = txn->Get(roptions, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "a_untrack", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn->Get(roptions, "b_untrack", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn;
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

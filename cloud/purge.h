@@ -11,7 +11,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Purges all unneeded files in a storage bucket
@@ -33,5 +33,5 @@ class Purge {
   CloudEnvImpl* cenv_;
   std::shared_ptr<Logger> info_log_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

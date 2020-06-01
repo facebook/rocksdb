@@ -11,7 +11,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Wrapper of user comparator, with auto increment to
 // perf_context.user_key_comparison_count.
@@ -62,4 +62,4 @@ class UserComparatorWrapper final : public Comparator {
   const Comparator* user_comparator_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

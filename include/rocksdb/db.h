@@ -38,7 +38,7 @@
 #define ROCKSDB_DEPRECATED_FUNC __declspec(deprecated)
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct Options;
 struct DBOptions;
@@ -156,7 +156,7 @@ class DB {
   // read only, you can specify only a subset of column families in the
   // database that should be opened. However, you always need to specify default
   // column family. The default column family name is 'default' and it's stored
-  // in rocksdb::kDefaultColumnFamilyName
+  // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName
   //
   // Not supported in ROCKSDB_LITE, in which case the function will
   // return Status::NotSupported.
@@ -222,7 +222,7 @@ class DB {
   // ListColumnFamilies(). Also, you can open only a subset of column families
   // for read-only access.
   // The default column family name is 'default' and it's stored
-  // in rocksdb::kDefaultColumnFamilyName.
+  // in ROCKSDB_NAMESPACE::kDefaultColumnFamilyName.
   // If everything is OK, handles will on return be the same size
   // as column_families --- handles[i] will be a handle that you
   // will use to operate on column family column_family[i].
@@ -1411,9 +1411,9 @@ class DB {
 
 #endif  // ROCKSDB_LITE
 
-  // Sets the globally unique ID created at database creation time by invoking
-  // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
-  // be set properly
+  // Returns the unique ID which is read from IDENTITY file during the opening
+  // of database by setting in the identity variable
+  // Returns Status::OK if identity could be set properly
   virtual Status GetDbIdentity(std::string& identity) const = 0;
 
   // Returns default column family handle
@@ -1543,4 +1543,4 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 Status RepairDB(const std::string& dbname, const Options& options);
 #endif
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

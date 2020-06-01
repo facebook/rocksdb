@@ -7,7 +7,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CloudEnv;
 class CloudEnvOptions;
 
@@ -89,4 +89,4 @@ class CloudLogController {
   virtual Status Prepare(CloudEnv* env) = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

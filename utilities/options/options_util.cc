@@ -12,7 +12,7 @@
 #include "options/options_parser.h"
 #include "rocksdb/options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            DBOptions* db_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
@@ -20,7 +20,8 @@ Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
   LegacyFileSystemWrapper fs(env);
-  Status s = parser.Parse(file_name, &fs, ignore_unknown_options);
+  Status s = parser.Parse(file_name, &fs, ignore_unknown_options,
+                          0 /* file_readahead_size */);
   if (!s.ok()) {
     return s;
   }
@@ -109,5 +110,5 @@ Status CheckOptionsCompatibility(
       kDefaultLevel, ignore_unknown_options);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

@@ -18,7 +18,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
 
@@ -117,4 +117,4 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

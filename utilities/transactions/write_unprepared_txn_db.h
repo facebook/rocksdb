@@ -9,7 +9,7 @@
 #include "utilities/transactions/write_prepared_txn_db.h"
 #include "utilities/transactions/write_unprepared_txn.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteUnpreparedTxn;
 
@@ -144,5 +144,5 @@ class WriteUnpreparedRollbackPreReleaseCallback : public PreReleaseCallback {
   SequenceNumber rollback_seq_;
 };
 
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

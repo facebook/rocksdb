@@ -19,7 +19,7 @@
 #include "util/cast_util.h"
 #include "util/concurrent_task_limiter_impl.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // This does the meat of the compaction. This function runs on the
@@ -249,4 +249,4 @@ Status DBImpl::ExecuteRemoteCompactionRequest(
   return s;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

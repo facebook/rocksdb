@@ -11,7 +11,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CloudStorageReadableFile;
 
 //
@@ -301,4 +301,4 @@ class CloudEnvImpl : public CloudEnv {
   static constexpr const char* SCRATCH_LOCAL_DIR = "/tmp";
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

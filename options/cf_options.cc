@@ -16,7 +16,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     : ImmutableCFOptions(ImmutableDBOptions(options), options) {}
@@ -77,7 +77,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor.get()),
       cf_paths(cf_options.cf_paths),
-      compaction_thread_limiter(cf_options.compaction_thread_limiter) {}
+      compaction_thread_limiter(cf_options.compaction_thread_limiter),
+      sst_file_checksum_func(db_options.sst_file_checksum_func.get()) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
@@ -227,4 +228,4 @@ void MutableCFOptions::Dump(Logger* log) const {
 MutableCFOptions::MutableCFOptions(const Options& options)
     : MutableCFOptions(ColumnFamilyOptions(options)) {}
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

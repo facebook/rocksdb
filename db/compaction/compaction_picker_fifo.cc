@@ -17,7 +17,7 @@
 #include "logging/log_buffer.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files) {
   uint64_t total_size = 0;
@@ -70,10 +70,9 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   // avoid underflow
   if (current_time > mutable_cf_options.ttl) {
     for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
-      auto f = *ritr;
-      if (f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
+      FileMetaData* f = *ritr;
+      if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+        uint64_t creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time == 0 ||
             creation_time >= (current_time - mutable_cf_options.ttl)) {
@@ -96,11 +95,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   for (const auto& f : inputs[0].files) {
+    uint64_t creation_time = 0;
+    if (f && f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+      creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
+    }
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with creation time %" PRIu64 " for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(),
-                     f->fd.table_reader->GetTableProperties()->creation_time);
+                     cf_name.c_str(), f->fd.GetNumber(), creation_time);
   }
 
   Compaction* c = new Compaction(
@@ -238,5 +240,5 @@ Compaction* FIFOCompactionPicker::CompactRange(
   return c;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

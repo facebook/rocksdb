@@ -5,7 +5,7 @@
 
 #include "db/event_helpers.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 template <class T>
@@ -220,4 +220,4 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
 #endif  // ROCKSDB_LITE
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

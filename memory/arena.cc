@@ -18,7 +18,7 @@
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // MSVC complains that it is already defined since it is static in the header.
 #ifndef _MSC_VER
@@ -230,4 +230,4 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   return block;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

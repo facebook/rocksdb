@@ -16,7 +16,7 @@
 #include "table/iterator_wrapper.h"
 #include "util/user_comparator_wrapper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                        std::string* prop) {
@@ -103,4 +103,4 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   return iter;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

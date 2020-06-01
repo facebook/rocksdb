@@ -16,7 +16,7 @@
 
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
   Resize();
@@ -571,4 +571,4 @@ std::shared_ptr<Cache> NewLRUCache(
       std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

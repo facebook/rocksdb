@@ -52,6 +52,8 @@ trace_analyzer
 trace_analyzer_test
 block_cache_trace_analyzer
 .DS_Store
+.vs
+.vscode
 
 java/out
 java/target
@@ -81,3 +83,7 @@ fbcode
 travis-build/
 buckifier/*.pyc
 buckifier/__pycache__
+
+compile_commands.json
+.vscode
+.clangd

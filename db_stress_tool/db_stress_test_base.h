@@ -12,7 +12,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Transaction;
 class TransactionDB;
 
@@ -227,5 +227,5 @@ class StressTest {
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
