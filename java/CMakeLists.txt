@@ -29,6 +29,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
+        rocksjni/export_import_files_metadata.cc
         rocksjni/filter.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
@@ -139,6 +140,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Env.java
   src/main/java/org/rocksdb/EnvOptions.java
   src/main/java/org/rocksdb/Experimental.java
+  src/main/java/org/rocksdb/ExportImportFilesMetaData.java
   src/main/java/org/rocksdb/Filter.java
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java

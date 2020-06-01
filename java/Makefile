@@ -30,6 +30,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
 	org.rocksdb.EnvOptions\
+	org.rocksdb.ExportImportFilesMetaData\
 	org.rocksdb.FlushOptions\
 	org.rocksdb.Filter\
 	org.rocksdb.IngestExternalFileOptions\
@@ -125,6 +126,8 @@ JAVA_TESTS = \
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
+	org.rocksdb.ExportImportColumnFamilyTest\
+	org.rocksdb.ExportImportFilesMetaDataTest\
 	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.IntComparatorTest\

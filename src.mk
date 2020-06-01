@@ -501,6 +501,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
+  java/rocksjni/export_import_files_metadata.cc               \
   java/rocksjni/ingest_external_file_options.cc               \
   java/rocksjni/filter.cc                                     \
   java/rocksjni/iterator.cc                                   \

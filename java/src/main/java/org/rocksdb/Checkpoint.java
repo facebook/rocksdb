@@ -51,6 +51,26 @@ public class Checkpoint extends RocksObject {
     createCheckpoint(nativeHandle_, checkpointPath);
   }
 
+  /**
+   * <p>Exports all live SST files of a specified Column Family onto exportDir,
+   * returning SST files information in metadata. SST files will be created as
+   * hard links when the directory specified is in the same partition as the db
+   * directory, copied otherwise. exportDir should not already exist and will be
+   * created by this API. Always triggers a flush </p>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param exportDir all live SST files of a specified Column Family is going
+   *     to be stored.
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public ExportImportFilesMetaData exportColumnFamily(
+      final ColumnFamilyHandle columnFamilyHandle, final String exportDir) throws RocksDBException {
+    return new ExportImportFilesMetaData(
+        exportColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_, exportDir));
+  }
+
   private Checkpoint(final RocksDB db) {
     super(newCheckpoint(db.nativeHandle_));
     this.db_ = db;
@@ -63,4 +83,7 @@ public class Checkpoint extends RocksObject {
 
   private native void createCheckpoint(long handle, String checkpointPath)
       throws RocksDBException;
+
+  private native long exportColumnFamily(final long handle, final long columnFamilyHandle,
+      final String exportDir) throws RocksDBException;
 }

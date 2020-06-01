@@ -66,3 +66,38 @@ void Java_org_rocksdb_Checkpoint_createCheckpoint(JNIEnv* env, jobject /*jobj*/,
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
+
+/*
+ * Class:     org_rocksdb_ExportColumnFamily
+ * Method:    exportColumnFamily
+ * Signature: (JJLjava/lang/String;)J
+ */
+jlong Java_org_rocksdb_Checkpoint_exportColumnFamily(JNIEnv* env, jobject,
+                                                     jlong jcheckpoint_handle,
+                                                     jlong jcf_handle,
+                                                     jstring jexport_dir) {
+  const char* export_dir = env->GetStringUTFChars(jexport_dir, nullptr);
+  if (export_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+
+  auto* checkpoint =
+      reinterpret_cast<ROCKSDB_NAMESPACE::Checkpoint*>(jcheckpoint_handle);
+  auto* cfh =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+
+  ROCKSDB_NAMESPACE::ExportImportFilesMetaData* export_import_files_metadata =
+      nullptr;
+
+  ROCKSDB_NAMESPACE::Status s = checkpoint->ExportColumnFamily(
+      cfh, export_dir, &export_import_files_metadata);
+
+  env->ReleaseStringUTFChars(jexport_dir, export_dir);
+
+  if (!s.ok()) {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+
+  return reinterpret_cast<jlong>(export_import_files_metadata);
+}
