@@ -428,6 +428,11 @@ class LDBTestCase(unittest.TestCase):
         dbPath = dumpFilePath
         dumpFilePath = os.path.join(self.TMP_DIR, "dump3")
         self.assertFalse(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+        dbPath = os.path.join(self.TMP_DIR, "not_db")
+        run_err_null("mkdir -p %s" % dbPath)
+        dumpFilePath = os.path.join(self.TMP_DIR, "dump4")
+        self.assertFalse(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+
 
     def getManifests(self, directory):
         return glob.glob(directory + "/MANIFEST-*")

@@ -131,8 +131,21 @@ Status DBImplReadOnly::NewIterators(
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool /*error_if_log_file_exist*/) {
   if (access(dbname.c_str(), F_OK) == -1) {
-    // file does not exist
+    // directory does not exist
     return Status::NotFound("'" + dbname + "': No such file or directory");
+  } else {
+    std::string path_to_current = dbname;
+    if (!dbname.empty() && dbname.back() == '/') {
+      path_to_current += "CURRENT";
+    } else {
+      path_to_current += "/CURRENT";
+    }
+
+    if (access(path_to_current.c_str(), F_OK) == -1) {
+      // not a RocksDB
+      return Status::NotFound("'" + path_to_current +
+                              "': No such file or directory");
+    }
   }
 
   *dbptr = nullptr;
