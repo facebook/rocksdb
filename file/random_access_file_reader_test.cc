@@ -68,9 +68,9 @@ class RandomAccessFileReaderTest : public testing::Test {
     Write(f, "");
     std::unique_ptr<RandomAccessFileReader> r;
     Read(f, FileOptions(), &r);
-    size_t alignment = r->file()->GetRequiredBufferAlignment();
+    size_t _alignment = r->file()->GetRequiredBufferAlignment();
     EXPECT_OK(fs_->DeleteFile(Path(f), IOOptions(), nullptr));
-    return alignment;
+    return _alignment;
   }
 };
 
