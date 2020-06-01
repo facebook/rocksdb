@@ -6943,88 +6943,14 @@ class LiveFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "([BILjava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(J)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jbyteArray jcolumn_family_name = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
-        env, live_file_meta_data->column_family_name);
-    if (jcolumn_family_name == nullptr) {
-      // exception occurred creating java byte array
-      return nullptr;
-    }
-
-    jstring jfile_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
-        env, &live_file_meta_data->name, true);
-    if (env->ExceptionCheck()) {
-      // exception occurred creating java string
-      env->DeleteLocalRef(jcolumn_family_name);
-      return nullptr;
-    }
-
-    jstring jpath = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
-        env, &live_file_meta_data->db_path, true);
-    if (env->ExceptionCheck()) {
-      // exception occurred creating java string
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfile_name);
-      return nullptr;
-    }
-
-    jbyteArray jsmallest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
-        env, live_file_meta_data->smallestkey);
-    if (jsmallest_key == nullptr) {
-      // exception occurred creating java byte array
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      return nullptr;
-    }
-
-    jbyteArray jlargest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
-        env, live_file_meta_data->largestkey);
-    if (jlargest_key == nullptr) {
-      // exception occurred creating java byte array
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      env->DeleteLocalRef(jsmallest_key);
-      return nullptr;
-    }
-
-    jobject jlive_file_meta_data = env->NewObject(jclazz, mid,
-        jcolumn_family_name,
-        static_cast<jint>(live_file_meta_data->level),
-        jfile_name,
-        jpath,
-        static_cast<jlong>(live_file_meta_data->size),
-        static_cast<jlong>(live_file_meta_data->smallest_seqno),
-        static_cast<jlong>(live_file_meta_data->largest_seqno),
-        jsmallest_key,
-        jlargest_key,
-        static_cast<jlong>(live_file_meta_data->num_reads_sampled),
-        static_cast<jboolean>(live_file_meta_data->being_compacted),
-        static_cast<jlong>(live_file_meta_data->num_entries),
-        static_cast<jlong>(live_file_meta_data->num_deletions)
-    );
-
-    if (env->ExceptionCheck()) {
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      env->DeleteLocalRef(jsmallest_key);
-      env->DeleteLocalRef(jlargest_key);
-      return nullptr;
-    }
-
-    // cleanup
-    env->DeleteLocalRef(jcolumn_family_name);
-    env->DeleteLocalRef(jfile_name);
-    env->DeleteLocalRef(jpath);
-    env->DeleteLocalRef(jsmallest_key);
-    env->DeleteLocalRef(jlargest_key);
+    jobject jlive_file_meta_data = env->NewObject(
+        jclazz, mid, reinterpret_cast<jlong>(live_file_meta_data));
 
     return jlive_file_meta_data;
   }
@@ -7054,73 +6980,14 @@ class SstFileMetaDataJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(Ljava/lang/String;Ljava/lang/String;JJJ[B[BJZJJ)V");
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(J)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
     }
 
-    jstring jfile_name = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
-        env, &sst_file_meta_data->name, true);
-    if (jfile_name == nullptr) {
-      // exception occurred creating java byte array
-      return nullptr;
-    }
-
-    jstring jpath = ROCKSDB_NAMESPACE::JniUtil::toJavaString(
-        env, &sst_file_meta_data->db_path, true);
-    if (jpath == nullptr) {
-      // exception occurred creating java byte array
-      env->DeleteLocalRef(jfile_name);
-      return nullptr;
-    }
-
-    jbyteArray jsmallest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
-        env, sst_file_meta_data->smallestkey);
-    if (jsmallest_key == nullptr) {
-      // exception occurred creating java byte array
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      return nullptr;
-    }
-
-    jbyteArray jlargest_key = ROCKSDB_NAMESPACE::JniUtil::copyBytes(
-        env, sst_file_meta_data->largestkey);
-    if (jlargest_key == nullptr) {
-      // exception occurred creating java byte array
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      env->DeleteLocalRef(jsmallest_key);
-      return nullptr;
-    }
-
-    jobject jsst_file_meta_data = env->NewObject(jclazz, mid,
-        jfile_name,
-        jpath,
-        static_cast<jlong>(sst_file_meta_data->size),
-        static_cast<jint>(sst_file_meta_data->smallest_seqno),
-        static_cast<jlong>(sst_file_meta_data->largest_seqno),
-        jsmallest_key,
-        jlargest_key,
-        static_cast<jlong>(sst_file_meta_data->num_reads_sampled),
-        static_cast<jboolean>(sst_file_meta_data->being_compacted),
-        static_cast<jlong>(sst_file_meta_data->num_entries),
-        static_cast<jlong>(sst_file_meta_data->num_deletions)
-    );
-
-    if (env->ExceptionCheck()) {
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      env->DeleteLocalRef(jsmallest_key);
-      env->DeleteLocalRef(jlargest_key);
-      return nullptr;
-    }
-
-    // cleanup
-      env->DeleteLocalRef(jfile_name);
-      env->DeleteLocalRef(jpath);
-      env->DeleteLocalRef(jsmallest_key);
-      env->DeleteLocalRef(jlargest_key);
+    jobject jsst_file_meta_data = env->NewObject(
+        jclazz, mid, reinterpret_cast<jlong>(sst_file_meta_data));
 
     return jsst_file_meta_data;
   }

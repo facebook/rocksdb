@@ -36,6 +36,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.HdfsEnv\
+	org.rocksdb.LiveFileMetaData\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -60,6 +61,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.SkipListMemTableConfig\
 	org.rocksdb.Slice\
 	org.rocksdb.SstFileManager\
+	org.rocksdb.SstFileMetaData\
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.SstFileReader\
 	org.rocksdb.SstFileReaderIterator\
@@ -133,6 +135,7 @@ JAVA_TESTS = \
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
+	org.rocksdb.LiveFileMetaDataTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
@@ -162,6 +165,7 @@ JAVA_TESTS = \
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\
+	org.rocksdb.SstFileMetaDataTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.SstFileReaderTest\
 	org.rocksdb.TableFilterTest\

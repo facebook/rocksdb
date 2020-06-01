@@ -8,57 +8,17 @@ package org.rocksdb;
 /**
  * The metadata that describes a SST file.
  */
-public class SstFileMetaData {
-  private final String fileName;
-  private final String path;
-  private final long size;
-  private final long smallestSeqno;
-  private final long largestSeqno;
-  private final byte[] smallestKey;
-  private final byte[] largestKey;
-  private final long numReadsSampled;
-  private final boolean beingCompacted;
-  private final long numEntries;
-  private final long numDeletions;
-
+public class SstFileMetaData extends RocksObject {
   /**
-   * Called from JNI C++
-   *
-   * @param fileName the file name
-   * @param path the file path
-   * @param size the size of the file
-   * @param smallestSeqno the smallest sequence number
-   * @param largestSeqno the largest sequence number
-   * @param smallestKey the smallest key
-   * @param largestKey the largest key
-   * @param numReadsSampled the number of reads sampled
-   * @param beingCompacted true if the file is being compacted, false otherwise
-   * @param numEntries the number of entries
-   * @param numDeletions the number of deletions
+   * Called from JNI C++ or subclass
+   * @param nativeHandle pointer to the C++ object
    */
-  protected SstFileMetaData(
-      final String fileName,
-      final String path,
-      final long size,
-      final long smallestSeqno,
-      final long largestSeqno,
-      final byte[] smallestKey,
-      final byte[] largestKey,
-      final long numReadsSampled,
-      final boolean beingCompacted,
-      final long numEntries,
-      final long numDeletions) {
-    this.fileName = fileName;
-    this.path = path;
-    this.size = size;
-    this.smallestSeqno = smallestSeqno;
-    this.largestSeqno = largestSeqno;
-    this.smallestKey = smallestKey;
-    this.largestKey = largestKey;
-    this.numReadsSampled = numReadsSampled;
-    this.beingCompacted = beingCompacted;
-    this.numEntries = numEntries;
-    this.numDeletions = numDeletions;
+  public SstFileMetaData(final long nativeHandle) {
+    super(nativeHandle);
+  }
+
+  public SstFileMetaData() {
+    super(newSstFileMetaData());
   }
 
   /**
@@ -67,7 +27,7 @@ public class SstFileMetaData {
    * @return the name of the file.
    */
   public String fileName() {
-    return fileName;
+    return fileName(nativeHandle_);
   }
 
   /**
@@ -76,7 +36,7 @@ public class SstFileMetaData {
    * @return the full path
    */
   public String path() {
-    return path;
+    return path(nativeHandle_);
   }
 
   /**
@@ -85,7 +45,7 @@ public class SstFileMetaData {
    * @return file size
    */
   public long size() {
-    return size;
+    return size(nativeHandle_);
   }
 
   /**
@@ -94,7 +54,7 @@ public class SstFileMetaData {
    * @return the smallest sequence number
    */
   public long smallestSeqno() {
-    return smallestSeqno;
+    return smallestSeqno(nativeHandle_);
   }
 
   /**
@@ -103,7 +63,7 @@ public class SstFileMetaData {
    * @return the largest sequence number
    */
   public long largestSeqno() {
-    return largestSeqno;
+    return largestSeqno(nativeHandle_);
   }
 
   /**
@@ -112,7 +72,7 @@ public class SstFileMetaData {
    * @return the smallest user defined key
    */
   public byte[] smallestKey() {
-    return smallestKey;
+    return smallestKey(nativeHandle_);
   }
 
   /**
@@ -121,7 +81,7 @@ public class SstFileMetaData {
    * @return the largest user defined key
    */
   public byte[] largestKey() {
-    return largestKey;
+    return largestKey(nativeHandle_);
   }
 
   /**
@@ -130,7 +90,7 @@ public class SstFileMetaData {
    * @return the number of times the file has been read
    */
   public long numReadsSampled() {
-    return numReadsSampled;
+    return numReadsSampled(nativeHandle_);
   }
 
   /**
@@ -139,7 +99,7 @@ public class SstFileMetaData {
    * @return true if the file is currently being compacted, false otherwise.
    */
   public boolean beingCompacted() {
-    return beingCompacted;
+    return beingCompacted(nativeHandle_);
   }
 
   /**
@@ -148,7 +108,7 @@ public class SstFileMetaData {
    * @return the number of entries.
    */
   public long numEntries() {
-    return numEntries;
+    return numEntries(nativeHandle_);
   }
 
   /**
@@ -157,6 +117,21 @@ public class SstFileMetaData {
    * @return the number of deletions.
    */
   public long numDeletions() {
-    return numDeletions;
+    return numDeletions(nativeHandle_);
   }
+
+  private static native long newSstFileMetaData();
+  @Override protected native void disposeInternal(final long handle);
+
+  private native String fileName(final long handle);
+  private native String path(final long handle);
+  private native long size(final long handle);
+  private native long smallestSeqno(final long handle);
+  private native long largestSeqno(final long handle);
+  private native byte[] smallestKey(final long handle);
+  private native byte[] largestKey(final long handle);
+  private native long numReadsSampled(final long handle);
+  private native boolean beingCompacted(final long handle);
+  private native long numEntries(final long handle);
+  private native long numDeletions(final long handle);
 }

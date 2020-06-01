@@ -505,6 +505,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/filter.cc                                     \
   java/rocksjni/iterator.cc                                   \
   java/rocksjni/jnicallback.cc                                \
+  java/rocksjni/live_file_metadata.cc                         \
   java/rocksjni/loggerjnicallback.cc                          \
   java/rocksjni/lru_cache.cc                                  \
   java/rocksjni/memtablejni.cc                                \
@@ -527,6 +528,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/slice.cc                                      \
   java/rocksjni/snapshot.cc                                   \
   java/rocksjni/sst_file_manager.cc                           \
+  java/rocksjni/sst_file_metadata.cc                          \
   java/rocksjni/sst_file_writerjni.cc                         \
   java/rocksjni/sst_file_readerjni.cc                         \
   java/rocksjni/sst_file_reader_iterator.cc                   \
