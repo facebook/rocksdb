@@ -472,6 +472,33 @@ class VersionBuilder::Rep {
     return base_vstorage_->GetFileLocation(file_number).GetLevel();
   }
 
+  uint64_t GetBlobFileNumberForTableFile(int level, uint64_t file_number) {
+    assert(level < num_levels_);
+
+    const auto& added_files = levels_[level].added_files;
+
+    auto it = added_files.find(file_number);
+    if (it != added_files.end()) {
+      const FileMetaData* const meta = it->second;
+      assert(meta);
+
+      return meta->oldest_blob_file_number;
+    }
+
+    const auto location = base_vstorage_->GetFileLocation(file_number);
+    assert(location.IsValid());
+    assert(location.GetLevel() == level);
+    assert(location.GetLevel() < base_vstorage_->num_levels());
+
+    const auto& level_files = base_vstorage_->LevelFiles(location.GetLevel());
+    assert(location.GetPosition() < level_files.size());
+
+    const FileMetaData* const meta = level_files[location.GetPosition()];
+    assert(meta);
+
+    return meta->oldest_blob_file_number;
+  }
+
   Status ApplyFileDeletion(int level, uint64_t file_number) {
     assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
 
@@ -575,40 +602,14 @@ class VersionBuilder::Rep {
 
     table_file_levels_[file_number] = level;
 
-    if (meta.oldest_blob_file_number != kInvalidBlobFileNumber &&
-        IsBlobFileInVersion(meta.oldest_blob_file_number)) {
-      // TODO: check that blob file exists in version
-      blob_file_meta_deltas_[meta.oldest_blob_file_number].LinkSst(
-          meta.fd.GetNumber());
+    const uint64_t blob_file_number = meta.oldest_blob_file_number;
+
+    if (blob_file_number != kInvalidBlobFileNumber &&
+        IsBlobFileInVersion(blob_file_number)) {
+      blob_file_meta_deltas_[blob_file_number].LinkSst(file_number);
     }
 
     return Status::OK();
-  }
-
-  uint64_t GetBlobFileNumberForTableFile(int level,
-                                         uint64_t table_file_number) {
-    assert(level < num_levels_);
-
-    const auto& added_files = levels_[level].added_files;
-
-    auto it = added_files.find(table_file_number);
-    if (it != added_files.end()) {
-      const FileMetaData* const meta = it->second;
-      assert(meta);
-
-      return meta->oldest_blob_file_number;
-    }
-
-    const auto& base_files = base_vstorage_->LevelFiles(level);
-    for (const FileMetaData* meta : base_files) {
-      assert(meta);
-
-      if (meta->fd.GetNumber() == table_file_number) {
-        return meta->oldest_blob_file_number;
-      }
-    }
-
-    return kInvalidBlobFileNumber;
   }
 
   // Apply all of the edits in *edit to the current state.
