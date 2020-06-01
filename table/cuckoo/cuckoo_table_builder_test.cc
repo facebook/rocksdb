@@ -110,7 +110,7 @@ class CuckooBuilderTest : public testing::Test {
     // Check contents of the bucket.
     std::vector<bool> keys_found(keys.size(), false);
     size_t bucket_size = expected_unused_bucket.size();
-    for (uint32_t i = 0; i < table_size + cuckoo_block_size - 1; ++i) {
+    for (uint32_t i = 0; i + 1 < table_size + cuckoo_block_size; ++i) {
       Slice read_slice;
       ASSERT_OK(file_reader->Read(IOOptions(), i * bucket_size, bucket_size,
                                   &read_slice, nullptr, nullptr));

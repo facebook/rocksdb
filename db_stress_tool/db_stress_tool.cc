@@ -245,7 +245,7 @@ int db_stress_tool(int argc, char** argv) {
     }
   } else {
     uint64_t keys_per_level = key_gen_ctx.window / levels;
-    for (unsigned int level = 0; level < levels - 1; ++level) {
+    for (unsigned int level = 0; level + 1 < levels; ++level) {
       key_gen_ctx.weights.emplace_back(keys_per_level);
     }
     key_gen_ctx.weights.emplace_back(key_gen_ctx.window -

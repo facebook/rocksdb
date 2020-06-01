@@ -68,7 +68,7 @@ Status ExternalSstFileIngestionJob::Prepare(
                                    info2->smallest_internal_key) < 0;
         });
 
-    for (size_t i = 0; i < num_files - 1; i++) {
+    for (size_t i = 0; i + 1 < num_files; i++) {
       if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
                             sorted_files[i + 1]->smallest_internal_key) >= 0) {
         files_overlap_ = true;

@@ -542,7 +542,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
     // Greedily add ranges to the subcompaction until the sum of the ranges'
     // sizes becomes >= the expected mean size of a subcompaction
     sum = 0;
-    for (size_t i = 0; i < ranges.size() - 1; i++) {
+    for (size_t i = 0; i + 1 < ranges.size(); i++) {
       sum += ranges[i].size;
       if (subcompactions == 1) {
         // If there's only one left to schedule then it goes to the end so no

@@ -1900,13 +1900,13 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
-  for (size_t i = 0; i != kNumInserts - 1; ++i) {
+  for (size_t i = 0; i + 1 != kNumInserts; ++i) {
     ASSERT_OK(Put(1, std::to_string(i), "value"));
   }
-  for (size_t i = 0; i != kNumUpdates - 1; ++i) {
+  for (size_t i = 0; i + 1 != kNumUpdates; ++i) {
     ASSERT_OK(Put(1, std::to_string(i), "value1"));
   }
-  for (size_t i = 0; i != kNumDeletes - 1; ++i) {
+  for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
   ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
