@@ -17,7 +17,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/universal_compaction.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options);
@@ -230,4 +230,4 @@ static auto& info_log_level_string_map =
     OptionsHelper::info_log_level_string_map;
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

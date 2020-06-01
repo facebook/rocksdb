@@ -6,7 +6,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/options.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
 // This is the local directory where the db is stored. The same
 // path name is used to store data inside the specified cloud

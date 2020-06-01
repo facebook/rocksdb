@@ -73,7 +73,7 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -520,7 +520,7 @@ class PosixFileSystem : public FileSystem {
   }
 
   IOStatus NewLogger(const std::string& /*fname*/, const IOOptions& /*opts*/,
-                     std::shared_ptr<rocksdb::Logger>* /*ptr*/,
+                     std::shared_ptr<ROCKSDB_NAMESPACE::Logger>* /*ptr*/,
                      IODebugContext* /*dbg*/) override {
     return IOStatus::NotSupported();
   }
@@ -910,4 +910,4 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return default_fs_ptr;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

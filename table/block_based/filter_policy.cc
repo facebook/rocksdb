@@ -21,7 +21,7 @@
 #include "util/coding.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -756,4 +756,4 @@ FilterBuildingContext::FilterBuildingContext(
 
 FilterPolicy::~FilterPolicy() { }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -23,7 +23,7 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBOptionsTest : public DBTestBase {
  public:
@@ -134,19 +134,17 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   int i = 0;
   const std::string kValue(kValueSize, 'v');
   ASSERT_EQ(options.bytes_per_sync, dbfull()->GetDBOptions().bytes_per_sync);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) {
-        counter++;
-      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) { counter++; });
 
   WriteOptions write_opts;
   // should sync approximately 40MB/1MB ~= 40 times.
   for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   low_bytes_per_sync = counter;
   ASSERT_GT(low_bytes_per_sync, 35);
   ASSERT_LT(low_bytes_per_sync, 45);
@@ -160,7 +158,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GT(counter, 5);
   ASSERT_LT(counter, 15);
@@ -183,11 +181,9 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
   int counter = 0;
   int low_bytes_per_sync = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) {
-        counter++;
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) { counter++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   const std::string kValue(kValueSize, 'v');
   int i = 0;
   for (; i < 10; i++) {
@@ -223,7 +219,7 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
 
   std::atomic<int> match_cnt(0);
   std::atomic<int> unmatch_cnt(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WritableFileWriter::WritableFileWriter:0", [&](void* arg) {
         int value = static_cast<int>(reinterpret_cast<uintptr_t>(arg));
         if (value == buffer_size) {
@@ -232,7 +228,7 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
           unmatch_cnt++;
         }
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   int i = 0;
   for (; i < 3; i++) {
     ASSERT_OK(Put("foo", ToString(i)));
@@ -865,10 +861,10 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

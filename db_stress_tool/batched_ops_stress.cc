@@ -10,7 +10,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
   BatchedOpsStressTest() {}
@@ -337,5 +337,5 @@ class BatchedOpsStressTest : public StressTest {
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

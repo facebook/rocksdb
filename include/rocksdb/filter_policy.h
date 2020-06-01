@@ -27,7 +27,7 @@
 
 #include "rocksdb/advanced_options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 struct BlockBasedTableOptions;
@@ -84,7 +84,8 @@ class FilterBitsReader {
 };
 
 // Contextual information passed to BloomFilterPolicy at filter building time.
-// Used in overriding FilterPolicy::GetBuilderWithContext().
+// Used in overriding FilterPolicy::GetBuilderWithContext(). References other
+// structs because this is expected to be a temporary, stack-allocated object.
 struct FilterBuildingContext {
   // This constructor is for internal use only and subject to change.
   FilterBuildingContext(const BlockBasedTableOptions& table_options);
@@ -196,4 +197,4 @@ class FilterPolicy {
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

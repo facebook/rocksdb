@@ -4,12 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.ByteBuffer;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class RocksIteratorTest {
 
@@ -35,6 +36,39 @@ public class RocksIteratorTest {
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key1".getBytes());
         assertThat(iterator.value()).isEqualTo("value1".getBytes());
+
+        ByteBuffer key = ByteBuffer.allocateDirect(2);
+        ByteBuffer value = ByteBuffer.allocateDirect(2);
+        assertThat(iterator.key(key)).isEqualTo(4);
+        assertThat(iterator.value(value)).isEqualTo(6);
+
+        assertThat(key.position()).isEqualTo(0);
+        assertThat(key.limit()).isEqualTo(2);
+        assertThat(value.position()).isEqualTo(0);
+        assertThat(value.limit()).isEqualTo(2);
+
+        byte[] tmp = new byte[2];
+        key.get(tmp);
+        assertThat(tmp).isEqualTo("ke".getBytes());
+        value.get(tmp);
+        assertThat(tmp).isEqualTo("va".getBytes());
+
+        key = ByteBuffer.allocateDirect(12);
+        value = ByteBuffer.allocateDirect(12);
+        assertThat(iterator.key(key)).isEqualTo(4);
+        assertThat(iterator.value(value)).isEqualTo(6);
+        assertThat(key.position()).isEqualTo(0);
+        assertThat(key.limit()).isEqualTo(4);
+        assertThat(value.position()).isEqualTo(0);
+        assertThat(value.limit()).isEqualTo(6);
+
+        tmp = new byte[4];
+        key.get(tmp);
+        assertThat(tmp).isEqualTo("key1".getBytes());
+        tmp = new byte[6];
+        value.get(tmp);
+        assertThat(tmp).isEqualTo("value1".getBytes());
+
         iterator.next();
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
@@ -52,6 +86,24 @@ public class RocksIteratorTest {
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
         iterator.status();
+
+        key.clear();
+        key.put("key1".getBytes());
+        key.flip();
+        iterator.seek(key);
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.value()).isEqualTo("value1".getBytes());
+        assertThat(key.position()).isEqualTo(4);
+        assertThat(key.limit()).isEqualTo(4);
+
+        key.clear();
+        key.put("key2".getBytes());
+        key.flip();
+        iterator.seekForPrev(key);
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.value()).isEqualTo("value2".getBytes());
+        assertThat(key.position()).isEqualTo(4);
+        assertThat(key.limit()).isEqualTo(4);
       }
 
       try (final RocksIterator iterator = db.newIterator()) {

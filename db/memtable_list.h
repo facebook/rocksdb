@@ -25,7 +25,7 @@
 #include "rocksdb/types.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyData;
 class InternalKeyComparator;
@@ -419,4 +419,4 @@ extern Status InstallMemtableAtomicFlushResults(
     InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
     autovector<MemTable*>* to_delete, Directory* db_directory,
     LogBuffer* log_buffer);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

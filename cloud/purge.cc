@@ -17,7 +17,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A map from a dbid to the list of all its parent dbids.
 typedef std::map<std::string, std::vector<std::string>> DbidParents;
@@ -269,5 +269,5 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
   return st;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

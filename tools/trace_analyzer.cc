@@ -13,7 +13,7 @@ int main() {
 #else
 #include "tools/trace_analyzer_tool.h"
 int main(int argc, char** argv) {
-  return rocksdb::trace_analyzer_tool(argc, argv);
+  return ROCKSDB_NAMESPACE::trace_analyzer_tool(argc, argv);
 }
 #endif
 #else

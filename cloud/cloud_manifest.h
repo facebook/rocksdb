@@ -8,7 +8,7 @@
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Cloud manifest holds the information about mapping between original file
 // names and their suffixes.
@@ -68,4 +68,4 @@ class CloudManifest {
   static constexpr uint32_t kCurrentFormatVersion = 1;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

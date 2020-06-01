@@ -24,7 +24,7 @@
 #include <cstdlib>
 #include "logging/logging.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // We want to give users opportunity to default all the mutexes to adaptive if
 // not specified otherwise. This enables a quick way to conduct various
@@ -217,6 +217,18 @@ void cacheline_aligned_free(void *memblock) {
   free(memblock);
 }
 
+static size_t GetPageSize() {
+#if defined(OS_LINUX) || defined(_SC_PAGESIZE)
+  long v = sysconf(_SC_PAGESIZE);
+  if (v >= 1024) {
+    return static_cast<size_t>(v);
+  }
+#endif
+  // Default assume 4KB
+  return 4U * 1024U;
+}
+
+const size_t kPageSize = GetPageSize();
 
 }  // namespace port
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

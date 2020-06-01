@@ -28,7 +28,7 @@
 #include "test_util/testutil.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 static const int kValueSize = 1000;
 static const int kMaxNumValues = 2000;
@@ -84,8 +84,8 @@ class FaultInjectionTest
         db_(nullptr) {}
 
   ~FaultInjectionTest() override {
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
   bool ChangeOptions() {
@@ -436,14 +436,14 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   OpenDB();
 
   if (!sequential_order_) {
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
         {"FaultInjectionTest::FaultTest:0", "DBImpl::BGWorkCompaction"},
         {"CompactionJob::Run():End", "FaultInjectionTest::FaultTest:1"},
         {"FaultInjectionTest::FaultTest:2",
          "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
     });
   }
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   int kNumKeys = 1000;
   Build(WriteOptions(), 0, kNumKeys);
@@ -456,22 +456,22 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   env_->SetFilesystemActive(false);
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:2");
   CloseDB();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ResetDBState(kResetDropUnsyncedData);
 
   std::atomic<bool> opened(false);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::Open:Opened", [&](void* /*arg*/) { opened.store(true); });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkCompaction",
       [&](void* /*arg*/) { ASSERT_TRUE(opened.load()); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(OpenDB());
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
   WaitCompactionFinish();
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(FaultInjectionTest, ManualLogSyncTest) {
@@ -547,7 +547,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, kSyncWal, kEnd),
                       std::make_tuple(true, kSyncWal, kEnd)));
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

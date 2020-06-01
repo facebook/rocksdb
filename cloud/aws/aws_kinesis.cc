@@ -32,7 +32,7 @@
 #include <aws/kinesis/model/Record.h>
 #include <aws/kinesis/model/ShardIteratorType.h>
 #include <aws/kinesis/model/StreamDescription.h>
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace cloud {
 namespace kinesis {
 
@@ -481,10 +481,10 @@ CloudLogWritableFile* KinesisController::CreateWritableFile(
 
 }  // namespace kinesis
 }  // namespace cloud
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif /* USE_AWS */
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status CloudLogControllerImpl::CreateKinesisController(
     std::shared_ptr<CloudLogController>* output) {
 #ifndef USE_AWS
@@ -493,8 +493,8 @@ Status CloudLogControllerImpl::CreateKinesisController(
       "In order to use Kinesis, make sure you're compiling with "
       "USE_AWS=1");
 #else
-  output->reset(new rocksdb::cloud::kinesis::KinesisController());
+  output->reset(new ROCKSDB_NAMESPACE::cloud::kinesis::KinesisController());
   return Status::OK();
 #endif /* USE_AWS */
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

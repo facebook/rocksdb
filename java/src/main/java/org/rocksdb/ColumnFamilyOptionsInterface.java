@@ -121,7 +121,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * @return the instance of the current object.
    */
   T setComparator(
-      AbstractComparator<? extends AbstractSlice<?>> comparator);
+      AbstractComparator comparator);
 
   /**
    * <p>Set the merge operator to be used for merging two merge operands

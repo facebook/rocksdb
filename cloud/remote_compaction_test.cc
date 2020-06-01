@@ -4,11 +4,7 @@
 
 #ifdef USE_AWS
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
-#include <inttypes.h>
+#include <cinttypes>
 
 #include <algorithm>
 #include <chrono>
@@ -32,7 +28,7 @@
 #include <unistd.h>
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class RemoteCompactionTest : public testing::Test {
  public:
@@ -499,7 +495,7 @@ TEST_F(RemoteCompactionTest, ColumnFamilyTest) {
   CloseDB();
 }
 
-}  //  namespace rocksdb
+}  //  namespace ROCKSDB_NAMESPACE
 
 // Run all pluggable compaction tests
 int main(int argc, char** argv) {

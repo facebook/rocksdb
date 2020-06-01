@@ -32,14 +32,13 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("lz4", None, "lz4"),
     ("zstd", None),
     ("tbb", None),
-    ("liburing", None, "uring"),
     ("googletest", None, "gtest"),
 ]
 
 ROCKSDB_OS_DEPS = [
     (
         "linux",
-        ["third-party//numa:numa"],
+        ["third-party//numa:numa", "third-party//liburing:uring"],
     ),
 ]
 
@@ -79,7 +78,6 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
     "-DTBB",
-    "-DLIBURING",
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",

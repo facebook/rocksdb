@@ -18,7 +18,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_util.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
 std::string kDBPath = "/tmp/rocksdb_options_file_example";
 

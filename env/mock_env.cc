@@ -16,7 +16,7 @@
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class MemFile {
  public:
@@ -771,4 +771,4 @@ Env* NewMemEnv(Env* /*base_env*/) { return nullptr; }
 
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

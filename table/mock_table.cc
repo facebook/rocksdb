@@ -13,7 +13,7 @@
 #include "table/get_context.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
 namespace {
@@ -145,4 +145,4 @@ void MockTableFactory::AssertLatestFile(
 }
 
 }  // namespace mock
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

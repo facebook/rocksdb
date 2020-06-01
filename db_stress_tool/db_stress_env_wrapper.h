@@ -11,7 +11,7 @@
 #pragma once
 #include "db_stress_tool/db_stress_common.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class DbStressEnvWrapper : public EnvWrapper {
  public:
   explicit DbStressEnvWrapper(Env* t) : EnvWrapper(t) {}
@@ -32,5 +32,5 @@ class DbStressEnvWrapper : public EnvWrapper {
   // If true, all manifest files will not be delted in DeleteFile().
   bool if_preserve_all_manifests = true;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

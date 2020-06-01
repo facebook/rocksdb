@@ -14,7 +14,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -363,4 +363,4 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
 #endif  // ROCKSDB_LITE
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

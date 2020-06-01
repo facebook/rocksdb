@@ -12,7 +12,7 @@
 #include "db/merge_context.h"
 #include "monitoring/perf_context_imp.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -218,4 +218,4 @@ Status DB::OpenForReadOnly(
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

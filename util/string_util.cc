@@ -20,7 +20,7 @@
 #include "port/sys_time.h"
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const std::string kNullptrString = "nullptr";
 
@@ -406,4 +406,4 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
   return true;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -12,7 +12,7 @@
 
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class Logger;
@@ -254,4 +254,4 @@ class AssociativeMergeOperator : public MergeOperator {
                     Logger* logger) const override;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

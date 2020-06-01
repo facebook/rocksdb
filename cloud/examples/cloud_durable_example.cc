@@ -6,7 +6,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/options.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
 // This is the local directory where the db is stored.
 std::string kDBPath = "/tmp/rocksdb_cloud_durable";
@@ -112,7 +112,8 @@ int main() {
   assert(value == "value");
 
   // print all values in the database
-  rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+  ROCKSDB_NAMESPACE::Iterator* it =
+      db->NewIterator(ROCKSDB_NAMESPACE::ReadOptions());
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::cout << it->key().ToString() << ": " << it->value().ToString()
               << std::endl;

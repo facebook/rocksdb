@@ -25,7 +25,7 @@
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void TailPrefetchStats::RecordEffectiveSize(size_t len) {
   MutexLock l(&mutex_);
@@ -646,4 +646,4 @@ const std::string kHashIndexPrefixesMetadataBlock =
 const std::string kPropTrue = "1";
 const std::string kPropFalse = "0";
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

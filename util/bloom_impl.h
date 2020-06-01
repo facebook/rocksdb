@@ -19,7 +19,7 @@
 #include <immintrin.h>
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BloomMath {
  public:
@@ -480,4 +480,4 @@ class LegacyLocalityBloomImpl {
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

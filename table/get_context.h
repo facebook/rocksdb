@@ -13,7 +13,7 @@
 #include "rocksdb/types.h"
 #include "table/block_based/block.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class MergeContext;
 class PinnedIteratorsManager;
 
@@ -188,4 +188,4 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context,
                          Cleanable* value_pinner = nullptr);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

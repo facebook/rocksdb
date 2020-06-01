@@ -83,7 +83,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -586,7 +586,8 @@ class Repairer {
             table->meta.largest, table->meta.fd.smallest_seqno,
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
             table->meta.oldest_blob_file_number,
-            table->meta.oldest_ancester_time, table->meta.file_creation_time);
+            table->meta.oldest_ancester_time, table->meta.file_creation_time,
+            table->meta.file_checksum, table->meta.file_checksum_func_name);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);
@@ -685,6 +686,6 @@ Status RepairDB(const std::string& dbname, const Options& options) {
   return repairer.Run();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

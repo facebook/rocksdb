@@ -15,7 +15,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace log {
 
 Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
@@ -159,4 +159,4 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
 }
 
 }  // namespace log
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

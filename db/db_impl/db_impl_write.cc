@@ -15,7 +15,7 @@
 #include "options/options_helper.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& val) {
@@ -1295,7 +1295,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // suboptimal but still correct.
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
-      "Flushing column family with largest mem table size. Write buffer is "
+      "Flushing column family with oldest memtable entry. Write buffer is "
       "using %" ROCKSDB_PRIszt " bytes out of a total of %" ROCKSDB_PRIszt ".",
       write_buffer_manager_->memory_usage(),
       write_buffer_manager_->buffer_size());
@@ -1461,7 +1461,7 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       return Status::OK();
     }
     if (write_options.no_slowdown) {
-      return Status::Incomplete();
+      return Status::Incomplete("Low priority write stall");
     } else {
       assert(my_batch != nullptr);
       // Rate limit those writes. The reason that we don't completely wait
@@ -1634,7 +1634,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (creating_new_log && immutable_db_options_.recycle_log_file_num &&
       !log_recycle_files_.empty()) {
     recycle_log_number = log_recycle_files_.front();
-    log_recycle_files_.pop_front();
   }
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
@@ -1671,6 +1670,14 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                  ". Immutable memtables: %d.\n",
                  cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
   mutex_.Lock();
+  if (recycle_log_number != 0) {
+    // Since renaming the file is done outside DB mutex, we need to ensure
+    // concurrent full purges don't delete the file while we're recycling it.
+    // To achieve that we hold the old log number in the recyclable list until
+    // after it has been renamed.
+    assert(log_recycle_files_.front() == recycle_log_number);
+    log_recycle_files_.pop_front();
+  }
   if (s.ok() && creating_new_log) {
     log_write_mutex_.Lock();
     assert(new_log != nullptr);
@@ -1832,4 +1839,4 @@ Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   }
   return Write(opt, &batch);
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

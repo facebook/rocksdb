@@ -10,7 +10,7 @@
 
 #include "rocksdb/options.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct ImmutableDBOptions {
   ImmutableDBOptions();
@@ -68,6 +68,7 @@ struct ImmutableDBOptions {
   uint64_t write_thread_max_yield_usec;
   uint64_t write_thread_slow_yield_usec;
   bool skip_stats_update_on_db_open;
+  bool skip_checking_sst_file_sizes_on_db_open;
   WALRecoveryMode wal_recovery_mode;
   bool allow_2pc;
   std::shared_ptr<Cache> row_cache;
@@ -86,6 +87,7 @@ struct ImmutableDBOptions {
   bool persist_stats_to_disk;
   bool write_dbid_to_manifest;
   size_t log_readahead_size;
+  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func;
 };
 
 struct MutableDBOptions {
@@ -113,4 +115,4 @@ struct MutableDBOptions {
   size_t compaction_readahead_size;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

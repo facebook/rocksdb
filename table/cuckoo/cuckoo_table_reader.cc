@@ -24,7 +24,7 @@
 #include "table/meta_blocks.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 const uint64_t CACHE_LINE_MASK = ~((uint64_t)CACHE_LINE_SIZE - 1);
 const uint32_t kInvalidIndex = std::numeric_limits<uint32_t>::max();
@@ -395,5 +395,5 @@ InternalIterator* CuckooTableReader::NewIterator(
 
 size_t CuckooTableReader::ApproximateMemoryUsage() const { return 0; }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

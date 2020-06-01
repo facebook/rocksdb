@@ -506,6 +506,7 @@ TESTS = \
 	data_block_hash_index_test \
 	cache_test \
 	corruption_test \
+	slice_test \
 	slice_transform_test \
 	dbformat_test \
 	fault_injection_test \
@@ -598,6 +599,7 @@ TESTS = \
 	db_secondary_test \
 	block_cache_tracer_test \
 	block_cache_trace_analyzer_test \
+	defer_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
@@ -1294,6 +1296,9 @@ corruption_test: db/corruption_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARN
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+slice_test: util/slice_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1722,6 +1727,9 @@ block_cache_tracer_test: trace_replay/block_cache_tracer_test.o trace_replay/blo
 block_cache_trace_analyzer_test: tools/block_cache_analyzer/block_cache_trace_analyzer_test.o tools/block_cache_analyzer/block_cache_trace_analyzer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+defer_test: util/defer_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
 INSTALL_PATH ?= /usr/local
@@ -1801,9 +1809,9 @@ SHA256_CMD = sha256sum
 ZLIB_VER ?= 1.2.11
 ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
-BZIP2_VER ?= 1.0.6
-BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
-BZIP2_DOWNLOAD_BASE ?= https://downloads.sourceforge.net/project/bzip2
+BZIP2_VER ?= 1.0.8
+BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+BZIP2_DOWNLOAD_BASE ?= https://sourceware.org/pub/bzip2
 SNAPPY_VER ?= 1.1.8
 SNAPPY_SHA256 ?= 16b677f07832a612b0836178db7f374e414f94657c138e6993cbfc5dcc58651f
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive

@@ -7,7 +7,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CloudEnv;
 class CloudStorageProvider;
 class Logger;
@@ -124,4 +124,4 @@ class CloudStorageProvider {
   // Prepares/Initializes the storage provider for the input cloud environment
   virtual Status Prepare(CloudEnv* env);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

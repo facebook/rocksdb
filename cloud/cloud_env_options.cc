@@ -8,7 +8,7 @@
 #include "cloud/db_cloud_impl.h"
 #include "rocksdb/env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void CloudEnvOptions::Dump(Logger* log) const {
   Header(log, "                         COptions.cloud_type: %u", cloud_type);
@@ -35,5 +35,5 @@ void CloudEnvOptions::Dump(Logger* log) const {
          number_objects_listed_in_one_iteration);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

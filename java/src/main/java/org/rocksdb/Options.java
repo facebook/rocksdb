@@ -193,7 +193,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setComparator(
-      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator comparator) {
     assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
             comparator.getComparatorType().getValue());
@@ -2169,7 +2169,7 @@ public class Options extends RocksObject
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;
   private RateLimiter rateLimiter_;
-  private AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private AbstractComparator comparator_;
   private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
   private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
           compactionFilterFactory_;

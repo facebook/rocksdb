@@ -44,11 +44,12 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace log {
 class Writer;
@@ -278,7 +279,7 @@ class VersionStorageInfo {
     return files_[level];
   }
 
-  const rocksdb::LevelFilesBrief& LevelFilesBrief(int level) const {
+  const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
     assert(level < static_cast<int>(level_files_brief_.size()));
     return level_files_brief_[level];
   }
@@ -442,7 +443,7 @@ class VersionStorageInfo {
   std::vector<uint64_t> level_max_bytes_;
 
   // A short brief metadata of files per level
-  autovector<rocksdb::LevelFilesBrief> level_files_brief_;
+  autovector<ROCKSDB_NAMESPACE::LevelFilesBrief> level_files_brief_;
   FileIndexer file_indexer_;
   Arena arena_;  // Used to allocate space for file_levels_
 
@@ -895,6 +896,9 @@ class VersionSet {
                                      const FileOptions& file_options,
                                      int new_levels);
 
+  // Get the checksum information of all live files
+  Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list);
+
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
                       bool verbose, bool hex = false, bool json = false);
@@ -1245,4 +1249,4 @@ class ReactiveVersionSet : public VersionSet {
   ReactiveVersionSet& operator=(const ReactiveVersionSet&);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

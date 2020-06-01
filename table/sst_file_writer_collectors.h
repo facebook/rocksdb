@@ -10,7 +10,7 @@
 #include "rocksdb/types.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Table Properties that are specific to tables created by SstFileWriter.
 struct ExternalSstFilePropertyNames {
@@ -91,4 +91,4 @@ class SstFileWriterPropertiesCollectorFactory
   SequenceNumber global_seqno_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -8,7 +8,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // The CompositeEnvWrapper class provides an interface that is compatible
 // with the old monolithic Env API, and an implementation that wraps around
@@ -1114,4 +1114,4 @@ inline std::unique_ptr<FSWritableFile> NewLegacyWritableFileWrapper(
       new LegacyWritableFileWrapper(std::move(file)));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

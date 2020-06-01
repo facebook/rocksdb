@@ -17,7 +17,7 @@
 #include "rocksdb/types.h"
 #include "utilities/blob_db/blob_log_format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriter;
 
@@ -90,5 +90,5 @@ class Writer {
 };
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

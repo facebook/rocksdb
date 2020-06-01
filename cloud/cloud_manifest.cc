@@ -13,7 +13,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 struct CorruptionReporter : public log::Reader::Reporter {
@@ -211,4 +211,4 @@ std::string CloudManifest::ToString() const {
   return oss.str();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

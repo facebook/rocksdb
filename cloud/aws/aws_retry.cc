@@ -13,7 +13,7 @@
 #include <aws/core/client/RetryStrategy.h>
 #endif  // USE_AWS
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 #ifdef USE_AWS
 //
 // Ability to configure retry policies for the AWS client
@@ -129,4 +129,4 @@ Status AwsCloudOptions::GetClientConfiguration(
 }
 #endif /* USE_AWS */
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -13,7 +13,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
@@ -29,7 +29,7 @@ DBImplSecondary::~DBImplSecondary() {}
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_log_file_exist*/,
-    bool /*error_if_data_exists_in_logs*/) {
+    bool /*error_if_data_exists_in_logs*/, uint64_t*) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -468,6 +468,11 @@ Status DBImplSecondary::CheckConsistency() {
   // approach and just proceed.
   TEST_SYNC_POINT_CALLBACK(
       "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
+
+  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
+    return Status::OK();
+  }
+
   std::vector<LiveFileMetaData> metadata;
   versions_->GetLiveFilesMetaData(&metadata);
 
@@ -663,4 +668,4 @@ Status DB::OpenAsSecondary(
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
