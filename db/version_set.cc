@@ -5489,7 +5489,8 @@ uint64_t VersionSet::ApproximateSize(const SizeApproximationOptions& options,
                         static_cast<uint64_t>(total_full_size * margin)) {
     total_full_size += total_intersecting_size / 2;
   } else {
-    // Estimate for all the first files, at each level
+    // Estimate for all the first files (might also be last files), at each
+    // level
     for (const auto file_ptr : first_files) {
       total_full_size += ApproximateSize(v, *file_ptr, start, end, caller);
     }

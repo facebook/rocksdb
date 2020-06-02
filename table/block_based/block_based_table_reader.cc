@@ -656,8 +656,8 @@ Status BlockBasedTable::Open(
   // access a dangling pointer.
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters, level,
-                                      immortal_table);
+                                      internal_comparator, skip_filters,
+                                      file_size, level, immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
@@ -3012,30 +3012,37 @@ Status BlockBasedTable::CreateIndexReader(
   }
 }
 
-uint64_t BlockBasedTable::ApproximateOffsetOf(
-    const InternalIteratorBase<IndexValue>& index_iter) const {
-  uint64_t result = 0;
+uint64_t BlockBasedTable::ApproximateDataOffsetOf(
+    const InternalIteratorBase<IndexValue>& index_iter,
+    uint64_t data_size) const {
   if (index_iter.Valid()) {
     BlockHandle handle = index_iter.value().handle;
-    result = handle.offset();
+    return handle.offset();
   } else {
-    // The iterator is past the last key in the file. If table_properties is not
-    // available, approximate the offset by returning the offset of the
-    // metaindex block (which is right near the end of the file).
-    if (rep_->table_properties) {
-      result = rep_->table_properties->data_size;
-    }
-    // table_properties is not present in the table.
-    if (result == 0) {
-      result = rep_->footer.metaindex_handle().offset();
-    }
+    // The iterator is past the last key in the file.
+    return data_size;
   }
+}
 
-  return result;
+uint64_t BlockBasedTable::GetApproximateDataSize() {
+  // Should be in table properties unless super old version
+  if (rep_->table_properties) {
+    return rep_->table_properties->data_size;
+  }
+  // Fall back to rough estimate from footer
+  return rep_->footer.metaindex_handle().offset();
 }
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
                                               TableReaderCaller caller) {
+  uint64_t data_size = GetApproximateDataSize();
+  if (UNLIKELY(data_size == 0)) {
+    // Hmm. Let's just split in half to avoid skewing one way or another,
+    // since we don't know whether we're operating on lower bound or
+    // upper bound.
+    return rep_->file_size / 2;
+  }
+
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
   ReadOptions ro;
@@ -3050,12 +3057,26 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
   }
 
   index_iter->Seek(key);
-  return ApproximateOffsetOf(*index_iter);
+
+  uint64_t offset = ApproximateDataOffsetOf(*index_iter, data_size);
+  // Pro-rate file metadata (incl filters) size-proportionally across data
+  // blocks.
+  double size_ratio =
+      static_cast<double>(offset) / static_cast<double>(data_size);
+  return static_cast<uint64_t>(size_ratio *
+                               static_cast<double>(rep_->file_size));
 }
 
 uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
                                           TableReaderCaller caller) {
   assert(rep_->internal_comparator.Compare(start, end) <= 0);
+
+  uint64_t data_size = GetApproximateDataSize();
+  if (UNLIKELY(data_size == 0)) {
+    // Hmm. Assume whole file is involved, since we have lower and upper
+    // bound.
+    return rep_->file_size;
+  }
 
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
@@ -3071,12 +3092,17 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   }
 
   index_iter->Seek(start);
-  uint64_t start_offset = ApproximateOffsetOf(*index_iter);
+  uint64_t start_offset = ApproximateDataOffsetOf(*index_iter, data_size);
   index_iter->Seek(end);
-  uint64_t end_offset = ApproximateOffsetOf(*index_iter);
+  uint64_t end_offset = ApproximateDataOffsetOf(*index_iter, data_size);
 
   assert(end_offset >= start_offset);
-  return end_offset - start_offset;
+  // Pro-rate file metadata (incl filters) size-proportionally across data
+  // blocks.
+  double size_ratio = static_cast<double>(end_offset - start_offset) /
+                      static_cast<double>(data_size);
+  return static_cast<uint64_t>(size_ratio *
+                               static_cast<double>(rep_->file_size));
 }
 
 bool BlockBasedTable::TEST_FilterBlockInCache() const {

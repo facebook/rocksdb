@@ -115,6 +115,7 @@ DEFINE_string(
     "readrandomwriterandom,"
     "updaterandom,"
     "xorupdaterandom,"
+    "approximatesizerandom,"
     "randomwithverify,"
     "fill100K,"
     "crc32c,"
@@ -3021,6 +3022,10 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "approximatesizerandom") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        method = &Benchmark::ApproximateSizeRandom;
       } else if (name == "mixgraph") {
         method = &Benchmark::MixGraph;
       } else if (name == "readmissing") {
@@ -5208,6 +5213,53 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
              found, read);
+    thread->stats.AddMessage(msg);
+  }
+
+  // Calls ApproximateSize over random key ranges.
+  void ApproximateSizeRandom(ThreadState* thread) {
+    int64_t size_sum = 0;
+    int64_t num_sizes = 0;
+    const size_t batch_size = entries_per_batch_;
+    std::vector<Range> ranges;
+    std::vector<Slice> lkeys;
+    std::vector<std::unique_ptr<const char[]>> lkey_guards;
+    std::vector<Slice> rkeys;
+    std::vector<std::unique_ptr<const char[]>> rkey_guards;
+    std::vector<uint64_t> sizes;
+    while (ranges.size() < batch_size) {
+      // Ugly without C++17 return from emplace_back
+      lkey_guards.emplace_back();
+      rkey_guards.emplace_back();
+      lkeys.emplace_back(AllocateKey(&lkey_guards.back()));
+      rkeys.emplace_back(AllocateKey(&rkey_guards.back()));
+      ranges.emplace_back(lkeys.back(), rkeys.back());
+      sizes.push_back(0);
+    }
+    Duration duration(FLAGS_duration, reads_);
+    while (!duration.Done(1)) {
+      DB* db = SelectDB(thread);
+      for (size_t i = 0; i < batch_size; ++i) {
+        int64_t lkey = GetRandomKey(&thread->rand);
+        int64_t rkey = GetRandomKey(&thread->rand);
+        if (lkey > rkey) {
+          std::swap(lkey, rkey);
+        }
+        GenerateKeyFromInt(lkey, FLAGS_num, &lkeys[i]);
+        GenerateKeyFromInt(rkey, FLAGS_num, &rkeys[i]);
+      }
+      db->GetApproximateSizes(&ranges[0], static_cast<int>(entries_per_batch_),
+                              &sizes[0]);
+      num_sizes += entries_per_batch_;
+      for (int64_t size : sizes) {
+        size_sum += size;
+      }
+      thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kOthers);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(Avg approx size=%g)",
+             static_cast<double>(size_sum) / static_cast<double>(num_sizes));
     thread->stats.AddMessage(msg);
   }
 
