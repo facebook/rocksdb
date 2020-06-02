@@ -42,7 +42,8 @@ class VersionBuilder {
   Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
-                           const SliceTransform* prefix_extractor);
+                           const SliceTransform* prefix_extractor,
+                           size_t write_buffer_size);
 
  private:
   class Rep;

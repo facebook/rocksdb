@@ -34,11 +34,12 @@ struct TableReaderOptions {
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
                      bool _force_direct_prefetch = false, int _level = -1,
-                     BlockCacheTracer* const _block_cache_tracer = nullptr)
-      : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
-                           _internal_comparator, _skip_filters, _immortal,
-                           _force_direct_prefetch, _level,
-                           0 /* _largest_seqno */, _block_cache_tracer) {}
+                     BlockCacheTracer* const _block_cache_tracer = nullptr,
+                     size_t _write_buffer_size = 0)
+      : TableReaderOptions(
+            _ioptions, _prefix_extractor, _env_options, _internal_comparator,
+            _skip_filters, _immortal, _force_direct_prefetch, _level,
+            0 /* _largest_seqno */, _block_cache_tracer, _write_buffer_size) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
@@ -48,7 +49,8 @@ struct TableReaderOptions {
                      bool _skip_filters, bool _immortal,
                      bool _force_direct_prefetch, int _level,
                      SequenceNumber _largest_seqno,
-                     BlockCacheTracer* const _block_cache_tracer)
+                     BlockCacheTracer* const _block_cache_tracer,
+                     size_t _write_buffer_size)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
@@ -58,7 +60,8 @@ struct TableReaderOptions {
         force_direct_prefetch(_force_direct_prefetch),
         level(_level),
         largest_seqno(_largest_seqno),
-        block_cache_tracer(_block_cache_tracer) {}
+        block_cache_tracer(_block_cache_tracer),
+        write_buffer_size(_write_buffer_size) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -77,6 +80,8 @@ struct TableReaderOptions {
   // largest seqno in the table
   SequenceNumber largest_seqno;
   BlockCacheTracer* const block_cache_tracer;
+  // memtable size limit at time of reader creation (can be zero when unknown).
+  const size_t write_buffer_size;
 };
 
 struct TableBuilderOptions {

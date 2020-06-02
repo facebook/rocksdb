@@ -239,7 +239,8 @@ Status BuildTable(
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
-          /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
+          /*skip_filter=*/false, level, mutable_cf_options.write_buffer_size,
+          /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key*/ nullptr,
           /*allow_unprepared_value*/ false));
       s = it->status();
