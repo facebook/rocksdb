@@ -52,6 +52,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
         // might be a broken implementation. substitute something reasonable:
         // 1 key / byte.
         keys_per_partition_ = partition_size;
+        break;
       }
     }
   }
