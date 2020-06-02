@@ -1249,7 +1249,7 @@ TEST_P(FullBloomTest, CorruptFilters) {
   ASSERT_TRUE(Matches("world"));
 }
 
-INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
+INSTANTIATE_TEST_SUITE_P(Full, FullBloomTest,
                         testing::Values(BloomFilterPolicy::kLegacyBloom,
                                         BloomFilterPolicy::kFastLocalBloom,
                                         BloomFilterPolicy::kStandard128Ribbon));

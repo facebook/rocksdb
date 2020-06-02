@@ -754,7 +754,7 @@ TEST_P(CompactionIteratorTest, ConvertToPutAtBottom) {
           true /*bottomost_level*/);
 }
 
-INSTANTIATE_TEST_CASE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
+INSTANTIATE_TEST_SUITE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
                         testing::Values(true, false));
 
 // Tests how CompactionIterator work together with SnapshotChecker.

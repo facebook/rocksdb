@@ -623,6 +623,7 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.10.0/fused-src)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
@@ -1152,9 +1153,8 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
-
 if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
-  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+  add_subdirectory(third-party/gtest-1.10.0/fused-src/gtest)
   add_library(testharness STATIC
   test_util/mock_time_env.cc
   test_util/testharness.cc)

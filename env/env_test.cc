@@ -2227,13 +2227,13 @@ TEST_F(EnvTest, LogvWithInfoLogLevel) {
   ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
 }
 
-INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
+INSTANTIATE_TEST_SUITE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
 #if !defined(ROCKSDB_LITE)
-INSTANTIATE_TEST_CASE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
-                        ::testing::Values(std::pair<Env*, bool>(Env::Default(),
-                                                                true)));
+INSTANTIATE_TEST_SUITE_P(DefaultEnvWithDirectIO, EnvPosixTestWithParam,
+                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
+                                                                 true)));
 #endif  // !defined(ROCKSDB_LITE)
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
@@ -2242,10 +2242,10 @@ static Env* GetChrootEnv() {
       NewChrootEnv(Env::Default(), test::TmpDir(Env::Default())));
   return chroot_env.get();
 }
-INSTANTIATE_TEST_CASE_P(ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
+INSTANTIATE_TEST_SUITE_P(ChrootEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(GetChrootEnv(),
                                                                 false)));
-INSTANTIATE_TEST_CASE_P(ChrootEnvWithDirectIO, EnvPosixTestWithParam,
+INSTANTIATE_TEST_SUITE_P(ChrootEnvWithDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(GetChrootEnv(),
                                                                 true)));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
@@ -2335,7 +2335,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 // 1. True means Options::env is non-null, false means null
 // 2. True means use Env::Default, false means custom
 // 3. True means use FileSystem::Default, false means custom
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     EnvFSTest, EnvFSTestWithParam,
     ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                        ::testing::Bool()));

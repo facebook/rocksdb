@@ -47,7 +47,7 @@ class DBTestCompactionFilterWithCompactParam
 };
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     CompactionFilterWithOption, DBTestCompactionFilterWithCompactParam,
     ::testing::Values(DBTestBase::OptionConfig::kDefault,
                       DBTestBase::OptionConfig::kUniversalCompaction,
@@ -56,7 +56,7 @@ INSTANTIATE_TEST_CASE_P(
                       DBTestBase::OptionConfig::kUniversalSubcompactions));
 #else
 // Run fewer cases in non-full valgrind to save time.
-INSTANTIATE_TEST_CASE_P(CompactionFilterWithOption,
+INSTANTIATE_TEST_SUITE_P(CompactionFilterWithOption,
                         DBTestCompactionFilterWithCompactParam,
                         ::testing::Values(DBTestBase::OptionConfig::kDefault));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)

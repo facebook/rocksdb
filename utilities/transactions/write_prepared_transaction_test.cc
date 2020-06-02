@@ -581,7 +581,7 @@ class SeqAdvanceConcurrentTest
   size_t split_cnt_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WritePreparedTransaction, WritePreparedTransactionTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite),
@@ -589,7 +589,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite)));
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     TwoWriteQueues, SnapshotConcurrentAccessTest,
     ::testing::Values(
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 20),
@@ -634,7 +634,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 18, 20),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 19, 20)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     OneWriteQueue, SnapshotConcurrentAccessTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 20),
@@ -658,7 +658,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 18, 20),
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 19, 20)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     TwoWriteQueues, SeqAdvanceConcurrentTest,
     ::testing::Values(
         std::make_tuple(false, true, WRITE_PREPARED, kOrderedWrite, 0, 10),
@@ -682,7 +682,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 8, 10),
         std::make_tuple(false, true, WRITE_PREPARED, kUnorderedWrite, 9, 10)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     OneWriteQueue, SeqAdvanceConcurrentTest,
     ::testing::Values(
         std::make_tuple(false, false, WRITE_PREPARED, kOrderedWrite, 0, 10),

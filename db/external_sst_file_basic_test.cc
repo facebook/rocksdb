@@ -1796,7 +1796,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestWithTemperature) {
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 }
 
-INSTANTIATE_TEST_CASE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
+INSTANTIATE_TEST_SUITE_P(ExternalSSTFileBasicTest, ExternalSSTFileBasicTest,
                         testing::Values(std::make_tuple(true, true),
                                         std::make_tuple(true, false),
                                         std::make_tuple(false, true),

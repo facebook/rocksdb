@@ -293,7 +293,7 @@ class PartitionedFilterBlockTest
 };
 
 // Format versions potentially intersting to partitioning
-INSTANTIATE_TEST_CASE_P(FormatVersions, PartitionedFilterBlockTest,
+INSTANTIATE_TEST_SUITE_P(FormatVersions, PartitionedFilterBlockTest,
                         testing::ValuesIn(std::set<uint32_t>{
                             2, 3, 4, test::kDefaultFormatVersion,
                             kLatestFormatVersion}));

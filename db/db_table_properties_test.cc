@@ -602,13 +602,9 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
-    DBTablePropertiesTest,
-    DBTablePropertiesTest,
-    ::testing::Values(
-      "kCompactionStyleLevel",
-      "kCompactionStyleUniversal"
-      ));
+INSTANTIATE_TEST_SUITE_P(DBTablePropertiesTest, DBTablePropertiesTest,
+                         ::testing::Values("kCompactionStyleLevel",
+                                           "kCompactionStyleUniversal"));
 
 }  // namespace ROCKSDB_NAMESPACE
 

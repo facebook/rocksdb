@@ -2481,7 +2481,6 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   Close();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
-
 // In atomic flush, concurrent bg flush threads commit to the MANIFEST in
 // serial, in the order of their picked memtables for each column family.
 // Only when a bg flush thread finds out that its memtables are the earliest
@@ -2598,10 +2597,10 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
+INSTANTIATE_TEST_SUITE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
-INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 

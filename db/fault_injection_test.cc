@@ -616,12 +616,12 @@ TEST_P(FaultInjectionTest, NoDuplicateTrailingEntries) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FaultTest, FaultInjectionTest,
     ::testing::Values(std::make_tuple(false, kDefault, kEnd),
                       std::make_tuple(true, kDefault, kEnd)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FaultTest, FaultInjectionTestSplitted,
     ::testing::Values(std::make_tuple(false, kDefault, kSyncWal),
                       std::make_tuple(true, kDefault, kSyncWal),

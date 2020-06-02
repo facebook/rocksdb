@@ -414,7 +414,7 @@ ifndef GTEST_HAS_EXCEPTIONS
 	export GTEST_HAS_EXCEPTIONS=1
 endif
 
-GTEST_DIR = third-party/gtest-1.8.1/fused-src
+GTEST_DIR = third-party/gtest-1.10.0/fused-src
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
 	PLATFORM_CCFLAGS += -I$(GTEST_DIR)

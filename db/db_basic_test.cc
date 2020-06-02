@@ -1405,7 +1405,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
   ASSERT_EQ(values[2], "def");
 }
 
-INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
+INSTANTIATE_TEST_SUITE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
                         testing::Bool());
 
 TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
@@ -2065,8 +2065,8 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 }
 
-INSTANTIATE_TEST_CASE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
-                        ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
+                         ::testing::Bool());
 
 #ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest : public DBBasicTest,
@@ -2157,8 +2157,8 @@ TEST_P(DBMultiGetRowCacheTest, MultiGetBatched) {
   } while (ChangeCompactOptions());
 }
 
-INSTANTIATE_TEST_CASE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
-                        testing::Values(true, false));
+INSTANTIATE_TEST_SUITE_P(DBMultiGetRowCacheTest, DBMultiGetRowCacheTest,
+                         testing::Values(true, false));
 
 TEST_F(DBBasicTest, GetAllKeyVersions) {
   Options options = CurrentOptions();
@@ -3258,16 +3258,16 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetWithMissingFile) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
-                        // Params are as follows -
-                        // Param 0 - Compressed cache enabled
-                        // Param 1 - Uncompressed cache enabled
-                        // Param 2 - Data compression enabled
-                        // Param 3 - ReadOptions::fill_cache
-                        // Param 4 - CompressionOptions::parallel_threads
-                        ::testing::Combine(::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Bool(), ::testing::Bool(),
-                                           ::testing::Values(1, 4)));
+INSTANTIATE_TEST_SUITE_P(
+    ParallelIO, DBBasicTestWithParallelIO,
+    // Params are as follows -
+    // Param 0 - Compressed cache enabled
+    // Param 1 - Uncompressed cache enabled
+    // Param 2 - Data compression enabled
+    // Param 3 - ReadOptions::fill_cache
+    // Param 4 - CompressionOptions::parallel_threads
+    ::testing::Combine(::testing::Bool(), ::testing::Bool(), ::testing::Bool(),
+                       ::testing::Bool(), ::testing::Values(1, 4)));
 
 // Forward declaration
 class DeadlineFS;

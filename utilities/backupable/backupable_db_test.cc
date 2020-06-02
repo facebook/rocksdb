@@ -1201,7 +1201,7 @@ TEST_P(BackupEngineTestWithParam, OnlineIntegrationTest) {
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 
-INSTANTIATE_TEST_CASE_P(BackupEngineTestWithParam, BackupEngineTestWithParam,
+INSTANTIATE_TEST_SUITE_P(BackupEngineTestWithParam, BackupEngineTestWithParam,
                         ::testing::Bool());
 
 // this will make sure that backup does not copy the same file twice

@@ -103,22 +103,22 @@ class EnvBasicTestWithParam
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
-INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(EnvDefault, EnvBasicTestWithParam,
                         ::testing::Values(&GetDefaultEnv));
-INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
+INSTANTIATE_TEST_SUITE_P(EnvDefault, EnvMoreTestWithParam,
                         ::testing::Values(&GetDefaultEnv));
 
-INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(MockEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetMockEnv));
 
 #ifndef ROCKSDB_LITE
 // next statements run env test against default encryption code.
-INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(EncryptedEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetCtrEncryptedEnv));
-INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
+INSTANTIATE_TEST_SUITE_P(EncryptedEnv, EnvMoreTestWithParam,
                         ::testing::Values(&GetCtrEncryptedEnv));
 
-INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
+INSTANTIATE_TEST_SUITE_P(MemEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetMemoryEnv));
 
 namespace {
@@ -143,10 +143,10 @@ std::vector<CreateEnvFunc*> GetCustomEnvs() {
 
 }  // anonymous namespace
 
-INSTANTIATE_TEST_CASE_P(CustomEnv, EnvBasicTestWithParam,
-                        ::testing::ValuesIn(GetCustomEnvs()));
+INSTANTIATE_TEST_SUITE_P(CustomEnv, EnvBasicTestWithParam,
+                         ::testing::ValuesIn(GetCustomEnvs()));
 
-INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
+INSTANTIATE_TEST_SUITE_P(CustomEnv, EnvMoreTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
 #endif  // ROCKSDB_LITE
 

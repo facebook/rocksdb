@@ -532,7 +532,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 }
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
@@ -540,7 +540,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
         std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
@@ -548,7 +548,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
         std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false, kLatestFormatVersion),
@@ -1717,18 +1717,15 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
   EXPECT_TRUE(found_spanning >= 2);
 }
 
-INSTANTIATE_TEST_CASE_P(DBBloomFilterTestVaryPrefixAndFormatVer,
-                        DBBloomFilterTestVaryPrefixAndFormatVer,
-                        ::testing::Values(
-                            // (use_prefix, format_version)
-                            std::make_tuple(false, 2),
-                            std::make_tuple(false, 3),
-                            std::make_tuple(false, 4),
-                            std::make_tuple(false, 5),
-                            std::make_tuple(true, 2),
-                            std::make_tuple(true, 3),
-                            std::make_tuple(true, 4),
-                            std::make_tuple(true, 5)));
+INSTANTIATE_TEST_SUITE_P(
+    DBBloomFilterTestVaryPrefixAndFormatVer,
+    DBBloomFilterTestVaryPrefixAndFormatVer,
+    ::testing::Values(
+        // (use_prefix, format_version)
+        std::make_tuple(false, 2), std::make_tuple(false, 3),
+        std::make_tuple(false, 4), std::make_tuple(false, 5),
+        std::make_tuple(true, 2), std::make_tuple(true, 3),
+        std::make_tuple(true, 4), std::make_tuple(true, 5)));
 
 #ifndef ROCKSDB_LITE
 namespace {
@@ -1898,7 +1895,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     BloomStatsTestWithParam, BloomStatsTestWithParam,
     ::testing::Values(std::make_tuple(BFP::kDeprecatedBlock, false),
                       std::make_tuple(BFP::kLegacyBloom, false),

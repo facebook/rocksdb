@@ -3053,7 +3053,7 @@ TEST_P(DBIteratorTest, Blob) {
   ASSERT_EQ(IterStatus(iter), "b->vb3");
 }
 
-INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
+INSTANTIATE_TEST_SUITE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 
 // Tests how DBIter work with ReadCallback

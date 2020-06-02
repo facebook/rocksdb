@@ -2940,7 +2940,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetNoReturnTs) {
 
 #endif  // !ROCKSDB_LITE
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Timestamp, DBBasicTestWithTimestampCompressionSettings,
     ::testing::Combine(
         ::testing::Values(std::shared_ptr<const FilterPolicy>(nullptr),
@@ -3086,7 +3086,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
 
 // TODO(yanqin): consider handling non-fixed-length prefix extractors, e.g.
 // NoopTransform.
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Timestamp, DBBasicTestWithTimestampPrefixSeek,
     ::testing::Combine(
         ::testing::Values(
@@ -3188,7 +3188,7 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Timestamp, DBBasicTestWithTsIterTombstones,
     ::testing::Combine(
         ::testing::Values(
