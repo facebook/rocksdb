@@ -3,8 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
 #include "db/table_properties_collector.h"
@@ -21,13 +21,17 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlockBasedTableReaderTest
     : public testing::Test,
-      public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
+      public testing::WithParamInterface<std::tuple<
+          CompressionType, bool, BlockBasedTableOptions::IndexType, bool>> {
  protected:
   CompressionType compression_type_;
   bool use_direct_reads_;
 
   void SetUp() override {
-    std::tie(compression_type_, use_direct_reads_) = GetParam();
+    BlockBasedTableOptions::IndexType index_type;
+    bool no_block_cache;
+    std::tie(compression_type_, use_direct_reads_, index_type, no_block_cache) =
+        GetParam();
 
     test::SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_based_table_reader_test");
@@ -36,9 +40,10 @@ class BlockBasedTableReaderTest
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
 
     BlockBasedTableOptions opts;
-    opts.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-    opts.no_block_cache = true;
-    table_factory_.reset(static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
+    opts.index_type = index_type;
+    opts.no_block_cache = no_block_cache;
+    table_factory_.reset(
+        static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }
 
   void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
@@ -228,7 +233,13 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   }
 }
 
-TEST_P(BlockBasedTableReaderTest, VerifyChecksum) {
+class BlockBasedTableReaderTestVerifyChecksum
+    : public BlockBasedTableReaderTest {
+ public:
+  BlockBasedTableReaderTestVerifyChecksum() : BlockBasedTableReaderTest() {}
+};
+
+TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   // Prepare key-value pairs to occupy multiple blocks.
   // Each value is 256B, every 16 pairs constitute 1 block.
   // Adjacent blocks contain values with different compression complexity:
@@ -264,6 +275,8 @@ TEST_P(BlockBasedTableReaderTest, VerifyChecksum) {
   InternalKeyComparator comparator(options.comparator);
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
 
+  // Use the top level iterator to find the offset/size of the first
+  // 2nd level index block and corrupt the block
   IndexBlockIter iiter_on_stack;
   BlockCacheLookupContext context{TableReaderCaller::kUserVerifyChecksum};
   InternalIteratorBase<IndexValue>* iiter = table->NewIndexIterator(
@@ -275,36 +288,57 @@ TEST_P(BlockBasedTableReaderTest, VerifyChecksum) {
   }
   ASSERT_OK(iiter->status());
   iiter->SeekToFirst();
-  BlockHandle handle = static_cast<ParititionedIndexIterator*>(iiter)->index_iter_->value().handle;
+  BlockHandle handle = static_cast<ParititionedIndexIterator*>(iiter)
+                           ->index_iter_->value()
+                           .handle;
   table.reset();
 
+  // Corrupt the block pointed to by handle
   std::string garbage;
-  test::RandomString(&rnd, std::min<int>(static_cast<int>(handle.size()), 128), &garbage);
+  test::RandomString(&rnd, std::min<int>(static_cast<int>(handle.size()), 128),
+                     &garbage);
   std::string contents;
   Status s = ReadFileToString(fs().get(), Path(table_name), &contents);
   ASSERT_OK(s);
   contents.replace(handle.offset(), garbage.length(), garbage);
-  ASSERT_OK(WriteStringToFile(fs().get(), contents, Path(table_name), true/*should_sync*/));
+  ASSERT_OK(WriteStringToFile(fs().get(), contents, Path(table_name),
+                              true /*should_sync*/));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
-  s = table->VerifyChecksum(ReadOptions(), TableReaderCaller::kUserVerifyChecksum);
+  s = table->VerifyChecksum(ReadOptions(),
+                            TableReaderCaller::kUserVerifyChecksum);
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
 // Param 1: compression type
 // Param 2: whether to use direct reads
+// Param 3: Block Based Table Index type
+// Param 4: BBTO no_block_cache option
 #ifdef ROCKSDB_LITE
 // Skip direct I/O tests in lite mode since direct I/O is unsupported.
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
-    ::testing::Combine(::testing::ValuesIn(GetSupportedCompressions()),
-                       ::testing::Values(false)));
+    ::testing::Combine(
+        ::testing::ValuesIn(GetSupportedCompressions()),
+        ::testing::Values(false),
+        ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
+        ::testing::Values(false)));
 #else   // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
-    ::testing::Combine(::testing::ValuesIn(GetSupportedCompressions()),
-                       ::testing::Bool()));
+    ::testing::Combine(
+        ::testing::ValuesIn(GetSupportedCompressions()), ::testing::Bool(),
+        ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
+        ::testing::Values(false)));
 #endif  // ROCKSDB_LITE
+INSTANTIATE_TEST_CASE_P(
+    VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
+    ::testing::Combine(
+        ::testing::ValuesIn(GetSupportedCompressions()),
+        ::testing::Values(false),
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
+        ::testing::Values(true)));
 
 }  // namespace ROCKSDB_NAMESPACE
 
