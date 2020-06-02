@@ -543,6 +543,7 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
+  context.is_bottommost_level = bottommost_level_;
   context.column_family_id = cfd_->GetID();
   context.reason = TableFileCreationReason::kCompaction;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(

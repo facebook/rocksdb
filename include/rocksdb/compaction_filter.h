@@ -56,6 +56,8 @@ class CompactionFilter : public Customizable {
     // Whether this table file is created as part of a compaction requested by
     // the client.
     bool is_manual_compaction;
+    // Whether output files are in bottommost level or not.
+    bool is_bottommost_level;
     // The column family that will contain the created table file.
     uint32_t column_family_id;
     // Reason this table file is being created.
