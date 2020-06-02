@@ -1501,6 +1501,221 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetBatchedValueSizeInMemory) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  SetPerfLevel(kEnableCount);
+  ASSERT_OK(Put(1, "k1", "v_1"));
+  ASSERT_OK(Put(1, "k2", "v_2"));
+  ASSERT_OK(Put(1, "k3", "v_3"));
+  ASSERT_OK(Put(1, "k4", "v_4"));
+  ASSERT_OK(Put(1, "k5", "v_5"));
+  ASSERT_OK(Put(1, "k6", "v_6"));
+  std::vector<Slice> keys = {"k1", "k2", "k3", "k4", "k5", "k6"};
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<Status> s(keys.size());
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+
+  get_perf_context()->Reset();
+  ReadOptions ro;
+  ro.value_size_soft_limit = 11;
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                s.data(), false);
+
+  ASSERT_EQ(values.size(), keys.size());
+  for (unsigned int i = 0; i < 4; i++) {
+    ASSERT_EQ(std::string(values[i].data(), values[i].size()),
+              "v_" + std::to_string(i + 1));
+  }
+
+  for (unsigned int i = 4; i < 6; i++) {
+    ASSERT_TRUE(s[i].IsAborted());
+  }
+
+  ASSERT_EQ(12, (int)get_perf_context()->multiget_read_bytes);
+  SetPerfLevel(kDisable);
+}
+
+TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    SetPerfLevel(kEnableCount);
+
+    ASSERT_OK(Put(1, "k6", "v6"));
+    ASSERT_OK(Put(1, "k7", "v7_"));
+    ASSERT_OK(Put(1, "k3", "v3_"));
+    ASSERT_OK(Put(1, "k4", "v4"));
+    Flush(1);
+    ASSERT_OK(Delete(1, "k4"));
+    ASSERT_OK(Put(1, "k11", "v11"));
+    ASSERT_OK(Delete(1, "no_key"));
+    ASSERT_OK(Put(1, "k8", "v8_"));
+    ASSERT_OK(Put(1, "k13", "v13"));
+    ASSERT_OK(Put(1, "k14", "v14"));
+    ASSERT_OK(Put(1, "k15", "v15"));
+    ASSERT_OK(Put(1, "k16", "v16"));
+    ASSERT_OK(Put(1, "k17", "v17"));
+    Flush(1);
+
+    ASSERT_OK(Put(1, "k1", "v1_"));
+    ASSERT_OK(Put(1, "k2", "v2_"));
+    ASSERT_OK(Put(1, "k5", "v5_"));
+    ASSERT_OK(Put(1, "k9", "v9_"));
+    ASSERT_OK(Put(1, "k10", "v10"));
+    ASSERT_OK(Delete(1, "k2"));
+    ASSERT_OK(Delete(1, "k6"));
+
+    get_perf_context()->Reset();
+
+    std::vector<Slice> keys({"k1", "k10", "k11", "k12", "k13", "k14", "k15",
+                             "k16", "k17", "k2", "k3", "k4", "k5", "k6", "k7",
+                             "k8", "k9", "no_key"});
+    std::vector<PinnableSlice> values(keys.size());
+    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+    std::vector<Status> s(keys.size());
+
+    ReadOptions ro;
+    ro.value_size_soft_limit = 20;
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                  s.data(), false);
+
+    ASSERT_EQ(values.size(), keys.size());
+
+    // In memory keys
+    ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v1_");
+    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v10");
+    ASSERT_TRUE(s[9].IsNotFound());  // k2
+    ASSERT_EQ(std::string(values[12].data(), values[12].size()), "v5_");
+    ASSERT_TRUE(s[13].IsNotFound());  // k6
+    ASSERT_EQ(std::string(values[16].data(), values[16].size()), "v9_");
+
+    // In sst files
+    ASSERT_EQ(std::string(values[2].data(), values[1].size()), "v11");
+    ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v13");
+    ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v14");
+
+    // Remaining aborted after value_size exceeds.
+    ASSERT_TRUE(s[3].IsAborted());
+    ASSERT_TRUE(s[6].IsAborted());
+    ASSERT_TRUE(s[7].IsAborted());
+    ASSERT_TRUE(s[8].IsAborted());
+    ASSERT_TRUE(s[10].IsAborted());
+    ASSERT_TRUE(s[11].IsAborted());
+    ASSERT_TRUE(s[14].IsAborted());
+    ASSERT_TRUE(s[15].IsAborted());
+    ASSERT_TRUE(s[17].IsAborted());
+
+    // 6 kv pairs * 3 bytes per value (i.e. 18)
+    ASSERT_EQ(21, (int)get_perf_context()->multiget_read_bytes);
+    SetPerfLevel(kDisable);
+  } while (ChangeCompactOptions());
+}
+
+TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  int num_keys = 0;
+
+  for (int i = 0; i < 64; ++i) {
+    ASSERT_OK(Put("key_" + std::to_string(i), "val_l2_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 64; i += 3) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_l1_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  MoveFilesToLevel(1);
+
+  for (int i = 0; i < 64; i += 5) {
+    ASSERT_OK(Merge("key_" + std::to_string(i), "val_l0_" + std::to_string(i)));
+    num_keys++;
+    if (num_keys == 8) {
+      Flush();
+      num_keys = 0;
+    }
+  }
+  if (num_keys > 0) {
+    Flush();
+    num_keys = 0;
+  }
+  ASSERT_EQ(0, num_keys);
+
+  for (int i = 0; i < 64; i += 9) {
+    ASSERT_OK(
+        Merge("key_" + std::to_string(i), "val_mem_" + std::to_string(i)));
+  }
+
+  std::vector<std::string> keys_str;
+  for (int i = 10; i < 50; ++i) {
+    keys_str.push_back("key_" + std::to_string(i));
+  }
+
+  std::vector<Slice> keys(keys_str.size());
+  for (int i = 0; i < 40; i++) {
+    keys[i] = Slice(keys_str[i]);
+  }
+
+  std::vector<PinnableSlice> values(keys_str.size());
+  std::vector<Status> statuses(keys_str.size());
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+  read_options.value_size_soft_limit = 380;
+  db_->MultiGet(read_options, dbfull()->DefaultColumnFamily(), keys.size(),
+                keys.data(), values.data(), statuses.data());
+
+  ASSERT_EQ(values.size(), keys.size());
+
+  uint64_t curr_value_size = 0;
+  for (unsigned int j = 0; j < 26; ++j) {
+    int key = j + 10;
+    std::string value;
+    value.append("val_l2_" + std::to_string(key));
+    if (key % 3 == 0) {
+      value.append(",");
+      value.append("val_l1_" + std::to_string(key));
+    }
+    if (key % 5 == 0) {
+      value.append(",");
+      value.append("val_l0_" + std::to_string(key));
+    }
+    if (key % 9 == 0) {
+      value.append(",");
+      value.append("val_mem_" + std::to_string(key));
+    }
+    curr_value_size += value.size();
+    ASSERT_EQ(values[j], value);
+    ASSERT_OK(statuses[j]);
+  }
+  // ASSERT_TRUE(curr_value_size <= read_options.value_size_hard_limit);
+
+  // All remaning keys status is set Status::Abort
+  for (unsigned int j = 26; j < 40; j++) {
+    ASSERT_TRUE(statuses[j].IsAborted());
+  }
+}
+
 // Test class for batched MultiGet with prefix extractor
 // Param bool - If true, use partitioned filters
 //              If false, use full filter block

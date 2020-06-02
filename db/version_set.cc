@@ -1932,6 +1932,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       &storage_info_.level_files_brief_, storage_info_.num_non_empty_levels_,
       &storage_info_.file_indexer_, user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
+  Status s;
 
   while (f != nullptr) {
     MultiGetRange file_range = fp.CurrentFileRange();
@@ -1939,7 +1940,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
     StopWatchNano timer(env_, timer_enabled /* auto_start */);
-    Status s = table_cache_->MultiGet(
+    s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
         mutable_cf_options_.prefix_extractor.get(),
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
@@ -1960,7 +1961,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       return;
     }
     uint64_t batch_size = 0;
-    for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
+    for (auto iter = file_range.begin(); s.ok() && iter != file_range.end();
+         ++iter) {
       GetContext& get_context = *iter->get_context;
       Status* status = iter->s;
       // The Status in the KeyContext takes precedence over GetContext state
@@ -2006,7 +2008,12 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           }
           PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                     fp.GetHitFileLevel());
+          file_range.AddValueSize(iter->value->size());
           file_range.MarkKeyDone(iter);
+          if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
+            s = Status::Aborted();
+            break;
+          }
           continue;
         case GetContext::kDeleted:
           // Use empty error message for speed
@@ -2028,14 +2035,14 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       }
     }
     RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
-    if (file_picker_range.empty()) {
+    if (!s.ok() || file_picker_range.empty()) {
       break;
     }
     f = fp.GetNextFile();
   }
 
   // Process any left over keys
-  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+  for (auto iter = range->begin(); s.ok() && iter != range->end(); ++iter) {
     GetContext& get_context = *iter->get_context;
     Status* status = iter->s;
     Slice user_key = iter->lkey->user_key();
@@ -2060,11 +2067,22 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           nullptr /* result_operand */, true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
+        range->AddValueSize(iter->value->size());
+        range->MarkKeyDone(iter);
+        if (range->GetValueSize() > read_options.value_size_soft_limit) {
+          s = Status::Aborted();
+          break;
+        }
       }
     } else {
       range->MarkKeyDone(iter);
       *status = Status::NotFound();  // Use an empty error message for speed
     }
+  }
+
+  for (auto iter = range->begin(); iter != range->end(); ++iter) {
+    range->MarkKeyDone(iter);
+    *(iter->s) = s;
   }
 }
 
@@ -2618,6 +2636,12 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
 #endif
   f->refs++;
   level_files->push_back(f);
+
+  const uint64_t file_number = f->fd.GetNumber();
+
+  assert(file_locations_.find(file_number) == file_locations_.end());
+  file_locations_.emplace(file_number,
+                          FileLocation(level, level_files->size() - 1));
 }
 
 void VersionStorageInfo::AddBlobFile(
@@ -4953,7 +4977,19 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   if (first_nonempty_level > 0) {
-    new_files_list[new_levels - 1] = vstorage->LevelFiles(first_nonempty_level);
+    auto& new_last_level = new_files_list[new_levels - 1];
+
+    new_last_level = vstorage->LevelFiles(first_nonempty_level);
+
+    for (size_t i = 0; i < new_last_level.size(); ++i) {
+      const FileMetaData* const meta = new_last_level[i];
+      assert(meta);
+
+      const uint64_t file_number = meta->fd.GetNumber();
+
+      vstorage->file_locations_[file_number] =
+          VersionStorageInfo::FileLocation(new_levels - 1, i);
+    }
   }
 
   delete[] vstorage -> files_;

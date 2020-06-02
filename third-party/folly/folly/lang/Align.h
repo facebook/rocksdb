@@ -22,6 +22,15 @@
 #include <folly/Portability.h>
 #include <folly/ConstexprMath.h>
 
+// Work around bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=56019
+#ifdef __GNUC__
+#if __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 9)
+namespace std {
+using ::max_align_t;
+}
+#endif
+#endif
+
 namespace folly {
 
 //  has_extended_alignment

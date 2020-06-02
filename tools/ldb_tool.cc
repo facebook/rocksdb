@@ -124,7 +124,9 @@ int LDBCommandRunner::RunCommand(
 
   cmdObj->Run();
   LDBCommandExecuteResult ret = cmdObj->GetExecuteState();
-  fprintf(stderr, "%s\n", ret.ToString().c_str());
+  if (!ret.ToString().empty()) {
+    fprintf(stderr, "%s\n", ret.ToString().c_str());
+  }
   delete cmdObj;
 
   return ret.IsFailed() ? 1 : 0;

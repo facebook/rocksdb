@@ -228,6 +228,49 @@ class Block {
   DataBlockHashIndex data_block_hash_index_;
 };
 
+// A GlobalSeqnoAppliedKey exposes a key with global sequence number applied
+// if configured with `global_seqno != kDisableGlobalSequenceNumber`. It may
+// hold a user key or an internal key since `format_version>=3` index blocks
+// contain user keys. In case it holds user keys, it must be configured with
+// `global_seqno == kDisableGlobalSequenceNumber`.
+class GlobalSeqnoAppliedKey {
+ public:
+  void Initialize(IterKey* key, SequenceNumber global_seqno) {
+    key_ = key;
+    global_seqno_ = global_seqno;
+#ifndef NDEBUG
+    init_ = true;
+#endif  // NDEBUG
+  }
+
+  Slice UpdateAndGetKey() {
+    assert(init_);
+    if (global_seqno_ == kDisableGlobalSequenceNumber) {
+      return key_->GetKey();
+    }
+    ParsedInternalKey parsed(Slice(), 0, kTypeValue);
+    if (!ParseInternalKey(key_->GetInternalKey(), &parsed)) {
+      assert(false);  // error not handled in optimized builds
+      return Slice();
+    }
+    parsed.sequence = global_seqno_;
+    scratch_.SetInternalKey(parsed);
+    return scratch_.GetInternalKey();
+  }
+
+  bool IsKeyPinned() const {
+    return global_seqno_ == kDisableGlobalSequenceNumber && key_->IsKeyPinned();
+  }
+
+ private:
+  const IterKey* key_;
+  SequenceNumber global_seqno_;
+  IterKey scratch_;
+#ifndef NDEBUG
+  bool init_ = false;
+#endif  // NDEBUG
+};
+
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:
@@ -236,6 +279,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
                       SequenceNumber global_seqno, bool block_contents_pinned) {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
+
+    applied_key_.Initialize(&raw_key_, global_seqno);
 
     comparator_ = comparator;
     data_ = data;
@@ -267,7 +312,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Status status() const override { return status_; }
   Slice key() const override {
     assert(Valid());
-    return key_.GetKey();
+    return key_;
   }
 
 #ifndef NDEBUG
@@ -310,7 +355,13 @@ class BlockIter : public InternalIteratorBase<TValue> {
   uint32_t restarts_;  // Offset of restart array (list of fixed32)
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
-  IterKey key_;
+  // Raw key from block.
+  IterKey raw_key_;
+  // raw_key_ with global seqno applied if necessary. Use this one for
+  // comparisons.
+  GlobalSeqnoAppliedKey applied_key_;
+  // Key to be exposed to users.
+  Slice key_;
   Slice value_;
   Status status_;
   bool key_pinned_;
@@ -319,11 +370,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
   // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
-  // Save the actual sequence before replaced by global seqno, which potentially
-  // is used as part of prefix of delta encoding.
-  SequenceNumber stored_seqno_ = 0;
-  // Save the value type of key_. Used to restore stored_seqno_.
-  ValueType stored_value_type_ = kMaxValue;
 
  private:
   // Store the cache handle, if the block is cached. We need this since the
@@ -346,7 +392,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   }
 
   void SeekToRestartPoint(uint32_t index) {
-    key_.Clear();
+    raw_key_.Clear();
     restart_index_ = index;
     // current_ will be fixed by ParseNextKey();
 
@@ -386,7 +432,7 @@ class DataBlockIter final : public BlockIter<Slice> {
     InitializeBase(comparator, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
     user_comparator_ = user_comparator;
-    key_.SetIsUserKey(false);
+    raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
@@ -477,10 +523,6 @@ class DataBlockIter final : public BlockIter<Slice> {
   template <typename DecodeEntryFunc>
   inline bool ParseNextDataKey(const char* limit = nullptr);
 
-  inline int Compare(const IterKey& ikey, const Slice& b) const {
-    return comparator_->Compare(ikey.GetInternalKey(), b);
-  }
-
   bool SeekForGetImpl(const Slice& target);
 };
 
@@ -488,10 +530,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
  public:
   IndexBlockIter() : BlockIter(), prefix_index_(nullptr) {}
 
-  Slice key() const override {
-    assert(Valid());
-    return key_.GetKey();
-  }
   // key_includes_seq, default true, means that the keys are in internal key
   // format.
   // value_is_full, default true, means that no delta encoding is
@@ -511,7 +549,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
         restarts, num_restarts, kDisableGlobalSequenceNumber,
         block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
-    key_.SetIsUserKey(!key_includes_seq_);
+    raw_key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
     have_first_key_ = have_first_key;
@@ -559,7 +597,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     status_ = Status::InvalidArgument(
         "RocksDB internal error: should never call SeekForPrev() on index "
         "blocks");
-    key_.Clear();
+    raw_key_.Clear();
     value_.clear();
   }
 
@@ -618,14 +656,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
                             uint32_t left, uint32_t right, uint32_t* index,
                             bool* prefix_may_exist);
   inline int CompareBlockKey(uint32_t block_index, const Slice& target);
-
-  inline int Compare(const Slice& a, const Slice& b) const {
-    return comparator_->Compare(a, b);
-  }
-
-  inline int Compare(const IterKey& ikey, const Slice& b) const {
-    return comparator_->Compare(ikey.GetKey(), b);
-  }
 
   inline bool ParseNextIndexKey();
 

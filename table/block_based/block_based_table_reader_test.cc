@@ -221,10 +221,18 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
 
 // Param 1: compression type
 // Param 2: whether to use direct reads
+#ifdef ROCKSDB_LITE
+// Skip direct I/O tests in lite mode since direct I/O is unsupported.
+INSTANTIATE_TEST_CASE_P(
+    MultiGet, BlockBasedTableReaderTest,
+    ::testing::Combine(::testing::ValuesIn(GetSupportedCompressions()),
+                       ::testing::Values(false)));
+#else   // ROCKSDB_LITE
 INSTANTIATE_TEST_CASE_P(
     MultiGet, BlockBasedTableReaderTest,
     ::testing::Combine(::testing::ValuesIn(GetSupportedCompressions()),
                        ::testing::Bool()));
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

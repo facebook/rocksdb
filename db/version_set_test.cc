@@ -372,19 +372,19 @@ TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
   Add(2, 3U, "6", "8", 1U);  // Partial overlap with last level
   Add(3, 4U, "1", "9", 1U);  // Contains range of last level
   Add(4, 5U, "4", "5", 1U);  // Inside range of last level
-  Add(4, 5U, "6", "7", 1U);  // Inside range of last level
-  Add(5, 6U, "4", "7", 10U);
+  Add(4, 6U, "6", "7", 1U);  // Inside range of last level
+  Add(5, 7U, "4", "7", 10U);
   ASSERT_EQ(10U, vstorage_.EstimateLiveDataSize());
 }
 
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize2) {
   Add(0, 1U, "9", "9", 1U);  // Level 0 is not ordered
-  Add(0, 1U, "5", "6", 1U);  // Ignored because of [5,6] in l1
-  Add(1, 1U, "1", "2", 1U);  // Ignored because of [2,3] in l2
-  Add(1, 2U, "3", "4", 1U);  // Ignored because of [2,3] in l2
-  Add(1, 3U, "5", "6", 1U);
-  Add(2, 4U, "2", "3", 1U);
-  Add(3, 5U, "7", "8", 1U);
+  Add(0, 2U, "5", "6", 1U);  // Ignored because of [5,6] in l1
+  Add(1, 3U, "1", "2", 1U);  // Ignored because of [2,3] in l2
+  Add(1, 4U, "3", "4", 1U);  // Ignored because of [2,3] in l2
+  Add(1, 5U, "5", "6", 1U);
+  Add(2, 6U, "2", "3", 1U);
+  Add(3, 7U, "7", "8", 1U);
   ASSERT_EQ(4U, vstorage_.EstimateLiveDataSize());
 }
 
@@ -419,6 +419,23 @@ TEST_F(VersionStorageInfoTest, GetOverlappingInputs) {
       1, {"g", 0, kTypeValue}, {"h", 0, kTypeValue}));
   ASSERT_EQ("6", GetOverlappingFiles(
       1, {"i", 0, kTypeValue}, {"j", 0, kTypeValue}));
+}
+
+TEST_F(VersionStorageInfoTest, FileLocation) {
+  Add(0, 11U, "1", "2", 5000U);
+  Add(0, 12U, "1", "2", 5000U);
+
+  Add(2, 7U, "1", "2", 8000U);
+
+  ASSERT_EQ(vstorage_.GetFileLocation(11U),
+            VersionStorageInfo::FileLocation(0, 0));
+  ASSERT_EQ(vstorage_.GetFileLocation(12U),
+            VersionStorageInfo::FileLocation(0, 1));
+
+  ASSERT_EQ(vstorage_.GetFileLocation(7U),
+            VersionStorageInfo::FileLocation(2, 0));
+
+  ASSERT_FALSE(vstorage_.GetFileLocation(999U).IsValid());
 }
 
 class VersionStorageInfoTimestampTest : public VersionStorageInfoTestBase {

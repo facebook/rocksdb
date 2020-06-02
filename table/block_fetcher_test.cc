@@ -339,6 +339,9 @@ class BlockFetcherTest : public testing::Test {
   }
 };
 
+// Skip the following tests in lite mode since direct I/O is unsupported.
+#ifndef ROCKSDB_LITE
+
 // Fetch index block under both direct IO and non-direct IO.
 // Expects:
 // the index block contents are the same for both read modes.
@@ -436,6 +439,8 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
   TestFetchDataBlock("FetchAndUncompressCompressedDataBlock", true, true,
                      expected_non_direct_io_stats, expected_direct_io_stats);
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace
 }  // namespace ROCKSDB_NAMESPACE

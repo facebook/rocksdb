@@ -1175,6 +1175,10 @@ if(WITH_TESTS)
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
       endif()
+      if("${exename}" MATCHES "env_librados_test")
+        # env_librados_test.cc uses librados directly
+        target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} rados)
+      endif()
   endforeach(sourcefile ${TESTS})
 
   if(WIN32)

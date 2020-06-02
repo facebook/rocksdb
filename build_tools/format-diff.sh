@@ -26,51 +26,75 @@ while getopts ':ch' OPTION; do
   esac
 done
 
-if [ -z $CLANG_FORMAT_DIFF ]
-then
-CLANG_FORMAT_DIFF="clang-format-diff.py"
-fi
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-# Check clang-format-diff.py
-if ! which $CLANG_FORMAT_DIFF &> /dev/null
-then
-  if [ ! -f ./clang-format-diff.py ]
-  then
-    echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
-    echo "You can download clang-format-diff.py by running: "
-    echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
-    echo "You can download clang-format by running:"
-    echo "    brew install clang-format"
-    echo "  Or"
-    echo "    apt install clang-format"
-    echo "  This might work too:"
-    echo "    yum install git-clang-format"
-    echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
-    echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
-    exit 128
+if [ "$CLANG_FORMAT_DIFF" ]; then
+  echo "Note: CLANG_FORMAT_DIFF='$CLANG_FORMAT_DIFF'"
+  # Dry run to confirm dependencies like argparse
+  if $CLANG_FORMAT_DIFF --help >/dev/null < /dev/null; then
+    true #Good
   else
-    if [ -x ./clang-format-diff.py ]
-    then
-      PATH=$PATH:.
+    exit 128
+  fi
+else
+  # First try directly executing the possibilities
+  if clang-format-diff.py --help &> /dev/null < /dev/null; then
+    CLANG_FORMAT_DIFF=clang-format-diff.py
+  elif $REPO_ROOT/clang-format-diff.py --help &> /dev/null < /dev/null; then
+    CLANG_FORMAT_DIFF=$REPO_ROOT/clang-format-diff.py
+  else
+    # This probably means we need to directly invoke the interpreter.
+    # But first find clang-format-diff.py
+    if [ -f "$REPO_ROOT/clang-format-diff.py" ]; then
+      CFD_PATH="$REPO_ROOT/clang-format-diff.py"
+    elif which clang-format-diff.py &> /dev/null; then
+      CFD_PATH="$(which clang-format-diff.py)"
     else
-      CLANG_FORMAT_DIFF="python ./clang-format-diff.py"
+      echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
+      echo "You can download clang-format-diff.py by running: "
+      echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
+      echo "You can download clang-format by running:"
+      echo "    brew install clang-format"
+      echo "  Or"
+      echo "    apt install clang-format"
+      echo "  This might work too:"
+      echo "    yum install git-clang-format"
+      echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
+      echo "and make sure ${CLANG_FORMAT_DIFF} is executable."
+      exit 128
+    fi
+    # Check argparse pre-req on interpreter, or it will fail
+    if echo import argparse | ${PYTHON:-python3}; then
+      true # Good
+    else
+      echo "To run clang-format-diff.py, we'll need the library "argparse" to be"
+      echo "installed. You can try either of the follow ways to install it:"
+      echo "  1. Manually download argparse: https://pypi.python.org/pypi/argparse"
+      echo "  2. easy_install argparse (if you have easy_install)"
+      echo "  3. pip install argparse (if you have pip)"
+      exit 129
+    fi
+    # Unfortunately, some machines have a Python2 clang-format-diff.py
+    # installed but only a Python3 interpreter installed. Rather than trying
+    # different Python versions that might be installed, we can try migrating
+    # the code to Python3 if it looks like Python2
+    if grep -q "print '" "$CFD_PATH" && \
+       ${PYTHON:-python3} --version | grep -q 'ython 3'; then
+      if [ ! -f "$REPO_ROOT/.py3/clang-format-diff.py" ]; then
+        echo "Migrating $CFD_PATH to Python3 in a hidden file"
+        mkdir -p "$REPO_ROOT/.py3"
+        ${PYTHON:-python3} -m lib2to3 -w -n -o "$REPO_ROOT/.py3" "$CFD_PATH" > /dev/null || exit 128
+      fi
+      CFD_PATH="$REPO_ROOT/.py3/clang-format-diff.py"
+    fi
+    CLANG_FORMAT_DIFF="${PYTHON:-python3} $CFD_PATH"
+    # This had better work after all those checks
+    if $CLANG_FORMAT_DIFF --help >/dev/null < /dev/null; then
+      true #Good
+    else
+      exit 128
     fi
   fi
-fi
-
-# Check argparse, a library that clang-format-diff.py requires.
-python 2>/dev/null << EOF
-import argparse
-EOF
-
-if [ "$?" != 0 ]
-then
-  echo "To run clang-format-diff.py, we'll need the library "argparse" to be"
-  echo "installed. You can try either of the follow ways to install it:"
-  echo "  1. Manually download argparse: https://pypi.python.org/pypi/argparse"
-  echo "  2. easy_install argparse (if you have easy_install)"
-  echo "  3. pip install argparse (if you have pip)"
-  exit 129
 fi
 
 # TODO(kailiu) following work is not complete since we still need to figure

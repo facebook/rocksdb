@@ -610,14 +610,14 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const auto& opt_info = pair.second;
     if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
       const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + opt_info.offset;
+          reinterpret_cast<const char*>(&base_opt) + opt_info.offset_;
       const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + opt_info.offset;
+          reinterpret_cast<const char*>(&file_opt) + opt_info.offset_;
       std::string mismatch;
-      if (!opt_info.MatchesOption(config_options, pair.first, base_addr,
-                                  file_addr, &mismatch) &&
-          !opt_info.MatchesByName(config_options, pair.first, base_addr,
-                                  file_addr)) {
+      if (!opt_info.AreEqual(config_options, pair.first, base_addr, file_addr,
+                             &mismatch) &&
+          !opt_info.AreEqualByName(config_options, pair.first, base_addr,
+                                   file_addr)) {
         const size_t kBufferSize = 2048;
         char buffer[kBufferSize];
         std::string base_value;
@@ -627,11 +627,11 @@ Status RocksDBOptionsParser::VerifyDBOptions(
                      "[RocksDBOptionsParser]: "
                      "failed the verification on ColumnFamilyOptions::%s",
                      pair.first.c_str());
-        Status s = opt_info.SerializeOption(config_options, pair.first,
-                                            base_addr, &base_value);
+        Status s = opt_info.Serialize(config_options, pair.first, base_addr,
+                                      &base_value);
         if (s.ok()) {
-          s = opt_info.SerializeOption(config_options, pair.first, file_addr,
-                                       &file_value);
+          s = opt_info.Serialize(config_options, pair.first, file_addr,
+                                 &file_value);
         }
         snprintf(buffer, sizeof(buffer),
                  "[RocksDBOptionsParser]: "
@@ -668,11 +668,11 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
       std::string mismatch;
       const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + opt_info.offset;
+          reinterpret_cast<const char*>(&base_opt) + opt_info.offset_;
       const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + opt_info.offset;
-      bool matches = opt_info.MatchesOption(config_options, pair.first,
-                                            base_addr, file_addr, &mismatch);
+          reinterpret_cast<const char*>(&file_opt) + opt_info.offset_;
+      bool matches = opt_info.AreEqual(config_options, pair.first, base_addr,
+                                       file_addr, &mismatch);
       if (!matches && opt_info.IsByName()) {
         if (opt_map == nullptr) {
           matches = true;
@@ -681,8 +681,8 @@ Status RocksDBOptionsParser::VerifyCFOptions(
           if (iter == opt_map->end()) {
             matches = true;
           } else {
-            matches = opt_info.MatchesByName(config_options, pair.first,
-                                             base_addr, iter->second);
+            matches = opt_info.AreEqualByName(config_options, pair.first,
+                                              base_addr, iter->second);
           }
         }
       }
@@ -692,11 +692,11 @@ Status RocksDBOptionsParser::VerifyCFOptions(
         char buffer[kBufferSize];
         std::string base_value;
         std::string file_value;
-        Status s = opt_info.SerializeOption(config_options, pair.first,
-                                            base_addr, &base_value);
+        Status s = opt_info.Serialize(config_options, pair.first, base_addr,
+                                      &base_value);
         if (s.ok()) {
-          s = opt_info.SerializeOption(config_options, pair.first, file_addr,
-                                       &file_value);
+          s = opt_info.Serialize(config_options, pair.first, file_addr,
+                                 &file_value);
         }
         int offset =
             snprintf(buffer, sizeof(buffer),
