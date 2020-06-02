@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
 #include "table/block_based/partitioned_index_iterator.h"
-#include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status PartitionIndexReader::Create(

@@ -55,7 +55,6 @@
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
 
-#include "test_util/testharness.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/lang.h"
 #include "test_util/sync_point.h"

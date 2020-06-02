@@ -142,3 +142,17 @@ class SyncPoint {
 #define INIT_SYNC_POINT_SINGLETONS() \
   (void)ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
 #endif  // NDEBUG
+
+// Callback sync point for any read IO errors that should be ignored by
+// the fault injection framework
+// Disable in release mode
+#ifdef NDEBUG
+#define IGNORE_STATUS_IF_ERROR(_status_)
+#else
+#define IGNORE_STATUS_IF_ERROR(_status_)            \
+  {                                                 \
+    if (!_status_.ok()) {                           \
+      TEST_SYNC_POINT("FaultInjectionIgnoreError"); \
+    }                                               \
+  }
+#endif  // NDEBUG
