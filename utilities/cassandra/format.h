@@ -60,7 +60,6 @@
 #include <vector>
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
-#include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
@@ -172,25 +171,13 @@ public:
   // Merge multiple rows according to their timestamp.
   static RowValue Merge(std::vector<RowValue>&& values);
 
-private:
+  const Columns& get_columns() { return columns_; }
+
+ private:
   int32_t local_deletion_time_;
   int64_t marked_for_delete_at_;
   Columns columns_;
   int64_t last_modified_time_;
-
-  FRIEND_TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired);
-  FRIEND_TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones);
-  FRIEND_TEST(RowValueMergeTest, Merge);
-  FRIEND_TEST(RowValueMergeTest, MergeWithRowTombstone);
-  FRIEND_TEST(CassandraFunctionalTest, SimpleMergeTest);
-  FRIEND_TEST(
-    CassandraFunctionalTest, CompactionShouldConvertExpiredColumnsToTombstone);
-  FRIEND_TEST(
-    CassandraFunctionalTest, CompactionShouldPurgeExpiredColumnsIfPurgeTtlIsOn);
-  FRIEND_TEST(
-    CassandraFunctionalTest, CompactionShouldRemoveRowWhenAllColumnExpiredIfPurgeTtlIsOn);
-  FRIEND_TEST(CassandraFunctionalTest,
-              CompactionShouldRemoveTombstoneExceedingGCGracePeriod);
 };
 
 } // namepsace cassandrda
