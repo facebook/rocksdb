@@ -1242,7 +1242,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     for (int so: start_offsets) {
       offsets.push_back(so);
     }
-    for (size_t i = 0; i < offsets.size() - 1; i++) {
+    for (size_t i = 0; i + 1 < offsets.size(); i++) {
       lens.push_back(static_cast<size_t>(rnd.Uniform(static_cast<int>(offsets[i + 1] - offsets[i])) + 1));
     }
     lens.push_back(static_cast<size_t>(rnd.Uniform(static_cast<int>(kTotalSize - offsets.back())) + 1));

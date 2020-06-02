@@ -1107,7 +1107,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
                                       355l, 450l, 455l, 550l, 555l, 650l, 655l,
                                       750l, 755l, 850l, 855l, 950l, 955l};
   assert(seqs.size() > 1);
-  for (size_t i = 0; i < seqs.size() - 1; i++) {
+  for (size_t i = 0; i + 1 < seqs.size(); i++) {
     wp_db->old_commit_map_empty_ = true;  // reset
     CommitEntry commit_entry = {seqs[i], seqs[i + 1]};
     wp_db->CheckAgainstSnapshots(commit_entry);

@@ -722,7 +722,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     // We want the last transaction in the chain to block and hold everyone
     // back.
     std::vector<port::Thread> threads;
-    for (uint32_t i = 0; i < len - 1; i++) {
+    for (uint32_t i = 0; i + 1 < len; i++) {
       std::function<void()> blocking_thread = [&, i] {
         auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
         ASSERT_OK(s);

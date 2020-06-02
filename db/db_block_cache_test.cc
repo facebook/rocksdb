@@ -187,7 +187,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   Iterator* iter = nullptr;
 
   // Load blocks into cache.
-  for (size_t i = 0; i < kNumBlocks - 1; i++) {
+  for (size_t i = 0; i + 1 < kNumBlocks; i++) {
     iter = db_->NewIterator(read_options);
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
@@ -209,12 +209,12 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   iter = nullptr;
 
   // Release iterators and access cache again.
-  for (size_t i = 0; i < kNumBlocks - 1; i++) {
+  for (size_t i = 0; i + 1 < kNumBlocks; i++) {
     iterators[i].reset();
     CheckCacheCounters(options, 0, 0, 0, 0);
   }
   ASSERT_EQ(0, cache->GetPinnedUsage());
-  for (size_t i = 0; i < kNumBlocks - 1; i++) {
+  for (size_t i = 0; i + 1 < kNumBlocks; i++) {
     iter = db_->NewIterator(read_options);
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
@@ -243,7 +243,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   Iterator* iter = nullptr;
 
   // Load blocks into cache.
-  for (size_t i = 0; i < kNumBlocks - 1; i++) {
+  for (size_t i = 0; i + 1 < kNumBlocks; i++) {
     iter = db_->NewIterator(read_options);
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
