@@ -3031,7 +3031,7 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
     // Hmm. Let's just split in half to avoid skewing one way or another,
     // since we don't know whether we're operating on lower bound or
     // upper bound.
-    return static_cast<double>(rep_->file_size) / 2;
+    return rep_->file_size / 2;
   }
 
   BlockCacheLookupContext context(caller);
@@ -3066,7 +3066,7 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   if (UNLIKELY(data_size == 0)) {
     // Hmm. Assume whole file is involved, since we have lower and upper
     // bound.
-    return static_cast<double>(rep_->file_size);
+    return rep_->file_size;
   }
 
   BlockCacheLookupContext context(caller);
