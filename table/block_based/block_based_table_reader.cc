@@ -3026,6 +3026,14 @@ uint64_t BlockBasedTable::GetApproximateDataSize() {
 
 uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
                                               TableReaderCaller caller) {
+  uint64_t data_size = GetApproximateDataSize();
+  if (UNLIKELY(data_size == 0)) {
+    // Hmm. Let's just split in half to avoid skewing one way or another,
+    // since we don't know whether we're operating on lower bound or
+    // upper bound.
+    return static_cast<double>(rep_->file_size) / 2;
+  }
+
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
   ReadOptions ro;
@@ -3039,7 +3047,6 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key,
     iiter_unique_ptr.reset(index_iter);
   }
 
-  uint64_t data_size = GetApproximateDataSize();
   index_iter->Seek(key);
 
   uint64_t offset = ApproximateDataOffsetOf(*index_iter, data_size);
@@ -3055,6 +3062,13 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
                                           TableReaderCaller caller) {
   assert(rep_->internal_comparator.Compare(start, end) <= 0);
 
+  uint64_t data_size = GetApproximateDataSize();
+  if (UNLIKELY(data_size == 0)) {
+    // Hmm. Assume whole file is involved, since we have lower and upper
+    // bound.
+    return static_cast<double>(rep_->file_size);
+  }
+
   BlockCacheLookupContext context(caller);
   IndexBlockIter iiter_on_stack;
   ReadOptions ro;
@@ -3067,8 +3081,6 @@ uint64_t BlockBasedTable::ApproximateSize(const Slice& start, const Slice& end,
   if (index_iter != &iiter_on_stack) {
     iiter_unique_ptr.reset(index_iter);
   }
-
-  uint64_t data_size = GetApproximateDataSize();
 
   index_iter->Seek(start);
   uint64_t start_offset = ApproximateDataOffsetOf(*index_iter, data_size);
