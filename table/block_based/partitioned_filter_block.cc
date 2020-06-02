@@ -42,8 +42,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     // minimum size without CalculateSpace (not necessarily available).
     uint32_t larger = std::max(partition_size + 4, uint32_t{16});
     for (;;) {
-      keys_per_partition_ =
-          filter_bits_builder_->CalculateNumEntry(larger);
+      keys_per_partition_ = filter_bits_builder_->CalculateNumEntry(larger);
       if (keys_per_partition_ >= 1) {
         break;
       }
