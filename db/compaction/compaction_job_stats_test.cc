@@ -1017,8 +1017,8 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }
 
-INSTANTIATE_TEST_CASE_P(CompactionJobStatsTest, CompactionJobStatsTest,
-                        ::testing::Values(1, 4));
+INSTANTIATE_TEST_SUITE_P(CompactionJobStatsTest, CompactionJobStatsTest,
+                         ::testing::Values(1, 4));
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

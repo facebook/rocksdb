@@ -84,8 +84,8 @@ TEST_P(PrefixFullBloomWithReverseComparator,
   ASSERT_TRUE(!iter->Valid());
 }
 
-INSTANTIATE_TEST_CASE_P(PrefixFullBloomWithReverseComparator,
-                        PrefixFullBloomWithReverseComparator, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(PrefixFullBloomWithReverseComparator,
+                         PrefixFullBloomWithReverseComparator, testing::Bool());
 
 TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
@@ -349,11 +349,11 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_CASE_P(DBTestSharedWriteBufferAcrossCFs,
-                        DBTestSharedWriteBufferAcrossCFs,
-                        ::testing::Values(std::make_tuple(true, false),
-                                          std::make_tuple(false, false),
-                                          std::make_tuple(false, true)));
+INSTANTIATE_TEST_SUITE_P(DBTestSharedWriteBufferAcrossCFs,
+                         DBTestSharedWriteBufferAcrossCFs,
+                         ::testing::Values(std::make_tuple(true, false),
+                                           std::make_tuple(false, false),
+                                           std::make_tuple(false, true)));
 
 TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   std::string dbname2 = test::PerThreadDBPath("db_shared_wb_db2");
@@ -1862,11 +1862,11 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
-                        PinL0IndexAndFilterBlocksTest,
-                        ::testing::Values(std::make_tuple(true, false),
-                                          std::make_tuple(false, false),
-                                          std::make_tuple(false, true)));
+INSTANTIATE_TEST_SUITE_P(PinL0IndexAndFilterBlocksTest,
+                         PinL0IndexAndFilterBlocksTest,
+                         ::testing::Values(std::make_tuple(true, false),
+                                           std::make_tuple(false, false),
+                                           std::make_tuple(false, true)));
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, MaxCompactionBytesTest) {

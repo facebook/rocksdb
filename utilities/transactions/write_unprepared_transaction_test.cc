@@ -31,7 +31,7 @@ class WriteUnpreparedTransactionTest
                                            std::get<2>(GetParam())){}
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WriteUnpreparedTransactionTest, WriteUnpreparedTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_UNPREPARED),
                       std::make_tuple(false, true, WRITE_UNPREPARED)));
@@ -48,7 +48,7 @@ class WriteUnpreparedStressTest : public WriteUnpreparedTransactionTestBase,
   StressAction action_;
 };
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     WriteUnpreparedStressTest, WriteUnpreparedStressTest,
     ::testing::Values(std::make_tuple(false, NO_SNAPSHOT),
                       std::make_tuple(false, RO_SNAPSHOT),

@@ -770,10 +770,10 @@ TEST_P(DBAtomicFlushTest, RollbackAfterFailToInstallResults) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
-                        testing::Bool());
+INSTANTIATE_TEST_SUITE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
+                         testing::Bool());
 
-INSTANTIATE_TEST_CASE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(DBAtomicFlushTest, DBAtomicFlushTest, testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -314,10 +314,10 @@ class ComparatorDBTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(FormatDef, ComparatorDBTest,
-                        testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_CASE_P(FormatLatest, ComparatorDBTest,
-                        testing::Values(test::kLatestFormatVersion));
+INSTANTIATE_TEST_SUITE_P(FormatDef, ComparatorDBTest,
+                         testing::Values(test::kDefaultFormatVersion));
+INSTANTIATE_TEST_SUITE_P(FormatLatest, ComparatorDBTest,
+                         testing::Values(test::kLatestFormatVersion));
 
 TEST_P(ComparatorDBTest, Bytewise) {
   for (int rand_seed = 301; rand_seed < 306; rand_seed++) {

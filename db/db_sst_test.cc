@@ -582,9 +582,9 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(DBWALTestWithParam, DBWALTestWithParam,
-                        ::testing::Values(std::make_tuple("", true),
-                                          std::make_tuple("_wal_dir", false)));
+INSTANTIATE_TEST_SUITE_P(DBWALTestWithParam, DBWALTestWithParam,
+                         ::testing::Values(std::make_tuple("", true),
+                                           std::make_tuple("_wal_dir", false)));
 
 TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   Options options = CurrentOptions();
