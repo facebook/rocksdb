@@ -1461,6 +1461,23 @@ int main(int argc, char** argv) {
     rocksdb_cuckoo_options_destroy(cuckoo_options);
   }
 
+  StartPhase("options");
+  {
+    rocksdb_options_t* o;
+    o = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(o, 1);
+
+    rocksdb_options_t* copy;
+    copy = rocksdb_options_create_copy(o);
+    // TODO: some way to check that *copy == *o
+
+    rocksdb_options_set_create_if_missing(copy, 0);
+    // TODO: some way to check that *copy != *o
+
+    rocksdb_options_destroy(copy);
+    rocksdb_options_destroy(o);
+  }
+
   StartPhase("iterate_upper_bound");
   {
     // Create new empty database

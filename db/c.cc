@@ -2154,6 +2154,10 @@ void rocksdb_options_destroy(rocksdb_options_t* options) {
   delete options;
 }
 
+rocksdb_options_t* rocksdb_options_create_copy(rocksdb_options_t* options) {
+  return new rocksdb_options_t(*options);
+}
+
 void rocksdb_options_increase_parallelism(
     rocksdb_options_t* opt, int total_threads) {
   opt->rep.IncreaseParallelism(total_threads);
