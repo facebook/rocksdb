@@ -17,30 +17,31 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
-Status CopyFile(FileSystem* fs, const std::string& source,
-                const std::string& destination, uint64_t size, bool use_fsync) {
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  const std::string& destination, uint64_t size,
+                  bool use_fsync) {
   const FileOptions soptions;
-  Status s;
+  IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
     std::unique_ptr<FSSequentialFile> srcfile;
-    s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
-    if (!s.ok()) {
-      return s;
+    io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
     }
     std::unique_ptr<FSWritableFile> destfile;
-    s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
-    if (!s.ok()) {
-      return s;
+    io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
     }
 
     if (size == 0) {
       // default argument means copy everything
-      s = fs->GetFileSize(source, IOOptions(), &size, nullptr);
-      if (!s.ok()) {
-        return s;
+      io_s = fs->GetFileSize(source, IOOptions(), &size, nullptr);
+      if (!io_s.ok()) {
+        return io_s;
       }
     }
     src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
@@ -52,16 +53,16 @@ Status CopyFile(FileSystem* fs, const std::string& source,
   Slice slice;
   while (size > 0) {
     size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
-    s = src_reader->Read(bytes_to_read, &slice, buffer);
-    if (!s.ok()) {
-      return s;
+    io_s = status_to_io_status(src_reader->Read(bytes_to_read, &slice, buffer));
+    if (!io_s.ok()) {
+      return io_s;
     }
     if (slice.size() == 0) {
-      return Status::Corruption("file too small");
+      return IOStatus::Corruption("file too small");
     }
-    s = dest_writer->Append(slice);
-    if (!s.ok()) {
-      return s;
+    io_s = dest_writer->Append(slice);
+    if (!io_s.ok()) {
+      return io_s;
     }
     size -= slice.size();
   }
@@ -69,22 +70,22 @@ Status CopyFile(FileSystem* fs, const std::string& source,
 }
 
 // Utility function to create a file with the provided contents
-Status CreateFile(FileSystem* fs, const std::string& destination,
-                  const std::string& contents, bool use_fsync) {
+IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+                    const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
-  Status s;
+  IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   std::unique_ptr<FSWritableFile> destfile;
-  s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
-  if (!s.ok()) {
-    return s;
+  io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
   }
   dest_writer.reset(
       new WritableFileWriter(std::move(destfile), destination, soptions));
-  s = dest_writer->Append(Slice(contents));
-  if (!s.ok()) {
-    return s;
+  io_s = dest_writer->Append(Slice(contents));
+  if (!io_s.ok()) {
+    return io_s;
   }
   return dest_writer->Sync(use_fsync);
 }

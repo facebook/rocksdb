@@ -16,12 +16,12 @@
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
-extern Status CopyFile(FileSystem* fs, const std::string& source,
-                       const std::string& destination, uint64_t size,
-                       bool use_fsync);
+extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                         const std::string& destination, uint64_t size,
+                         bool use_fsync);
 
-extern Status CreateFile(FileSystem* fs, const std::string& destination,
-                         const std::string& contents, bool use_fsync);
+extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+                           const std::string& contents, bool use_fsync);
 
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
                            const std::string& fname,
