@@ -2441,18 +2441,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
       CachableEntry<UncompressionDict> uncompression_dict;
       Status uncompression_dict_status;
-      if (rep_->uncompression_dict_reader) {
-        uncompression_dict_status =
-            rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
-                nullptr /* prefetch_buffer */, no_io,
-                sst_file_range.begin()->get_context, &lookup_context,
-                &uncompression_dict);
-      }
-
-      const UncompressionDict& dict = uncompression_dict.GetValue()
-                                          ? *uncompression_dict.GetValue()
-                                          : UncompressionDict::GetEmptyDict();
-
+      bool uncompression_dict_inited = false;
       size_t total_len = 0;
       ReadOptions ro = read_options;
       ro.read_tier = kBlockCacheTier;
@@ -2481,6 +2470,15 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           continue;
         }
 
+        if (!uncompression_dict_inited && rep_->uncompression_dict_reader) {
+          uncompression_dict_status =
+              rep_->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                  nullptr /* prefetch_buffer */, no_io,
+                  sst_file_range.begin()->get_context, &lookup_context,
+                  &uncompression_dict);
+          uncompression_dict_inited = true;
+        }
+
         if (!uncompression_dict_status.ok()) {
           assert(!uncompression_dict_status.IsNotFound());
           *(miter->s) = uncompression_dict_status;
@@ -2504,6 +2502,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         BlockHandle handle = v.handle;
         BlockCacheLookupContext lookup_data_block_context(
             TableReaderCaller::kUserMultiGet);
+        const UncompressionDict& dict = uncompression_dict.GetValue()
+                                            ? *uncompression_dict.GetValue()
+                                            : UncompressionDict::GetEmptyDict();
         Status s = RetrieveBlock(
             nullptr, ro, handle, dict, &(results.back()), BlockType::kData,
             miter->get_context, &lookup_data_block_context,
@@ -2523,6 +2524,11 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
       if (total_len) {
         char* scratch = nullptr;
+        const UncompressionDict& dict = uncompression_dict.GetValue()
+                                            ? *uncompression_dict.GetValue()
+                                            : UncompressionDict::GetEmptyDict();
+        assert(uncompression_dict_inited || !rep_->uncompression_dict_reader);
+        assert(uncompression_dict_status.ok());
         // If using direct IO, then scratch is not used, so keep it nullptr.
         // If the blocks need to be uncompressed and we don't need the
         // compressed blocks, then we can use a contiguous block of
