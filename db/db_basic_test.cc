@@ -2188,11 +2188,11 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
 class DBBasicTestMultiGet : public DBTestBase {
  public:
   DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
-                      bool uncompressed_cache, bool compression_enabled,
-                      bool fill_cache, uint32_t compression_parallel_threads)
+                      bool uncompressed_cache, bool _compression_enabled,
+                      bool _fill_cache, uint32_t compression_parallel_threads)
       : DBTestBase(test_dir) {
-    compression_enabled_ = compression_enabled;
-    fill_cache_ = fill_cache;
+    compression_enabled_ = _compression_enabled;
+    fill_cache_ = _fill_cache;
 
     if (compressed_cache) {
       std::shared_ptr<Cache> cache = NewLRUCache(1048576);
