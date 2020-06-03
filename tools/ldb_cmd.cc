@@ -1302,6 +1302,10 @@ CreateColumnFamilyCommand::CreateColumnFamilyCommand(
 }
 
 void CreateColumnFamilyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   ColumnFamilyHandle* new_cf_handle = nullptr;
   Status st = db_->CreateColumnFamily(options_, new_cf_name_, &new_cf_handle);
   if (st.ok()) {
@@ -1335,6 +1339,10 @@ DropColumnFamilyCommand::DropColumnFamilyCommand(
 }
 
 void DropColumnFamilyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   auto iter = cf_handles_.find(cf_name_to_drop_);
   if (iter == cf_handles_.end()) {
     exec_state_ = LDBCommandExecuteResult::Failed(
@@ -2031,6 +2039,10 @@ Options ChangeCompactionStyleCommand::PrepareOptionsForOpenDB() {
 }
 
 void ChangeCompactionStyleCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   // print db stats before we have made any change
   std::string property;
   std::string files_per_level;
