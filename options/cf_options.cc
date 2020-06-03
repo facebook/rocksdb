@@ -367,12 +367,13 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, max_bytes_for_level_multiplier)}},
         {"max_bytes_for_level_multiplier_additional",
-         {offset_of(
-              &ColumnFamilyOptions::max_bytes_for_level_multiplier_additional),
-          OptionType::kVectorInt, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable,
-          offsetof(struct MutableCFOptions,
-                   max_bytes_for_level_multiplier_additional)}},
+         OptionTypeInfo::Vector<int>(
+             offset_of(&ColumnFamilyOptions::
+                           max_bytes_for_level_multiplier_additional),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             offsetof(struct MutableCFOptions,
+                      max_bytes_for_level_multiplier_additional),
+             {0, OptionType::kInt, 0})},
         {"max_sequential_skip_in_iterations",
          {offset_of(&ColumnFamilyOptions::max_sequential_skip_in_iterations),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -393,9 +394,10 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, compression)}},
         {"compression_per_level",
-         {offset_of(&ColumnFamilyOptions::compression_per_level),
-          OptionType::kVectorCompressionType, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+         OptionTypeInfo::Vector<CompressionType>(
+             offset_of(&ColumnFamilyOptions::compression_per_level),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
+             {0, OptionType::kCompressionType})},
         {"bottommost_compression",
          {offset_of(&ColumnFamilyOptions::bottommost_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,

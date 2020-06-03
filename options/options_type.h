@@ -14,13 +14,13 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
+class OptionTypeInfo;
 
 enum class OptionType {
   kBoolean,
   kInt,
   kInt32T,
   kInt64T,
-  kVectorInt,
   kUInt,
   kUInt32T,
   kUInt64T,
@@ -31,7 +31,6 @@ enum class OptionType {
   kCompactionPri,
   kSliceTransform,
   kCompressionType,
-  kVectorCompressionType,
   kTableFactory,
   kComparator,
   kCompactionFilter,
@@ -46,6 +45,7 @@ enum class OptionType {
   kEnv,
   kEnum,
   kStruct,
+  kVector,
   kUnknown,
 };
 
@@ -122,6 +122,23 @@ bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
   }
   return false;
 }
+
+template <typename T>
+Status ParseVector(const ConfigOptions& config_options,
+                   const OptionTypeInfo& elem_info, char separator,
+                   const std::string& name, const std::string& value,
+                   std::vector<T>* result);
+
+template <typename T>
+Status SerializeVector(const ConfigOptions& config_options,
+                       const OptionTypeInfo& elem_info, char separator,
+                       const std::string& name, const std::vector<T>& vec,
+                       std::string* value);
+template <typename T>
+bool VectorsAreEqual(const ConfigOptions& config_options,
+                     const OptionTypeInfo& elem_info, const std::string& name,
+                     const std::vector<T>& vec1, const std::vector<T>& vec2,
+                     std::string* mismatch);
 
 // Function for converting a option string value into its underlying
 // representation in "addr"
@@ -354,6 +371,38 @@ class OptionTypeInfo {
         });
   }
 
+  template <typename T>
+  static OptionTypeInfo Vector(int _offset,
+                               OptionVerificationType _verification,
+                               OptionTypeFlags _flags, int _mutable_offset,
+                               const OptionTypeInfo& elem_info,
+                               char separator = ':') {
+    return OptionTypeInfo(
+        _offset, OptionType::kVector, _verification, _flags, _mutable_offset,
+        [elem_info, separator](const ConfigOptions& opts,
+                               const std::string& name,
+                               const std::string& value, char* addr) {
+          auto result = reinterpret_cast<std::vector<T>*>(addr);
+          return ParseVector<T>(opts, elem_info, separator, name, value,
+                                result);
+        },
+        [elem_info, separator](const ConfigOptions& opts,
+                               const std::string& name, const char* addr,
+                               std::string* value) {
+          const auto& vec = *(reinterpret_cast<const std::vector<T>*>(addr));
+          return SerializeVector<T>(opts, elem_info, separator, name, vec,
+                                    value);
+        },
+        [elem_info](const ConfigOptions& opts, const std::string& name,
+                    const char* addr1, const char* addr2,
+                    std::string* mismatch) {
+          const auto& vec1 = *(reinterpret_cast<const std::vector<T>*>(addr1));
+          const auto& vec2 = *(reinterpret_cast<const std::vector<T>*>(addr2));
+          return VectorsAreEqual<T>(opts, elem_info, name, vec1, vec2,
+                                    mismatch);
+        });
+  }
+
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
 
   bool IsMutable() const { return IsEnabled(OptionTypeFlags::kMutable); }
@@ -483,6 +532,26 @@ class OptionTypeInfo {
       const std::unordered_map<std::string, OptionTypeInfo>& opt_map,
       std::string* elem_name);
 
+  // Returns the next token marked by the delimiter from "opts" after start in
+  // token and updates end to point to where that token stops. Delimiters inside
+  // of braces are ignored. Returns OK if a token is found and an error if the
+  // input opts string is mis-formatted.
+  // Given "a=AA;b=BB;" start=2 and delimiter=";", token is "AA" and end points
+  // to "b" Given "{a=A;b=B}", the token would be "a=A;b=B"
+  //
+  // @param opts The string in which to find the next token
+  // @param delimiter The delimiter between tokens
+  // @param start     The position in opts to start looking for the token
+  // @parem ed        Returns the end position in opts of the token
+  // @param token     Returns the token
+  // @returns OK if a token was found
+  // @return InvalidArgument if the braces mismatch
+  //          (e.g. "{a={b=c;}" ) -- missing closing brace
+  // @return InvalidArgument if an expected delimiter is not found
+  //        e.g. "{a=b}c=d;" -- missing delimiter before "c"
+  static Status NextToken(const std::string& opts, char delimiter, size_t start,
+                          size_t* end, std::string* token);
+
  private:
   // The optional function to convert a string to its representation
   ParseFunc parse_func_;
@@ -497,4 +566,131 @@ class OptionTypeInfo {
   OptionVerificationType verification_;
   OptionTypeFlags flags_;
 };
+
+// Parses the input value into elements of the result vector.  This method
+// will break the input value into the individual tokens (based on the
+// separator), where each of those tokens will be parsed based on the rules of
+// elem_info. The result vector will be populated with elements based on the
+// input tokens. For example, if the value=1:2:3:4:5 and elem_info parses
+// integers, the result vector will contain the integers 1,2,3,4,5
+// @param config_options Controls how the option value is parsed.
+// @param elem_info Controls how individual tokens in value are parsed
+// @param separator Character separating tokens in values (':' in the above
+// example)
+// @param name      The name associated with this vector option
+// @param value     The input string to parse into tokens
+// @param result    Returns the results of parsing value into its elements.
+// @return OK if the value was successfully parse
+// @return InvalidArgument if the value is improperly formed or if the token
+//                          could not be parsed
+// @return NotFound         If the tokenized value contains unknown options for
+// its type
+template <typename T>
+Status ParseVector(const ConfigOptions& config_options,
+                   const OptionTypeInfo& elem_info, char separator,
+                   const std::string& name, const std::string& value,
+                   std::vector<T>* result) {
+  result->clear();
+  Status status;
+
+  for (size_t start = 0, end = 0;
+       status.ok() && start < value.size() && end != std::string::npos;
+       start = end + 1) {
+    std::string token;
+    status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
+    if (status.ok()) {
+      T elem;
+      status = elem_info.Parse(config_options, name, token,
+                               reinterpret_cast<char*>(&elem));
+      if (status.ok()) {
+        result->emplace_back(elem);
+      }
+    }
+  }
+  return status;
+}
+
+// Serializes the input vector into its output value.  Elements are
+// separated by the separator character.  This element will convert all of the
+// elements in vec into their serialized form, using elem_info to perform the
+// serialization.
+// For example, if the vec contains the integers 1,2,3,4,5 and elem_info
+// serializes the output would be 1:2:3:4:5 for separator ":".
+// @param config_options Controls how the option value is serialized.
+// @param elem_info Controls how individual tokens in value are serialized
+// @param separator Character separating tokens in value (':' in the above
+// example)
+// @param name      The name associated with this vector option
+// @param vec       The input vector to serialize
+// @param value     The output string of serialized options
+// @return OK if the value was successfully parse
+// @return InvalidArgument if the value is improperly formed or if the token
+//                          could not be parsed
+// @return NotFound         If the tokenized value contains unknown options for
+// its type
+template <typename T>
+Status SerializeVector(const ConfigOptions& config_options,
+                       const OptionTypeInfo& elem_info, char separator,
+                       const std::string& name, const std::vector<T>& vec,
+                       std::string* value) {
+  std::string result;
+  ConfigOptions embedded = config_options;
+  embedded.delimiter = ";";
+  for (size_t i = 0; i < vec.size(); ++i) {
+    std::string elem_str;
+    Status s = elem_info.Serialize(
+        embedded, name, reinterpret_cast<const char*>(&vec[i]), &elem_str);
+    if (!s.ok()) {
+      return s;
+    } else {
+      if (i > 0) {
+        result += separator;
+      }
+      // If the element contains embedded separators, put it inside of brackets
+      if (result.find(separator) != std::string::npos) {
+        result += "{" + elem_str + "}";
+      } else {
+        result += elem_str;
+      }
+    }
+  }
+  if (result.find("=") != std::string::npos) {
+    *value = "{" + result + "}";
+  } else {
+    *value = result;
+  }
+  return Status::OK();
+}
+
+// Compares the input vectors vec1 and vec2 for equality
+// If the vectors are the same size, elements of the vectors are compared one by
+// one using elem_info to perform the comparison.
+//
+// @param config_options Controls how the vectors are compared.
+// @param elem_info Controls how individual elements in the vectors are compared
+// @param name      The name associated with this vector option
+// @param vec1,vec2 The vectors to compare.
+// @param mismatch  If the vectors are not equivalent, mismatch will point to
+// the first
+//                  element of the comparison tht did not match.
+// @return true     If vec1 and vec2 are "equal", false otherwise
+template <typename T>
+bool VectorsAreEqual(const ConfigOptions& config_options,
+                     const OptionTypeInfo& elem_info, const std::string& name,
+                     const std::vector<T>& vec1, const std::vector<T>& vec2,
+                     std::string* mismatch) {
+  if (vec1.size() != vec2.size()) {
+    *mismatch = name;
+    return false;
+  } else {
+    for (size_t i = 0; i < vec1.size(); ++i) {
+      if (!elem_info.AreEqual(
+              config_options, name, reinterpret_cast<const char*>(&vec1[i]),
+              reinterpret_cast<const char*>(&vec2[i]), mismatch)) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
