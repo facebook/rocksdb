@@ -165,7 +165,15 @@ Status ExternalSstFileIngestionJob::Prepare(
   }
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
 
-  // Generate and check the sst file checksum
+  // Generate and check the sst file checksum. Note that, if
+  // IngestExternalFileOptions::write_global_seqno is true, we will not update
+  // the checksum information in the files_to_ingests_ since the file will be
+  // upadted with the new global_seqno. After the global_seqno is updated, if
+  // ingestion_options_.generate_and_verify_file_checksum is set, DB will
+  // generate the new checksum and store it in the Manifest. In all other cases
+  // if ingestion_options_.write_global_seqno == true and
+  // generate_and_verify_file_checksum is false, no checksum information will
+  // be stored in the Manifest.
   if (status.ok()) {
     if (db_options_.file_checksum_gen_factory != nullptr) {
       FileChecksumGenContext gen_context;
@@ -176,13 +184,14 @@ Status ExternalSstFileIngestionJob::Prepare(
       if (files_checksum.size() == 0 && files_checksum_func_name.size() == 0) {
         // No ingested files checksum information is provided. Use the DB
         // checksum factory to generate the checksum for each ingested file.
-        if (ingestion_options_.generate_and_verify_file_checksum) {
+        if (ingestion_options_.generate_and_verify_file_checksum &&
+            ingestion_options_.write_global_seqno == false) {
           for (size_t i = 0; i < files_to_ingest_.size(); i++) {
-            std::string generated_checksum;
+            std::string generated_checksum, generated_checksum_func_name;
             IOStatus io_s = GenerateOneFileChecksum(
                 fs_, files_to_ingest_[i].internal_file_path,
                 db_options_.file_checksum_gen_factory.get(),
-                &generated_checksum);
+                &generated_checksum, &generated_checksum_func_name);
             if (!io_s.ok()) {
               status = io_s;
               ROCKS_LOG_WARN(
@@ -193,7 +202,8 @@ Status ExternalSstFileIngestionJob::Prepare(
               break;
             }
             files_to_ingest_[i].file_checksum = generated_checksum;
-            files_to_ingest_[i].file_checksum_func_name = db_checksum_func_name;
+            files_to_ingest_[i].file_checksum_func_name =
+                generated_checksum_func_name;
           }
         }
       } else if (files_checksum.size() != files_to_ingest_.size() ||
@@ -220,11 +230,11 @@ Status ExternalSstFileIngestionJob::Prepare(
                   external_files_paths[i].c_str(), status.ToString().c_str());
               break;
             }
-            std::string generated_checksum;
+            std::string generated_checksum, generated_checksum_func_name;
             IOStatus io_s = GenerateOneFileChecksum(
                 fs_, files_to_ingest_[i].internal_file_path,
                 db_options_.file_checksum_gen_factory.get(),
-                &generated_checksum);
+                &generated_checksum, &generated_checksum_func_name);
             if (!io_s.ok()) {
               status = io_s;
               ROCKS_LOG_WARN(
@@ -245,12 +255,15 @@ Status ExternalSstFileIngestionJob::Prepare(
                   status.ToString().c_str());
               break;
             }
-            files_to_ingest_[i].file_checksum = files_checksum[i];
-            files_to_ingest_[i].file_checksum_func_name =
-                files_checksum_func_name[i];
+            if (ingestion_options_.write_global_seqno == false) {
+              files_to_ingest_[i].file_checksum = files_checksum[i];
+              files_to_ingest_[i].file_checksum_func_name =
+                  files_checksum_func_name[i];
+            }
           }
         } else {
-          // Checksum verification is not enabled, we trust the ingested
+          // Checksum verification is not enabled, and also the write
+          // global seqno is False, we trust and store the ingested
           // checksum if the checksum function name matches. If the
           // checksum function name does not match, fail the ingestion
           for (size_t i = 0; i < files_to_ingest_.size(); i++) {
@@ -264,9 +277,11 @@ Status ExternalSstFileIngestionJob::Prepare(
                   external_files_paths[i].c_str(), status.ToString().c_str());
               break;
             }
-            files_to_ingest_[i].file_checksum = files_checksum[i];
-            files_to_ingest_[i].file_checksum_func_name =
-                files_checksum_func_name[i];
+            if (ingestion_options_.write_global_seqno == false) {
+              files_to_ingest_[i].file_checksum = files_checksum[i];
+              files_to_ingest_[i].file_checksum_func_name =
+                  files_checksum_func_name[i];
+            }
           }
         }
       }
@@ -354,6 +369,11 @@ Status ExternalSstFileIngestionJob::Run() {
       last_seqno = assigned_seqno;
       ++consumed_seqno_count_;
     }
+    if (!status.ok()) {
+      return status;
+    }
+
+    status = GenerateChecksumForIngestedFile(&f);
     if (!status.ok()) {
       return status;
     }
@@ -798,6 +818,26 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
 
   file_to_ingest->assigned_seqno = seqno;
   return Status::OK();
+}
+
+IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
+    IngestedFileInfo* file_to_ingest) {
+  if (db_options_.file_checksum_gen_factory == nullptr ||
+      ingestion_options_.generate_and_verify_file_checksum == false ||
+      ingestion_options_.write_global_seqno == false) {
+    return IOStatus::OK();
+  }
+  std::string file_checksum, file_checksum_func_name;
+  IOStatus io_s =
+      GenerateOneFileChecksum(fs_, file_to_ingest->internal_file_path,
+                              db_options_.file_checksum_gen_factory.get(),
+                              &file_checksum, &file_checksum_func_name);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  file_to_ingest->file_checksum = file_checksum;
+  file_to_ingest->file_checksum_func_name = file_checksum_func_name;
+  return IOStatus::OK();
 }
 
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(

@@ -47,12 +47,13 @@ class ExternalSSTFileBasicTest
       const std::vector<std::string>& files_checksum,
       const std::vector<std::string>& files_checksum_func_name,
       bool generate_and_verify = true, bool move_files = false,
-      bool skip_snapshot_check = false) {
+      bool skip_snapshot_check = false, bool write_global_seqno = true) {
     IngestExternalFileOptions opts;
     opts.move_files = move_files;
     opts.snapshot_consistency = !skip_snapshot_check;
     opts.allow_global_seqno = false;
     opts.allow_blocking_flush = false;
+    opts.write_global_seqno = write_global_seqno;
     opts.generate_and_verify_file_checksum = generate_and_verify;
 
     IngestExternalFileArg arg;
@@ -386,7 +387,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file3_info.file_checksum, file_checksum3);
   ASSERT_EQ(file3_info.file_checksum_func_name, file_checksum_func_name3);
 
-  // file03.sst (1500 => 1799)
+  // file04.sst (1500 => 1799)
   std::string file4 = sst_files_dir_ + "file04.sst";
   ASSERT_OK(sst_file_writer.Open(file4));
   for (int k = 1500; k < 1800; k++) {
@@ -405,8 +406,27 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file4_info.file_checksum, file_checksum4);
   ASSERT_EQ(file4_info.file_checksum_func_name, file_checksum_func_name4);
 
+  // file03.sst (1800 => 1999)
+  std::string file5 = sst_files_dir_ + "file05.sst";
+  ASSERT_OK(sst_file_writer.Open(file5));
+  for (int k = 1800; k < 2000; k++) {
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_overlap"));
+  }
+  ExternalSstFileInfo file5_info;
+  s = sst_file_writer.Finish(&file5_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file5_info.file_path, file5);
+  ASSERT_EQ(file5_info.num_entries, 200);
+  ASSERT_EQ(file5_info.smallest_key, Key(1800));
+  ASSERT_EQ(file5_info.largest_key, Key(1999));
+  std::string file_checksum5, file_checksum_func_name5;
+  ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+      file5, &file_checksum5, &file_checksum_func_name5));
+  ASSERT_EQ(file5_info.file_checksum, file_checksum5);
+  ASSERT_EQ(file5_info.file_checksum_func_name, file_checksum_func_name5);
+
   s = AddFileWithFileChecksum({file1}, {file_checksum1, "xyz"},
-                              {file_checksum1}, true, false, false);
+                              {file_checksum1}, true, false, false, false);
   // does not care the checksum input since db does not enable file checksum
   ASSERT_TRUE(s.ok()) << s.ToString();
   ASSERT_OK(env_->FileExists(file1));
@@ -424,25 +444,27 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   // Enable generate the verify option
   // The checksum vector does not match, fail the ingestion
   s = AddFileWithFileChecksum({file2}, {file_checksum2, "xyz"},
-                              {file_checksum_func_name2}, true, false, false);
-  ASSERT_FALSE(s.ok()) << s.ToString();
-
-  // Enable generate the verify option
-  // The checksum name does not match, fail the ingestion
-  s = AddFileWithFileChecksum({file2}, {file_checksum2}, {"xyz"}, true, false,
+                              {file_checksum_func_name2}, true, false, false,
                               false);
   ASSERT_FALSE(s.ok()) << s.ToString();
 
   // Enable generate the verify option
   // The checksum name does not match, fail the ingestion
+  s = AddFileWithFileChecksum({file2}, {file_checksum2}, {"xyz"}, true, false,
+                              false, false);
+  ASSERT_FALSE(s.ok()) << s.ToString();
+
+  // Enable generate the verify option
+  // The checksum name does not match, fail the ingestion
   s = AddFileWithFileChecksum({file2}, {"xyz"}, {file_checksum_func_name2},
-                              true, false, false);
+                              true, false, false, false);
   ASSERT_FALSE(s.ok()) << s.ToString();
 
   // Enable generate the verify option
   // All matches, ingestion is successful
   s = AddFileWithFileChecksum({file2}, {file_checksum2},
-                              {file_checksum_func_name2}, true, false, false);
+                              {file_checksum_func_name2}, true, false, false,
+                              false);
   ASSERT_TRUE(s.ok()) << s.ToString();
   std::vector<LiveFileMetaData> live_files1;
   dbfull()->GetLiveFilesMetaData(&live_files1);
@@ -459,7 +481,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   // No checksum information is provided, generate it when ingesting
   std::vector<std::string> checksum, checksum_func;
   s = AddFileWithFileChecksum({file3}, checksum, checksum_func, true, false,
-                              false);
+                              false, false);
   ASSERT_TRUE(s.ok()) << s.ToString();
   std::vector<LiveFileMetaData> live_files2;
   dbfull()->GetLiveFilesMetaData(&live_files2);
@@ -476,13 +498,13 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   // Does not enable generate and verification for ingested checksum
   // The checksum name does not match, fail the ingestion
   s = AddFileWithFileChecksum({file4}, {file_checksum4}, {"xyz"}, false, false,
-                              false);
+                              false, false);
   ASSERT_FALSE(s.ok()) << s.ToString();
 
   // Does not enable generate and verification for ingested checksum
   // Checksum function name matches, we use the ingested checksum and trust it
   s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4},
-                              false, false, false);
+                              false, false, false, false);
   ASSERT_TRUE(s.ok()) << s.ToString();
   std::vector<LiveFileMetaData> live_files3;
   dbfull()->GetLiveFilesMetaData(&live_files3);
@@ -495,7 +517,29 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
     }
   }
   ASSERT_TRUE(s.ok()) << s.ToString();
-  ASSERT_OK(env_->FileExists(file3));
+  ASSERT_OK(env_->FileExists(file4));
+
+  // enable generate and verification, DB enable checksum, and enable
+  // write_global_seq. So the checksum stored is different from the one
+  // ingested due to the sequence number changes.
+  s = AddFileWithFileChecksum({file5}, {file_checksum5},
+                              {file_checksum_func_name5}, true, false, false,
+                              true);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  std::vector<LiveFileMetaData> live_files4;
+  dbfull()->GetLiveFilesMetaData(&live_files4);
+  for (auto f : live_files4) {
+    if (set1.find(f.name) == set1.end()) {
+      std::string cur_checksum5, cur_checksum_func_name5;
+      ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+          dbname_ + f.name, &cur_checksum5, &cur_checksum_func_name5));
+      ASSERT_EQ(f.file_checksum, cur_checksum5);
+      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name5);
+      set1.insert(f.name);
+    }
+  }
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_OK(env_->FileExists(file5));
 }
 
 TEST_F(ExternalSSTFileBasicTest, NoCopy) {

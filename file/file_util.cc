@@ -124,7 +124,8 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
 
 IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
                                  FileChecksumGenFactory* checksum_factory,
-                                 std::string* checksum) {
+                                 std::string* file_checksum,
+                                 std::string* file_checksum_func_name) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -163,7 +164,8 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
     size -= slice.size();
   }
   checksum_generator->Finalize();
-  *checksum = checksum_generator->GetChecksum();
+  *file_checksum = checksum_generator->GetChecksum();
+  *file_checksum_func_name = checksum_generator->Name();
   return IOStatus::OK();
 }
 

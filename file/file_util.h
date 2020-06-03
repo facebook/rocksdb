@@ -33,7 +33,8 @@ extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
 
 extern IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
-    FileChecksumGenFactory* checksum_factory, std::string* checksum);
+    FileChecksumGenFactory* checksum_factory, std::string* file_checksum,
+    std::string* file_checksum_func_name);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
                                          IOOptions& opts) {
