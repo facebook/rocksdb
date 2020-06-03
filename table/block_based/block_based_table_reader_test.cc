@@ -331,7 +331,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
         ::testing::Values(false)));
 #endif  // ROCKSDB_LITE
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
     ::testing::Combine(
         ::testing::ValuesIn(GetSupportedCompressions()),
