@@ -291,12 +291,12 @@ TEST_F(SSTDumpToolTest, NoSstFile) {
   opts.env = env();
   std::string file_path = MakeFilePath("no_such_file.sst");
   char* usage[3];
-  PopulateCommandArgs(file_path, "--show_properties", usage);
+  PopulateCommandArgs(file_path, "", usage);
   ROCKSDB_NAMESPACE::SSTDumpTool tool;
   for (const auto& command :
        {"--command=check", "--command=dump", "--command=raw",
-        "--command=verify", "--command=recompress",
-        "--command=verify_checksum"}) {
+        "--command=verify", "--command=recompress", "--command=verify_checksum",
+        "--show_properties"}) {
     snprintf(usage[1], kOptLength, "%s", command);
     ASSERT_TRUE(!tool.Run(3, usage, opts));
   }
