@@ -18,12 +18,14 @@
 
 #include <windows.h>
 #include <string>
+#include <thread>
 #include <string.h>
 #include <mutex>
 #include <limits>
 #include <condition_variable>
 #include <malloc.h>
 #include <intrin.h>
+#include <process.h>
 
 #include <stdint.h>
 
@@ -217,9 +219,14 @@ class CondVar {
   Mutex* mu_;
 };
 
+
+#ifdef _POSIX_THREADS
+using Thread = std::thread;
+#else
 // Wrapper around the platform efficient
 // or otherwise preferrable implementation
 using Thread = WindowsThread;
+#endif
 
 // OnceInit type helps emulate
 // Posix semantics with initialization

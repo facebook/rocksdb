@@ -1063,12 +1063,21 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
   bbto.partition_filters = true;
   bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   bbto.whole_key_filtering = !use_prefix_;
-  bbto.metadata_block_size = 128;
+  if (use_prefix_) {  // (not related to prefix, just alternating between)
+    // Make sure code appropriately deals with metadata block size setting
+    // that is "too small" (smaller than minimum size for filter builder)
+    bbto.metadata_block_size = 63;
+  } else {
+    // Make sure the test will work even on platforms with large minimum
+    // filter size, due to large cache line size.
+    // (Largest cache line size + 10+% overhead.)
+    bbto.metadata_block_size = 290;
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyAndReopen(options);
   ReadOptions ropts;
 
-  constexpr uint32_t N = 10000;
+  constexpr uint32_t N = 12000;
   // Add N/2 evens
   for (uint32_t i = 0; i < N; i += 2) {
     ASSERT_OK(Put(UKey(i), UKey(i)));

@@ -130,14 +130,16 @@ class VersionBuilder::Rep {
   VersionSet* version_set_;
   int num_levels_;
   LevelState* levels_;
-  // Store states of levels larger than num_levels_. We do this instead of
+  // Store sizes of levels larger than num_levels_. We do this instead of
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
   // on invalid levels don't cancel out.
-  std::map<int, std::unordered_set<uint64_t>> invalid_levels_;
+  std::unordered_map<int, size_t> invalid_level_sizes_;
   // Whether there are invalid new files or invalid deletion on levels larger
   // than num_levels_.
   bool has_invalid_levels_;
+  // Current levels of table files affected by additions/deletions.
+  std::unordered_map<uint64_t, int> table_file_levels_;
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
 
@@ -360,65 +362,19 @@ class VersionBuilder::Rep {
     return ret_s;
   }
 
-  Status CheckConsistencyForDeletes(VersionEdit* /*edit*/, uint64_t number,
-                                    int level) {
-#ifdef NDEBUG
-    if (!base_vstorage_->force_consistency_checks()) {
-      // Dont run consistency checks in release mode except if
-      // explicitly asked to
-      return Status::OK();
-    }
-#endif
-    // a file to be deleted better exist in the previous version
-    bool found = false;
-    for (int l = 0; !found && l < num_levels_; l++) {
-      const std::vector<FileMetaData*>& base_files =
-          base_vstorage_->LevelFiles(l);
-      for (size_t i = 0; i < base_files.size(); i++) {
-        FileMetaData* f = base_files[i];
-        if (f->fd.GetNumber() == number) {
-          found = true;
-          break;
-        }
-      }
-    }
-    // if the file did not exist in the previous version, then it
-    // is possibly moved from lower level to higher level in current
-    // version
-    for (int l = level + 1; !found && l < num_levels_; l++) {
-      auto& level_added = levels_[l].added_files;
-      auto got = level_added.find(number);
-      if (got != level_added.end()) {
-        found = true;
-        break;
-      }
-    }
-
-    // maybe this file was added in a previous edit that was Applied
-    if (!found) {
-      auto& level_added = levels_[level].added_files;
-      auto got = level_added.find(number);
-      if (got != level_added.end()) {
-        found = true;
-      }
-    }
-    if (!found) {
-      fprintf(stderr, "not found %" PRIu64 "\n", number);
-      return Status::Corruption("not found " + NumberToString(number));
-    }
-    return Status::OK();
-  }
-
-  bool CheckConsistencyForNumLevels() {
+  bool CheckConsistencyForNumLevels() const {
     // Make sure there are no files on or beyond num_levels().
     if (has_invalid_levels_) {
       return false;
     }
-    for (auto& level : invalid_levels_) {
-      if (level.second.size() > 0) {
+
+    for (const auto& pair : invalid_level_sizes_) {
+      const size_t level_size = pair.second;
+      if (level_size != 0) {
         return false;
       }
     }
+
     return true;
   }
 
@@ -479,64 +435,148 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  int GetCurrentLevelForTableFile(uint64_t file_number) const {
+    auto it = table_file_levels_.find(file_number);
+    if (it != table_file_levels_.end()) {
+      return it->second;
+    }
+
+    assert(base_vstorage_);
+    return base_vstorage_->GetFileLocation(file_number).GetLevel();
+  }
+
+  Status ApplyFileDeletion(int level, uint64_t file_number) {
+    assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
+
+    const int current_level = GetCurrentLevelForTableFile(file_number);
+
+    if (level != current_level) {
+      if (level >= num_levels_) {
+        has_invalid_levels_ = true;
+      }
+
+      std::ostringstream oss;
+      oss << "Cannot delete table file #" << file_number << " from level "
+          << level << " since it is ";
+      if (current_level ==
+          VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
+        oss << "not in the LSM tree";
+      } else {
+        oss << "on level " << current_level;
+      }
+
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    if (level >= num_levels_) {
+      assert(invalid_level_sizes_[level] > 0);
+      --invalid_level_sizes_[level];
+
+      table_file_levels_[file_number] =
+          VersionStorageInfo::FileLocation::Invalid().GetLevel();
+
+      return Status::OK();
+    }
+
+    auto& level_state = levels_[level];
+
+    auto& add_files = level_state.added_files;
+    auto add_it = add_files.find(file_number);
+    if (add_it != add_files.end()) {
+      UnrefFile(add_it->second);
+      add_files.erase(add_it);
+    } else {
+      auto& del_files = level_state.deleted_files;
+      assert(del_files.find(file_number) == del_files.end());
+      del_files.emplace(file_number);
+    }
+
+    table_file_levels_[file_number] =
+        VersionStorageInfo::FileLocation::Invalid().GetLevel();
+
+    return Status::OK();
+  }
+
+  Status ApplyFileAddition(int level, const FileMetaData& meta) {
+    assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
+
+    const uint64_t file_number = meta.fd.GetNumber();
+
+    const int current_level = GetCurrentLevelForTableFile(file_number);
+
+    if (current_level !=
+        VersionStorageInfo::FileLocation::Invalid().GetLevel()) {
+      if (level >= num_levels_) {
+        has_invalid_levels_ = true;
+      }
+
+      std::ostringstream oss;
+      oss << "Cannot add table file #" << file_number << " to level " << level
+          << " since it is already in the LSM tree on level " << current_level;
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    if (level >= num_levels_) {
+      ++invalid_level_sizes_[level];
+      table_file_levels_[file_number] = level;
+
+      return Status::OK();
+    }
+
+    auto& level_state = levels_[level];
+
+    auto& del_files = level_state.deleted_files;
+    auto del_it = del_files.find(file_number);
+    if (del_it != del_files.end()) {
+      del_files.erase(del_it);
+    } else {
+      FileMetaData* const f = new FileMetaData(meta);
+      f->refs = 1;
+
+      auto& add_files = level_state.added_files;
+      assert(add_files.find(file_number) == add_files.end());
+      add_files.emplace(file_number, f);
+    }
+
+    table_file_levels_[file_number] = level;
+
+    return Status::OK();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(VersionEdit* edit) {
-    Status s = CheckConsistency(base_vstorage_);
-    if (!s.ok()) {
-      return s;
+    {
+      const Status s = CheckConsistency(base_vstorage_);
+      if (!s.ok()) {
+        return s;
+      }
     }
 
     // Delete files
-    const auto& del = edit->GetDeletedFiles();
-    for (const auto& del_file : del) {
-      const auto level = del_file.first;
-      const auto number = del_file.second;
-      if (level < num_levels_) {
-        levels_[level].deleted_files.insert(number);
-        s = CheckConsistencyForDeletes(edit, number, level);
-        if (!s.ok()) {
-          return s;
-        }
+    for (const auto& deleted_file : edit->GetDeletedFiles()) {
+      const int level = deleted_file.first;
+      const uint64_t file_number = deleted_file.second;
 
-        auto exising = levels_[level].added_files.find(number);
-        if (exising != levels_[level].added_files.end()) {
-          UnrefFile(exising->second);
-          levels_[level].added_files.erase(exising);
-        }
-      } else {
-        if (invalid_levels_[level].erase(number) == 0) {
-          // Deleting an non-existing file on invalid level.
-          has_invalid_levels_ = true;
-        }
+      const Status s = ApplyFileDeletion(level, file_number);
+      if (!s.ok()) {
+        return s;
       }
     }
 
     // Add new files
     for (const auto& new_file : edit->GetNewFiles()) {
       const int level = new_file.first;
-      if (level < num_levels_) {
-        FileMetaData* f = new FileMetaData(new_file.second);
-        f->refs = 1;
+      const FileMetaData& meta = new_file.second;
 
-        assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
-               levels_[level].added_files.end());
-        levels_[level].deleted_files.erase(f->fd.GetNumber());
-        levels_[level].added_files[f->fd.GetNumber()] = f;
-      } else {
-        uint64_t number = new_file.second.fd.GetNumber();
-        auto& lvls = invalid_levels_[level];
-        if (lvls.count(number) == 0) {
-          lvls.insert(number);
-        } else {
-          // Creating an already existing file on invalid level.
-          has_invalid_levels_ = true;
-        }
+      const Status s = ApplyFileAddition(level, meta);
+      if (!s.ok()) {
+        return s;
       }
     }
 
     // Add new blob files
     for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
-      s = ApplyBlobFileAddition(blob_file_addition);
+      const Status s = ApplyBlobFileAddition(blob_file_addition);
       if (!s.ok()) {
         return s;
       }
@@ -544,13 +584,13 @@ class VersionBuilder::Rep {
 
     // Increase the amount of garbage for blob files affected by GC
     for (const auto& blob_file_garbage : edit->GetBlobFileGarbages()) {
-      s = ApplyBlobFileGarbage(blob_file_garbage);
+      const Status s = ApplyBlobFileGarbage(blob_file_garbage);
       if (!s.ok()) {
         return s;
       }
     }
 
-    return s;
+    return Status::OK();
   }
 
   static std::shared_ptr<BlobFileMetaData> CreateMetaDataForNewBlobFile(

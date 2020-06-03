@@ -53,6 +53,7 @@ env:
   - JOB_NAME=cmake-gcc9 # 3-5 minutes
   - JOB_NAME=cmake-gcc9-c++20 # 3-5 minutes
   - JOB_NAME=cmake-mingw # 3 minutes
+  - JOB_NAME=make-gcc4.8
   - JOB_NAME=status_checked
 
 matrix:
@@ -66,15 +67,23 @@ matrix:
   - os: osx
     env: JOB_NAME=cmake-mingw
   - os: osx
+    env: JOB_NAME=make-gcc4.8
+  - os: osx
     arch: ppc64le
   - os: osx
     compiler: gcc
   - os : linux
     arch: arm64
     env: JOB_NAME=cmake-mingw
+  - os : linux
+    arch: arm64
+    env: JOB_NAME=make-gcc4.8
   - os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-mingw
+  - os: linux
+    arch: ppc64le
+    env: JOB_NAME=make-gcc4.8
   - os: linux
     compiler: clang
   # Exclude all but most unique cmake variants for pull requests, but build all in branches
@@ -225,6 +234,10 @@ install:
   - if [ "${JOB_NAME}" == cmake-mingw ]; then
       sudo apt-get install -y mingw-w64 ;
     fi
+  - if [ "${JOB_NAME}" == make-gcc4.8 ]; then
+      sudo apt-get install -y g++-4.8 ;
+      CC=gcc-4.8 && CXX=g++-4.8;
+    fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
       CMAKE_DIST_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
       TAR_OPT="--strip-components=1 -xj";
@@ -298,6 +311,9 @@ script:
       esac
 
       mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
+      ;;
+    make-gcc4.8)
+      OPT=-DTRAVIS V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
       ;;
     status_checked)
       OPT=-DTRAVIS V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some

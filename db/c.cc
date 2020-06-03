@@ -1466,11 +1466,22 @@ void rocksdb_writebatch_delete(
   b->rep.Delete(Slice(key, klen));
 }
 
+void rocksdb_writebatch_singledelete(rocksdb_writebatch_t* b, const char* key,
+                                     size_t klen) {
+  b->rep.SingleDelete(Slice(key, klen));
+}
+
 void rocksdb_writebatch_delete_cf(
     rocksdb_writebatch_t* b,
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen) {
   b->rep.Delete(column_family->rep, Slice(key, klen));
+}
+
+void rocksdb_writebatch_singledelete_cf(
+    rocksdb_writebatch_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen) {
+  b->rep.SingleDelete(column_family->rep, Slice(key, klen));
 }
 
 void rocksdb_writebatch_deletev(
@@ -1723,11 +1734,22 @@ void rocksdb_writebatch_wi_delete(
   b->rep->Delete(Slice(key, klen));
 }
 
+void rocksdb_writebatch_wi_singledelete(rocksdb_writebatch_wi_t* b,
+                                        const char* key, size_t klen) {
+  b->rep->SingleDelete(Slice(key, klen));
+}
+
 void rocksdb_writebatch_wi_delete_cf(
     rocksdb_writebatch_wi_t* b,
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen) {
   b->rep->Delete(column_family->rep, Slice(key, klen));
+}
+
+void rocksdb_writebatch_wi_singledelete_cf(
+    rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen) {
+  b->rep->SingleDelete(column_family->rep, Slice(key, klen));
 }
 
 void rocksdb_writebatch_wi_deletev(
@@ -2361,6 +2383,10 @@ void rocksdb_options_set_compression(rocksdb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }
 
+void rocksdb_options_set_bottommost_compression(rocksdb_options_t* opt, int t) {
+  opt->rep.bottommost_compression = static_cast<CompressionType>(t);
+}
+
 void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
                                                int* level_values,
                                                size_t num_levels) {
@@ -2375,11 +2401,18 @@ void rocksdb_options_set_bottommost_compression_options(rocksdb_options_t* opt,
                                                         int w_bits, int level,
                                                         int strategy,
                                                         int max_dict_bytes,
-                                                        bool enabled) {
+                                                        unsigned char enabled) {
   opt->rep.bottommost_compression_opts.window_bits = w_bits;
   opt->rep.bottommost_compression_opts.level = level;
   opt->rep.bottommost_compression_opts.strategy = strategy;
   opt->rep.bottommost_compression_opts.max_dict_bytes = max_dict_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt, int zstd_max_train_bytes, unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.zstd_max_train_bytes =
+      zstd_max_train_bytes;
   opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
@@ -2390,6 +2423,11 @@ void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
   opt->rep.compression_opts.level = level;
   opt->rep.compression_opts.strategy = strategy;
   opt->rep.compression_opts.max_dict_bytes = max_dict_bytes;
+}
+
+void rocksdb_options_set_compression_options_zstd_max_train_bytes(
+    rocksdb_options_t* opt, int zstd_max_train_bytes) {
+  opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(
