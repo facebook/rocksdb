@@ -1465,14 +1465,285 @@ int main(int argc, char** argv) {
   {
     rocksdb_options_t* o;
     o = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(o, 1);
 
+    // Set and check options.
+    rocksdb_options_set_allow_ingest_behind(o, 1);
+    CheckCondition(1 == rocksdb_options_get_allow_ingest_behind(o));
+
+    rocksdb_options_compaction_readahead_size(o, 10);
+    CheckCondition(10 == rocksdb_options_get_compaction_readahead_size(o));
+
+    rocksdb_options_set_create_if_missing(o, 1);
+    CheckCondition(1 == rocksdb_options_get_create_if_missing(o));
+
+    rocksdb_options_set_create_missing_column_families(o, 1);
+    CheckCondition(1 == rocksdb_options_get_create_missing_column_families(o));
+
+    rocksdb_options_set_error_if_exists(o, 1);
+    CheckCondition(1 == rocksdb_options_get_error_if_exists(o));
+
+    rocksdb_options_set_paranoid_checks(o, 1);
+    CheckCondition(1 == rocksdb_options_get_paranoid_checks(o));
+
+    rocksdb_options_set_info_log_level(o, 3);
+    CheckCondition(3 == rocksdb_options_get_info_log_level(o));
+
+    rocksdb_options_set_write_buffer_size(o, 100);
+    CheckCondition(100 == rocksdb_options_get_write_buffer_size(o));
+
+    rocksdb_options_set_db_write_buffer_size(o, 1000);
+    CheckCondition(1000 == rocksdb_options_get_db_write_buffer_size(o));
+
+    rocksdb_options_set_max_open_files(o, 21);
+    CheckCondition(21 == rocksdb_options_get_max_open_files(o));
+
+    rocksdb_options_set_max_file_opening_threads(o, 5);
+    CheckCondition(5 == rocksdb_options_get_max_file_opening_threads(o));
+
+    rocksdb_options_set_max_total_wal_size(o, 400);
+    CheckCondition(400 == rocksdb_options_get_max_total_wal_size(o));
+
+    rocksdb_options_set_num_levels(o, 7);
+    CheckCondition(7 == rocksdb_options_get_num_levels(o));
+
+    rocksdb_options_set_level0_file_num_compaction_trigger(o, 4);
+    CheckCondition(4 ==
+                   rocksdb_options_get_level0_file_num_compaction_trigger(o));
+
+    rocksdb_options_set_level0_slowdown_writes_trigger(o, 6);
+    CheckCondition(6 == rocksdb_options_get_level0_slowdown_writes_trigger(o));
+
+    rocksdb_options_set_level0_stop_writes_trigger(o, 8);
+    CheckCondition(8 == rocksdb_options_get_level0_stop_writes_trigger(o));
+
+    rocksdb_options_set_target_file_size_base(o, 256);
+    CheckCondition(256 == rocksdb_options_get_target_file_size_base(o));
+
+    rocksdb_options_set_target_file_size_multiplier(o, 3);
+    CheckCondition(3 == rocksdb_options_get_target_file_size_multiplier(o));
+
+    rocksdb_options_set_max_bytes_for_level_base(o, 1024);
+    CheckCondition(1024 == rocksdb_options_get_max_bytes_for_level_base(o));
+
+    rocksdb_options_set_level_compaction_dynamic_level_bytes(o, 1);
+    CheckCondition(1 ==
+                   rocksdb_options_get_level_compaction_dynamic_level_bytes(o));
+
+    rocksdb_options_set_max_bytes_for_level_multiplier(o, 2.0);
+    CheckCondition(2.0 ==
+                   rocksdb_options_get_max_bytes_for_level_multiplier(o));
+
+    rocksdb_options_set_skip_stats_update_on_db_open(o, 1);
+    CheckCondition(1 == rocksdb_options_get_skip_stats_update_on_db_open(o));
+
+    rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(o, 1);
+    CheckCondition(
+        1 == rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(o));
+
+    rocksdb_options_set_max_write_buffer_number(o, 97);
+    CheckCondition(97 == rocksdb_options_get_max_write_buffer_number(o));
+
+    rocksdb_options_set_min_write_buffer_number_to_merge(o, 23);
+    CheckCondition(23 ==
+                   rocksdb_options_get_min_write_buffer_number_to_merge(o));
+
+    rocksdb_options_set_max_write_buffer_number_to_maintain(o, 64);
+    CheckCondition(64 ==
+                   rocksdb_options_get_max_write_buffer_number_to_maintain(o));
+
+    rocksdb_options_set_max_write_buffer_size_to_maintain(o, 50000);
+    CheckCondition(50000 ==
+                   rocksdb_options_get_max_write_buffer_size_to_maintain(o));
+
+    rocksdb_options_set_enable_pipelined_write(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_pipelined_write(o));
+
+    rocksdb_options_set_unordered_write(o, 1);
+    CheckCondition(1 == rocksdb_options_get_unordered_write(o));
+
+    rocksdb_options_set_max_subcompactions(o, 123456);
+    CheckCondition(123456 == rocksdb_options_get_max_subcompactions(o));
+
+    // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
     copy = rocksdb_options_create_copy(o);
-    // TODO: some way to check that *copy == *o
+
+    CheckCondition(1 == rocksdb_options_get_allow_ingest_behind(copy));
+    CheckCondition(10 == rocksdb_options_get_compaction_readahead_size(copy));
+    CheckCondition(1 == rocksdb_options_get_create_if_missing(copy));
+    CheckCondition(1 ==
+                   rocksdb_options_get_create_missing_column_families(copy));
+    CheckCondition(1 == rocksdb_options_get_error_if_exists(copy));
+    CheckCondition(1 == rocksdb_options_get_paranoid_checks(copy));
+    CheckCondition(3 == rocksdb_options_get_info_log_level(copy));
+    CheckCondition(100 == rocksdb_options_get_write_buffer_size(copy));
+    CheckCondition(1000 == rocksdb_options_get_db_write_buffer_size(copy));
+    CheckCondition(21 == rocksdb_options_get_max_open_files(copy));
+    CheckCondition(5 == rocksdb_options_get_max_file_opening_threads(copy));
+    CheckCondition(400 == rocksdb_options_get_max_total_wal_size(copy));
+    CheckCondition(7 == rocksdb_options_get_num_levels(copy));
+    CheckCondition(
+        4 == rocksdb_options_get_level0_file_num_compaction_trigger(copy));
+    CheckCondition(6 ==
+                   rocksdb_options_get_level0_slowdown_writes_trigger(copy));
+    CheckCondition(8 == rocksdb_options_get_level0_stop_writes_trigger(copy));
+    CheckCondition(256 == rocksdb_options_get_target_file_size_base(copy));
+    CheckCondition(3 == rocksdb_options_get_target_file_size_multiplier(copy));
+    CheckCondition(1024 == rocksdb_options_get_max_bytes_for_level_base(copy));
+    CheckCondition(
+        1 == rocksdb_options_get_level_compaction_dynamic_level_bytes(copy));
+    CheckCondition(2.0 ==
+                   rocksdb_options_get_max_bytes_for_level_multiplier(copy));
+    CheckCondition(1 == rocksdb_options_get_skip_stats_update_on_db_open(copy));
+    CheckCondition(
+        1 == rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(copy));
+    CheckCondition(97 == rocksdb_options_get_max_write_buffer_number(copy));
+    CheckCondition(23 ==
+                   rocksdb_options_get_min_write_buffer_number_to_merge(copy));
+    CheckCondition(
+        64 == rocksdb_options_get_max_write_buffer_number_to_maintain(copy));
+    CheckCondition(50000 ==
+                   rocksdb_options_get_max_write_buffer_size_to_maintain(copy));
+    CheckCondition(1 == rocksdb_options_get_enable_pipelined_write(copy));
+    CheckCondition(1 == rocksdb_options_get_unordered_write(copy));
+    CheckCondition(123456 == rocksdb_options_get_max_subcompactions(copy));
+
+    // Copies should be independent.
+    rocksdb_options_set_allow_ingest_behind(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_allow_ingest_behind(copy));
+    CheckCondition(1 == rocksdb_options_get_allow_ingest_behind(o));
+
+    rocksdb_options_compaction_readahead_size(copy, 20);
+    CheckCondition(20 == rocksdb_options_get_compaction_readahead_size(copy));
+    CheckCondition(10 == rocksdb_options_get_compaction_readahead_size(o));
 
     rocksdb_options_set_create_if_missing(copy, 0);
-    // TODO: some way to check that *copy != *o
+    CheckCondition(0 == rocksdb_options_get_create_if_missing(copy));
+    CheckCondition(1 == rocksdb_options_get_create_if_missing(o));
+
+    rocksdb_options_set_create_missing_column_families(copy, 0);
+    CheckCondition(0 ==
+                   rocksdb_options_get_create_missing_column_families(copy));
+    CheckCondition(1 == rocksdb_options_get_create_missing_column_families(o));
+
+    rocksdb_options_set_error_if_exists(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_error_if_exists(copy));
+    CheckCondition(1 == rocksdb_options_get_error_if_exists(o));
+
+    rocksdb_options_set_paranoid_checks(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_paranoid_checks(copy));
+    CheckCondition(1 == rocksdb_options_get_paranoid_checks(o));
+
+    rocksdb_options_set_info_log_level(copy, 2);
+    CheckCondition(2 == rocksdb_options_get_info_log_level(copy));
+    CheckCondition(3 == rocksdb_options_get_info_log_level(o));
+
+    rocksdb_options_set_write_buffer_size(copy, 200);
+    CheckCondition(200 == rocksdb_options_get_write_buffer_size(copy));
+    CheckCondition(100 == rocksdb_options_get_write_buffer_size(o));
+
+    rocksdb_options_set_db_write_buffer_size(copy, 2000);
+    CheckCondition(2000 == rocksdb_options_get_db_write_buffer_size(copy));
+    CheckCondition(1000 == rocksdb_options_get_db_write_buffer_size(o));
+
+    rocksdb_options_set_max_open_files(copy, 42);
+    CheckCondition(42 == rocksdb_options_get_max_open_files(copy));
+    CheckCondition(21 == rocksdb_options_get_max_open_files(o));
+
+    rocksdb_options_set_max_file_opening_threads(copy, 3);
+    CheckCondition(3 == rocksdb_options_get_max_file_opening_threads(copy));
+    CheckCondition(5 == rocksdb_options_get_max_file_opening_threads(o));
+
+    rocksdb_options_set_max_total_wal_size(copy, 4000);
+    CheckCondition(4000 == rocksdb_options_get_max_total_wal_size(copy));
+    CheckCondition(400 == rocksdb_options_get_max_total_wal_size(o));
+
+    rocksdb_options_set_num_levels(copy, 6);
+    CheckCondition(6 == rocksdb_options_get_num_levels(copy));
+    CheckCondition(7 == rocksdb_options_get_num_levels(o));
+
+    rocksdb_options_set_level0_file_num_compaction_trigger(copy, 14);
+    CheckCondition(
+        14 == rocksdb_options_get_level0_file_num_compaction_trigger(copy));
+    CheckCondition(4 ==
+                   rocksdb_options_get_level0_file_num_compaction_trigger(o));
+
+    rocksdb_options_set_level0_slowdown_writes_trigger(copy, 61);
+    CheckCondition(61 ==
+                   rocksdb_options_get_level0_slowdown_writes_trigger(copy));
+    CheckCondition(6 == rocksdb_options_get_level0_slowdown_writes_trigger(o));
+
+    rocksdb_options_set_level0_stop_writes_trigger(copy, 17);
+    CheckCondition(17 == rocksdb_options_get_level0_stop_writes_trigger(copy));
+    CheckCondition(8 == rocksdb_options_get_level0_stop_writes_trigger(o));
+
+    rocksdb_options_set_target_file_size_base(copy, 128);
+    CheckCondition(128 == rocksdb_options_get_target_file_size_base(copy));
+    CheckCondition(256 == rocksdb_options_get_target_file_size_base(o));
+
+    rocksdb_options_set_target_file_size_multiplier(copy, 13);
+    CheckCondition(13 == rocksdb_options_get_target_file_size_multiplier(copy));
+    CheckCondition(3 == rocksdb_options_get_target_file_size_multiplier(o));
+
+    rocksdb_options_set_max_bytes_for_level_base(copy, 900);
+    CheckCondition(900 == rocksdb_options_get_max_bytes_for_level_base(copy));
+    CheckCondition(1024 == rocksdb_options_get_max_bytes_for_level_base(o));
+
+    rocksdb_options_set_level_compaction_dynamic_level_bytes(copy, 0);
+    CheckCondition(
+        0 == rocksdb_options_get_level_compaction_dynamic_level_bytes(copy));
+    CheckCondition(1 ==
+                   rocksdb_options_get_level_compaction_dynamic_level_bytes(o));
+
+    rocksdb_options_set_max_bytes_for_level_multiplier(copy, 8.0);
+    CheckCondition(8.0 ==
+                   rocksdb_options_get_max_bytes_for_level_multiplier(copy));
+    CheckCondition(2.0 ==
+                   rocksdb_options_get_max_bytes_for_level_multiplier(o));
+
+    rocksdb_options_set_skip_stats_update_on_db_open(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_skip_stats_update_on_db_open(copy));
+    CheckCondition(1 == rocksdb_options_get_skip_stats_update_on_db_open(o));
+
+    rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(copy, 0);
+    CheckCondition(
+        0 == rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(copy));
+    CheckCondition(
+        1 == rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(o));
+
+    rocksdb_options_set_max_write_buffer_number(copy, 2000);
+    CheckCondition(2000 == rocksdb_options_get_max_write_buffer_number(copy));
+    CheckCondition(97 == rocksdb_options_get_max_write_buffer_number(o));
+
+    rocksdb_options_set_min_write_buffer_number_to_merge(copy, 146);
+    CheckCondition(146 ==
+                   rocksdb_options_get_min_write_buffer_number_to_merge(copy));
+    CheckCondition(23 ==
+                   rocksdb_options_get_min_write_buffer_number_to_merge(o));
+
+    rocksdb_options_set_max_write_buffer_number_to_maintain(copy, 128);
+    CheckCondition(
+        128 == rocksdb_options_get_max_write_buffer_number_to_maintain(copy));
+    CheckCondition(64 ==
+                   rocksdb_options_get_max_write_buffer_number_to_maintain(o));
+
+    rocksdb_options_set_max_write_buffer_size_to_maintain(copy, 9000);
+    CheckCondition(9000 ==
+                   rocksdb_options_get_max_write_buffer_size_to_maintain(copy));
+    CheckCondition(50000 ==
+                   rocksdb_options_get_max_write_buffer_size_to_maintain(o));
+
+    rocksdb_options_set_enable_pipelined_write(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_enable_pipelined_write(copy));
+    CheckCondition(1 == rocksdb_options_get_enable_pipelined_write(o));
+
+    rocksdb_options_set_unordered_write(copy, 0);
+    CheckCondition(0 == rocksdb_options_get_unordered_write(copy));
+    CheckCondition(1 == rocksdb_options_get_unordered_write(o));
+
+    rocksdb_options_set_max_subcompactions(copy, 90001);
+    CheckCondition(90001 == rocksdb_options_get_max_subcompactions(copy));
+    CheckCondition(123456 == rocksdb_options_get_max_subcompactions(o));
 
     rocksdb_options_destroy(copy);
     rocksdb_options_destroy(o);
