@@ -4001,6 +4001,8 @@ Status VersionSet::ProcessManifestWrites(
       }
       if (s.ok()) {
         io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        TEST_SYNC_POINT_CALLBACK(
+            "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }
       if (!io_s.ok()) {
         io_status_ = io_s;
