@@ -4690,11 +4690,11 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 }
 
-INSTANTIATE_TEST_SUITE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
-                         testing::Values(std::make_tuple(1, true),
-                                         std::make_tuple(1, false),
-                                         std::make_tuple(4, true),
-                                         std::make_tuple(4, false)));
+INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
+                        ::testing::Values(std::make_tuple(1, true),
+                                          std::make_tuple(1, false),
+                                          std::make_tuple(4, true),
+                                          std::make_tuple(4, false)));
 
 TEST_P(DBCompactionDirectIOTest, DirectIO) {
   Options options = CurrentOptions();
@@ -4728,8 +4728,8 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   delete options.env;
 }
 
-INSTANTIATE_TEST_SUITE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
-                         testing::Bool());
+INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
+                        testing::Bool());
 
 class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
@@ -4774,11 +4774,12 @@ TEST_P(CompactionPriTest, Test) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(CompactionPriTest, CompactionPriTest,
-                         testing::Values(CompactionPri::kByCompensatedSize,
-                                         CompactionPri::kOldestLargestSeqFirst,
-                                         CompactionPri::kOldestSmallestSeqFirst,
-                                         CompactionPri::kMinOverlappingRatio));
+INSTANTIATE_TEST_CASE_P(
+    CompactionPriTest, CompactionPriTest,
+    ::testing::Values(CompactionPri::kByCompensatedSize,
+                      CompactionPri::kOldestLargestSeqFirst,
+                      CompactionPri::kOldestSmallestSeqFirst,
+                      CompactionPri::kMinOverlappingRatio));
 
 class NoopMergeOperator : public MergeOperator {
  public:

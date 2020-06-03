@@ -560,10 +560,10 @@ class ColumnFamilyTest
   ColumnFamilyTest() : ColumnFamilyTestBase(GetParam()) {}
 };
 
-INSTANTIATE_TEST_SUITE_P(FormatDef, ColumnFamilyTest,
-                         testing::Values(test::kDefaultFormatVersion));
-INSTANTIATE_TEST_SUITE_P(FormatLatest, ColumnFamilyTest,
-                         testing::Values(test::kLatestFormatVersion));
+INSTANTIATE_TEST_CASE_P(FormatDef, ColumnFamilyTest,
+                        testing::Values(test::kDefaultFormatVersion));
+INSTANTIATE_TEST_CASE_P(FormatLatest, ColumnFamilyTest,
+                        testing::Values(test::kLatestFormatVersion));
 
 TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
@@ -749,11 +749,11 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
   db_options_.env = env_;
 }
 
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     FormatDef, FlushEmptyCFTestWithParam,
     testing::Values(std::make_tuple(test::kDefaultFormatVersion, true),
                     std::make_tuple(test::kDefaultFormatVersion, false)));
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     FormatLatest, FlushEmptyCFTestWithParam,
     testing::Values(std::make_tuple(test::kLatestFormatVersion, true),
                     std::make_tuple(test::kLatestFormatVersion, false)));

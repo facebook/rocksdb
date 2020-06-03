@@ -748,9 +748,9 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-INSTANTIATE_TEST_SUITE_P(MultiLevels, DBTestUniversalCompactionMultiLevels,
-                         ::testing::Combine(::testing::Values(3, 20),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(MultiLevels, DBTestUniversalCompactionMultiLevels,
+                        ::testing::Combine(::testing::Values(3, 20),
+                                           ::testing::Bool()));
 
 class DBTestUniversalCompactionParallel :
     public DBTestUniversalCompactionBase {
@@ -937,9 +937,9 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
   EXPECT_GE(total_picked_compactions, 2);
 }
 
-INSTANTIATE_TEST_SUITE_P(Parallel, DBTestUniversalCompactionParallel,
-                         ::testing::Combine(::testing::Values(1, 10),
-                                            ::testing::Values(false)));
+INSTANTIATE_TEST_CASE_P(Parallel, DBTestUniversalCompactionParallel,
+                        ::testing::Combine(::testing::Values(1, 10),
+                                           ::testing::Values(false)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
@@ -1837,9 +1837,9 @@ TEST_P(DBTestUniversalCompaction, FinalSortedRunCompactFilesConflict) {
   compact_files_thread.join();
 }
 
-INSTANTIATE_TEST_SUITE_P(NumLevels, DBTestUniversalCompaction,
-                         ::testing::Combine(::testing::Values(1, 3, 5),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(NumLevels, DBTestUniversalCompaction,
+                        ::testing::Combine(::testing::Values(1, 3, 5),
+                                           ::testing::Bool()));
 
 class DBTestUniversalManualCompactionOutputPathId
     : public DBTestUniversalCompactionBase {
@@ -1907,10 +1907,10 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
                   .IsInvalidArgument());
 }
 
-INSTANTIATE_TEST_SUITE_P(OutputPathId,
-                         DBTestUniversalManualCompactionOutputPathId,
-                         ::testing::Combine(::testing::Values(1, 8),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(OutputPathId,
+                        DBTestUniversalManualCompactionOutputPathId,
+                        ::testing::Combine(::testing::Values(1, 8),
+                                           ::testing::Bool()));
 
 TEST_F(DBTestUniversalCompaction2, BasicL0toL1) {
   const int kNumKeys = 3000;

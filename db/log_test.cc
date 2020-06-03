@@ -699,11 +699,11 @@ TEST_P(LogTest, Recycle) {
   ASSERT_EQ("EOF", Read());
 }
 
-INSTANTIATE_TEST_SUITE_P(bool, LogTest,
-                         ::testing::Values(std::make_tuple(0, false),
-                                           std::make_tuple(0, true),
-                                           std::make_tuple(1, false),
-                                           std::make_tuple(1, true)));
+INSTANTIATE_TEST_CASE_P(bool, LogTest,
+                        ::testing::Values(std::make_tuple(0, false),
+                                          std::make_tuple(0, true),
+                                          std::make_tuple(1, false),
+                                          std::make_tuple(1, true)));
 
 class RetriableLogTest : public ::testing::TestWithParam<int> {
  private:
@@ -917,7 +917,7 @@ TEST_P(RetriableLogTest, NonBlockingReadFullRecord) {
   ASSERT_EQ("foo-bar", record);
 }
 
-INSTANTIATE_TEST_SUITE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
+INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
 }  // namespace log
 }  // namespace ROCKSDB_NAMESPACE
