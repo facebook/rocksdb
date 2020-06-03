@@ -688,12 +688,10 @@ class VersionBuilder::Rep {
     auto shared_meta = delta.GetSharedMeta();
     assert(shared_meta);
 
-    auto linked_ssts = ApplyLinkedSstChanges(BlobFileMetaData::LinkedSsts(),
-                                             delta.GetNewlyLinkedSsts(),
-                                             delta.GetNewlyUnlinkedSsts());
+    assert(delta.GetNewlyUnlinkedSsts().empty());
 
     auto meta = BlobFileMetaData::Create(
-        std::move(shared_meta), std::move(linked_ssts),
+        std::move(shared_meta), delta.GetNewlyLinkedSsts(),
         delta.GetAdditionalGarbageCount(), delta.GetAdditionalGarbageBytes());
 
     return meta;
