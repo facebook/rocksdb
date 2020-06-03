@@ -1355,7 +1355,7 @@ TEST_P(PlainTableDBTest, AdaptiveTable) {
   ASSERT_NE("v5", Get("3000000000000bar"));
 }
 
-INSTANTIATE_TEST_SUITE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(PlainTableDBTest, PlainTableDBTest, ::testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 

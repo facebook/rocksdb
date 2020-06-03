@@ -2609,7 +2609,7 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     MultiThreaded, MultiThreadedDBTest,
     ::testing::Combine(
         ::testing::ValuesIn(MultiThreadedDBTest::GenerateOptionConfigs()),
@@ -3158,7 +3158,7 @@ class DBTestRandomized : public DBTest,
   }
 };
 
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     DBTestRandomized, DBTestRandomized,
     ::testing::ValuesIn(DBTestRandomized::GenerateOptionConfigs()));
 
@@ -6458,9 +6458,9 @@ TEST_F(DBTest, UnsupportedManualSync) {
   ASSERT_TRUE(s.IsNotSupported());
 }
 
-INSTANTIATE_TEST_SUITE_P(DBTestWithParam, DBTestWithParam,
-                         ::testing::Combine(::testing::Values(1, 4),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
+                        ::testing::Combine(::testing::Values(1, 4),
+                                           ::testing::Bool()));
 
 TEST_F(DBTest, PauseBackgroundWorkTest) {
   Options options = CurrentOptions();

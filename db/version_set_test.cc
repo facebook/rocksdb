@@ -1636,7 +1636,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     AtomicGroup, VersionSetTestDropOneCF,
     testing::Values(VersionSetTestBase::kColumnFamilyName1,
                     VersionSetTestBase::kColumnFamilyName2,
@@ -1992,7 +1992,7 @@ TEST_P(VersionSetTestEmptyDb, OpenCompleteManifest) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     BestEffortRecovery, VersionSetTestEmptyDb,
     testing::Combine(
         /*write_dbid_to_manifest=*/testing::Bool(),

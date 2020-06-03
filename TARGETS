@@ -78,7 +78,7 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
-    "-I" + REPO_PATH + "third-party/gtest-1.10.0/fused-src/",
+    "-I" + REPO_PATH + "third-party/gtest-1.8.1/fused-src/",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
@@ -451,8 +451,8 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_third_party_gtest",
-    srcs = ["third-party/gtest-1.10.0/fused-src/gtest/gtest-all.cc"],
-    headers = ["third-party/gtest-1.10.0/fused-src/gtest/gtest.h"],
+    srcs = ["third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc"],
+    headers = ["third-party/gtest-1.8.1/fused-src/gtest/gtest.h"],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
     os_deps = ROCKSDB_OS_DEPS,

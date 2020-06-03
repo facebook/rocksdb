@@ -697,8 +697,8 @@ TEST_P(CompactionIteratorTest, RemoveSingleDeletionAtBottomLevel) {
           nullptr /*compaction_filter*/, true /*bottommost_level*/);
 }
 
-INSTANTIATE_TEST_SUITE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
-                         testing::Values(true, false));
+INSTANTIATE_TEST_CASE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
+                        testing::Values(true, false));
 
 // Tests how CompactionIterator work together with SnapshotChecker.
 class CompactionIteratorWithSnapshotCheckerTest
