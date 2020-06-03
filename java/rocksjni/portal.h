@@ -1292,9 +1292,9 @@ class ByteBufferJni : public JavaClass {
     return constructWith(env, direct, nullptr, capacity, jbytebuffer_clazz);
   }
 
-  static jobject constructWith(
-      JNIEnv* env, const bool direct, const char* buf, const size_t capacity, 
-      jclass jbytebuffer_clazz = nullptr) {
+  static jobject constructWith(JNIEnv* env, const bool direct, const char* buf,
+                               const size_t capacity,
+                               jclass jbytebuffer_clazz = nullptr) {
     if (direct) {
       bool allocated = false;
       if (buf == nullptr) {
@@ -4945,6 +4945,11 @@ class TickerTypeJni {
         return -0x0C;
       case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
         return -0x0D;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH:
+        return -0x0E;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
+        return -0X0F;
+
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -5240,6 +5245,10 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
       case -0x0D:
         return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
+      case -0x0E:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
+      case -0x0F:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
