@@ -528,6 +528,7 @@ void SetupSyncPointsToMockDirectIO() {
 #endif
 }
 
+#ifndef ROCKSDB_LITE
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
   struct stat sbuf;
   if (stat(fname.c_str(), &sbuf) != 0) {
@@ -564,6 +565,7 @@ void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
   EnvOptions env_options;
   assert(!VerifySstFileChecksum(options, env_options, fname).ok());
 }
+#endif
 
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
