@@ -2001,9 +2001,7 @@ class MockPersistentCache : public PersistentCache {
     return PersistentCache::StatsType();
   }
 
-  uint64_t NewId() {
-    return last_id_.fetch_add(1, std::memory_order_relaxed);
-  }
+  uint64_t NewId() { return last_id_.fetch_add(1, std::memory_order_relaxed); }
 
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override {

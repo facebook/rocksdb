@@ -456,9 +456,10 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
                         &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
   }
   if (rep->table_options.persistent_cache != nullptr) {
-    GenerateCachePrefix(rep->table_options.persistent_cache.get(), rep->file->file(),
-                        &rep->persistent_cache_key_prefix[0],
-                        &rep->persistent_cache_key_prefix_size);
+    GeneratePersistentCachePrefix(rep->table_options.persistent_cache.get(),
+                                  rep->file->file(),
+                                  &rep->persistent_cache_key_prefix[0],
+                                  &rep->persistent_cache_key_prefix_size);
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
     GenerateCachePrefix(rep->table_options.block_cache_compressed.get(),
@@ -493,17 +494,19 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSWritableFile* file,
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(PersistentCache* cc, FSRandomAccessFile* file,
-	char* buffer, size_t* size) {
-	// generate an id from the file
-	*size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+void BlockBasedTable::GeneratePersistentCachePrefix(PersistentCache* cc,
+                                                    FSRandomAccessFile* file,
+                                                    char* buffer,
+                                                    size_t* size) {
+  // generate an id from the file
+  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
 
-	// If the prefix wasn't generated or was too long,
-	// create one from the cache.
-	if (cc != nullptr && *size == 0) {
-		char* end = EncodeVarint64(buffer, cc->NewId());
-		*size = static_cast<size_t>(end - buffer);
-	}
+  // If the prefix wasn't generated or was too long,
+  // create one from the cache.
+  if (cc != nullptr && *size == 0) {
+    char* end = EncodeVarint64(buffer, cc->NewId());
+    *size = static_cast<size_t>(end - buffer);
+  }
 }
 
 namespace {
