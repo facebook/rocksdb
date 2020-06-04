@@ -284,6 +284,9 @@ MOCK_LIB_SOURCES =                                              \
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
 
+ZENFS_LIB_SOURCES =                                             \
+  tools/zenfs_tool.cc                                           \
+
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \

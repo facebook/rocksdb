@@ -461,6 +461,8 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
+ZENFSTOOLOBJECTS = $(ZENFS_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+
 ANALYZETOOLOBJECTS = $(ANALYZER_LIB_SOURCES:.cc=.o)
 
 ifeq ($(DEBUG_LEVEL),0)
@@ -1299,6 +1301,9 @@ librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
+	$(AM_LINK)
+
+zenfs: tools/zenfs.o $(ZENFSTOOLOBJECTS)
 	$(AM_LINK)
 
 trace_analyzer: tools/trace_analyzer.o $(ANALYZETOOLOBJECTS) $(LIBOBJECTS)
