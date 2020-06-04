@@ -220,7 +220,7 @@ class BlockCacheHumanReadableTraceWriter {
 class BlockCacheTraceReader {
  public:
   BlockCacheTraceReader(std::unique_ptr<TraceReader>&& reader);
-  ~BlockCacheTraceReader() = default;
+  virtual ~BlockCacheTraceReader() = default;
   // No copy and move.
   BlockCacheTraceReader(const BlockCacheTraceReader&) = delete;
   BlockCacheTraceReader& operator=(const BlockCacheTraceReader&) = delete;
