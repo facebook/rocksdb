@@ -2001,6 +2001,10 @@ class MockPersistentCache : public PersistentCache {
     return PersistentCache::StatsType();
   }
 
+  uint64_t NewId() {
+    return last_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override {
     MutexLock _(&lock_);
@@ -2041,6 +2045,7 @@ class MockPersistentCache : public PersistentCache {
   const bool is_compressed_ = true;
   size_t size_ = 0;
   const size_t max_size_ = 10 * 1024;  // 10KiB
+  std::atomic<uint64_t> last_id_{1};
 };
 
 #ifdef OS_LINUX
