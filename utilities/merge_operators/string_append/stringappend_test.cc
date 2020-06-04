@@ -12,6 +12,8 @@
  * Copyright 2013 Facebook, Inc.
 */
 
+#include "utilities/merge_operators/string_append/stringappend.h"
+
 #include <iostream>
 #include <map>
 #include <tuple>
@@ -23,7 +25,6 @@
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
 using namespace ROCKSDB_NAMESPACE;
