@@ -294,19 +294,11 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   table.reset();
 
   // Corrupt the block pointed to by handle
-  std::string garbage;
-  test::RandomString(&rnd, std::min<int>(static_cast<int>(handle.size()), 128),
-                     &garbage);
-  std::string contents;
-  Status s = ReadFileToString(fs().get(), Path(table_name), &contents);
-  ASSERT_OK(s);
-  contents.replace(handle.offset(), garbage.length(), garbage);
-  ASSERT_OK(WriteStringToFile(fs().get(), contents, Path(table_name),
-                              true /*should_sync*/));
+  test::CorruptFile(Path(table_name), static_cast<int>(handle.offset()), 128);
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
-  s = table->VerifyChecksum(ReadOptions(),
-                            TableReaderCaller::kUserVerifyChecksum);
+  Status s = table->VerifyChecksum(ReadOptions(),
+                                   TableReaderCaller::kUserVerifyChecksum);
   ASSERT_EQ(s.code(), Status::kCorruption);
 }
 
@@ -331,7 +323,7 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(BlockBasedTableOptions::IndexType::kBinarySearch),
         ::testing::Values(false)));
 #endif  // ROCKSDB_LITE
-INSTANTIATE_TEST_SUITE_P(
+INSTANTIATE_TEST_CASE_P(
     VerifyChecksum, BlockBasedTableReaderTestVerifyChecksum,
     ::testing::Combine(
         ::testing::ValuesIn(GetSupportedCompressions()),
