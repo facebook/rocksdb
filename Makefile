@@ -46,6 +46,13 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # Set the default DEBUG_LEVEL to 1
 DEBUG_LEVEL?=1
 
+# LIB_MODE says whether or not to use/build "shared" or "static" libraries.
+# Mode "static" means to link against static libraries (.a)
+# Mode "shared" means to link against shared libraries (.so, .sl, .dylib, etc)
+#
+# Set the default LIB_MODE to static
+LIB_MODE?=static
+
 ifeq ($(MAKECMDGOALS),dbg)
 	DEBUG_LEVEL=2
 endif
@@ -59,19 +66,23 @@ ifeq ($(MAKECMDGOALS),release)
 endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
+	LIB_MODE=shared
 	DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),install-shared)
+	LIB_MODE=shared
 	DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),static_lib)
 	DEBUG_LEVEL=0
+	LIB_MODE=static
 endif
 
 ifeq ($(MAKECMDGOALS),install-static)
 	DEBUG_LEVEL=0
+	LIB_MODE=static
 endif
 
 ifeq ($(MAKECMDGOALS),install)
@@ -152,6 +163,11 @@ CFLAGS += -march=armv8-a+crc+crypto
 ARMCRC_SOURCE=1
 endif
 
+# if we're compiling for shared libraries, add the shared flags
+ifeq ($(LIB_MODE),shared)
+CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
+CFLAGS +=  $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
+endif
 
 # if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
@@ -600,10 +616,18 @@ SHARED_STRESS_LIBRARY = ${LIBNAME}_stress$(LIBDEBUG).$(PLATFORM_SHARED_EXT)
  
 ALL_SHARED_LIBS = $(SHARED1) $(SHARED2) $(SHARED3) $(SHARED4) $(SHARED_TEST_LIBRARY) $(SHARED_TOOLS_LIBRARY) $(SHARED_STRESS_LIBRARY)
 
+ifeq ($(LIB_MODE),shared)
+LIBRARY=$(SHARED1)
+TEST_LIBRARY=$(SHARED_TEST_LIBRARY)
+TOOLS_LIBRARY=$(SHARED_TOOLS_LIBRARY)
+STRESS_LIBRARY=$(SHARED_STRESS_LIBRARY)
+CLOUD_LIBRARY=$(SHARED_CLOUD_LIBRARY)
+else
 LIBRARY=$(STATIC_LIBRARY)
 TEST_LIBRARY=$(STATIC_TEST_LIBRARY)
 TOOLS_LIBRARY=$(STATIC_TOOLS_LIBRARY)
 STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
+endif
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -682,7 +706,7 @@ dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 # creates static library and programs
 release:
 	$(MAKE) clean
-	DEBUG_LEVEL=0 $(MAKE) static_lib tools db_bench
+	LIB_MODE=$(LIB_MODE) DEBUG_LEVEL=0 $(MAKE) tools db_bench
 
 coverage:
 	$(MAKE) clean
@@ -1078,7 +1102,9 @@ clean: clean-ext-libraries-all clean-rocks clean-rocksjava
 clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-rocksjava
 
 clean-rocks:
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(LIBRARY) $(SHARED)
+	echo shared=$(ALL_SHARED_LIBS)
+	echo static=$(ALL_STATIC_LIBS)
+	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
