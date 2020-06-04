@@ -39,7 +39,7 @@ class TARGETSBuilder(object):
         self.targets_file.close()
 
     def add_library(self, name, srcs, deps=None, headers=None,
-                    extra_exteranl_deps = ""):
+                    extra_exteranl_deps=""):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
