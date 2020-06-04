@@ -327,6 +327,7 @@ TEST_P(EnvPosixTestWithParam, UnSchedule) {
 // run in any order. The purpose of the test is unclear.
 #ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RunMany) {
+  env_->SetBackgroundThreads(1, Env::LOW);
   std::atomic<int> last_id(0);
 
   struct CB {
