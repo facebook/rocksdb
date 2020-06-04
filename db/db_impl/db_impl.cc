@@ -314,7 +314,7 @@ Status DBImpl::ResumeImpl() {
 
   // Make sure the IO Status stored in version set is set to OK.
   if (s.ok()) {
-    versions_->SetIOStatusOK();
+    versions_->SetIOStatus(IOStatus::OK());
   }
 
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
