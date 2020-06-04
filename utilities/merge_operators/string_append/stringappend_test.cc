@@ -124,8 +124,8 @@ class StringAppendOperatorTest : public testing::Test,
   }
 
   void SetUp() override {
-    bool if_use_ttl = GetParam();
 #ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
+    bool if_use_ttl = GetParam();
     if (if_use_ttl) {
       fprintf(stderr, "Running tests with ttl db and generic operator.\n");
       StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
