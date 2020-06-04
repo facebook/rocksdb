@@ -56,6 +56,8 @@ class PersistentCache {
   virtual StatsType Stats() = 0;
 
   virtual std::string GetPrintableOptions() const = 0;
+
+  virtual uint64_t NewId() = 0;
 };
 
 // Factor method to create a new persistent cache

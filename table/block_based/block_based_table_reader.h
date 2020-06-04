@@ -440,7 +440,8 @@ class BlockBasedTable : public TableReader {
                                   char* buffer, size_t* size);
   static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
                                   size_t* size);
-
+  static void GenerateCachePrefix(PersistentCache* cc, FSRandomAccessFile* file,
+	  char* buffer, size_t* size);
   // Size of all data blocks, maybe approximate
   uint64_t GetApproximateDataSize();
 
