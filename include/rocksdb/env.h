@@ -313,6 +313,8 @@ class Env {
   virtual Status CreateDirIfMissing(const std::string& dirname) = 0;
 
   // Delete the specified directory.
+  // Many implementations of this function will only delete a directory if it is
+  // empty.
   virtual Status DeleteDir(const std::string& dirname) = 0;
 
   // Store the size of fname in *file_size.
