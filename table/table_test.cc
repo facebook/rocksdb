@@ -1189,11 +1189,11 @@ class FileChecksumTestHelper {
  public:
   FileChecksumTestHelper(bool convert_to_internal_key = false)
       : convert_to_internal_key_(convert_to_internal_key) {
-    sink_ = new test::StringSink();
   }
   ~FileChecksumTestHelper() {}
 
   void CreateWriteableFile() {
+    sink_ = new test::StringSink();
     file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
   }
 
@@ -1291,7 +1291,7 @@ class FileChecksumTestHelper {
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableBuilder> table_builder_;
   stl_wrappers::KVMap kv_map_;
-  test::StringSink* sink_;
+  test::StringSink* sink_ = nullptr;
 
   static uint64_t checksum_uniq_id_;
 };
