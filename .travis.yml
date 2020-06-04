@@ -310,7 +310,7 @@ script:
           ;;
       esac
 
-      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
+      mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j4 && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
       ;;
     make-gcc4.8)
       OPT=-DTRAVIS V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
