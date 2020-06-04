@@ -287,6 +287,13 @@ ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	LUA_PATH =
 endif
 
+ifeq ($(LIB_MODE),shared)
+ifneq ($(DEBUG_LEVEL),0)
+# So that debug binaries can find shared libraries in build location
+EXEC_LDFLAGS += -Wl,-rpath="$(PWD)"
+endif
+endif
+
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
