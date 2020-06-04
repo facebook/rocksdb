@@ -422,8 +422,9 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   constexpr uint64_t file_number = 2345;
   constexpr char smallest[] = "bar";
   constexpr char largest[] = "foo";
+  constexpr uint64_t file_size = 10000;
 
-  Add(level, file_number, smallest, largest);
+  Add(level, file_number, smallest, largest, file_size);
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -441,17 +442,18 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   VersionEdit addition;
 
   constexpr uint32_t path_id = 0;
-  constexpr uint64_t file_size = 10000;
-  constexpr SequenceNumber smallest_seqno = 100;
-  constexpr SequenceNumber largest_seqno = 1000;
+  constexpr SequenceNumber smallest_seq = 100;
+  constexpr SequenceNumber largest_seq = 100;
+  constexpr SequenceNumber smallest_seqno = 0;
+  constexpr SequenceNumber largest_seqno = 0;
   constexpr bool marked_for_compaction = false;
 
   addition.AddFile(level, file_number, path_id, file_size,
-                   GetInternalKey(smallest), GetInternalKey(largest),
-                   smallest_seqno, largest_seqno, marked_for_compaction,
-                   kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
-                   kUnknownFileCreationTime, kUnknownFileChecksum,
-                   kUnknownFileChecksumFuncName);
+                   GetInternalKey(smallest, smallest_seq),
+                   GetInternalKey(largest, largest_seq), smallest_seqno,
+                   largest_seqno, marked_for_compaction, kInvalidBlobFileNumber,
+                   kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                   kUnknownFileChecksum, kUnknownFileChecksumFuncName);
 
   ASSERT_OK(builder.Apply(&addition));
 
