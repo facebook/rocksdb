@@ -1063,12 +1063,12 @@ TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
   bbto.partition_filters = true;
   bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
   bbto.whole_key_filtering = !use_prefix_;
-  bbto.metadata_block_size = 128;
+  bbto.metadata_block_size = 290;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyAndReopen(options);
   ReadOptions ropts;
 
-  constexpr uint32_t N = 10000;
+  constexpr uint32_t N = 12000;
   // Add N/2 evens
   for (uint32_t i = 0; i < N; i += 2) {
     ASSERT_OK(Put(UKey(i), UKey(i)));
