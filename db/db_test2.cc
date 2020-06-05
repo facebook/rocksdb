@@ -25,6 +25,7 @@ class DBTest2 : public DBTestBase {
   DBTest2() : DBTestBase("/db_test2") {}
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest2, OpenForReadOnly) {
   DB* db_ptr = nullptr;
   std::string dbname = test::PerThreadDBPath("db_readonly");
@@ -85,6 +86,7 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   // With create_if_missing false, there should not be a dir in the file system
   ASSERT_NOK(env_->FileExists(dbname));
 }
+#endif  // ROCKSDB_LITE
 
 class PrefixFullBloomWithReverseComparator
     : public DBTestBase,
