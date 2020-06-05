@@ -531,6 +531,8 @@ void SetupSyncPointsToMockDirectIO() {
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
   struct stat sbuf;
   if (stat(fname.c_str(), &sbuf) != 0) {
+    // strerror is not thread-safe so should not be used in the "passing" path
+    // of unit tests (sometimes parallelized) but is OK here where test fails
     const char* msg = strerror(errno);
     fprintf(stderr, "%s:%s\n", fname.c_str(), msg);
     assert(false);
