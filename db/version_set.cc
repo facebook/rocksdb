@@ -4009,6 +4009,8 @@ Status VersionSet::ProcessManifestWrites(
         s = io_s;
         ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write %s\n",
                         s.ToString().c_str());
+      } else if (io_status_.IsIOError()) {
+        io_status_ = io_s;
       }
     }
 
@@ -4020,6 +4022,8 @@ Status VersionSet::ProcessManifestWrites(
       if (!io_s.ok()) {
         io_status_ = io_s;
         s = io_s;
+      } else if (io_status_.IsIOError()) {
+        io_status_ = io_s;
       }
       TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AfterNewManifest");
     }

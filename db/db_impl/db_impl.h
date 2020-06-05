@@ -1789,6 +1789,8 @@ class DBImpl : public DB {
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,
       bool* is_blob_index);
 
+  Status DisableFileDeletionsWithLock();
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
