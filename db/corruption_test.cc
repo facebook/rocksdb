@@ -157,42 +157,6 @@ class CorruptionTest : public testing::Test {
     ASSERT_GE(max_expected, correct);
   }
 
-  void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
-    struct stat sbuf;
-    if (stat(fname.c_str(), &sbuf) != 0) {
-      const char* msg = strerror(errno);
-      FAIL() << fname << ": " << msg;
-    }
-
-    if (offset < 0) {
-      // Relative to end of file; make it absolute
-      if (-offset > sbuf.st_size) {
-        offset = 0;
-      } else {
-        offset = static_cast<int>(sbuf.st_size + offset);
-      }
-    }
-    if (offset > sbuf.st_size) {
-      offset = static_cast<int>(sbuf.st_size);
-    }
-    if (offset + bytes_to_corrupt > sbuf.st_size) {
-      bytes_to_corrupt = static_cast<int>(sbuf.st_size - offset);
-    }
-
-    // Do it
-    std::string contents;
-    Status s = ReadFileToString(Env::Default(), fname, &contents);
-    ASSERT_TRUE(s.ok()) << s.ToString();
-    for (int i = 0; i < bytes_to_corrupt; i++) {
-      contents[i + offset] ^= 0x80;
-    }
-    s = WriteStringToFile(Env::Default(), contents, fname);
-    ASSERT_TRUE(s.ok()) << s.ToString();
-    Options options;
-    EnvOptions env_options;
-    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
-  }
-
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt
     std::vector<std::string> filenames;
@@ -211,7 +175,7 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    CorruptFile(fname, offset, bytes_to_corrupt);
+    test::CorruptFile(fname, offset, bytes_to_corrupt);
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -221,7 +185,7 @@ class CorruptionTest : public testing::Test {
     db_->GetLiveFilesMetaData(&metadata);
     for (const auto& m : metadata) {
       if (m.level == level) {
-        CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
+        test::CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
         return;
       }
     }
@@ -556,7 +520,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
+  test::CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
 

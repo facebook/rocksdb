@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.10.2 (6/5/2020)
+### Bug fix
+* Fix false negative from the VerifyChecksum() API when there is a checksum mismatch in an index partition block in a BlockBasedTable format table file (index_type is kTwoLevelIndexSearch).
+
 ## 6.10.1 (5/27/2020)
 ### Bug fix
 * Remove "u'<string>'" in TARGETS file.
