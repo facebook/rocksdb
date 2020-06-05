@@ -975,6 +975,12 @@ J ?= 100%
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
+ifeq ($(PRINT_PARALLAL_OUTPUTS), 1)	
+	parallel_com = '{}'
+else
+	parallel_com = '{} >& t/log-{/}'
+endif
+
 .PHONY: check_0
 check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
@@ -988,7 +994,9 @@ check_0:
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu  $(parallel_com) ; \
+	cat LOG|awk '{ if ($$7 != 0) { print } }'; \
+	if [[ "$$(grep -v 'Exitval' LOG|awk '{ if ($$7 != 0) { print } }'|wc -l)" -ne 0 ]]; then exit 1; fi
 
 valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
@@ -1047,9 +1055,11 @@ ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
-endif
+endif	
+ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
+endif
 
 # TODO add ldb_tests
 check_some: $(SUBSET)
