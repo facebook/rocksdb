@@ -10,6 +10,7 @@
 #include "test_util/testutil.h"
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -533,6 +534,47 @@ void SetupSyncPointsToMockDirectIO() {
         *val &= ~O_DIRECT;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+#endif
+}
+
+void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
+  struct stat sbuf;
+  if (stat(fname.c_str(), &sbuf) != 0) {
+    // strerror is not thread-safe so should not be used in the "passing" path
+    // of unit tests (sometimes parallelized) but is OK here where test fails
+    const char* msg = strerror(errno);
+    fprintf(stderr, "%s:%s\n", fname.c_str(), msg);
+    assert(false);
+  }
+
+  if (offset < 0) {
+    // Relative to end of file; make it absolute
+    if (-offset > sbuf.st_size) {
+      offset = 0;
+    } else {
+      offset = static_cast<int>(sbuf.st_size + offset);
+    }
+  }
+  if (offset > sbuf.st_size) {
+    offset = static_cast<int>(sbuf.st_size);
+  }
+  if (offset + bytes_to_corrupt > sbuf.st_size) {
+    bytes_to_corrupt = static_cast<int>(sbuf.st_size - offset);
+  }
+
+  // Do it
+  std::string contents;
+  Status s = ReadFileToString(Env::Default(), fname, &contents);
+  assert(s.ok());
+  for (int i = 0; i < bytes_to_corrupt; i++) {
+    contents[i + offset] ^= 0x80;
+  }
+  s = WriteStringToFile(Env::Default(), contents, fname);
+  assert(s.ok());
+  Options options;
+  EnvOptions env_options;
+#ifndef ROCKSDB_LITE
+  assert(!VerifySstFileChecksum(options, env_options, fname).ok());
 #endif
 }
 

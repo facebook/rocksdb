@@ -2837,6 +2837,12 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
       break;
     }
   }
+  if (s.ok()) {
+    // In the case of two level indexes, we would have exited the above loop
+    // by checking index_iter->Valid(), but Valid() might have returned false
+    // due to an IO error. So check the index_iter status
+    s = index_iter->status();
+  }
   return s;
 }
 
