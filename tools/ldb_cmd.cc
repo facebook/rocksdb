@@ -97,7 +97,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
-    int argc, char** argv, const Options& options,
+    int argc, char const* const* argv, const Options& options,
     const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   std::vector<std::string> args;
