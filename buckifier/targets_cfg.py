@@ -133,7 +133,7 @@ cpp_library(
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [{deps}],
-    external_deps = ROCKSDB_EXTERNAL_DEPS{extra_exteranl_deps},
+    external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
 )
 """
 

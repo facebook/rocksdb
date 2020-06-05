@@ -160,7 +160,7 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
         [":rocksdb_lib"],
-        extra_exteranl_deps=""" + [
+        extra_external_deps=""" + [
         ("googletest", None, "gtest"),
     ]""")
     # rocksdb_tools_lib
