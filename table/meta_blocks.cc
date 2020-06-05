@@ -231,7 +231,7 @@ Status ReadProperties(const ReadOptions& read_options,
 
   Block properties_block(std::move(block_contents));
   DataBlockIter iter;
-  properties_block.NewDataIterator(BytewiseComparator(), BytewiseComparator(),
+  properties_block.NewDataIterator(BytewiseComparator(),
                                    kDisableGlobalSequenceNumber, &iter);
 
   auto new_table_properties = new TableProperties();
@@ -395,8 +395,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   // are to compress it.
   Block metaindex_block(std::move(metaindex_contents));
   std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   // -- Read property block
   bool found_properties_block = true;
@@ -468,8 +467,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 
   std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
 }
@@ -514,8 +512,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
 
   std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   BlockHandle block_handle;
   status = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);

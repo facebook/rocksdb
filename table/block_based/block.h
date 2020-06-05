@@ -168,8 +168,8 @@ class Block {
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
 
-  // If comparator is InternalKeyComparator, user_comparator is its user
-  // comparator; they are equal otherwise.
+  // ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
+  // comparator.
   //
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
@@ -187,13 +187,15 @@ class Block {
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
-  DataBlockIter* NewDataIterator(const Comparator* comparator,
-                                 const Comparator* user_comparator,
+  DataBlockIter* NewDataIterator(const Comparator* ucmp,
                                  SequenceNumber global_seqno,
                                  DataBlockIter* iter = nullptr,
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
 
+  // ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
+  // comparator.
+  //
   // key_includes_seq, default true, means that the keys are in internal key
   // format.
   // value_is_full, default true, means that no delta encoding is
@@ -206,8 +208,7 @@ class Block {
   // first_internal_key. It affects data serialization format, so the same value
   // have_first_key must be used when writing and reading index.
   // It is determined by IndexType property of the table.
-  IndexBlockIter* NewIndexIterator(const Comparator* comparator,
-                                   const Comparator* user_comparator,
+  IndexBlockIter* NewIndexIterator(const Comparator* ucmp,
                                    SequenceNumber global_seqno,
                                    IndexBlockIter* iter, Statistics* stats,
                                    bool total_order_seek, bool have_first_key,
@@ -274,7 +275,7 @@ class GlobalSeqnoAppliedKey {
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:
-  void InitializeBase(const Comparator* comparator, const char* data,
+  void InitializeBase(const Comparator* ucmp, const char* data,
                       uint32_t restarts, uint32_t num_restarts,
                       SequenceNumber global_seqno, bool block_contents_pinned) {
     assert(data_ == nullptr);  // Ensure it is called only once
@@ -282,7 +283,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
     applied_key_.Initialize(&raw_key_, global_seqno);
 
-    comparator_ = comparator;
+    ucmp_wrapper_ = UserComparatorWrapper(ucmp);
+    icmp_ = InternalKeyComparator(ucmp);
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;
@@ -346,9 +348,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual void Next() override = 0;
 
  protected:
-  // Note: The type could be changed to InternalKeyComparator but we see a weird
-  // performance drop by that.
-  const Comparator* comparator_;
+  UserComparatorWrapper ucmp_wrapper_;
+  InternalKeyComparator icmp_;
+
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
@@ -419,26 +421,21 @@ class DataBlockIter final : public BlockIter<Slice> {
  public:
   DataBlockIter()
       : BlockIter(), read_amp_bitmap_(nullptr), last_bitmap_offset_(0) {}
-  DataBlockIter(const Comparator* comparator, const Comparator* user_comparator,
-                const char* data, uint32_t restarts, uint32_t num_restarts,
-                SequenceNumber global_seqno,
+  DataBlockIter(const Comparator* ucmp, const char* data, uint32_t restarts,
+                uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
                 DataBlockHashIndex* data_block_hash_index)
       : DataBlockIter() {
-    Initialize(comparator, user_comparator, data, restarts, num_restarts,
-               global_seqno, read_amp_bitmap, block_contents_pinned,
-               data_block_hash_index);
+    Initialize(ucmp, data, restarts, num_restarts, global_seqno,
+               read_amp_bitmap, block_contents_pinned, data_block_hash_index);
   }
-  void Initialize(const Comparator* comparator,
-                  const Comparator* user_comparator, const char* data,
-                  uint32_t restarts, uint32_t num_restarts,
-                  SequenceNumber global_seqno,
+  void Initialize(const Comparator* ucmp, const char* data, uint32_t restarts,
+                  uint32_t num_restarts, SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
                   DataBlockHashIndex* data_block_hash_index) {
-    InitializeBase(comparator, data, restarts, num_restarts, global_seqno,
+    InitializeBase(ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
-    user_comparator_ = user_comparator;
     raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
@@ -525,7 +522,6 @@ class DataBlockIter final : public BlockIter<Slice> {
   int32_t prev_entries_idx_ = -1;
 
   DataBlockHashIndex* data_block_hash_index_;
-  const Comparator* user_comparator_;
 
   template <typename DecodeEntryFunc>
   inline bool ParseNextDataKey(const char* limit = nullptr);
@@ -541,21 +537,19 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   // format.
   // value_is_full, default true, means that no delta encoding is
   // applied to values.
-  void Initialize(const Comparator* comparator,
-                  const Comparator* user_comparator, const char* data,
-                  uint32_t restarts, uint32_t num_restarts,
-                  SequenceNumber global_seqno, BlockPrefixIndex* prefix_index,
-                  bool have_first_key, bool key_includes_seq,
-                  bool value_is_full, bool block_contents_pinned) {
-    if (!key_includes_seq) {
-      user_comparator_wrapper_ = std::unique_ptr<UserComparatorWrapper>(
-          new UserComparatorWrapper(user_comparator));
-    }
-    InitializeBase(
-        key_includes_seq ? comparator : user_comparator_wrapper_.get(), data,
-        restarts, num_restarts, kDisableGlobalSequenceNumber,
-        block_contents_pinned);
+  void Initialize(const Comparator* ucmp, const char* data, uint32_t restarts,
+                  uint32_t num_restarts, SequenceNumber global_seqno,
+                  BlockPrefixIndex* prefix_index, bool have_first_key,
+                  bool key_includes_seq, bool value_is_full,
+                  bool block_contents_pinned) {
+    InitializeBase(ucmp, data, restarts, num_restarts,
+                   kDisableGlobalSequenceNumber, block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
+    if (key_includes_seq_) {
+      comparator_ = &icmp_;
+    } else {
+      comparator_ = &ucmp_wrapper_;
+    }
     raw_key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
@@ -623,7 +617,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   }
 
  private:
-  std::unique_ptr<UserComparatorWrapper> user_comparator_wrapper_;
+  const Comparator* comparator_;
   // Key is in InternalKey format
   bool key_includes_seq_;
   bool value_delta_encoded_;

@@ -43,6 +43,7 @@ std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
   if (padding_size) {
     k += RandomString(rnd, padding_size);
   }
+  AppendInternalKeyFooter(&k, 0 /* seqno */, kTypeValue);
 
   return k;
 }
@@ -97,8 +98,8 @@ TEST_F(BlockTest, SimpleTest) {
 
   // read contents of block sequentially
   int count = 0;
-  InternalIterator *iter = reader.NewDataIterator(
-      options.comparator, options.comparator, kDisableGlobalSequenceNumber);
+  InternalIterator *iter =
+      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber);
   for (iter->SeekToFirst(); iter->Valid(); count++, iter->Next()) {
     // read kv from block
     Slice k = iter->key();
@@ -111,8 +112,8 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewDataIterator(options.comparator, options.comparator,
-                                kDisableGlobalSequenceNumber);
+  iter =
+      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber);
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -158,9 +159,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
-  std::unique_ptr<InternalIterator> regular_iter(
-      reader2.NewDataIterator(BytewiseComparator(), BytewiseComparator(),
-                              kDisableGlobalSequenceNumber));
+  std::unique_ptr<InternalIterator> regular_iter(reader2.NewDataIterator(
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -382,8 +382,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     // read contents of block sequentially
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, kDisableGlobalSequenceNumber,
-        nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -414,8 +413,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, kDisableGlobalSequenceNumber,
-        nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -449,8 +447,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, kDisableGlobalSequenceNumber,
-        nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);
@@ -574,9 +571,8 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   Statistics *kNullStats = nullptr;
   // read contents of block sequentially
   InternalIteratorBase<IndexValue> *iter = reader.NewIndexIterator(
-      options.comparator, options.comparator, kDisableGlobalSequenceNumber,
-      kNullIter, kNullStats, kTotalOrderSeek, includeFirstKey(), kIncludesSeq,
-      kValueIsFull);
+      options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
+      kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
   iter->SeekToFirst();
   for (int index = 0; index < num_records; ++index) {
     ASSERT_TRUE(iter->Valid());
@@ -595,10 +591,9 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewIndexIterator(options.comparator, options.comparator,
-                                 kDisableGlobalSequenceNumber, kNullIter,
-                                 kNullStats, kTotalOrderSeek, includeFirstKey(),
-                                 kIncludesSeq, kValueIsFull);
+  iter = reader.NewIndexIterator(
+      options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
+      kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);

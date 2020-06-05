@@ -200,6 +200,8 @@ class InternalKeyComparator
   std::string name_;
 
  public:
+  InternalKeyComparator() = default;
+
   explicit InternalKeyComparator(const Comparator* c)
       : Comparator(c->timestamp_size()),
         user_comparator_(c),

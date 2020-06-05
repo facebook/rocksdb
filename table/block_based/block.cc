@@ -247,12 +247,12 @@ void DataBlockIter::Seek(const Slice& target) {
   uint32_t index = 0;
   bool skip_linear_scan = false;
   bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan, comparator_);
+                                  &skip_linear_scan, &icmp_);
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, &icmp_);
 }
 
 // Optimized Seek for point lookup for an internal key `target`
@@ -330,7 +330,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
     if (!ParseNextDataKey<DecodeEntry>(limit) ||
-        comparator_->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
+        icmp_.Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -355,7 +355,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (user_comparator_->Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
+  if (ucmp_wrapper_.Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;
   }
@@ -424,18 +424,18 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   uint32_t index = 0;
   bool skip_linear_scan = false;
   bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan, comparator_);
+                                  &skip_linear_scan, &icmp_);
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, &icmp_);
 
   if (!Valid()) {
     SeekToLast();
   } else {
     while (Valid() &&
-           comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) > 0) {
+           icmp_.Compare(applied_key_.UpdateAndGetKey(), seek_key) > 0) {
       Prev();
     }
   }
@@ -989,8 +989,7 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   }
 }
 
-DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
-                                      const Comparator* ucmp,
+DataBlockIter* Block::NewDataIterator(const Comparator* ucmp,
                                       SequenceNumber global_seqno,
                                       DataBlockIter* iter, Statistics* stats,
                                       bool block_contents_pinned) {
@@ -1010,7 +1009,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
     return ret_iter;
   } else {
     ret_iter->Initialize(
-        cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
@@ -1025,10 +1024,10 @@ DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
 }
 
 IndexBlockIter* Block::NewIndexIterator(
-    const Comparator* cmp, const Comparator* ucmp, SequenceNumber global_seqno,
-    IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
-    bool have_first_key, bool key_includes_seq, bool value_is_full,
-    bool block_contents_pinned, BlockPrefixIndex* prefix_index) {
+    const Comparator* ucmp, SequenceNumber global_seqno, IndexBlockIter* iter,
+    Statistics* /*stats*/, bool total_order_seek, bool have_first_key,
+    bool key_includes_seq, bool value_is_full, bool block_contents_pinned,
+    BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1046,7 +1045,7 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+    ret_iter->Initialize(ucmp, data_, restart_offset_, num_restarts_,
                          global_seqno, prefix_index_ptr, have_first_key,
                          key_includes_seq, value_is_full,
                          block_contents_pinned);
