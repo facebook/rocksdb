@@ -32,6 +32,7 @@ class DeleteSchedulerTest : public testing::Test {
           ToString(i));
       DestroyAndCreateDir(dummy_files_dirs_.back());
     }
+    stats_ = ROCKSDB_NAMESPACE::CreateDBStatistics();
   }
 
   ~DeleteSchedulerTest() override {
@@ -99,6 +100,7 @@ class DeleteSchedulerTest : public testing::Test {
         new SstFileManagerImpl(env_, fs, nullptr, rate_bytes_per_sec_,
                                /* max_trash_db_ratio= */ 1.1, 128 * 1024));
     delete_scheduler_ = sst_file_mgr_->delete_scheduler();
+    sst_file_mgr_->SetStatisticsPtr(stats_);
   }
 
   Env* env_;
@@ -106,6 +108,7 @@ class DeleteSchedulerTest : public testing::Test {
   int64_t rate_bytes_per_sec_;
   DeleteScheduler* delete_scheduler_;
   std::unique_ptr<SstFileManagerImpl> sst_file_mgr_;
+  std::shared_ptr<Statistics> stats_;
 };
 
 // Test the basic functionality of DeleteScheduler (Rate Limiting).
@@ -182,6 +185,8 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     ASSERT_EQ(num_files, dir_synced);
 
     ASSERT_EQ(CountTrashFiles(), 0);
+    ASSERT_EQ(num_files, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
@@ -218,6 +223,9 @@ TEST_F(DeleteSchedulerTest, MultiDirectoryDeletionsScheduled) {
     ASSERT_EQ(0, CountNormalFiles(i));
     ASSERT_EQ(0, CountTrashFiles(i));
   }
+
+  ASSERT_EQ(kNumFiles, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -301,6 +309,10 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     ASSERT_EQ(CountNormalFiles(), 0);
     ASSERT_EQ(CountTrashFiles(), 0);
+    ASSERT_EQ(num_files * thread_cnt,
+              stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
+
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
@@ -318,8 +330,9 @@ TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
 
   rate_bytes_per_sec_ = 0;
   NewDeleteScheduler();
+  constexpr int num_files = 10;
 
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < num_files; i++) {
     // Every file we delete will be deleted immediately
     std::string dummy_file = NewDummyFile("dummy.data");
     ASSERT_OK(delete_scheduler_->DeleteFile(dummy_file, ""));
@@ -329,6 +342,9 @@ TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
   }
 
   ASSERT_EQ(bg_delete_file, 0);
+  ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(num_files,
+            stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -365,6 +381,8 @@ TEST_F(DeleteSchedulerTest, ConflictNames) {
 
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
   ASSERT_EQ(bg_errors.size(), 0);
+  ASSERT_EQ(10, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -439,9 +457,12 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
 
     auto bg_errors = delete_scheduler_->GetBackgroundErrors();
     ASSERT_EQ(bg_errors.size(), 0);
+    ASSERT_EQ(10, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+    ASSERT_EQ(0, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
   }
 
   ASSERT_EQ(bg_delete_file, 50);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 }
 
@@ -653,6 +674,8 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   // When we end up with 26 files in trash we will start
   // deleting new files immediately
   ASSERT_EQ(fg_delete_file, 74);
+  ASSERT_EQ(26, stats_->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(74, stats_->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }

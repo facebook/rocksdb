@@ -83,6 +83,10 @@ class DeleteScheduler {
   static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
                                  const std::string& path);
 
+  void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) {
+    stats_ = stats;
+  }
+
  private:
   Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
 
@@ -137,6 +141,7 @@ class DeleteScheduler {
   // immediately
   std::atomic<double> max_trash_db_ratio_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
+  std::shared_ptr<Statistics> stats_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

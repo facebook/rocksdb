@@ -360,6 +360,12 @@ enum Tickers : uint32_t {
   //           <= BLOCK_CACHE_COMPRESSION_DICT_ADD
   BLOCK_CACHE_COMPRESSION_DICT_ADD_REDUNDANT,
 
+  // # of files marked as trash by sst file manager and will be deleted
+  // later by background thread.
+  FILES_MARKED_TRASH,
+  // # of files deleted immediately by sst file manger through delete scheduler.
+  FILES_DELETED_IMMEDIATELY,
+
   TICKER_ENUM_MAX
 };
 

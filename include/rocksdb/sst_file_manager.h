@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "rocksdb/file_system.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -80,6 +81,9 @@ class SstFileManager {
   // Return the total size of trash files
   // thread-safe
   virtual uint64_t GetTotalTrashSize() = 0;
+
+  // Set the statistics ptr to dump the stat information
+  virtual void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
