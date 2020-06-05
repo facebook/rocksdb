@@ -229,49 +229,6 @@ class Block {
   DataBlockHashIndex data_block_hash_index_;
 };
 
-// A GlobalSeqnoAppliedKey exposes a key with global sequence number applied
-// if configured with `global_seqno != kDisableGlobalSequenceNumber`. It may
-// hold a user key or an internal key since `format_version>=3` index blocks
-// contain user keys. In case it holds user keys, it must be configured with
-// `global_seqno == kDisableGlobalSequenceNumber`.
-class GlobalSeqnoAppliedKey {
- public:
-  void Initialize(IterKey* key, SequenceNumber global_seqno) {
-    key_ = key;
-    global_seqno_ = global_seqno;
-#ifndef NDEBUG
-    init_ = true;
-#endif  // NDEBUG
-  }
-
-  Slice UpdateAndGetKey() {
-    assert(init_);
-    if (global_seqno_ == kDisableGlobalSequenceNumber) {
-      return key_->GetKey();
-    }
-    ParsedInternalKey parsed(Slice(), 0, kTypeValue);
-    if (!ParseInternalKey(key_->GetInternalKey(), &parsed)) {
-      assert(false);  // error not handled in optimized builds
-      return Slice();
-    }
-    parsed.sequence = global_seqno_;
-    scratch_.SetInternalKey(parsed);
-    return scratch_.GetInternalKey();
-  }
-
-  bool IsKeyPinned() const {
-    return global_seqno_ == kDisableGlobalSequenceNumber && key_->IsKeyPinned();
-  }
-
- private:
-  const IterKey* key_;
-  SequenceNumber global_seqno_;
-  IterKey scratch_;
-#ifndef NDEBUG
-  bool init_ = false;
-#endif  // NDEBUG
-};
-
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:
@@ -280,8 +237,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
                       SequenceNumber global_seqno, bool block_contents_pinned) {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
-
-    applied_key_.Initialize(&raw_key_, global_seqno);
 
     ucmp_wrapper_ = UserComparatorWrapper(ucmp);
     icmp_ = InternalKeyComparator(ucmp);
@@ -329,9 +284,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  bool IsKeyPinned() const override {
-    return block_contents_pinned_ && key_pinned_;
-  }
+  bool IsKeyPinned() const override { return key_pinned_; }
 
   bool IsValuePinned() const override { return block_contents_pinned_; }
 
@@ -361,19 +314,24 @@ class BlockIter : public InternalIteratorBase<TValue> {
   uint32_t current_;
   // Raw key from block.
   IterKey raw_key_;
-  // raw_key_ with global seqno applied if necessary. Use this one for
-  // comparisons.
-  GlobalSeqnoAppliedKey applied_key_;
-  // Key to be exposed to users.
-  Slice key_;
+  // True if raw_key_ points to transient data in Prev cache.
+  bool raw_key_cached_;
+  // Buffer for key data when global seqno assignment is enabled.
+  std::string key_buf_;
   Slice value_;
   Status status_;
+  // Key to be exposed to users.
+  Slice key_;
   bool key_pinned_;
   // Whether the block data is guaranteed to outlive this iterator, and
   // as long as the cleanup functions are transferred to another class,
   // e.g. PinnableSlice, the pointer to the bytes will still be valid.
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
+
+  // Update key_, key_buf_, and key_pinned_ at the completion of a user
+  // operation.
+  void UpdateKey();
 
   // Returns the result of `Comparator::Compare()`, where the appropriate
   // comparator is used for the block contents, the LHS argument is the applied

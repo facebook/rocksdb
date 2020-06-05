@@ -128,6 +128,35 @@ struct DecodeKeyV4 {
 };
 
 template <class TValue>
+void BlockIter<TValue>::UpdateKey() {
+  key_buf_.clear();
+  if (!Valid()) {
+    return;
+  }
+  if (raw_key_.IsUserKey()) {
+    assert(global_seqno_ == kDisableGlobalSequenceNumber);
+    key_ = raw_key_.GetUserKey();
+    key_pinned_ =
+        block_contents_pinned_ && raw_key_.IsKeyPinned() && !raw_key_cached_;
+  } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
+    key_ = raw_key_.GetInternalKey();
+    key_pinned_ =
+        block_contents_pinned_ && raw_key_.IsKeyPinned() && !raw_key_cached_;
+  } else {
+    ParsedInternalKey parsed(Slice(), 0, kTypeValue);
+    if (!ParseInternalKey(raw_key_.GetInternalKey(), &parsed)) {
+      // error not handled in optimized builds
+      assert(false);
+      return;
+    }
+    parsed.sequence = global_seqno_;
+    AppendInternalKey(&key_buf_, parsed);
+    key_ = key_buf_;
+    key_pinned_ = false;
+  }
+}
+
+template <class TValue>
 int BlockIter<TValue>::CompareCurrentKey(const Slice& other) {
   if (raw_key_.IsUserKey()) {
     assert(global_seqno_ == kDisableGlobalSequenceNumber);
@@ -149,14 +178,17 @@ int BlockIter<TValue>::CompareCurrentKey(const Slice& other) {
 
 void DataBlockIter::Next() {
   ParseNextDataKey<DecodeEntry>();
+  UpdateKey();
 }
 
 void DataBlockIter::NextOrReport() {
   ParseNextDataKey<CheckAndDecodeEntry>();
+  UpdateKey();
 }
 
 void IndexBlockIter::Next() {
   ParseNextIndexKey();
+  UpdateKey();
 }
 
 void IndexBlockIter::Prev() {
@@ -176,6 +208,7 @@ void IndexBlockIter::Prev() {
   // Loop until end of current entry hits the start of original entry
   while (ParseNextIndexKey() && NextEntryOffset() < original) {
   }
+  UpdateKey();
 }
 
 // Similar to IndexBlockIter::Prev but also caches the prev entries
@@ -196,23 +229,19 @@ void DataBlockIter::Prev() {
     if (current_prev_entry.key_ptr != nullptr) {
       // The key is not delta encoded and stored in the data block
       key_ptr = current_prev_entry.key_ptr;
-      key_pinned_ = true;
+      raw_key_cached_ = false;
     } else {
       // The key is delta encoded and stored in prev_entries_keys_buff_
       key_ptr = prev_entries_keys_buff_.data() + current_prev_entry.key_offset;
-      key_pinned_ = false;
+      raw_key_cached_ = true;
     }
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
     raw_key_.SetKey(current_key, false /* copy */);
     value_ = current_prev_entry.value;
-    key_ = applied_key_.UpdateAndGetKey();
-    // This is kind of odd in that applied_key_ may say the key is pinned while
-    // key_pinned_ ends up being false. That'll only happen when the key resides
-    // in a transient caching buffer.
-    key_pinned_ = key_pinned_ && applied_key_.IsKeyPinned();
 
+    UpdateKey();
     return;
   }
 
@@ -256,6 +285,7 @@ void DataBlockIter::Prev() {
     // Loop until end of current entry hits the start of original entry
   } while (NextEntryOffset() < original);
   prev_entries_idx_ = static_cast<int32_t>(prev_entries_.size()) - 1;
+  UpdateKey();
 }
 
 void DataBlockIter::Seek(const Slice& target) {
@@ -381,7 +411,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   }
 
   // Here we are conservative and only support a limited set of cases
-  ValueType value_type = ExtractValueType(applied_key_.UpdateAndGetKey());
+  ValueType value_type = ExtractValueType(raw_key_.GetInternalKey());
   if (value_type != ValueType::kTypeValue &&
       value_type != ValueType::kTypeDeletion &&
       value_type != ValueType::kTypeSingleDeletion &&
@@ -391,6 +421,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   }
 
   // Result found, and the iter is correctly set.
+  UpdateKey();
   return true;
 }
 
@@ -458,6 +489,7 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
       Prev();
     }
   }
+  UpdateKey();
 }
 
 void DataBlockIter::SeekToFirst() {
@@ -466,6 +498,7 @@ void DataBlockIter::SeekToFirst() {
   }
   SeekToRestartPoint(0);
   ParseNextDataKey<DecodeEntry>();
+  UpdateKey();
 }
 
 void DataBlockIter::SeekToFirstOrReport() {
@@ -474,6 +507,7 @@ void DataBlockIter::SeekToFirstOrReport() {
   }
   SeekToRestartPoint(0);
   ParseNextDataKey<CheckAndDecodeEntry>();
+  UpdateKey();
 }
 
 void IndexBlockIter::SeekToFirst() {
@@ -483,6 +517,7 @@ void IndexBlockIter::SeekToFirst() {
   status_ = Status::OK();
   SeekToRestartPoint(0);
   ParseNextIndexKey();
+  UpdateKey();
 }
 
 void DataBlockIter::SeekToLast() {
@@ -493,6 +528,7 @@ void DataBlockIter::SeekToLast() {
   while (ParseNextDataKey<DecodeEntry>() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
+  UpdateKey();
 }
 
 void IndexBlockIter::SeekToLast() {
@@ -504,6 +540,7 @@ void IndexBlockIter::SeekToLast() {
   while (ParseNextIndexKey() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
+  UpdateKey();
 }
 
 template <class TValue>
@@ -545,8 +582,7 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       // This key share `shared` bytes with prev key, we need to decode it
       raw_key_.TrimAppend(shared, p, non_shared);
     }
-    key_ = applied_key_.UpdateAndGetKey();
-    key_pinned_ = applied_key_.IsKeyPinned();
+    raw_key_cached_ = false;
 
 #ifndef NDEBUG
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
@@ -609,8 +645,7 @@ bool IndexBlockIter::ParseNextIndexKey() {
     // This key share `shared` bytes with prev key, we need to decode it
     raw_key_.TrimAppend(shared, p, non_shared);
   }
-  key_ = applied_key_.UpdateAndGetKey();
-  key_pinned_ = applied_key_.IsKeyPinned();
+  raw_key_cached_ = false;
   value_ = Slice(p + non_shared, value_length);
   if (shared == 0) {
     while (restart_index_ + 1 < num_restarts_ &&
