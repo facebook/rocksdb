@@ -765,7 +765,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   }
 
   // Skip files that are already being compacted
-  for (size_t loop = 0; loop < sorted_runs_.size() - 1; loop++) {
+  for (size_t loop = 0; loop + 1 < sorted_runs_.size(); loop++) {
     sr = &sorted_runs_[loop];
     if (!sr->being_compacted) {
       start_index = loop;  // Consider this as the first candidate.
@@ -793,7 +793,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   }
 
   // keep adding up all the remaining files
-  for (size_t loop = start_index; loop < sorted_runs_.size() - 1; loop++) {
+  for (size_t loop = start_index; loop + 1 < sorted_runs_.size(); loop++) {
     sr = &sorted_runs_[loop];
     if (sr->being_compacted) {
       char file_num_buf[kFormatFileNumberBufSize];

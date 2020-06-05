@@ -643,6 +643,29 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
     SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+TEST_F(LdbCmdTest, TestBadDbPath) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  std::string dbname = test::TmpDir();
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s/.no_such_dir", dbname.c_str());
+  char arg3[1024];
+  snprintf(arg3, sizeof(arg3), "create_column_family");
+  char arg4[] = "bad cf";
+  char* argv[] = {arg1, arg2, arg3, arg4};
+
+  ASSERT_EQ(1,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+  snprintf(arg3, sizeof(arg3), "drop_column_family");
+  ASSERT_EQ(1,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

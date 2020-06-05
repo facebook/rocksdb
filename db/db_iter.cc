@@ -258,7 +258,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       // prone to bugs causing the same user key with the same sequence number.
       // Note that with current timestamp implementation, the same user key can
       // have different timestamps and zero sequence number on the bottommost
-      // level. This will change in the future.
+      // level. This may change in the future.
       if ((!is_prev_key_seqnum_zero || timestamp_size_ > 0) &&
           skipping_saved_key &&
           CompareKeyForSkip(ikey_.user_key, saved_key_.GetUserKey()) <= 0) {
@@ -276,6 +276,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
         reseek_done = false;
         switch (ikey_.type) {
           case kTypeDeletion:
+          case kTypeDeletionWithTimestamp:
           case kTypeSingleDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.

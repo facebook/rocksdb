@@ -20,10 +20,10 @@ from util import ColorString
 # User can pass extra dependencies as a JSON object via command line, and this
 # script can include these dependencies in the generate TARGETS file.
 # Usage:
-# $python buckifier/buckify_rocksdb.py
+# $python3 buckifier/buckify_rocksdb.py
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
-# $python buckifier/buckify_rocksdb.py \
+# $python3 buckifier/buckify_rocksdb.py \
 #        '{"fake": { \
 #                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
 #                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \

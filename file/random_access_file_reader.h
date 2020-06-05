@@ -62,13 +62,13 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      Env* env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
+      Env* _env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf)),
         file_name_(std::move(_file_name)),
-        env_(env),
+        env_(_env),
         stats_(stats),
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),

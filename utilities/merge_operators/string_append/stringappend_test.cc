@@ -1,3 +1,9 @@
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+//
+
 /**
  * An persistent map : key -> (list of strings), using rocksdb merge.
  * This file is a test-harness / use-case for the StringAppendOperator.
@@ -6,16 +12,19 @@
  * Copyright 2013 Facebook, Inc.
 */
 
+#include "utilities/merge_operators/string_append/stringappend.h"
+
 #include <iostream>
 #include <map>
+#include <tuple>
 
+#include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
 using namespace ROCKSDB_NAMESPACE;
@@ -108,10 +117,24 @@ class StringLists {
 
 
 // The class for unit-testing
-class StringAppendOperatorTest : public testing::Test {
+class StringAppendOperatorTest : public testing::Test,
+                                 public ::testing::WithParamInterface<bool> {
  public:
   StringAppendOperatorTest() {
     DestroyDB(kDbName, Options());    // Start each test with a fresh DB
+  }
+
+  void SetUp() override {
+#ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
+    bool if_use_ttl = GetParam();
+    if (if_use_ttl) {
+      fprintf(stderr, "Running tests with ttl db and generic operator.\n");
+      StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
+      return;
+    }
+#endif  // !ROCKSDB_LITE
+    fprintf(stderr, "Running tests with regular db and operator.\n");
+    StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
   }
 
   typedef std::shared_ptr<DB> (* OpenFuncPtr)(char);
@@ -129,7 +152,7 @@ StringAppendOperatorTest::OpenFuncPtr StringAppendOperatorTest::OpenDb = nullptr
 
 // THE TEST CASES BEGIN HERE
 
-TEST_F(StringAppendOperatorTest, IteratorTest) {
+TEST_P(StringAppendOperatorTest, IteratorTest) {
   auto db_ = OpenDb(',');
   StringLists slists(db_);
 
@@ -220,10 +243,9 @@ TEST_F(StringAppendOperatorTest, IteratorTest) {
       ASSERT_EQ(res, "g1");
     }
   }
-
 }
 
-TEST_F(StringAppendOperatorTest, SimpleTest) {
+TEST_P(StringAppendOperatorTest, SimpleTest) {
   auto db = OpenDb(',');
   StringLists slists(db);
 
@@ -238,7 +260,7 @@ TEST_F(StringAppendOperatorTest, SimpleTest) {
   ASSERT_EQ(res, "v1,v2,v3");
 }
 
-TEST_F(StringAppendOperatorTest, SimpleDelimiterTest) {
+TEST_P(StringAppendOperatorTest, SimpleDelimiterTest) {
   auto db = OpenDb('|');
   StringLists slists(db);
 
@@ -251,7 +273,7 @@ TEST_F(StringAppendOperatorTest, SimpleDelimiterTest) {
   ASSERT_EQ(res, "v1|v2|v3");
 }
 
-TEST_F(StringAppendOperatorTest, OneValueNoDelimiterTest) {
+TEST_P(StringAppendOperatorTest, OneValueNoDelimiterTest) {
   auto db = OpenDb('!');
   StringLists slists(db);
 
@@ -262,7 +284,7 @@ TEST_F(StringAppendOperatorTest, OneValueNoDelimiterTest) {
   ASSERT_EQ(res, "single_val");
 }
 
-TEST_F(StringAppendOperatorTest, VariousKeys) {
+TEST_P(StringAppendOperatorTest, VariousKeys) {
   auto db = OpenDb('\n');
   StringLists slists(db);
 
@@ -288,7 +310,7 @@ TEST_F(StringAppendOperatorTest, VariousKeys) {
 }
 
 // Generate semi random keys/words from a small distribution.
-TEST_F(StringAppendOperatorTest, RandomMixGetAppend) {
+TEST_P(StringAppendOperatorTest, RandomMixGetAppend) {
   auto db = OpenDb(' ');
   StringLists slists(db);
 
@@ -336,10 +358,9 @@ TEST_F(StringAppendOperatorTest, RandomMixGetAppend) {
     }
 
   }
-
 }
 
-TEST_F(StringAppendOperatorTest, BIGRandomMixGetAppend) {
+TEST_P(StringAppendOperatorTest, BIGRandomMixGetAppend) {
   auto db = OpenDb(' ');
   StringLists slists(db);
 
@@ -387,10 +408,9 @@ TEST_F(StringAppendOperatorTest, BIGRandomMixGetAppend) {
     }
 
   }
-
 }
 
-TEST_F(StringAppendOperatorTest, PersistentVariousKeys) {
+TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
   // Perform the following operations in limited scope
   {
     auto db = OpenDb('\n');
@@ -457,7 +477,7 @@ TEST_F(StringAppendOperatorTest, PersistentVariousKeys) {
   }
 }
 
-TEST_F(StringAppendOperatorTest, PersistentFlushAndCompaction) {
+TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
   // Perform the following operations in limited scope
   {
     auto db = OpenDb('\n');
@@ -553,7 +573,7 @@ TEST_F(StringAppendOperatorTest, PersistentFlushAndCompaction) {
   }
 }
 
-TEST_F(StringAppendOperatorTest, SimpleTestNullDelimiter) {
+TEST_P(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   auto db = OpenDb('\0');
   StringLists slists(db);
 
@@ -576,26 +596,13 @@ TEST_F(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   ASSERT_EQ(res, checker);
 }
 
+INSTANTIATE_TEST_CASE_P(StringAppendOperatorTest, StringAppendOperatorTest,
+                        testing::Bool());
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
-  // Run with regular database
-  int result;
-  {
-    fprintf(stderr, "Running tests with regular db and operator.\n");
-    StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
-    result = RUN_ALL_TESTS();
-  }
-
-#ifndef ROCKSDB_LITE  // TtlDb is not supported in Lite
-  // Run with TTL
-  {
-    fprintf(stderr, "Running tests with ttl db and generic operator.\n");
-    StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
-    result |= RUN_ALL_TESTS();
-  }
-#endif  // !ROCKSDB_LITE
-
-  return result;
+  return RUN_ALL_TESTS();
 }

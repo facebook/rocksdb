@@ -20,7 +20,7 @@ class RandomAccessFileReaderTest : public testing::Test {
     fs_ = FileSystem::Default();
     test_dir_ = test::PerThreadDBPath("random_access_file_reader_test");
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
-    alignment_ = GetAlignment();
+    ComputeAndSetAlignment();
   }
 
   void TearDown() override {
@@ -63,16 +63,18 @@ class RandomAccessFileReaderTest : public testing::Test {
     return test_dir_ + "/" + fname;
   }
 
-  size_t GetAlignment() {
+  void ComputeAndSetAlignment() {
     std::string f = "get_alignment";
     Write(f, "");
     std::unique_ptr<RandomAccessFileReader> r;
     Read(f, FileOptions(), &r);
-    size_t alignment = r->file()->GetRequiredBufferAlignment();
+    alignment_ = r->file()->GetRequiredBufferAlignment();
     EXPECT_OK(fs_->DeleteFile(Path(f), IOOptions(), nullptr));
-    return alignment;
   }
 };
+
+// Skip the following tests in lite mode since direct I/O is unsupported.
+#ifndef ROCKSDB_LITE
 
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
@@ -246,6 +248,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     AssertResult(content, reqs);
   }
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

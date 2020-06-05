@@ -613,7 +613,7 @@ Status HdfsEnv::IsDirectory(const std::string& path, bool* is_dir) {
   hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, path.c_str());
   if (pFileInfo != nullptr) {
     if (is_dir != nullptr) {
-      *is_dir = (pFileInfo->mKind == tObjectKindDirectory);
+      *is_dir = (pFileInfo->mKind == kObjectKindDirectory);
     }
     hdfsFreeFileInfo(pFileInfo, 1);
     return Status::OK();

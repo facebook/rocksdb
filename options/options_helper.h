@@ -98,24 +98,15 @@ struct OptionsHelper {
       compression_type_string_map;
 #ifndef ROCKSDB_LITE
   static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      fifo_compaction_options_type_info;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      universal_compaction_options_type_info;
   static std::unordered_map<std::string, CompactionStopStyle>
       compaction_stop_style_string_map;
   static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      lru_cache_options_type_info;
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
   static std::unordered_map<std::string, CompactionStyle>
       compaction_style_string_map;
   static std::unordered_map<std::string, CompactionPri>
       compaction_pri_string_map;
   static ColumnFamilyOptions dummy_cf_options;
-  static CompactionOptionsFIFO dummy_comp_options;
-  static LRUCacheOptions dummy_lru_cache_options;
-  static CompactionOptionsUniversal dummy_comp_options_universal;
 #endif  // !ROCKSDB_LITE
 };
 
@@ -128,15 +119,9 @@ static auto& compaction_stop_style_to_string =
 static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
 #ifndef ROCKSDB_LITE
 static auto& cf_options_type_info = OptionsHelper::cf_options_type_info;
-static auto& fifo_compaction_options_type_info =
-    OptionsHelper::fifo_compaction_options_type_info;
-static auto& universal_compaction_options_type_info =
-    OptionsHelper::universal_compaction_options_type_info;
 static auto& compaction_stop_style_string_map =
     OptionsHelper::compaction_stop_style_string_map;
 static auto& db_options_type_info = OptionsHelper::db_options_type_info;
-static auto& lru_cache_options_type_info =
-    OptionsHelper::lru_cache_options_type_info;
 static auto& compression_type_string_map =
     OptionsHelper::compression_type_string_map;
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;

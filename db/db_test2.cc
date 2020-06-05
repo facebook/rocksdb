@@ -25,6 +25,67 @@ class DBTest2 : public DBTestBase {
   DBTest2() : DBTestBase("/db_test2") {}
 };
 
+TEST_F(DBTest2, OpenForReadOnly) {
+  DB* db_ptr = nullptr;
+  std::string dbname = test::PerThreadDBPath("db_readonly");
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  // OpenForReadOnly should fail but will create <dbname> in the file system
+  ASSERT_NOK(DB::OpenForReadOnly(options, dbname, &db_ptr));
+  // Since <dbname> is created, we should be able to delete the dir
+  // We first get the list files under <dbname>
+  // There should not be any subdirectories -- this is not checked here
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname, &files));
+  for (auto& f : files) {
+    if (f != "." && f != "..") {
+      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
+    }
+  }
+  // <dbname> should be empty now and we should be able to delete it
+  ASSERT_OK(env_->DeleteDir(dbname));
+  options.create_if_missing = false;
+  // OpenForReadOnly should fail since <dbname> was successfully deleted
+  ASSERT_NOK(DB::OpenForReadOnly(options, dbname, &db_ptr));
+  // With create_if_missing false, there should not be a dir in the file system
+  ASSERT_NOK(env_->FileExists(dbname));
+}
+
+TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
+  DB* db_ptr = nullptr;
+  std::string dbname = test::PerThreadDBPath("db_readonly");
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.push_back(ColumnFamilyDescriptor("goku", cf_options));
+  std::vector<ColumnFamilyHandle*> handles;
+  // OpenForReadOnly should fail but will create <dbname> in the file system
+  ASSERT_NOK(
+      DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
+  // Since <dbname> is created, we should be able to delete the dir
+  // We first get the list files under <dbname>
+  // There should not be any subdirectories -- this is not checked here
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname, &files));
+  for (auto& f : files) {
+    if (f != "." && f != "..") {
+      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
+    }
+  }
+  // <dbname> should be empty now and we should be able to delete it
+  ASSERT_OK(env_->DeleteDir(dbname));
+  options.create_if_missing = false;
+  // OpenForReadOnly should fail since <dbname> was successfully deleted
+  ASSERT_NOK(
+      DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
+  // With create_if_missing false, there should not be a dir in the file system
+  ASSERT_NOK(env_->FileExists(dbname));
+}
+
 class PrefixFullBloomWithReverseComparator
     : public DBTestBase,
       public ::testing::WithParamInterface<bool> {

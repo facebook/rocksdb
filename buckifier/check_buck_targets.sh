@@ -15,7 +15,7 @@ echo Backup original TARGETS file.
 
 cp TARGETS TARGETS.bkp
 
-python buckifier/buckify_rocksdb.py
+${PYTHON:-python3} buckifier/buckify_rocksdb.py
 
 TGT_DIFF=`git diff TARGETS | head -n 1`
 
@@ -24,9 +24,9 @@ then
   mv TARGETS.bkp TARGETS
   exit 0
 else
-  echo "Please run 'python buckifier/buckify_rocksdb.py' to update TARGETS file."
+  echo "Please run '${PYTHON:-python3} buckifier/buckify_rocksdb.py' to update TARGETS file."
   echo "Do not manually update TARGETS file."
-  python --version
+  ${PYTHON:-python3} --version
   mv TARGETS.bkp TARGETS
   exit 1
 fi

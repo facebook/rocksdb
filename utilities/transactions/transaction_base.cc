@@ -312,8 +312,7 @@ std::vector<Status> TransactionBaseImpl::MultiGet(
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = Get(read_options, column_family[i], keys[i], value);
+    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
   }
 
   return stat_list;
@@ -350,8 +349,7 @@ std::vector<Status> TransactionBaseImpl::MultiGetForUpdate(
   // TODO(agiardullo): optimize multiget?
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = Get(read_options, column_family[i], keys[i], value);
+    stat_list[i] = Get(read_options, column_family[i], keys[i], &(*values)[i]);
   }
 
   return stat_list;

@@ -294,8 +294,7 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = this->Get(options, column_family[i], keys[i], value);
+    stat_list[i] = this->Get(options, column_family[i], keys[i], &(*values)[i]);
   }
   return stat_list;
 }

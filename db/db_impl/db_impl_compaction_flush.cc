@@ -573,7 +573,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // Need to undo atomic flush if something went wrong, i.e. s is not OK and
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && io_s.IsColumnFamilyDropped()) {
+    if (!io_s.ok() && !io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     } else {
       Status new_bg_error = s;

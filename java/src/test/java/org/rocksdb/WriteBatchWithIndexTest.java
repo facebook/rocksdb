@@ -13,7 +13,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -97,6 +99,95 @@ public class WriteBatchWithIndexTest {
         assertThat(it.isValid()).isTrue();
         assertThat(it.key()).isEqualTo(k3);
         assertThat(it.value()).isEqualTo(v3Other);
+      }
+    }
+  }
+
+  @Test
+  public void readYourOwnWritesCf() throws RocksDBException {
+    final List<ColumnFamilyDescriptor> cfNames =
+        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf".getBytes()));
+
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+
+    // Test open database with column family names
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(
+             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
+      final ColumnFamilyHandle newCf = columnFamilyHandleList.get(1);
+
+      try {
+        final byte[] k1 = "key1".getBytes();
+        final byte[] v1 = "value1".getBytes();
+        final byte[] k2 = "key2".getBytes();
+        final byte[] v2 = "value2".getBytes();
+
+        db.put(newCf, k1, v1);
+        db.put(newCf, k2, v2);
+
+        try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+             final ReadOptions readOptions = new ReadOptions();
+             final RocksIterator base = db.newIterator(newCf, readOptions);
+             final RocksIterator it = wbwi.newIteratorWithBase(newCf, base, readOptions)) {
+          it.seek(k1);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k1);
+          assertThat(it.value()).isEqualTo(v1);
+
+          it.seek(k2);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k2);
+          assertThat(it.value()).isEqualTo(v2);
+
+          // put data to the write batch and make sure we can read it.
+          final byte[] k3 = "key3".getBytes();
+          final byte[] v3 = "value3".getBytes();
+          wbwi.put(newCf, k3, v3);
+          it.seek(k3);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k3);
+          assertThat(it.value()).isEqualTo(v3);
+
+          // update k2 in the write batch and check the value
+          final byte[] v2Other = "otherValue2".getBytes();
+          wbwi.put(newCf, k2, v2Other);
+          it.seek(k2);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k2);
+          assertThat(it.value()).isEqualTo(v2Other);
+
+          // delete k1 and make sure we can read back the write
+          wbwi.delete(newCf, k1);
+          it.seek(k1);
+          assertThat(it.key()).isNotEqualTo(k1);
+
+          // reinsert k1 and make sure we see the new value
+          final byte[] v1Other = "otherValue1".getBytes();
+          wbwi.put(newCf, k1, v1Other);
+          it.seek(k1);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k1);
+          assertThat(it.value()).isEqualTo(v1Other);
+
+          // single remove k3 and make sure we can read back the write
+          wbwi.singleDelete(newCf, k3);
+          it.seek(k3);
+          assertThat(it.isValid()).isEqualTo(false);
+
+          // reinsert k3 and make sure we see the new value
+          final byte[] v3Other = "otherValue3".getBytes();
+          wbwi.put(newCf, k3, v3Other);
+          it.seek(k3);
+          assertThat(it.isValid()).isTrue();
+          assertThat(it.key()).isEqualTo(k3);
+          assertThat(it.value()).isEqualTo(v3Other);
+        }
+      } finally {
+        for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
+          columnFamilyHandle.close();
+        }
       }
     }
   }
