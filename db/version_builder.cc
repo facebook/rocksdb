@@ -278,7 +278,6 @@ class VersionBuilder::Rep {
           TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency0", &pair);
 #endif
           if (!level_zero_cmp_(f1, f2)) {
-            fprintf(stderr, "L0 files are not sorted properly");
             return Status::Corruption("L0 files are not sorted properly");
           }
 
@@ -287,11 +286,6 @@ class VersionBuilder::Rep {
             SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
             if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
-              fprintf(stderr,
-                      "L0 file with seqno %" PRIu64 " %" PRIu64
-                      " vs. file with global_seqno %" PRIu64 "\n",
-                      f1->fd.smallest_seqno, f1->fd.largest_seqno,
-                      external_file_seqno);
               return Status::Corruption(
                   "L0 file with seqno " +
                   NumberToString(f1->fd.smallest_seqno) + " " +
@@ -301,11 +295,6 @@ class VersionBuilder::Rep {
                   NumberToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
-            fprintf(stderr,
-                    "L0 files seqno %" PRIu64 " %" PRIu64 " vs. %" PRIu64
-                    " %" PRIu64 "\n",
-                    f1->fd.smallest_seqno, f1->fd.largest_seqno,
-                    f2->fd.smallest_seqno, f2->fd.largest_seqno);
             return Status::Corruption(
                 "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
                 " " + NumberToString(f1->fd.largest_seqno) + " " +
@@ -320,7 +309,6 @@ class VersionBuilder::Rep {
           TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
-            fprintf(stderr, "L%d files are not sorted properly", level);
             return Status::Corruption("L" + NumberToString(level) +
                                       " files are not sorted properly");
           }
@@ -328,9 +316,6 @@ class VersionBuilder::Rep {
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
-            fprintf(stderr, "L%d have overlapping ranges %s vs. %s\n", level,
-                    (f1->largest).DebugString(true).c_str(),
-                    (f2->smallest).DebugString(true).c_str());
             return Status::Corruption(
                 "L" + NumberToString(level) + " have overlapping ranges " +
                 (f1->largest).DebugString(true) + " vs. " +
