@@ -33,6 +33,9 @@ class SstFileDumper {
 
   Status VerifyChecksum();
   Status DumpTable(const std::string& out_filename);
+  Status RebuildTable(const std::string& out_filename,
+                      const std::string& manifest_filename,
+                      const std::string& out_manifest_filename);
   Status getStatus() { return init_result_; }
 
   int ShowAllCompressionSizes(
