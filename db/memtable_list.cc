@@ -43,22 +43,20 @@ void MemTableListVersion::UnrefMemTable(autovector<MemTable*>* to_delete,
 }
 
 MemTableListVersion::MemTableListVersion(
-    size_t* parent_memtable_list_memory_usage, MemTableListVersion* old)
+    size_t* parent_memtable_list_memory_usage, const MemTableListVersion& old)
     : max_write_buffer_number_to_maintain_(
-          old->max_write_buffer_number_to_maintain_),
+          old.max_write_buffer_number_to_maintain_),
       max_write_buffer_size_to_maintain_(
-          old->max_write_buffer_size_to_maintain_),
+          old.max_write_buffer_size_to_maintain_),
       parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {
-  if (old != nullptr) {
-    memlist_ = old->memlist_;
-    for (auto& m : memlist_) {
-      m->Ref();
-    }
+  memlist_ = old.memlist_;
+  for (auto& m : memlist_) {
+    m->Ref();
+  }
 
-    memlist_history_ = old->memlist_history_;
-    for (auto& m : memlist_history_) {
-      m->Ref();
-    }
+  memlist_history_ = old.memlist_history_;
+  for (auto& m : memlist_history_) {
+    m->Ref();
   }
 }
 
@@ -604,7 +602,7 @@ void MemTableList::InstallNewVersion() {
   } else {
     // somebody else holds the current version, we need to create new one
     MemTableListVersion* version = current_;
-    current_ = new MemTableListVersion(&current_memory_usage_, current_);
+    current_ = new MemTableListVersion(&current_memory_usage_, *version);
     current_->Ref();
     version->Unref();
   }

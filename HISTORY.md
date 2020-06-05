@@ -11,6 +11,8 @@
 * Let best-efforts recovery ignore corrupted files during table loading.
 * Fix corrupt key read from ingested file when iterator direction switches from reverse to forward at a key that is a prefix of another key in the same file. It is only possible in files with a non-zero global seqno.
 * Fix abnormally large estimate from GetApproximateSizes when a range starts near the end of one SST file and near the beginning of another. Now GetApproximateSizes consistently and fairly includes the size of SST metadata in addition to data blocks, attributing metadata proportionally among the data blocks based on their size.
+* Fix potential file descriptor leakage in PosixEnv's IsDirectory() and NewRandomAccessFile().
+* Fix false negative from the VerifyChecksum() API when there is a checksum mismatch in an index partition block in a BlockBasedTable format table file (index_type is kTwoLevelIndexSearch).
 * Fix "bad block type" error from persistent cache on Windows.
 
 ### Public API Change

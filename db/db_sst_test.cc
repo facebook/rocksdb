@@ -376,6 +376,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   env_->SetTimeElapseOnlySleep(&options);
   options.disable_auto_compactions = true;
   options.env = env_;
+  options.statistics = CreateDBStatistics();
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
@@ -425,6 +426,9 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   }
   ASSERT_GT(time_spent_deleting, expected_penlty * 0.9);
   ASSERT_LT(time_spent_deleting, expected_penlty * 1.1);
+  ASSERT_EQ(4, options.statistics->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(
+      0, options.statistics->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -816,6 +820,12 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
   ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_EQ(0,
+            dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                FILES_MARKED_TRASH));
+  ASSERT_EQ(4,
+            dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                FILES_DELETED_IMMEDIATELY));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 

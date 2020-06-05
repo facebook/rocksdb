@@ -85,14 +85,13 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
-    "-I" + REPO_PATH + "{gtest_dir}",
 ]
 
-ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {{
+ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
     "x86_64": [
         "-DHAVE_PCLMUL",
     ],
-}}
+}
 
 build_mode = read_config("fbcode", "build_mode")
 
@@ -134,7 +133,7 @@ cpp_library(
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [{deps}],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
+    external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
 )
 """
 
@@ -183,18 +182,17 @@ ROCKS_TESTS = [
 # Do not build the tests in opt mode, since SyncPoint and other test code
 # will not be included.
 [
-    test_binary(
-        extra_compiler_flags = extra_compiler_flags,
-        extra_deps = extra_deps,
-        parallelism = parallelism,
-        rocksdb_arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-        rocksdb_compiler_flags = ROCKSDB_COMPILER_FLAGS,
-        rocksdb_external_deps = ROCKSDB_EXTERNAL_DEPS,
-        rocksdb_os_deps = ROCKSDB_OS_DEPS,
-        rocksdb_os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-        rocksdb_preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-        test_cc = test_cc,
-        test_name = test_name,
+    cpp_unittest(
+        name = test_name,
+        srcs = [test_cc],
+        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        compiler_flags = ROCKSDB_COMPILER_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        deps = [":rocksdb_test_lib"] + extra_deps,
+        external_deps = ROCKSDB_EXTERNAL_DEPS + [
+            ("googletest", None, "gtest"),
+        ],
     )
     for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode

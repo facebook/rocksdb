@@ -255,6 +255,7 @@ class BlockBasedTable : public TableReader {
 
  private:
   friend class MockedBlockBasedTable;
+  friend class BlockBasedTableReaderTestVerifyChecksum_ChecksumMismatch_Test;
   static std::atomic<uint64_t> next_cache_key_id_;
   BlockCacheTracer* const block_cache_tracer_;
 

@@ -241,6 +241,8 @@ class PosixFileSystem : public FileSystem {
           s = IOError("while mmap file for read", fname, errno);
           close(fd);
         }
+      } else {
+        close(fd);
       }
     } else {
       if (options.use_direct_reads && !options.use_mmap_reads) {
@@ -889,14 +891,16 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       return IOError("While open for IsDirectory()", path, errno);
     }
+    IOStatus io_s;
     struct stat sbuf;
     if (fstat(fd, &sbuf) < 0) {
-      return IOError("While doing stat for IsDirectory()", path, errno);
+      io_s = IOError("While doing stat for IsDirectory()", path, errno);
     }
-    if (nullptr != is_dir) {
+    close(fd);
+    if (io_s.ok() && nullptr != is_dir) {
       *is_dir = S_ISDIR(sbuf.st_mode);
     }
-    return IOStatus::OK();
+    return io_s;
   }
 
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,

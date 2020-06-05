@@ -100,15 +100,15 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 
   FilePrefetchBuffer prefetch_buffer(nullptr, 0, 0, true /* enable */,
                                      false /* track_min_offset */);
-  const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
-  uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
-                               ? kSstDumpTailPrefetchSize
-                               : file_size;
-  uint64_t prefetch_off = file_size - prefetch_size;
-  prefetch_buffer.Prefetch(file_.get(), prefetch_off,
-                           static_cast<size_t>(prefetch_size));
-
   if (s.ok()) {
+    const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
+    uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
+                                 ? kSstDumpTailPrefetchSize
+                                 : file_size;
+    uint64_t prefetch_off = file_size - prefetch_size;
+    prefetch_buffer.Prefetch(file_.get(), prefetch_off,
+                             static_cast<size_t>(prefetch_size));
+
     s = ReadFooterFromFile(file_.get(), &prefetch_buffer, file_size, &footer);
   }
   if (s.ok()) {

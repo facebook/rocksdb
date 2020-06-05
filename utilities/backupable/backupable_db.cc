@@ -538,6 +538,7 @@ Status BackupEngine::Open(const BackupableDBOptions& options, Env* env,
 BackupEngineImpl::BackupEngineImpl(const BackupableDBOptions& options,
                                    Env* db_env, bool read_only)
     : initialized_(false),
+      threads_cpu_priority_(),
       latest_backup_id_(0),
       latest_valid_backup_id_(0),
       stop_backup_(false),

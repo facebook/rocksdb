@@ -1569,6 +1569,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   auto sfm = static_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
+    // Set Statistics ptr for SstFileManager to dump the stats of
+    // DeleteScheduler.
+    sfm->SetStatisticsPtr(impl->immutable_db_options_.statistics);
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                   "SstFileManager instance %p", sfm);
+
     // Notify SstFileManager about all sst files that already exist in
     // db_paths[0] and cf_paths[0] when the DB is opened.
 
