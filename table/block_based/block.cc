@@ -127,6 +127,26 @@ struct DecodeKeyV4 {
   }
 };
 
+template <class TValue>
+int BlockIter<TValue>::CompareCurrentKey(const Slice& other) {
+  if (raw_key_.IsUserKey()) {
+    assert(global_seqno_ == kDisableGlobalSequenceNumber);
+    return ucmp_wrapper_.Compare(raw_key_.GetUserKey(), other);
+  } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
+    return icmp_.Compare(raw_key_.GetInternalKey(), other);
+  }
+  ParsedInternalKey parsed1(Slice(), 0, kTypeValue),
+      parsed2(Slice(), 0, kTypeValue);
+  if (!ParseInternalKey(raw_key_.GetInternalKey(), &parsed1) ||
+      !ParseInternalKey(other, &parsed2)) {
+    // error not handled in optimized builds
+    assert(false);
+    return 0;
+  }
+  parsed1.sequence = global_seqno_;
+  return icmp_.Compare(parsed1, parsed2);
+}
+
 void DataBlockIter::Next() {
   ParseNextDataKey<DecodeEntry>();
 }
@@ -247,12 +267,12 @@ void DataBlockIter::Seek(const Slice& target) {
   uint32_t index = 0;
   bool skip_linear_scan = false;
   bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan, &icmp_);
+                                  &skip_linear_scan);
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, &icmp_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 }
 
 // Optimized Seek for point lookup for an internal key `target`
@@ -330,7 +350,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
     if (!ParseNextDataKey<DecodeEntry>(limit) ||
-        icmp_.Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
+        CompareCurrentKey(target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -403,16 +423,16 @@ void IndexBlockIter::Seek(const Slice& target) {
     skip_linear_scan = true;
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 &skip_linear_scan, comparator_);
+                                 &skip_linear_scan);
   } else {
     ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               &skip_linear_scan, comparator_);
+                               &skip_linear_scan);
   }
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 }
 
 void DataBlockIter::SeekForPrev(const Slice& target) {
@@ -424,18 +444,17 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   uint32_t index = 0;
   bool skip_linear_scan = false;
   bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan, &icmp_);
+                                  &skip_linear_scan);
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, &icmp_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
     SeekToLast();
   } else {
-    while (Valid() &&
-           icmp_.Compare(applied_key_.UpdateAndGetKey(), seek_key) > 0) {
+    while (Valid() && CompareCurrentKey(seek_key) > 0) {
       Prev();
     }
   }
@@ -651,8 +670,7 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
 template <class TValue>
 void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
                                                uint32_t index,
-                                               bool skip_linear_scan,
-                                               const Comparator* comp) {
+                                               bool skip_linear_scan) {
   // SeekToRestartPoint() only does the lookup in the restart block. We need
   // to follow it up with Next() to position the iterator at the restart key.
   SeekToRestartPoint(index);
@@ -677,9 +695,9 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
         break;
       }
       if (current_ == max_offset) {
-        assert(comp->Compare(applied_key_.UpdateAndGetKey(), target) > 0);
+        assert(CompareCurrentKey(target) > 0);
         break;
-      } else if (comp->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
+      } else if (CompareCurrentKey(target) >= 0) {
         break;
       }
     }
@@ -698,8 +716,7 @@ template <class TValue>
 template <typename DecodeKeyFunc>
 bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
                                    uint32_t right, uint32_t* index,
-                                   bool* skip_linear_scan,
-                                   const Comparator* comp) {
+                                   bool* skip_linear_scan) {
   assert(left <= right);
   if (restarts_ == 0) {
     // SST files dedicated to range tombstones are written with index blocks
@@ -724,7 +741,7 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
     }
     Slice mid_key(key_ptr, non_shared);
     raw_key_.SetKey(mid_key, false /* copy */);
-    int cmp = comp->Compare(applied_key_.UpdateAndGetKey(), target);
+    int cmp = CompareCurrentKey(target);
     if (cmp < 0) {
       // Key at "mid" is smaller than "target". Therefore all
       // blocks before "mid" are uninteresting.
@@ -757,7 +774,7 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
     }
     Slice first_key(key_ptr, non_shared);
     raw_key_.SetKey(first_key, false /* copy */);
-    int cmp = comp->Compare(applied_key_.UpdateAndGetKey(), target);
+    int cmp = CompareCurrentKey(target);
     *skip_linear_scan = cmp >= 0;
   }
   return true;
@@ -780,7 +797,7 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   }
   Slice block_key(key_ptr, non_shared);
   raw_key_.SetKey(block_key, false /* copy */);
-  return comparator_->Compare(applied_key_.UpdateAndGetKey(), target);
+  return CompareCurrentKey(target);
 }
 
 // Binary search in block_ids to find the first block

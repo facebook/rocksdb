@@ -375,6 +375,11 @@ class BlockIter : public InternalIteratorBase<TValue> {
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
 
+  // Returns the result of `Comparator::Compare()`, where the appropriate
+  // comparator is used for the block contents, the LHS argument is the applied
+  // key, and the RHS argument is `other`.
+  int CompareCurrentKey(const Slice& other);
+
  private:
   // Store the cache handle, if the block is cached. We need this since the
   // only other place the handle is stored is as an argument to the Cleanable
@@ -410,11 +415,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
  protected:
   template <typename DecodeKeyFunc>
   inline bool BinarySeek(const Slice& target, uint32_t left, uint32_t right,
-                         uint32_t* index, bool* is_index_key_result,
-                         const Comparator* comp);
+                         uint32_t* index, bool* is_index_key_result);
 
   void FindKeyAfterBinarySeek(const Slice& target, uint32_t index,
-                              bool is_index_key_result, const Comparator* comp);
+                              bool is_index_key_result);
 };
 
 class DataBlockIter final : public BlockIter<Slice> {
@@ -545,11 +549,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     InitializeBase(ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
     key_includes_seq_ = key_includes_seq;
-    if (key_includes_seq_) {
-      comparator_ = &icmp_;
-    } else {
-      comparator_ = &ucmp_wrapper_;
-    }
     raw_key_.SetIsUserKey(!key_includes_seq_);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
@@ -617,7 +616,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   }
 
  private:
-  const Comparator* comparator_;
   // Key is in InternalKey format
   bool key_includes_seq_;
   bool value_delta_encoded_;
