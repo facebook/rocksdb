@@ -464,7 +464,16 @@ Status DestroyDir(Env* env, const std::string& dir) {
       if (file_in_dir == "." || file_in_dir == "..") {
         continue;
       }
-      s = env->DeleteFile(dir + "/" + file_in_dir);
+      std::string path = dir + "/" + file_in_dir;
+      bool is_dir = false;
+      s = env->IsDirectory(path, &is_dir);
+      if (s.ok()) {
+        if (is_dir) {
+          s = DestroyDir(env, path);
+        } else {
+          s = env->DeleteFile(path);
+        }
+      }
       if (!s.ok()) {
         break;
       }

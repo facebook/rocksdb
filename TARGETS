@@ -1486,6 +1486,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "testutil_test",
+        "test_util/testutil_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "thread_list_test",
         "util/thread_list_test.cc",
         "serial",

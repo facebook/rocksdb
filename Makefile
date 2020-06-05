@@ -639,6 +639,7 @@ TESTS = \
 	blob_file_garbage_test \
 	timer_test \
 	db_with_timestamp_compaction_test \
+	testutil_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1864,6 +1865,9 @@ blob_file_garbage_test: db/blob/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHAR
 	$(AM_LINK)
 
 timer_test: util/timer_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+testutil_test: test_util/testutil_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
