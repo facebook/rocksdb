@@ -19,6 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 struct BlobCompactionContext {
+  BlobDBImpl* blob_db_impl = nullptr;
   uint64_t next_file_number = 0;
   std::unordered_set<uint64_t> current_blob_files;
   SequenceNumber fifo_eviction_seq = 0;
@@ -26,7 +27,6 @@ struct BlobCompactionContext {
 };
 
 struct BlobCompactionContextGC {
-  BlobDBImpl* blob_db_impl = nullptr;
   uint64_t cutoff_file_number = 0;
 };
 
@@ -35,21 +35,17 @@ struct BlobCompactionContextGC {
 class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
  public:
   BlobIndexCompactionFilterBase(
-      BlobCompactionContext&& context, const CompactionFilter* user_comp_filter,
-      std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory,
+      BlobCompactionContext&& blob_comp_context,
+      const CompactionFilter* _user_comp_filter,
+      std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory,
       uint64_t current_time, Statistics* stats)
-      : LayeredCompactionFilterBase(user_comp_filter,
-                                    std::move(user_comp_filter_from_factory)),
-        context_(std::move(context)),
+      : LayeredCompactionFilterBase(_user_comp_filter,
+                                    std::move(_user_comp_filter_from_factory)),
+        context_(std::move(blob_comp_context)),
         current_time_(current_time),
         statistics_(stats) {}
 
-  ~BlobIndexCompactionFilterBase() override {
-    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
-    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_SIZE, expired_size_);
-    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_COUNT, evicted_count_);
-    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_SIZE, evicted_size_);
-  }
+  ~BlobIndexCompactionFilterBase() override;
 
   // Filter expired blob indexes regardless of snapshots.
   bool IgnoreSnapshots() const override { return true; }
@@ -59,12 +55,27 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
                     std::string* skip_until) const override;
 
  protected:
+  bool IsBlobFileOpened() const;
+  bool OpenNewBlobFileIfNeeded() const;
+  bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
+                           PinnableSlice* blob, bool need_decompress,
+                           CompressionType* compression_type) const;
+  bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
+                          uint64_t* new_blob_file_number,
+                          uint64_t* new_blob_offset) const;
+  bool CloseAndRegisterNewBlobFileIfNeeded() const;
+  bool CloseAndRegisterNewBlobFile() const;
+
   Statistics* statistics() const { return statistics_; }
+  const BlobCompactionContext& context() const { return context_; }
 
  private:
   BlobCompactionContext context_;
   const uint64_t current_time_;
   Statistics* statistics_;
+
+  mutable std::shared_ptr<BlobFile> blob_file_;
+  mutable std::shared_ptr<Writer> writer_;
 
   // It is safe to not using std::atomic since the compaction filter, created
   // from a compaction filter factroy, will not be called from multiple threads.
@@ -77,12 +88,13 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
 class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
  public:
   BlobIndexCompactionFilter(
-      BlobCompactionContext&& context, const CompactionFilter* user_comp_filter,
-      std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory,
+      BlobCompactionContext&& blob_comp_context,
+      const CompactionFilter* _user_comp_filter,
+      std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory,
       uint64_t current_time, Statistics* stats)
-      : BlobIndexCompactionFilterBase(std::move(context), user_comp_filter,
-                                      std::move(user_comp_filter_from_factory),
-                                      current_time, stats) {}
+      : BlobIndexCompactionFilterBase(
+            std::move(blob_comp_context), _user_comp_filter,
+            std::move(_user_comp_filter_from_factory), current_time, stats) {}
 
   const char* Name() const override { return "BlobIndexCompactionFilter"; }
 };
@@ -90,13 +102,14 @@ class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
 class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
  public:
   BlobIndexCompactionFilterGC(
-      BlobCompactionContext&& context, BlobCompactionContextGC&& context_gc,
-      const CompactionFilter* user_comp_filter,
-      std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory,
+      BlobCompactionContext&& blob_comp_context,
+      BlobCompactionContextGC&& context_gc,
+      const CompactionFilter* _user_comp_filter,
+      std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory,
       uint64_t current_time, Statistics* stats)
-      : BlobIndexCompactionFilterBase(std::move(context), user_comp_filter,
-                                      std::move(user_comp_filter_from_factory),
-                                      current_time, stats),
+      : BlobIndexCompactionFilterBase(
+            std::move(blob_comp_context), _user_comp_filter,
+            std::move(_user_comp_filter_from_factory), current_time, stats),
         context_gc_(std::move(context_gc)) {}
 
   ~BlobIndexCompactionFilterGC() override;
@@ -107,20 +120,10 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                                  std::string* new_value) const override;
 
  private:
-  bool OpenNewBlobFileIfNeeded() const;
-  bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
-                           PinnableSlice* blob, PinnableSlice* blob_dc,
-                           CompressionType* compression_type) const;
-  bool WriteBlobToNewFile(const Slice& key, const Slice& blob,
-                          uint64_t* new_blob_file_number,
-                          uint64_t* new_blob_offset) const;
-  bool CloseAndRegisterNewBlobFileIfNeeded() const;
-  bool CloseAndRegisterNewBlobFile() const;
+  bool OpenNewBlobFileWithStatsIfNeeded() const;
 
  private:
   BlobCompactionContextGC context_gc_;
-  mutable std::shared_ptr<BlobFile> blob_file_;
-  mutable std::shared_ptr<Writer> writer_;
   mutable BlobDBGarbageCollectionStats gc_stats_;
 };
 

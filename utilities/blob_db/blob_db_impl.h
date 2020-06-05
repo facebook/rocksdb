@@ -71,6 +71,7 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
   friend class BlobDBListener;
   friend class BlobDBListenerGC;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  public:
@@ -168,7 +169,7 @@ class BlobDBImpl : public BlobDB {
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
-  void GetCompactionContextCommon(BlobCompactionContext* context) const;
+  void GetCompactionContextCommon(BlobCompactionContext* context);
 
   void GetCompactionContext(BlobCompactionContext* context);
   void GetCompactionContext(BlobCompactionContext* context,

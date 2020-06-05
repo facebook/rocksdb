@@ -164,6 +164,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
   ROCKS_LOG_INFO(db_options_.info_log, "Opening BlobDB...");
 
+  if ((cf_options_.compaction_filter != nullptr ||
+       cf_options_.compaction_filter_factory != nullptr)) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "BlobDB only support compaction filter on non-TTL values.");
+  }
+
   // Open blob directory.
   s = env_->CreateDirIfMissing(blob_dir_);
   if (!s.ok()) {
@@ -1194,10 +1200,10 @@ Status BlobDBImpl::CompactFiles(
   return s;
 }
 
-void BlobDBImpl::GetCompactionContextCommon(
-    BlobCompactionContext* context) const {
+void BlobDBImpl::GetCompactionContextCommon(BlobCompactionContext* context) {
   assert(context);
 
+  context->blob_db_impl = this;
   context->next_file_number = next_file_number_.load();
   context->current_blob_files.clear();
   for (auto& p : blob_files_) {
@@ -1221,8 +1227,6 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
 
   ReadLock l(&mutex_);
   GetCompactionContextCommon(context);
-
-  context_gc->blob_db_impl = this;
 
   if (!live_imm_non_ttl_blob_files_.empty()) {
     auto it = live_imm_non_ttl_blob_files_.begin();

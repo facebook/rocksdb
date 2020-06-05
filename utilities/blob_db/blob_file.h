@@ -27,6 +27,7 @@ class BlobFile {
   friend class BlobDBImpl;
   friend struct BlobFileComparator;
   friend struct BlobFileComparatorTTL;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  private:

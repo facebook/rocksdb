@@ -45,6 +45,7 @@ class CompactionFilter {
     kRemove,
     kChangeValue,
     kRemoveAndSkipUntil,
+    kChangeBlobIndex,  // used internally by BlobDB.
   };
 
   enum class BlobDecision {
@@ -164,7 +165,8 @@ class CompactionFilter {
                             const Slice& existing_value, std::string* new_value,
                             std::string* /*skip_until*/) const {
     switch (value_type) {
-      case ValueType::kValue: {
+      case ValueType::kValue:
+      case ValueType::kBlobIndex: {
         bool value_changed = false;
         bool rv = Filter(level, key, existing_value, new_value, &value_changed);
         if (rv) {
@@ -176,8 +178,6 @@ class CompactionFilter {
         bool rv = FilterMergeOperand(level, key, existing_value);
         return rv ? Decision::kRemove : Decision::kKeep;
       }
-      case ValueType::kBlobIndex:
-        return Decision::kKeep;
     }
     assert(false);
     return Decision::kKeep;

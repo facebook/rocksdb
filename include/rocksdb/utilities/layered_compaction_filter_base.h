@@ -8,7 +8,7 @@
 
 #include "rocksdb/compaction_filter.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Abstract base class for building layered compation filter on top of
 // user compaction filter.
@@ -16,11 +16,11 @@ namespace rocksdb {
 class LayeredCompactionFilterBase : public CompactionFilter {
  public:
   LayeredCompactionFilterBase(
-      const CompactionFilter* user_comp_filter,
-      std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory)
-      : user_comp_filter_(user_comp_filter),
+      const CompactionFilter* _user_comp_filter,
+      std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory)
+      : user_comp_filter_(_user_comp_filter),
         user_comp_filter_from_factory_(
-            std::move(user_comp_filter_from_factory)) {
+            std::move(_user_comp_filter_from_factory)) {
     if (!user_comp_filter_) {
       user_comp_filter_ = user_comp_filter_from_factory_.get();
     }
@@ -34,4 +34,4 @@ class LayeredCompactionFilterBase : public CompactionFilter {
   std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
 };
 
-}  //  namespace rocksdb
+}  //  namespace ROCKSDB_NAMESPACE

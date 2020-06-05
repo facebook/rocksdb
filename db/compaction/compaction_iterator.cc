@@ -231,6 +231,9 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
                                                        kValueTypeForSeek);
       *skip_until = compaction_filter_skip_until_.Encode();
+    } else if (filter == CompactionFilter::Decision::kChangeBlobIndex) {
+      ikey_.type = kTypeBlobIndex;
+      value_ = compaction_filter_value_;
     }
   }
 }

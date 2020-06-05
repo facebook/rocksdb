@@ -1149,7 +1149,7 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
   bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.blob_file_size = kMaxValueSize * 10;
   bdb_options.enable_garbage_collection = true;
-  bdb_options.garbage_collection_cutoff = 1;  // full gc to filter all data
+  bdb_options.garbage_collection_cutoff = 0.25;
   bdb_options.disable_background_tasks = true;
   bdb_options.compression = CompressionType::kSnappyCompression;
   // case_num == 0: Test user defined compaction filter

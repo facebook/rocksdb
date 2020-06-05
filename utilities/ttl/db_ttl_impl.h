@@ -152,11 +152,11 @@ class TtlIterator : public Iterator {
 class TtlCompactionFilter : public LayeredCompactionFilterBase {
  public:
   TtlCompactionFilter(int32_t ttl, Env* env,
-                      const CompactionFilter* user_comp_filter,
+                      const CompactionFilter* _user_comp_filter,
                       std::unique_ptr<const CompactionFilter>
-                          user_comp_filter_from_factory = nullptr)
-      : LayeredCompactionFilterBase(user_comp_filter,
-                                    std::move(user_comp_filter_from_factory)),
+                          _user_comp_filter_from_factory = nullptr)
+      : LayeredCompactionFilterBase(_user_comp_filter,
+                                    std::move(_user_comp_filter_from_factory)),
         ttl_(ttl),
         env_(env) {}
 
