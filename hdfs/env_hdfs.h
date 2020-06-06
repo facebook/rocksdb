@@ -163,8 +163,7 @@ class HdfsEnv : public Env {
   }
 
   static uint64_t gettid() {
-    assert(sizeof(pthread_t) <= sizeof(uint64_t));
-    return (uint64_t)pthread_self();
+    return Env::Default()->GetThreadID();
   }
 
   uint64_t GetThreadID() const override { return HdfsEnv::gettid(); }
@@ -210,7 +209,7 @@ class HdfsEnv : public Env {
                            remaining.substr(0, rem));
 
     tPort port;
-    port = atoi(portStr.c_str());
+    port = static_cast<tPort>(atoi(portStr.c_str()));
     if (port == 0) {
       throw HdfsFatalException("Bad host-port for hdfs " + uri);
     }
