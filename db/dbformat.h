@@ -124,11 +124,22 @@ inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
 }
 
 // Pack a sequence number and a ValueType into a uint64_t
-extern uint64_t PackSequenceAndType(uint64_t seq, ValueType t);
+inline uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
+  assert(seq <= kMaxSequenceNumber);
+  assert(IsExtendedValueType(t));
+  return (seq << 8) | t;
+}
 
 // Given the result of PackSequenceAndType, store the sequence number in *seq
 // and the ValueType in *t.
-extern void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t);
+inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
+                                  ValueType* t) {
+  *seq = packed >> 8;
+  *t = static_cast<ValueType>(packed & 0xff);
+
+  assert(*seq <= kMaxSequenceNumber);
+  assert(IsExtendedValueType(*t));
+}
 
 EntryType GetEntryType(ValueType value_type);
 
@@ -676,6 +687,32 @@ inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
       r = -1;
     } else if (anum < bnum) {
       r = +1;
+    }
+  }
+  return r;
+}
+
+inline int InternalKeyComparator::Compare(const Slice& a,
+                                          SequenceNumber a_global_seqno,
+                                          const Slice& b,
+                                          SequenceNumber b_global_seqno) const {
+  int r = user_comparator_.Compare(ExtractUserKey(a), ExtractUserKey(b));
+  if (r == 0) {
+    uint64_t a_footer, b_footer;
+    if (a_global_seqno == kDisableGlobalSequenceNumber) {
+      a_footer = ExtractInternalKeyFooter(a);
+    } else {
+      a_footer = PackSequenceAndType(a_global_seqno, ExtractValueType(a));
+    }
+    if (b_global_seqno == kDisableGlobalSequenceNumber) {
+      b_footer = ExtractInternalKeyFooter(b);
+    } else {
+      b_footer = PackSequenceAndType(b_global_seqno, ExtractValueType(b));
+    }
+    if (a_footer > b_footer) {
+      r = -1;
+    } else if (a_footer < b_footer) {
+      r = 1;
     }
   }
   return r;

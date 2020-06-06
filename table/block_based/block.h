@@ -284,7 +284,9 @@ class BlockIter : public InternalIteratorBase<TValue> {
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  bool IsKeyPinned() const override { return key_pinned_; }
+  bool IsKeyPinned() const override {
+    return block_contents_pinned_ && key_pinned_;
+  }
 
   bool IsValuePinned() const override { return block_contents_pinned_; }
 
@@ -314,10 +316,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   uint32_t current_;
   // Raw key from block.
   IterKey raw_key_;
-  // True if raw_key_ points to transient data in Prev cache.
-  bool raw_key_cached_;
   // Buffer for key data when global seqno assignment is enabled.
-  std::string key_buf_;
+  IterKey key_buf_;
   Slice value_;
   Status status_;
   // Key to be exposed to users.
@@ -329,14 +329,45 @@ class BlockIter : public InternalIteratorBase<TValue> {
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
 
-  // Update key_, key_buf_, and key_pinned_ at the completion of a user
-  // operation.
-  void UpdateKey();
+  // Must be called every time a key is found that needs to be returned to user,
+  // and may be called when no key is found (as a no-op). Updates `key_`,
+  // `key_buf_`, and `key_pinned_` with info about the found key.
+  //
+  // @param raw_key_cached True if raw_key_ points into a transient buffer like
+  //    `DataBlockIter`'s key cache for reverse scan.
+  void UpdateKey(bool raw_key_cached = false) {
+    key_buf_.Clear();
+    if (!Valid()) {
+      return;
+    }
+    if (raw_key_.IsUserKey()) {
+      assert(global_seqno_ == kDisableGlobalSequenceNumber);
+      key_ = raw_key_.GetUserKey();
+      key_pinned_ = raw_key_.IsKeyPinned() && !raw_key_cached;
+    } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
+      key_ = raw_key_.GetInternalKey();
+      key_pinned_ = raw_key_.IsKeyPinned() && !raw_key_cached;
+    } else {
+      key_buf_.SetInternalKey(raw_key_.GetUserKey(), global_seqno_,
+                              ExtractValueType(raw_key_.GetInternalKey()));
+      key_ = key_buf_.GetInternalKey();
+      key_pinned_ = false;
+    }
+  }
 
   // Returns the result of `Comparator::Compare()`, where the appropriate
-  // comparator is used for the block contents, the LHS argument is the applied
-  // key, and the RHS argument is `other`.
-  int CompareCurrentKey(const Slice& other);
+  // comparator is used for the block contents, the LHS argument is the current
+  // key with global seqno applied, and the RHS argument is `other`.
+  int CompareCurrentKey(const Slice& other) {
+    if (raw_key_.IsUserKey()) {
+      assert(global_seqno_ == kDisableGlobalSequenceNumber);
+      return ucmp_wrapper_.Compare(raw_key_.GetUserKey(), other);
+    } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
+      return icmp_.Compare(raw_key_.GetInternalKey(), other);
+    }
+    return icmp_.Compare(raw_key_.GetInternalKey(), global_seqno_, other,
+                         kDisableGlobalSequenceNumber);
+  }
 
  private:
   // Store the cache handle, if the block is cached. We need this since the

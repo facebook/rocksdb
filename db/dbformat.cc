@@ -26,12 +26,6 @@ namespace ROCKSDB_NAMESPACE {
 const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 
-uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
-  assert(seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(t));
-  return (seq << 8) | t;
-}
-
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
     case kTypeValue:
@@ -60,14 +54,6 @@ bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
   fkey->sequence = ikey.sequence;
   fkey->type = GetEntryType(ikey.type);
   return true;
-}
-
-void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
-  *seq = packed >> 8;
-  *t = static_cast<ValueType>(packed & 0xff);
-
-  assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
@@ -129,32 +115,6 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
       r = -1;
     } else if (a.type < b.type) {
       r = +1;
-    }
-  }
-  return r;
-}
-
-int InternalKeyComparator::Compare(const Slice& a,
-                                   SequenceNumber a_global_seqno,
-                                   const Slice& b,
-                                   SequenceNumber b_global_seqno) const {
-  int r = user_comparator_.Compare(ExtractUserKey(a), ExtractUserKey(b));
-  if (r == 0) {
-    uint64_t a_footer, b_footer;
-    if (a_global_seqno == kDisableGlobalSequenceNumber) {
-      a_footer = ExtractInternalKeyFooter(a);
-    } else {
-      a_footer = PackSequenceAndType(a_global_seqno, ExtractValueType(a));
-    }
-    if (a_global_seqno == kDisableGlobalSequenceNumber) {
-      b_footer = ExtractInternalKeyFooter(b);
-    } else {
-      b_footer = PackSequenceAndType(b_global_seqno, ExtractValueType(b));
-    }
-    if (a_footer > b_footer) {
-      r = -1;
-    } else if (a_footer < b_footer) {
-      r = 1;
     }
   }
   return r;

@@ -127,47 +127,6 @@ struct DecodeKeyV4 {
   }
 };
 
-template <class TValue>
-void BlockIter<TValue>::UpdateKey() {
-  key_buf_.clear();
-  if (!Valid()) {
-    return;
-  }
-  if (raw_key_.IsUserKey()) {
-    assert(global_seqno_ == kDisableGlobalSequenceNumber);
-    key_ = raw_key_.GetUserKey();
-    key_pinned_ =
-        block_contents_pinned_ && raw_key_.IsKeyPinned() && !raw_key_cached_;
-  } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
-    key_ = raw_key_.GetInternalKey();
-    key_pinned_ =
-        block_contents_pinned_ && raw_key_.IsKeyPinned() && !raw_key_cached_;
-  } else {
-    ParsedInternalKey parsed(Slice(), 0, kTypeValue);
-    if (!ParseInternalKey(raw_key_.GetInternalKey(), &parsed)) {
-      // error not handled in optimized builds
-      assert(false);
-      return;
-    }
-    parsed.sequence = global_seqno_;
-    AppendInternalKey(&key_buf_, parsed);
-    key_ = key_buf_;
-    key_pinned_ = false;
-  }
-}
-
-template <class TValue>
-int BlockIter<TValue>::CompareCurrentKey(const Slice& other) {
-  if (raw_key_.IsUserKey()) {
-    assert(global_seqno_ == kDisableGlobalSequenceNumber);
-    return ucmp_wrapper_.Compare(raw_key_.GetUserKey(), other);
-  } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
-    return icmp_.Compare(raw_key_.GetInternalKey(), other);
-  }
-  return icmp_.Compare(raw_key_.GetInternalKey(), global_seqno_, other,
-                       kDisableGlobalSequenceNumber);
-}
-
 void DataBlockIter::Next() {
   ParseNextDataKey<DecodeEntry>();
   UpdateKey();
@@ -218,14 +177,15 @@ void DataBlockIter::Prev() {
         prev_entries_[prev_entries_idx_];
 
     const char* key_ptr = nullptr;
+    bool raw_key_cached;
     if (current_prev_entry.key_ptr != nullptr) {
       // The key is not delta encoded and stored in the data block
       key_ptr = current_prev_entry.key_ptr;
-      raw_key_cached_ = false;
+      raw_key_cached = false;
     } else {
       // The key is delta encoded and stored in prev_entries_keys_buff_
       key_ptr = prev_entries_keys_buff_.data() + current_prev_entry.key_offset;
-      raw_key_cached_ = true;
+      raw_key_cached = true;
     }
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
@@ -233,7 +193,7 @@ void DataBlockIter::Prev() {
     raw_key_.SetKey(current_key, false /* copy */);
     value_ = current_prev_entry.value;
 
-    UpdateKey();
+    UpdateKey(raw_key_cached);
     return;
   }
 
@@ -574,7 +534,6 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       // This key share `shared` bytes with prev key, we need to decode it
       raw_key_.TrimAppend(shared, p, non_shared);
     }
-    raw_key_cached_ = false;
 
 #ifndef NDEBUG
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
@@ -637,7 +596,6 @@ bool IndexBlockIter::ParseNextIndexKey() {
     // This key share `shared` bytes with prev key, we need to decode it
     raw_key_.TrimAppend(shared, p, non_shared);
   }
-  raw_key_cached_ = false;
   value_ = Slice(p + non_shared, value_length);
   if (shared == 0) {
     while (restart_index_ + 1 < num_restarts_ &&
