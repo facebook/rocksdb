@@ -3265,17 +3265,9 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
-  SequenceNumber largest_seqno = 0;
   int level = 0;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
-
-  if (largest_seqno != 0) {
-    // Pretend that it's an external file written by SstFileWriter.
-    int_tbl_prop_collector_factories.emplace_back(
-        new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                    0 /* global_seqno*/));
-  }
   std::string column_family_name;
 
   FileChecksumTestHelper f(true);
@@ -3307,17 +3299,9 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
-  SequenceNumber largest_seqno = 0;
   int level = 0;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
-
-  if (largest_seqno != 0) {
-    // Pretend that it's an external file written by SstFileWriter.
-    int_tbl_prop_collector_factories.emplace_back(
-        new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                    0 /* global_seqno*/));
-  }
   std::string column_family_name;
 
   FileChecksumGenContext gen_context;
