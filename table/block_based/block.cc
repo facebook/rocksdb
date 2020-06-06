@@ -164,16 +164,8 @@ int BlockIter<TValue>::CompareCurrentKey(const Slice& other) {
   } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
     return icmp_.Compare(raw_key_.GetInternalKey(), other);
   }
-  ParsedInternalKey parsed1(Slice(), 0, kTypeValue),
-      parsed2(Slice(), 0, kTypeValue);
-  if (!ParseInternalKey(raw_key_.GetInternalKey(), &parsed1) ||
-      !ParseInternalKey(other, &parsed2)) {
-    // error not handled in optimized builds
-    assert(false);
-    return 0;
-  }
-  parsed1.sequence = global_seqno_;
-  return icmp_.Compare(parsed1, parsed2);
+  return icmp_.Compare(raw_key_.GetInternalKey(), global_seqno_, other,
+                       kDisableGlobalSequenceNumber);
 }
 
 void DataBlockIter::Next() {

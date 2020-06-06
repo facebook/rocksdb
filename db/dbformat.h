@@ -223,6 +223,8 @@ class InternalKeyComparator
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
+              SequenceNumber b_global_seqno) const;
   virtual const Comparator* GetRootComparator() const override {
     return user_comparator_.GetRootComparator();
   }

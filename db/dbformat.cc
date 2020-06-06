@@ -134,6 +134,32 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   return r;
 }
 
+int InternalKeyComparator::Compare(const Slice& a,
+                                   SequenceNumber a_global_seqno,
+                                   const Slice& b,
+                                   SequenceNumber b_global_seqno) const {
+  int r = user_comparator_.Compare(ExtractUserKey(a), ExtractUserKey(b));
+  if (r == 0) {
+    uint64_t a_footer, b_footer;
+    if (a_global_seqno == kDisableGlobalSequenceNumber) {
+      a_footer = ExtractInternalKeyFooter(a);
+    } else {
+      a_footer = PackSequenceAndType(a_global_seqno, ExtractValueType(a));
+    }
+    if (a_global_seqno == kDisableGlobalSequenceNumber) {
+      b_footer = ExtractInternalKeyFooter(b);
+    } else {
+      b_footer = PackSequenceAndType(b_global_seqno, ExtractValueType(b));
+    }
+    if (a_footer > b_footer) {
+      r = -1;
+    } else if (a_footer < b_footer) {
+      r = 1;
+    }
+  }
+  return r;
+}
+
 void InternalKeyComparator::FindShortestSeparator(std::string* start,
                                                   const Slice& limit) const {
   // Attempt to shorten the user portion of the key
