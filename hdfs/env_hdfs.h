@@ -162,9 +162,7 @@ class HdfsEnv : public Env {
     return posixEnv->TimeToString(number);
   }
 
-  static uint64_t gettid() {
-    return Env::Default()->GetThreadID();
-  }
+  static uint64_t gettid() { return Env::Default()->GetThreadID(); }
 
   uint64_t GetThreadID() const override { return HdfsEnv::gettid(); }
 
