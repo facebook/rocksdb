@@ -7,7 +7,6 @@
 
 #include <cinttypes>
 
-#include "db/version_edit.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -616,9 +615,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);
   ROCKS_LOG_HEADER(log, "                Options.file_checksum_gen_factory: %s",
-                   file_checksum_gen_factory
-                       ? file_checksum_gen_factory->Name()
-                       : kUnknownFileChecksumFuncName.c_str());
+                   file_checksum_gen_factory ? file_checksum_gen_factory->Name()
+                                             : kUnknownFileChecksumFuncName);
   ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
                    static_cast<int>(best_efforts_recovery));
 }

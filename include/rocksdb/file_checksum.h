@@ -18,6 +18,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// The unknown file checksum.
+constexpr char kUnknownFileChecksum[] = "";
+// The unknown sst file checksum function name.
+constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
+
 struct FileChecksumGenContext {
   std::string file_name;
 };

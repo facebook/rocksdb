@@ -29,9 +29,6 @@ constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
-extern const std::string kUnknownFileChecksum;
-extern const std::string kUnknownFileChecksumFuncName;
-
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
 // A copyable structure contains information needed to read data from an SST
