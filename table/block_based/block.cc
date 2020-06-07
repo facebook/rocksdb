@@ -384,7 +384,7 @@ void IndexBlockIter::Seek(const Slice& target) {
     return;
   }
   Slice seek_key = target;
-  if (!key_includes_seq_) {
+  if (raw_key_.IsUserKey()) {
     seek_key = ExtractUserKey(target);
   }
   status_ = Status::OK();
@@ -876,7 +876,7 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
   assert(prefix_index_);
   *prefix_may_exist = true;
   Slice seek_key = target;
-  if (!key_includes_seq_) {
+  if (raw_key_.IsUserKey()) {
     seek_key = ExtractUserKey(target);
   }
   uint32_t* block_ids = nullptr;

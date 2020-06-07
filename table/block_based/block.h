@@ -537,8 +537,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
                   bool block_contents_pinned) {
     InitializeBase(ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
-    key_includes_seq_ = key_includes_seq;
-    raw_key_.SetIsUserKey(!key_includes_seq_);
+    raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;
     value_delta_encoded_ = !value_is_full;
     have_first_key_ = have_first_key;
@@ -550,10 +549,8 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   }
 
   Slice user_key() const override {
-    if (key_includes_seq_) {
-      return ExtractUserKey(key());
-    }
-    return key();
+    assert(Valid());
+    return raw_key_.GetUserKey();
   }
 
   IndexValue value() const override {
@@ -605,8 +602,6 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   }
 
  private:
-  // Key is in InternalKey format
-  bool key_includes_seq_;
   bool value_delta_encoded_;
   bool have_first_key_;  // value includes first_internal_key
   BlockPrefixIndex* prefix_index_;
