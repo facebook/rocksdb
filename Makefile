@@ -640,6 +640,7 @@ TESTS = \
 	timer_test \
 	db_with_timestamp_compaction_test \
 	testutil_test \
+	io_tracer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1895,6 +1896,8 @@ timer_test: util/timer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 testutil_test: test_util/testutil_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+io_tracer_test: trace_replay/io_tracer_test.o trace_replay/io_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
