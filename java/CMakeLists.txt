@@ -56,6 +56,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/sst_file_writerjni.cc
         rocksjni/sst_file_readerjni.cc
         rocksjni/sst_file_reader_iterator.cc
+        rocksjni/sst_partitioner.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
@@ -201,9 +202,11 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Snapshot.java
   src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileMetaData.java
-  src/main/java/org/rocksdb/SstFileWriter.java
   src/main/java/org/rocksdb/SstFileReader.java
   src/main/java/org/rocksdb/SstFileReaderIterator.java
+  src/main/java/org/rocksdb/SstFileWriter.java
+  src/main/java/org/rocksdb/SstPartitionerFactory.java
+  src/main/java/org/rocksdb/SstPartitionerFixedPrefixFactory.java
   src/main/java/org/rocksdb/StateType.java
   src/main/java/org/rocksdb/StatisticsCollectorCallback.java
   src/main/java/org/rocksdb/StatisticsCollector.java
@@ -452,6 +455,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.SstFileWriter
           org.rocksdb.SstFileReader
           org.rocksdb.SstFileReaderIterator
+          org.rocksdb.SstPartitionerFactory
+          org.rocksdb.SstPartitionerFixedPrefixFactory
           org.rocksdb.Statistics
           org.rocksdb.StringAppendOperator
           org.rocksdb.TableFormatConfig
