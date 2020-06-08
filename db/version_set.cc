@@ -853,16 +853,16 @@ namespace {
 
 class LevelIterator final : public InternalIterator {
  public:
-  LevelIterator(
-      TableCache* table_cache, const ReadOptions& read_options,
-      const FileOptions& file_options, const InternalKeyComparator& icomparator,
-      const LevelFilesBrief* flevel, const SliceTransform* prefix_extractor,
-      bool should_sample, HistogramImpl* file_read_hist,
-      TableReaderCaller caller, bool skip_filters, int level,
-      size_t write_buffer_size, RangeDelAggregator* range_del_agg,
-      const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries =
-          nullptr,
-      bool allow_unprepared_value = false)
+  LevelIterator(TableCache* table_cache, const ReadOptions& read_options,
+                const FileOptions& file_options,
+                const InternalKeyComparator& icomparator,
+                const LevelFilesBrief* flevel,
+                const SliceTransform* prefix_extractor, bool should_sample,
+                HistogramImpl* file_read_hist, TableReaderCaller caller,
+                bool skip_filters, int level, RangeDelAggregator* range_del_agg,
+                const std::vector<AtomicCompactionUnitBoundary>*
+                    compaction_boundaries = nullptr,
+                bool allow_unprepared_value = false)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -877,7 +877,6 @@ class LevelIterator final : public InternalIterator {
         allow_unprepared_value_(allow_unprepared_value),
         file_index_(flevel_->num_files),
         level_(level),
-        write_buffer_size_(write_buffer_size),
         range_del_agg_(range_del_agg),
         pinned_iters_mgr_(nullptr),
         compaction_boundaries_(compaction_boundaries) {
@@ -985,9 +984,9 @@ class LevelIterator final : public InternalIterator {
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
-        /*arena=*/nullptr, skip_filters_, level_, write_buffer_size_,
-        smallest_compaction_key, largest_compaction_key,
-        allow_unprepared_value_);
+        /*arena=*/nullptr, skip_filters_, level_,
+        /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
+        largest_compaction_key, allow_unprepared_value_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1024,7 +1023,6 @@ class LevelIterator final : public InternalIterator {
   bool may_be_out_of_lower_bound_ = true;
   size_t file_index_;
   int level_;
-  size_t write_buffer_size_;
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
@@ -1583,7 +1581,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, arena,
           /*skip_filters=*/false, /*level=*/0,
-          mutable_cf_options_.write_buffer_size,
+          MaxFileSizeForL0MetaPin(mutable_cf_options_),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr, allow_unprepared_value));
     }
@@ -1607,7 +1605,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        mutable_cf_options_.write_buffer_size, range_del_agg,
+        range_del_agg,
         /*compaction_boundaries=*/nullptr, allow_unprepared_value));
   }
 }
@@ -1643,7 +1641,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, &arena,
           /*skip_filters=*/false, /*level=*/0,
-          mutable_cf_options_.write_buffer_size,
+          MaxFileSizeForL0MetaPin(mutable_cf_options_),
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
           /*allow_unprepared_value=*/false));
@@ -1661,7 +1659,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
         mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        mutable_cf_options_.write_buffer_size, &range_del_agg));
+        &range_del_agg));
     status = OverlapWithIterator(
         ucmp, smallest_user_key, largest_user_key, iter.get(), overlap);
   }
@@ -1810,7 +1808,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
-        fp.GetHitFileLevel(), mutable_cf_options_.write_buffer_size);
+        fp.GetHitFileLevel(), MaxFileSizeForL0MetaPin(mutable_cf_options_));
     // TODO: examine the behavior for corrupted key
     if (timer_enabled) {
       PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
@@ -3907,7 +3905,7 @@ Status VersionSet::ProcessManifestWrites(
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get(),
-            mutable_cf_options_ptrs[i]->write_buffer_size);
+            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]));
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
             break;
@@ -4635,7 +4633,7 @@ Status VersionSet::Recover(
           false /* prefetch_index_and_filter_in_cache */,
           true /* is_initial_load */,
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
-          cfd->GetLatestMutableCFOptions()->write_buffer_size);
+          MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
       if (!s.ok()) {
         if (db_options_->paranoid_checks) {
           return s;
@@ -5677,8 +5675,9 @@ InternalIterator* VersionSet::MakeInputIterator(
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
-              /*skip_filters=*/false, /*level=*/static_cast<int>(c->level(which)),
-              c->mutable_cf_options()->write_buffer_size,
+              /*skip_filters=*/false,
+              /*level=*/static_cast<int>(c->level(which)),
+              MaxFileSizeForL0MetaPin(*c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
               /*allow_unprepared_value=*/false);
@@ -5692,8 +5691,7 @@ InternalIterator* VersionSet::MakeInputIterator(
             /*should_sample=*/false,
             /*no per level latency histogram=*/nullptr,
             TableReaderCaller::kCompaction, /*skip_filters=*/false,
-            /*level=*/static_cast<int>(c->level(which)),
-            c->mutable_cf_options()->write_buffer_size, range_del_agg,
+            /*level=*/static_cast<int>(c->level(which)), range_del_agg,
             c->boundaries(which));
       }
     }
@@ -6011,7 +6009,7 @@ Status ReactiveVersionSet::Recover(
                 false /* prefetch_index_and_filter_in_cache */,
                 true /* is_initial_load */,
                 cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
-                cfd->GetLatestMutableCFOptions()->write_buffer_size);
+                MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
             if (!s.ok()) {
               enough = false;
               if (s.IsPathNotFound()) {
@@ -6288,7 +6286,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
         false /* prefetch_index_and_filter_in_cache */,
         false /* is_initial_load */,
         cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
-        cfd->GetLatestMutableCFOptions()->write_buffer_size);
+        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
     TEST_SYNC_POINT_CALLBACK(
         "ReactiveVersionSet::ApplyOneVersionEditToBuilder:"
         "AfterLoadTableHandlers",

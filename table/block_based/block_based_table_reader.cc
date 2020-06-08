@@ -610,7 +610,8 @@ Status BlockBasedTable::Open(
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
     TailPrefetchStats* tail_prefetch_stats,
-    BlockCacheTracer* const block_cache_tracer, size_t write_buffer_size) {
+    BlockCacheTracer* const block_cache_tracer,
+    size_t max_file_size_for_l0_meta_pin) {
   table_reader->reset();
 
   Status s;
@@ -706,8 +707,8 @@ Status BlockBasedTable::Open(
   }
   s = new_table->PrefetchIndexAndFilterBlocks(
       prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
-      prefetch_all, table_options, level, file_size, write_buffer_size,
-      &lookup_context);
+      prefetch_all, table_options, level, file_size,
+      max_file_size_for_l0_meta_pin, &lookup_context);
 
   if (s.ok()) {
     // Update tail prefetch stats
@@ -944,7 +945,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
     BlockBasedTable* new_table, bool prefetch_all,
     const BlockBasedTableOptions& table_options, const int level,
-    size_t file_size, size_t write_buffer_size,
+    size_t file_size, size_t max_file_size_for_l0_meta_pin,
     BlockCacheLookupContext* lookup_context) {
   Status s;
 
@@ -989,14 +990,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   const bool use_cache = table_options.cache_index_and_filter_blocks;
 
-  // pin both index and filters, down to all partitions. Do not do it for files
-  // that almost certainly came from intra-L0 or a former larger
-  // `write_buffer_size` value to avoid surprising users with pinned memory
-  // usage. We use a factor of 1.5 to account for overhead introduced during
-  // flush in most cases.
+  // pin both index and filters, down to all partitions.
   const bool pin_all =
       rep_->table_options.pin_l0_filter_and_index_blocks_in_cache &&
-      level == 0 && file_size < write_buffer_size / 2 * 3;
+      level == 0 && file_size <= max_file_size_for_l0_meta_pin;
 
   // prefetch the first level of index
   const bool prefetch_index =
