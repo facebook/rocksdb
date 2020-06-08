@@ -44,8 +44,8 @@ class ExternalSSTFileBasicTest
 
   Status AddFileWithFileChecksum(
       const std::vector<std::string>& files,
-      const std::vector<std::string>& files_checksum,
-      const std::vector<std::string>& files_checksum_func_name,
+      const std::vector<std::string>& files_checksums,
+      const std::vector<std::string>& files_checksum_func_names,
       bool generate_and_verify = true, bool move_files = false,
       bool skip_snapshot_check = false, bool write_global_seqno = true) {
     IngestExternalFileOptions opts;
@@ -60,8 +60,8 @@ class ExternalSSTFileBasicTest
     arg.column_family = db_->DefaultColumnFamily();
     arg.external_files = files;
     arg.options = opts;
-    arg.files_checksum = files_checksum;
-    arg.files_checksum_func_name = files_checksum_func_name;
+    arg.files_checksums = files_checksums;
+    arg.files_checksum_func_names = files_checksum_func_names;
     return db_->IngestExternalFiles({arg});
   }
 

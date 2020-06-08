@@ -115,8 +115,8 @@ struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
-  std::vector<std::string> files_checksum;
-  std::vector<std::string> files_checksum_func_name;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
 };
 
 struct GetMergeOperandsOptions {

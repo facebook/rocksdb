@@ -129,16 +129,18 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
+  assert(file_checksum != nullptr);
+  assert(file_checksum_func_name != nullptr);
+
   FileChecksumGenContext gen_context;
   std::unique_ptr<FileChecksumGenerator> checksum_generator =
       checksum_factory->CreateFileChecksumGenerator(gen_context);
-  const FileOptions soptions;
   uint64_t size;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> reader;
   {
     std::unique_ptr<FSSequentialFile> r_file;
-    io_s = fs->NewSequentialFile(file_path, soptions, &r_file, nullptr);
+    io_s = fs->NewSequentialFile(file_path, FileOptions(), &r_file, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }

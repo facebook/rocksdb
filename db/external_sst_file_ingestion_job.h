@@ -94,8 +94,8 @@ class ExternalSstFileIngestionJob {
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(const std::vector<std::string>& external_files_paths,
-                 const std::vector<std::string>& files_checksum,
-                 const std::vector<std::string>& files_checksum_func_name,
+                 const std::vector<std::string>& files_checksums,
+                 const std::vector<std::string>& files_checksum_func_names,
                  uint64_t next_file_number, SuperVersion* sv);
 
   // Check if we need to flush the memtable before running the ingestion job
