@@ -313,7 +313,7 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
   if (file_ != nullptr) {
     return file_->GetFileChecksumFuncName();
   } else {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 }
 

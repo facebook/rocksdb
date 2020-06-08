@@ -3284,9 +3284,8 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumFuncName(),
-               kUnknownFileChecksumFuncName.c_str());
-  ASSERT_STREQ(f.GetFileChecksum().c_str(), kUnknownFileChecksum.c_str());
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
+  ASSERT_STREQ(f.GetFileChecksum().c_str(), kUnknownFileChecksum);
 }
 
 TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
@@ -3430,9 +3429,8 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   f.ResetTableBuilder(std::move(builder));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
-  ASSERT_STREQ(f.GetFileChecksumFuncName(),
-               kUnknownFileChecksumFuncName.c_str());
-  EXPECT_EQ(f.GetFileChecksum(), kUnknownFileChecksum.c_str());
+  ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
+  EXPECT_EQ(f.GetFileChecksum(), kUnknownFileChecksum);
 }
 
 TEST_F(PlainTableTest, Crc32cFileChecksum) {
