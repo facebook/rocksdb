@@ -433,14 +433,14 @@ int locktree::acquire_lock_consolidated(void *prepared_lkr,
         // there is just one non-confliting matching shared lock.
         //  we are hilding a lock on it (see acquire() call above).
         //  we need to modify it to indicate there is another locker...
-        lkr->add_shared_owner(requested_range, txnid);
-
-        // Pretend shared lock uses as much memory.
-        row_lock new_lock = { .range = requested_range, .txnid = txnid,
-                              .is_shared = false, .owners = nullptr };
-        uint64_t mem_used = row_lock_size_in_tree(new_lock);
-        if (m_mgr) {
-            m_mgr->note_mem_used(mem_used);
+        if (lkr->add_shared_owner(requested_range, txnid)) {
+            // Pretend shared lock uses as much memory.
+            row_lock new_lock = { .range = requested_range, .txnid = txnid,
+                                  .is_shared = false, .owners = nullptr };
+            uint64_t mem_used = row_lock_size_in_tree(new_lock);
+            if (m_mgr) {
+                m_mgr->note_mem_used(mem_used);
+            }
         }
         return 0;
     }

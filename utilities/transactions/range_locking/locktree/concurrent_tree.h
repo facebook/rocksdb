@@ -109,7 +109,7 @@ public:
         // Adds another owner to the lock on the specified keyrange.
         // requires: the keyrange contains one treenode whose bounds are
         //           exactly equal to the specifed range (no sub/supersets)
-        void add_shared_owner(const keyrange &range, TXNID new_owner);
+        bool add_shared_owner(const keyrange &range, TXNID new_owner);
 
         // inserts the given range into the tree, with an associated txnid.
         // requires: range does not overlap with anything in this locked_keyrange

@@ -138,10 +138,10 @@ void treenode::swap_in_place(treenode *node1, treenode *node2) {
     node2->m_owners = tmp_m_owners;
 }
 
-void treenode::add_shared_owner(TXNID txnid) {
+bool treenode::add_shared_owner(TXNID txnid) {
     assert(m_is_shared);
     if (txnid == m_txnid)
-        return; // acquiring a lock on the same range by the same trx
+        return false; // acquiring a lock on the same range by the same trx
 
     if (m_txnid != TXNID_SHARED) {
         m_owners= new TxnidVector;
@@ -149,6 +149,7 @@ void treenode::add_shared_owner(TXNID txnid) {
         m_txnid= TXNID_SHARED;
     }
     m_owners->insert(txnid);
+    return true;
 }
 
 void treenode::free(treenode *node) {
@@ -253,7 +254,8 @@ void treenode::traverse_overlaps(const keyrange &range, F *function) {
     }
 }
 
-void treenode::insert(const keyrange &range, TXNID txnid, bool is_shared) {
+bool treenode::insert(const keyrange &range, TXNID txnid, bool is_shared) {
+    int rc = true;
     // choose a child to check. if that child is null, then insert the new node there.
     // otherwise recur down that child's subtree
     keyrange::comparison c = range.compare(*m_cmp, m_range);
@@ -279,10 +281,11 @@ void treenode::insert(const keyrange &range, TXNID txnid, bool is_shared) {
     } else if (c == keyrange::comparison::EQUALS) {
         invariant(is_shared);
         invariant(m_is_shared);
-        add_shared_owner(txnid);
+        rc = add_shared_owner(txnid);
     } else {
         invariant(0);
     }
+    return rc;
 }
 
 treenode *treenode::find_child_at_extreme(int direction, treenode **parent) {

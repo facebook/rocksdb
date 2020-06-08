@@ -127,7 +127,7 @@ public:
 
     // effect: inserts the given range and txnid into a subtree, recursively
     // requires: range does not overlap with any node below the subtree
-    void insert(const keyrange &range, TXNID txnid, bool is_shared);
+    bool insert(const keyrange &range, TXNID txnid, bool is_shared);
 
     // effect: removes the given range from the subtree
     // requires: range exists in the subtree
@@ -204,7 +204,9 @@ private:
 
     // requires: this is a shared node (m_is_shared==true)
     // effect: another transaction is added as an owner.
-    void add_shared_owner(TXNID txnid);
+    // returns: true <=> added another owner
+    //          false <=> this transaction is already an owner
+    bool add_shared_owner(TXNID txnid);
 
     // requires: *parent is initialized to something meaningful.
     // requires: subtree is non-empty

@@ -97,10 +97,10 @@ void concurrent_tree::locked_keyrange::acquire(const keyrange &range) {
     m_subtree = subtree;
 }
 
-void concurrent_tree::locked_keyrange::add_shared_owner(const keyrange &range,
+bool concurrent_tree::locked_keyrange::add_shared_owner(const keyrange &range,
                                                         TXNID new_owner)
 {
-    m_subtree->insert(range, new_owner, /*is_shared*/ true);
+    return m_subtree->insert(range, new_owner, /*is_shared*/ true);
 }
 
 void concurrent_tree::locked_keyrange::release(void) {
