@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -17,6 +18,8 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1338,6 +1341,57 @@ TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
 
     SetPerfLevel(kDisable);
   } while (ChangeOptions());
+}
+
+TEST_F(DBBasicTest, MultiGetBatchedDuplicateKeys) {
+  Options opts = CurrentOptions();
+  opts.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, opts);
+  SetPerfLevel(kEnableCount);
+  // To expand the power of this test, generate > 1 table file and
+  // mix with memtable
+  ASSERT_OK(Merge(1, "k1", "v1"));
+  ASSERT_OK(Merge(1, "k2", "v2"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+  ASSERT_OK(Merge(1, "k3", "v3"));
+  ASSERT_OK(Merge(1, "k4", "v4"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+  ASSERT_OK(Merge(1, "k4", "v4_2"));
+  ASSERT_OK(Merge(1, "k6", "v6"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+  ASSERT_OK(Merge(1, "k7", "v7"));
+  ASSERT_OK(Merge(1, "k8", "v8"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+
+  get_perf_context()->Reset();
+
+  std::vector<Slice> keys({"k8", "k8", "k8", "k4", "k4", "k1", "k3"});
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<Status> s(keys.size());
+
+  db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                values.data(), s.data(), false);
+
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v8");
+  ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v8");
+  ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v8");
+  ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v4,v4_2");
+  ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v4,v4_2");
+  ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v1");
+  ASSERT_EQ(std::string(values[6].data(), values[6].size()), "v3");
+  ASSERT_EQ(24, (int)get_perf_context()->multiget_read_bytes);
+
+  for (Status& status : s) {
+    ASSERT_OK(status);
+  }
+
+  SetPerfLevel(kDisable);
 }
 
 TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
