@@ -14,6 +14,7 @@
 * Fix potential file descriptor leakage in PosixEnv's IsDirectory() and NewRandomAccessFile().
 * Fix false negative from the VerifyChecksum() API when there is a checksum mismatch in an index partition block in a BlockBasedTable format table file (index_type is kTwoLevelIndexSearch).
 * Fix sst_dump to return non-zero exit code if the specified file is not a recognized SST file or fails requested checks.
+* Fix incorrect results from batched MultiGet for duplicate keys, when the duplicate key matches the largest key of an SST file and the value type for the key in the file is a merge value.
 
 ### Public API Change
 * Flush(..., column_family) may return Status::ColumnFamilyDropped() instead of Status::InvalidArgument() if column_family is dropped while processing the flush request.
