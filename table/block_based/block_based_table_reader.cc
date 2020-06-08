@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "cache/sharded_cache.h"
-
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
@@ -24,6 +23,7 @@
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
+#include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -37,6 +37,7 @@
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
+#include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/block_prefix_index.h"
@@ -54,9 +55,6 @@
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
-
-#include "monitoring/perf_context_imp.h"
-#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -3175,6 +3173,82 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     kv_pair_blocks->push_back(std::move(kv_pair_block));
   }
   return Status::OK();
+}
+
+Status BlockBasedTable::RebuildTable(WritableFileWriter* out_file,
+                                     const Options& options) {
+  MutableCFOptions moptions = MutableCFOptions(ColumnFamilyOptions(options));
+
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
+  GetIntTblPropCollectorFactory(rep_->ioptions, &factories);
+
+  std::unique_ptr<BlockBasedTableBuilder> builder(new BlockBasedTableBuilder(
+      rep_->ioptions, moptions, rep_->table_options, rep_->internal_comparator,
+      &factories,
+      static_cast<uint32_t>(rep_->table_properties->column_family_id), out_file,
+      options.compression, options.sample_for_compression,
+      options.compression_opts, true,
+      rep_->table_properties->column_family_name, rep_->level,
+      rep_->table_properties->creation_time,
+      rep_->table_properties->oldest_key_time, 0,
+      rep_->table_properties->file_creation_time));
+
+  {
+    std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
+        NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
+                         /*input_iter=*/nullptr, /*get_context=*/nullptr,
+                         /*lookup_contex=*/nullptr));
+    Status s = blockhandles_iter->status();
+    if (!s.ok()) {
+      return s;
+    }
+
+    for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
+         blockhandles_iter->Next()) {
+      s = blockhandles_iter->status();
+      if (!s.ok()) {
+        break;
+      }
+
+      std::unique_ptr<InternalIterator> datablock_iter;
+      datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
+          ReadOptions(), blockhandles_iter->value().handle,
+          /*input_iter=*/nullptr, /*type=*/BlockType::kData,
+          /*get_context=*/nullptr, /*lookup_context=*/nullptr, Status(),
+          /*prefetch_buffer=*/nullptr));
+      s = datablock_iter->status();
+      if (!s.ok()) {
+        continue;
+      }
+
+      for (datablock_iter->SeekToFirst(); datablock_iter->Valid();
+           datablock_iter->Next()) {
+        s = datablock_iter->status();
+        if (!s.ok()) {
+          break;
+        }
+
+        builder->Add(datablock_iter->key(), datablock_iter->value());
+      }
+    }
+
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_tomstone_iter(
+        NewRangeTombstoneIterator(ReadOptions()));
+
+    if (range_tomstone_iter.get() != nullptr) {
+      for (range_tomstone_iter->SeekToFirst(); range_tomstone_iter->Valid();
+           range_tomstone_iter->Next()) {
+        s = range_tomstone_iter->status();
+        if (!s.ok()) {
+          break;
+        }
+
+        builder->Add(range_tomstone_iter->key(), range_tomstone_iter->value());
+      }
+    }
+  }
+
+  return builder->Finish();
 }
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {

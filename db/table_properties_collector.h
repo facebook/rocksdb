@@ -104,4 +104,14 @@ class UserKeyTablePropertiesCollectorFactory
   std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory_;
 };
 
+struct ImmutableCFOptions;
+
+// Wrap user defined table proproties collector factories `from cf_options`
+// into internal ones in int_tbl_prop_collector_factories. Add a system internal
+// one too.
+extern void GetIntTblPropCollectorFactory(
+    const ImmutableCFOptions& ioptions,
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories);
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -6,10 +6,8 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "tools/sst_dump_tool_imp.h"
-
-#include <cinttypes>
 #include <chrono>
+#include <cinttypes>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -17,10 +15,16 @@
 #include <vector>
 
 #include "db/blob/blob_index.h"
+#include "db/log_reader.h"
+#include "db/log_writer.h"
 #include "db/memtable.h"
+#include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
+#include "file/read_write_util.h"
+#include "file/sequence_file_reader.h"
 #include "options/cf_options.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -31,15 +35,15 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/compression.h"
 #include "util/random.h"
-
-#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -179,6 +183,100 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
   env->NewWritableFile(out_filename, &out_file, soptions_);
   Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
+  return s;
+}
+
+struct DumpLogReporter : public log::Reader::Reporter {
+  Status* status;
+  virtual void Corruption(size_t /*bytes*/, const Status& s) override {
+    if (this->status->ok()) *this->status = s;
+  }
+};
+
+Status SstFileDumper::RebuildTable(const std::string& out_filename,
+                                   const std::string& manifest_filename,
+                                   const std::string& out_manifest_filename) {
+  FileSystem* fs = FileSystem::Default().get();
+  {
+    std::unique_ptr<FSWritableFile> out_file;
+
+    Status s = NewWritableFile(fs, out_filename, &out_file, FileOptions());
+    if (!s.ok()) {
+      return s;
+    }
+
+    WritableFileWriter writer(std::move(out_file), out_filename, FileOptions());
+    s = table_reader_->RebuildTable(&writer, options_);
+    if (!s.ok()) {
+      return s;
+    }
+    s = writer.Close();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  uint64_t sstNumber;
+  FileType type;
+  WalFileType log_type;
+  if (!ParseFileName(file_name_, &sstNumber, &type, &log_type)) {
+    return Status::InvalidArgument(std::string("Cannot parse file name: ") +
+                                   file_name_);
+  }
+
+  std::unique_ptr<FSSequentialFile> file;
+  Status s =
+      fs->NewSequentialFile(manifest_filename, FileOptions(), &file, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<SequentialFileReader> file_reader(
+      new SequentialFileReader(std::move(file), manifest_filename, 1024));
+
+  std::unique_ptr<FSWritableFile> out_file_log;
+  s = NewWritableFile(fs, out_manifest_filename, &out_file_log, FileOptions());
+  std::unique_ptr<WritableFileWriter> writer_log(new WritableFileWriter(
+      std::move(out_file_log), out_manifest_filename, FileOptions()));
+
+  log::Writer logWriter(std::move(writer_log), 0, false);
+
+  DumpLogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                     true /* checksum */, 0 /* log_number */);
+  Slice record;
+  std::string scratch;
+  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+
+    for (std::vector<std::pair<int, FileMetaData>>::const_iterator it =
+             edit.GetNewFiles().cbegin();
+         it != edit.GetNewFiles().cend(); it++) {
+      if (it->second.fd.GetNumber() == sstNumber) {
+        uint64_t size;
+        if (options_.env->GetFileSize(out_filename, &size).ok()) {
+          *const_cast<uint64_t*>(&it->second.fd.file_size) = size;
+        }
+      }
+    }
+
+    std::string dst;
+    if (!edit.EncodeTo(&dst)) {
+      break;
+    }
+
+    s = logWriter.AddRecord(dst);
+    if (!s.ok()) {
+      break;
+    }
+  }
+
+  logWriter.Close();
   return s;
 }
 
@@ -485,13 +583,14 @@ void print_help() {
     --env_uri=<uri of underlying Env>
       URI of underlying Env
 
-    --command=check|scan|raw|verify
+    --command=check|scan|raw|verify|recompress|rebuild
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
         verify: Iterate all the blocks in files verifying checksum to detect possible corruption but don't print anything except if a corruption is encountered
         recompress: reports the SST file size if recompressed with different
                     compression types
+        rebuild: rebuilds SST with ignoring all checksum errors into <file_name>_rebuilt.sst (It also keeps column family ID and is using default options).
 
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
@@ -542,6 +641,13 @@ void print_help() {
     --compression_level_to=<compression_level>
       Compression level to stop compressing when executing recompress. One compression type
       and compression_level_from must also be specified
+
+    --rebuild_compression=CompressionType, e.g., kSnappyCompression, kLZ4Compression, kZSTD
+      Can be combined with --command=rebuild
+
+    --rebuild_manifest=<Manifest Filename>
+      Outputs modified manifest to <Manifest Filename>_rebuilt
+      Combined with --command=rebuild 
 )");
 }
 
@@ -591,6 +697,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   std::string block_size_str;
   std::string compression_level_from_str;
   std::string compression_level_to_str;
+  std::string rebuild_manifest;
   size_t block_size = 0;
   size_t readahead_size = 2 * 1024 * 1024;
   std::vector<std::pair<CompressionType, const char*>> compression_types;
@@ -660,6 +767,22 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
         }
         compression_types.emplace_back(*iter);
       }
+
+    } else if (strncmp(argv[i], "--rebuild_manifest=", 19) == 0) {
+      rebuild_manifest = argv[i] + 19;
+    } else if (strncmp(argv[i], "--rebuild_compression=", 22) == 0) {
+      std::string compression_type = argv[i] + 22;
+      auto iter = std::find_if(
+          kCompressions.begin(), kCompressions.end(),
+          [&compression_type](std::pair<CompressionType, const char*> curr) {
+            return curr.second == compression_type;
+          });
+      if (iter == kCompressions.end()) {
+        fprintf(stderr, "%s is not a valid CompressionType\n",
+                compression_type.c_str());
+        exit(1);
+      }
+      options.compression = (*iter).first;
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);
       try {
@@ -785,6 +908,29 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
           compression_types.empty() ? kCompressions : compression_types,
           compress_level_from, compress_level_to);
       return 0;
+    }
+
+    if (command == "rebuild") {
+      std::string out_filename = filename.substr(0, filename.length() - 4);
+      out_filename.append("_rebuilt.sst");
+
+      if (rebuild_manifest.empty()) {
+        fprintf(stderr, "--rebuild_manifest file must be specified\n");
+        exit(1);
+      }
+      std::string out_rebuild_manifest = rebuild_manifest + "_rebuild";
+      st = dumper.RebuildTable(out_filename, rebuild_manifest,
+                               out_rebuild_manifest);
+      if (!st.ok()) {
+        fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
+        exit(1);
+      } else {
+        fprintf(stdout, "Data rebuilt into the file %s\n",
+                out_filename.c_str());
+        fprintf(stdout, "Manifest rebuilt into the file %s\n",
+                out_rebuild_manifest.c_str());
+      }
+      continue;
     }
 
     if (command == "raw") {

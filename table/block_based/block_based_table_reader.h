@@ -173,6 +173,9 @@ class BlockBasedTable : public TableReader {
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
 
+  Status RebuildTable(WritableFileWriter* out_file,
+                      const Options& options) override;
+
   Status VerifyChecksum(const ReadOptions& readOptions,
                         TableReaderCaller caller) override;
 

@@ -252,13 +252,6 @@ extern Status CheckCFPathsSupported(const DBOptions& db_options,
 
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
-// Wrap user defined table proproties collector factories `from cf_options`
-// into internal ones in int_tbl_prop_collector_factories. Add a system internal
-// one too.
-extern void GetIntTblPropCollectorFactory(
-    const ImmutableCFOptions& ioptions,
-    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories);
 
 class ColumnFamilySet;
 

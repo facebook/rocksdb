@@ -135,6 +135,12 @@ class TableReader {
     return Status::NotSupported("DumpTable() not supported");
   }
 
+  // convert db file to a human readable form
+  virtual Status RebuildTable(WritableFileWriter* /*out_file*/,
+                              const Options& /*options*/) {
+    return Status::NotSupported("RebuildTable() not supported");
+  }
+
   // check whether there is corruption in this db file
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/,
                                 TableReaderCaller /*caller*/) {
