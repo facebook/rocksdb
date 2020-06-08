@@ -485,15 +485,9 @@ class VersionBuilder::Rep {
       return meta->oldest_blob_file_number;
     }
 
-    const auto location = base_vstorage_->GetFileLocation(file_number);
-    assert(location.IsValid());
-    assert(location.GetLevel() == level);
-    assert(location.GetLevel() < base_vstorage_->num_levels());
-
-    const auto& level_files = base_vstorage_->LevelFiles(location.GetLevel());
-    assert(location.GetPosition() < level_files.size());
-
-    const FileMetaData* const meta = level_files[location.GetPosition()];
+    assert(base_vstorage_);
+    const FileMetaData* const meta =
+        base_vstorage_->GetFileMetaDataByNumber(file_number);
     assert(meta);
 
     return meta->oldest_blob_file_number;
