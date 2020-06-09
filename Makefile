@@ -1673,6 +1673,9 @@ thread_list_test: $(OBJ_DIR)/util/thread_list_test.o $(TEST_LIBRARY) $(LIBRARY)
 compact_files_test: $(OBJ_DIR)/db/compact_files_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+configurable_test: options/configurable_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 options_test: $(OBJ_DIR)/options/options_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

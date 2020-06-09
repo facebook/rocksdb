@@ -23,6 +23,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 

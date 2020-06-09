@@ -15,12 +15,11 @@
 #include <memory>
 #include <string>
 
-#include "options/options_helper.h"
-#include "options/options_parser.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
@@ -187,9 +186,11 @@ static std::unordered_map<std::string,
         {"kShortenSeparatorsAndSuccessor",
          BlockBasedTableOptions::IndexShorteningMode::
              kShortenSeparatorsAndSuccessor}};
+#endif  // ROCKSDB_LITE
 
 static std::unordered_map<std::string, OptionTypeInfo>
     block_based_table_type_info = {
+#ifndef ROCKSDB_LITE
         /* currently not supported
           std::shared_ptr<Cache> block_cache = nullptr;
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
@@ -366,14 +367,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* cache = reinterpret_cast<std::shared_ptr<Cache>*>(addr);
             return Cache::CreateFromString(opts, value, cache);
           }}},
-};
 #endif  // ROCKSDB_LITE
+};
 
 // TODO(myabandeh): We should return an error instead of silently changing the
 // options
 BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
+  InitializeOptions();
+  RegisterOptions(kBlockBasedTableOpts, &table_options_,
+                  &block_based_table_type_info);
+}
+
+void BlockBasedTableFactory::InitializeOptions() {
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
@@ -409,6 +416,11 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     // We do not support partitioned filters without partitioning indexes
     table_options_.partition_filters = false;
   }
+}
+
+Status BlockBasedTableFactory::PrepareOptions(const ConfigOptions& opts) {
+  InitializeOptions();
+  return TableFactory::PrepareOptions(opts);
 }
 
 Status BlockBasedTableFactory::NewTableReader(
@@ -449,7 +461,7 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
   return table_builder;
 }
 
-Status BlockBasedTableFactory::SanitizeOptions(
+Status BlockBasedTableFactory::ValidateOptions(
     const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       cf_opts.prefix_extractor == nullptr) {
@@ -501,10 +513,10 @@ Status BlockBasedTableFactory::SanitizeOptions(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
   }
-  return Status::OK();
+  return TableFactory::ValidateOptions(db_opts, cf_opts);
 }
 
-std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
+std::string BlockBasedTableFactory::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
   const int kBufferSize = 200;
@@ -630,32 +642,82 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   return ret;
 }
 
-#ifndef ROCKSDB_LITE
-Status BlockBasedTableFactory::GetOptionString(
-    const ConfigOptions& config_options, std::string* opt_string) const {
-  assert(opt_string);
-  opt_string->clear();
-  return GetStringFromStruct(config_options, &table_options_,
-                             block_based_table_type_info, opt_string);
-}
-#else
-Status BlockBasedTableFactory::GetOptionString(
-    const ConfigOptions& /*opts*/, std::string* /*opt_string*/) const {
-  return Status::OK();
-}
-#endif  // !ROCKSDB_LITE
-
-const BlockBasedTableOptions& BlockBasedTableFactory::table_options() const {
-  return table_options_;
+const void* BlockBasedTableFactory::GetOptionsPtr(
+    const std::string& name) const {
+  if (name == kBlockCacheOpts) {
+    if (table_options_.no_block_cache) {
+      return nullptr;
+    } else {
+      return table_options_.block_cache.get();
+    }
+  } else {
+    return TableFactory::GetOptionsPtr(name);
+  }
 }
 
 #ifndef ROCKSDB_LITE
+// Take a default BlockBasedTableOptions "table_options" in addition to a
+// map "opts_map" of option name to option value to construct the new
+// BlockBasedTableOptions "new_table_options".
+//
+// Below are the instructions of how to config some non-primitive-typed
+// options in BlockBasedTableOptions:
+//
+// * filter_policy:
+//   We currently only support the following FilterPolicy in the convenience
+//   functions:
+//   - BloomFilter: use "bloomfilter:[bits_per_key]:[use_block_based_builder]"
+//     to specify BloomFilter.  The above string is equivalent to calling
+//     NewBloomFilterPolicy(bits_per_key, use_block_based_builder).
+//     [Example]:
+//     - Pass {"filter_policy", "bloomfilter:4:true"} in
+//       GetBlockBasedTableOptionsFromMap to use a BloomFilter with 4-bits
+//       per key and use_block_based_builder enabled.
+//
+// * block_cache / block_cache_compressed:
+//   We currently only support LRU cache in the GetOptions API.  The LRU
+//   cache can be set by directly specifying its size.
+//   [Example]:
+//   - Passing {"block_cache", "1M"} in GetBlockBasedTableOptionsFromMap is
+//     equivalent to setting block_cache using NewLRUCache(1024 * 1024).
+//
+// @param table_options the default options of the output "new_table_options".
+// @param opts_map an option name to value map for specifying how
+//     "new_table_options" should be set.
+// @param new_table_options the resulting options based on "table_options"
+//     with the change specified in "opts_map".
+// @param input_strings_escaped when set to true, each escaped characters
+//     prefixed by '\' in the values of the opts_map will be further converted
+//     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
+// @return Status::OK() on success.  Otherwise, a non-ok status indicating
+//     error will be returned, and "new_table_options" will be set to
+//     "table_options".
+Status BlockBasedTableFactory::ParseOption(const ConfigOptions& config_options,
+                                           const OptionTypeInfo& opt_info,
+                                           const std::string& opt_name,
+                                           const std::string& opt_value,
+                                           void* opt_ptr) {
+  Status status = TableFactory::ParseOption(config_options, opt_info, opt_name,
+                                            opt_value, opt_ptr);
+  if (config_options.input_strings_escaped && !status.ok()) {  // Got an error
+    // !input_strings_escaped indicates the old API, where everything is
+    // parsable.
+    if (opt_info.IsByName()) {
+      status = Status::OK();
+    }
+  }
+  return status;
+}
+
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options) {
   ConfigOptions config_options;
   config_options.input_strings_escaped = false;
   config_options.ignore_unknown_options = false;
+  config_options.invoke_prepare_options = false;
   return GetBlockBasedTableOptionsFromString(config_options, table_options,
                                              opts_str, new_table_options);
 }
@@ -680,6 +742,7 @@ Status GetBlockBasedTableOptionsFromMap(
   ConfigOptions config_options;
   config_options.input_strings_escaped = input_strings_escaped;
   config_options.ignore_unknown_options = ignore_unknown_options;
+  config_options.invoke_prepare_options = false;
 
   return GetBlockBasedTableOptionsFromMap(config_options, table_options,
                                           opts_map, new_table_options);
@@ -691,60 +754,15 @@ Status GetBlockBasedTableOptionsFromMap(
     const std::unordered_map<std::string, std::string>& opts_map,
     BlockBasedTableOptions* new_table_options) {
   assert(new_table_options);
-  *new_table_options = table_options;
-  Status s;
-  for (const auto& o : opts_map) {
-    const auto iter = block_based_table_type_info.find(o.first);
-    if (iter != block_based_table_type_info.end()) {
-      const auto& opt_info = iter->second;
-      s = opt_info.Parse(config_options, o.first, o.second, new_table_options);
-      if (config_options.input_strings_escaped && !s.ok()) {  // Got an error
-        // !input_strings_escaped indicates the old API, where everything is
-        // parsable.
-        if (opt_info.IsByName()) {
-          s = Status::OK();
-        }
-      }
-      if (!s.ok()) {
-        break;
-      }
-    } else if (!config_options.ignore_unknown_options) {
-      s = Status::NotFound("Could not find option: ", o.first);
-      break;
-    }
-  }
-  if (!s.ok()) {
-    // Restore "new_options" to the default "base_options".
+  BlockBasedTableFactory bbtf(table_options);
+  Status s = bbtf.ConfigureFromMap(config_options, opts_map);
+  if (s.ok()) {
+    *new_table_options = *(bbtf.GetOptions<BlockBasedTableOptions>(
+        TableFactory::kBlockBasedTableOpts));
+  } else {
     *new_table_options = table_options;
   }
   return s;
-}
-
-Status VerifyBlockBasedTableFactory(const ConfigOptions& config_options,
-                                    const BlockBasedTableFactory* base_tf,
-                                    const BlockBasedTableFactory* file_tf) {
-  if ((base_tf != nullptr) != (file_tf != nullptr) &&
-      config_options.sanity_level > ConfigOptions::kSanityLevelNone) {
-    return Status::Corruption(
-        "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
-  }
-  if (base_tf == nullptr) {
-    return Status::OK();
-  }
-  assert(file_tf != nullptr);
-
-  std::string mismatch;
-  if (MatchesOptionsTypeFromMap(config_options, block_based_table_type_info,
-                                &(base_tf->table_options()),
-                                &(file_tf->table_options()), &mismatch)) {
-    return Status::OK();
-  } else {
-    return Status::Corruption(
-        "[RocksDBOptionsParser]:"
-        "failed the verification on BlockBasedTableOptions::",
-        mismatch);
-  }
-  return Status::OK();
 }
 #endif  // !ROCKSDB_LITE
 
@@ -753,7 +771,6 @@ TableFactory* NewBlockBasedTableFactory(
   return new BlockBasedTableFactory(_table_options);
 }
 
-const std::string BlockBasedTableFactory::kName = "BlockBasedTable";
 const std::string BlockBasedTablePropertyNames::kIndexType =
     "rocksdb.block.based.table.index.type";
 const std::string BlockBasedTablePropertyNames::kWholeKeyFiltering =
