@@ -8,6 +8,9 @@ LIB_SOURCES =                                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
+  db/blob/blob_log_format.cc                                    \
+  db/blob/blob_log_reader.cc                                    \
+  db/blob/blob_log_writer.cc                                    \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -198,9 +201,6 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_db_impl.cc                             \
   utilities/blob_db/blob_db_impl_filesnapshot.cc                \
   utilities/blob_db/blob_file.cc                                \
-  utilities/blob_db/blob_log_format.cc                          \
-  utilities/blob_db/blob_log_reader.cc                          \
-  utilities/blob_db/blob_log_writer.cc                          \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
