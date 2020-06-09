@@ -95,6 +95,12 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     s = options_.env->GetFileSize(file_path, &file_size);
   }
 
+  // check empty file
+  // if true, skip further processing of this file
+  if (file_size == 0) {
+    return Status::Aborted(file_path, "Empty file");
+  }
+
   file_.reset(new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
                                          file_path));
 
@@ -478,20 +484,21 @@ namespace {
 void print_help() {
   fprintf(
       stderr,
-      R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress]
+      R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress|identify]
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
 
     --env_uri=<uri of underlying Env>
       URI of underlying Env
 
-    --command=check|scan|raw|verify
+    --command=check|scan|raw|verify|identify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
         verify: Iterate all the blocks in files verifying checksum to detect possible corruption but don't print anything except if a corruption is encountered
         recompress: reports the SST file size if recompressed with different
                     compression types
+        identify: Reports a file is a valid SST file or lists all valid SST files under a directory
 
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
@@ -520,7 +527,7 @@ void print_help() {
 
     --show_properties
       Print table properties after iterating over the file when executing
-      check|scan|raw
+      check|scan|raw|identify
 
     --set_block_size=<block_size>
       Can be combined with --command=recompress to set the block size that will
@@ -748,17 +755,29 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
   ROCKSDB_NAMESPACE::Env* env = options.env;
   ROCKSDB_NAMESPACE::Status st = env->GetChildren(dir_or_file, &filenames);
   bool dir = true;
-  if (!st.ok()) {
+  if (!st.ok() || filenames.empty()) {
+    // dir_or_file does not exist or does not contain children
+    // Check its existence first
+    Status s = env->FileExists(dir_or_file);
+    // dir_or_file does not exist
+    if (!s.ok()) {
+      fprintf(stderr, "%s%s: No such file or directory\n", s.ToString().c_str(),
+              dir_or_file);
+      return 1;
+    }
+    // dir_or_file exists and is treated as a "file"
+    // since it has no children
+    // This is ok since later it will be checked
+    // that whether it is a valid sst or not
+    // (A directory "file" is not a valid sst)
     filenames.clear();
     filenames.push_back(dir_or_file);
     dir = false;
   }
 
-  fprintf(stdout, "from [%s] to [%s]\n",
-          ROCKSDB_NAMESPACE::Slice(from_key).ToString(true).c_str(),
-          ROCKSDB_NAMESPACE::Slice(to_key).ToString(true).c_str());
-
   uint64_t total_read = 0;
+  // List of RocksDB SST file without corruption
+  std::vector<std::string> valid_sst_files;
   for (size_t i = 0; i < filenames.size(); i++) {
     std::string filename = filenames.at(i);
     if (filename.length() <= 4 ||
@@ -766,6 +785,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
       // ignore
       continue;
     }
+
     if (dir) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
@@ -773,10 +793,23 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     ROCKSDB_NAMESPACE::SstFileDumper dumper(options, filename, readahead_size,
                                             verify_checksum, output_hex,
                                             decode_blob_index);
+    // Not a valid SST
     if (!dumper.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               dumper.getStatus().ToString().c_str());
       continue;
+    } else {
+      valid_sst_files.push_back(filename);
+      // Print out from and to key information once
+      // where there is at least one valid SST
+      if (valid_sst_files.size() == 1) {
+        // from_key and to_key are only used for "check", "scan", or ""
+        if (command == "check" || command == "scan" || command == "") {
+          fprintf(stdout, "from [%s] to [%s]\n",
+                  ROCKSDB_NAMESPACE::Slice(from_key).ToString(true).c_str(),
+                  ROCKSDB_NAMESPACE::Slice(to_key).ToString(true).c_str());
+        }
+      }
     }
 
     if (command == "recompress") {
@@ -881,7 +914,35 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
     fprintf(stdout, "total filter block size: %" PRIu64 "\n",
             total_filter_block_size);
   }
-  return 0;
+
+  if (valid_sst_files.empty()) {
+    // No valid SST files are found
+    // Exit with an error state
+    if (dir) {
+      fprintf(stdout, "------------------------------\n");
+      fprintf(stderr, "No valid SST files found in %s\n", dir_or_file);
+    } else {
+      fprintf(stderr, "%s is not a valid SST file\n", dir_or_file);
+    }
+    return 1;
+  } else {
+    if (command == "identify") {
+      if (dir) {
+        fprintf(stdout, "------------------------------\n");
+        fprintf(stdout, "List of valid SST files found in %s:\n", dir_or_file);
+        for (const auto& f : valid_sst_files) {
+          fprintf(stdout, "%s\n", f.c_str());
+        }
+        fprintf(stdout, "Number of valid SST files: %zu\n",
+                valid_sst_files.size());
+      } else {
+        fprintf(stdout, "%s is a valid SST file\n", dir_or_file);
+      }
+    }
+    // At least one valid SST
+    // exit with a success state
+    return 0;
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE
 

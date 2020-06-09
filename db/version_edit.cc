@@ -18,10 +18,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-// The unknown file checksum.
-const std::string kUnknownFileChecksum("");
-// The unknown sst file checksum function name.
-const std::string kUnknownFileChecksumFuncName("Unknown");
 
 namespace {
 

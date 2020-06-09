@@ -1781,7 +1781,7 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   if (rep_->file != nullptr) {
     return rep_->file->GetFileChecksumFuncName();
   } else {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 }
 

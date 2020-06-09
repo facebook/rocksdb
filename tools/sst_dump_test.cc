@@ -298,13 +298,50 @@ TEST_F(SSTDumpToolTest, NoSstFile) {
         "--command=verify", "--command=recompress", "--command=verify_checksum",
         "--show_properties"}) {
     snprintf(usage[1], kOptLength, "%s", command);
-    ASSERT_TRUE(!tool.Run(3, usage, opts));
+    ASSERT_TRUE(tool.Run(3, usage, opts));
   }
   for (int i = 0; i < 3; i++) {
     delete[] usage[i];
   }
 }
 
+TEST_F(SSTDumpToolTest, ValidSSTPath) {
+  Options opts;
+  opts.env = env();
+  char* usage[3];
+  PopulateCommandArgs("", "", usage);
+  SSTDumpTool tool;
+  std::string file_not_exists = MakeFilePath("file_not_exists.sst");
+  std::string sst_file = MakeFilePath("rocksdb_sst_test.sst");
+  createSST(opts, sst_file);
+  std::string text_file = MakeFilePath("text_file");
+  ASSERT_OK(WriteStringToFile(opts.env, "Hello World!", text_file));
+  std::string fake_sst = MakeFilePath("fake_sst.sst");
+  ASSERT_OK(WriteStringToFile(opts.env, "Not an SST file!", fake_sst));
+
+  for (const auto& command_arg : {"--command=verify", "--command=identify"}) {
+    snprintf(usage[1], kOptLength, "%s", command_arg);
+
+    snprintf(usage[2], kOptLength, "--file=%s", file_not_exists.c_str());
+    ASSERT_TRUE(tool.Run(3, usage, opts));
+
+    snprintf(usage[2], kOptLength, "--file=%s", sst_file.c_str());
+    ASSERT_TRUE(!tool.Run(3, usage, opts));
+
+    snprintf(usage[2], kOptLength, "--file=%s", text_file.c_str());
+    ASSERT_TRUE(tool.Run(3, usage, opts));
+
+    snprintf(usage[2], kOptLength, "--file=%s", fake_sst.c_str());
+    ASSERT_TRUE(tool.Run(3, usage, opts));
+  }
+  ASSERT_OK(opts.env->DeleteFile(sst_file));
+  ASSERT_OK(opts.env->DeleteFile(text_file));
+  ASSERT_OK(opts.env->DeleteFile(fake_sst));
+
+  for (int i = 0; i < 3; i++) {
+    delete[] usage[i];
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

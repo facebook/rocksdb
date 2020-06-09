@@ -325,6 +325,17 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  FileMetaData* GetFileMetaDataByNumber(uint64_t file_number) const {
+    auto location = GetFileLocation(file_number);
+
+    if (!location.IsValid()) {
+      return nullptr;
+    }
+
+    return files_[location.GetLevel()][location.GetPosition()];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
 
