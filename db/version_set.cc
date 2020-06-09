@@ -1004,7 +1004,8 @@ class LevelIterator final : public InternalIterator {
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
-        /*arena=*/nullptr, skip_filters_, level_, smallest_compaction_key,
+        /*arena=*/nullptr, skip_filters_, level_,
+        /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_);
   }
 
@@ -1599,10 +1600,9 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, arena,
-          /*skip_filters=*/false, /*level=*/0,
+          /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr,
-          allow_unprepared_value));
+          /*largest_compaction_key=*/nullptr, allow_unprepared_value));
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
@@ -1624,8 +1624,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         mutable_cf_options_.prefix_extractor.get(), should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        range_del_agg, /*largest_compaction_key=*/nullptr,
-        allow_unprepared_value));
+        range_del_agg,
+        /*compaction_boundaries=*/nullptr, allow_unprepared_value));
   }
 }
 
@@ -1659,7 +1659,7 @@ Status Version::OverlapWithLevelIterator(const ReadOptions& read_options,
           mutable_cf_options_.prefix_extractor.get(), nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, &arena,
-          /*skip_filters=*/false, /*level=*/0,
+          /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
           /*allow_unprepared_value=*/false));
@@ -1763,6 +1763,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       refs_(0),
       file_options_(file_opt),
       mutable_cf_options_(mutable_cf_options),
+      max_file_size_for_l0_meta_pin_(
+          MaxFileSizeForL0MetaPin(mutable_cf_options_)),
       version_number_(version_number) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
@@ -1826,7 +1828,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                         fp.IsHitFileLastInLevel()),
-        fp.GetHitFileLevel());
+        fp.GetHitFileLevel(), max_file_size_for_l0_meta_pin_);
     // TODO: examine the behavior for corrupted key
     if (timer_enabled) {
       PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
@@ -3922,7 +3924,8 @@ Status VersionSet::ProcessManifestWrites(
             cfd->internal_stats(), 1 /* max_threads */,
             true /* prefetch_index_and_filter_in_cache */,
             false /* is_initial_load */,
-            mutable_cf_options_ptrs[i]->prefix_extractor.get());
+            mutable_cf_options_ptrs[i]->prefix_extractor.get(),
+            MaxFileSizeForL0MetaPin(*mutable_cf_options_ptrs[i]));
         if (!s.ok()) {
           if (db_options_->paranoid_checks) {
             break;
@@ -4649,7 +4652,8 @@ Status VersionSet::Recover(
           cfd->internal_stats(), db_options_->max_file_opening_threads,
           false /* prefetch_index_and_filter_in_cache */,
           true /* is_initial_load */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+          MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
       if (!s.ok()) {
         if (db_options_->paranoid_checks) {
           return s;
@@ -5686,13 +5690,14 @@ InternalIterator* VersionSet::MakeInputIterator(
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, file_options_compactions,
-              cfd->internal_comparator(),
-              *flevel->files[i].file_metadata, range_del_agg,
-              c->mutable_cf_options()->prefix_extractor.get(),
+              cfd->internal_comparator(), *flevel->files[i].file_metadata,
+              range_del_agg, c->mutable_cf_options()->prefix_extractor.get(),
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
-              /*skip_filters=*/false, /*level=*/static_cast<int>(c->level(which)),
+              /*skip_filters=*/false,
+              /*level=*/static_cast<int>(c->level(which)),
+              MaxFileSizeForL0MetaPin(*c->mutable_cf_options()),
               /*smallest_compaction_key=*/nullptr,
               /*largest_compaction_key=*/nullptr,
               /*allow_unprepared_value=*/false);
@@ -6023,7 +6028,8 @@ Status ReactiveVersionSet::Recover(
                 cfd->internal_stats(), db_options_->max_file_opening_threads,
                 false /* prefetch_index_and_filter_in_cache */,
                 true /* is_initial_load */,
-                cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+                cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+                MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
             if (!s.ok()) {
               enough = false;
               if (s.IsPathNotFound()) {
@@ -6299,7 +6305,8 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
         cfd->internal_stats(), db_options_->max_file_opening_threads,
         false /* prefetch_index_and_filter_in_cache */,
         false /* is_initial_load */,
-        cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
+        cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+        MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
     TEST_SYNC_POINT_CALLBACK(
         "ReactiveVersionSet::ApplyOneVersionEditToBuilder:"
         "AfterLoadTableHandlers",

@@ -654,6 +654,8 @@ Status CompactionJob::Run() {
                 compact_->compaction->output_level()),
             TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
             /*skip_filters=*/false, compact_->compaction->output_level(),
+            MaxFileSizeForL0MetaPin(
+                *compact_->compaction->mutable_cf_options()),
             /*smallest_compaction_key=*/nullptr,
             /*largest_compaction_key=*/nullptr,
             /*allow_unprepared_value=*/false);

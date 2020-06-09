@@ -803,6 +803,8 @@ class Version {
   int refs_;                    // Number of live refs to this version
   const FileOptions file_options_;
   const MutableCFOptions mutable_cf_options_;
+  // Cached value to avoid recomputing it on every read.
+  const size_t max_file_size_for_l0_meta_pin_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
