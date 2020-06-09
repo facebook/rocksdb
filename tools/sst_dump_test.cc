@@ -129,6 +129,20 @@ class SSTDumpToolTest : public testing::Test {
   }
 };
 
+TEST_F(SSTDumpToolTest, HelpAndVersion) {
+  Options opts;
+  opts.env = env();
+
+  ROCKSDB_NAMESPACE::SSTDumpTool tool;
+
+  static const char* help[] = {"./sst_dump", "--help"};
+  ASSERT_TRUE(!tool.Run(2, help, opts));
+  static const char* version[] = {"./sst_dump", "--version"};
+  ASSERT_TRUE(!tool.Run(2, version, opts));
+  static const char* bad[] = {"./sst_dump", "--not_an_option"};
+  ASSERT_TRUE(tool.Run(2, bad, opts));
+}
+
 TEST_F(SSTDumpToolTest, EmptyFilter) {
   Options opts;
   opts.env = env();

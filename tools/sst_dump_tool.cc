@@ -481,9 +481,9 @@ Status SstFileDumper::ReadTableProperties(
 
 namespace {
 
-void print_help() {
+void print_help(bool to_stderr) {
   fprintf(
-      stderr,
+      to_stderr ? stderr : stdout,
       R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw|recompress|identify]
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
@@ -572,7 +572,7 @@ bool ParseIntArg(const char* arg, const std::string arg_name,
 }
 }  // namespace
 
-int SSTDumpTool::Run(int argc, char** argv, Options options) {
+int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   const char* env_uri = nullptr;
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
@@ -696,10 +696,17 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
                            "compression_level_to must be numeric", &tmp_val)) {
       has_compression_level_to = true;
       compress_level_to = static_cast<int>(tmp_val);
+    } else if (strcmp(argv[i], "--help") == 0) {
+      print_help(/*to_stderr*/ false);
+      return 0;
+    } else if (strcmp(argv[i], "--version") == 0) {
+      printf("sst_dump from RocksDB %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
+             ROCKSDB_PATCH);
+      return 0;
     } else {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
-      print_help();
-      exit(1);
+      print_help(/*to_stderr*/ true);
+      return 1;
     }
   }
 
@@ -730,7 +737,7 @@ int SSTDumpTool::Run(int argc, char** argv, Options options) {
 
   if (dir_or_file == nullptr) {
     fprintf(stderr, "file or directory must be specified.\n\n");
-    print_help();
+    print_help(/*to_stderr*/ true);
     exit(1);
   }
 
