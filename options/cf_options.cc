@@ -629,6 +629,7 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_pri",
          {offset_of(&ColumnFamilyOptions::compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 #endif  // ROCKSDB_LITE
 
