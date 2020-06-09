@@ -4,17 +4,17 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_log_writer.h"
+#include "db/blob/blob_log_writer.h"
 
 #include <cstdint>
 #include <string>
 
+#include "db/blob/blob_log_format.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
-#include "utilities/blob_db/blob_log_format.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
