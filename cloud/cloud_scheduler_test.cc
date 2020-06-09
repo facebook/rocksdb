@@ -13,41 +13,8 @@ class CloudSchedulerTest : public testing::Test {
  public:
   CloudSchedulerTest() { scheduler_ = CloudScheduler::Get(); }
   ~CloudSchedulerTest() {
-    for (auto h : handles_) {
-      scheduler_->CancelJob(h);
-    }
   }
 
-  void CancelAllJobs() {
-    for (auto h : handles_) {
-      scheduler_->CancelJob(h);
-    }
-    handles_.clear();
-  }
-
-  bool CancelJob(int h) {
-    bool cancelled = scheduler_->CancelJob(h);
-    handles_.erase(h);
-    return cancelled;
-  }
-
-  int ScheduleJob(int us, std::function<void(void *)> job, void *arg) {
-    auto h = scheduler_->ScheduleJob(std::chrono::microseconds(us), job, arg);
-    handles_.insert(h);
-    return h;
-  }
-
-  int ScheduleRecurringJob(int us, int freq, std::function<void(void *)> job,
-                           void *arg) {
-    auto h = scheduler_->ScheduleRecurringJob(std::chrono::microseconds(us),
-                                              std::chrono::microseconds(freq),
-                                              job, arg);
-    handles_.insert(h);
-    return h;
-  }
-
- private:
-  std::unordered_set<int> handles_;
   std::shared_ptr<CloudScheduler> scheduler_;
 };
 
@@ -56,22 +23,22 @@ TEST_F(CloudSchedulerTest, TestSchedule) {
   static int job2 = 1;
   auto doJob = [](void *arg) { (*(reinterpret_cast<int *>(arg)))++; };
 
-  ScheduleJob(50, doJob, &job1);
-  ScheduleJob(150, doJob, &job2);
+  scheduler_->ScheduleJob(std::chrono::microseconds(100), doJob, &job1);
+  scheduler_->ScheduleJob(std::chrono::microseconds(300), doJob, &job2);
 
-  usleep(80);
+  usleep(200);
   ASSERT_EQ(job2, 1);
   ASSERT_EQ(job1, 2);
-  usleep(80);
+  usleep(200);
   ASSERT_EQ(job2, 2);
   ASSERT_EQ(job1, 2);
 
-  ScheduleJob(150, doJob, &job1);
-  ScheduleJob(50, doJob, &job2);
-  usleep(80);
+  scheduler_->ScheduleJob(std::chrono::microseconds(300), doJob, &job1);
+  scheduler_->ScheduleJob(std::chrono::microseconds(100), doJob, &job2);
+  usleep(200);
   ASSERT_EQ(job1, 2);
   ASSERT_EQ(job2, 3);
-  usleep(80);
+  usleep(200);
   ASSERT_EQ(job1, 3);
   ASSERT_EQ(job2, 3);
 }
@@ -81,31 +48,67 @@ TEST_F(CloudSchedulerTest, TestCancel) {
   static int job2 = 0;
   auto doJob = [](void *arg) { (*(reinterpret_cast<int *>(arg)))++; };
 
-  auto handle1 = ScheduleJob(50, doJob, &job1);
-  auto handle2 = ScheduleJob(80, doJob, &job2);
-  ASSERT_TRUE(CancelJob(handle2));
-  usleep(120);
+  auto handle1 = scheduler_->ScheduleJob(std::chrono::microseconds(100), doJob, &job1);
+  auto handle2 = scheduler_->ScheduleJob(std::chrono::microseconds(200), doJob, &job2);
+  ASSERT_TRUE(scheduler_->CancelJob(handle2));
+  usleep(300);
   ASSERT_EQ(job1, 2);
   ASSERT_EQ(job2, 0);
-  ASSERT_FALSE(CancelJob(handle1));
-  ASSERT_FALSE(CancelJob(handle2));
+  ASSERT_FALSE(scheduler_->CancelJob(handle1));
+  ASSERT_FALSE(scheduler_->CancelJob(handle2));
 }
 
 TEST_F(CloudSchedulerTest, TestRecurring) {
   int job1 = 1;
   int job2 = 1;
-  auto doJob = [](void *arg) { (*(reinterpret_cast<int *>(arg)))++; };
+  auto doJob1 = [&job1](void *) { job1++; };
+  auto doJob2 = [&job2](void *) { job2++; };
 
-  auto handle1 = ScheduleRecurringJob(10, 40, doJob, &job1);
-  ScheduleRecurringJob(20, 80, doJob, &job2);
-  usleep(200);
-  ASSERT_GE(job1, 5);
-  ASSERT_GE(job2, 3);
-  ASSERT_TRUE(CancelJob(handle1));
-  usleep(120);
-  ASSERT_GE(job1, 5);
+  auto handle1 = scheduler_->ScheduleRecurringJob(std::chrono::microseconds(10),
+                                                  std::chrono::microseconds(50), doJob1, nullptr);
+  scheduler_->ScheduleRecurringJob(std::chrono::microseconds(120),
+                                   std::chrono::microseconds(100), doJob2, nullptr);
+  usleep(700);
   ASSERT_GE(job2, 4);
+  ASSERT_GT(job1, job2);
+  ASSERT_TRUE(scheduler_->CancelJob(handle1));
+  auto old1 = job1;
+  auto old2 = job2;
+  usleep(200);
+  ASSERT_EQ(job1, old1);
+  ASSERT_GT(job2, old2);
 }
+  
+TEST_F(CloudSchedulerTest, TestMultipleSchedulers) {
+  auto scheduler2 = CloudScheduler::Get();
+
+  int job1 = 1;
+  int job2 = 1;
+  auto doJob1 = [&job1](void *) { job1++; };
+  auto doJob2 = [&job2](void *) { job2++; };
+
+  auto handle1 = scheduler_->ScheduleJob(std::chrono::microseconds(120), doJob1, nullptr);
+  auto handle2 = scheduler2->ScheduleJob(std::chrono::microseconds(120), doJob2, nullptr);
+  ASSERT_FALSE(scheduler_->CancelJob(handle2));
+  ASSERT_FALSE(scheduler2->CancelJob(handle1));
+  ASSERT_TRUE(scheduler2->CancelJob(handle2));
+  ASSERT_FALSE(scheduler2->CancelJob(handle2));
+  usleep(200);
+  ASSERT_EQ(job1, 2);
+  ASSERT_EQ(job2, 1);
+
+  scheduler_->ScheduleRecurringJob(std::chrono::microseconds(40),
+                                   std::chrono::microseconds(20), doJob1, nullptr);
+  scheduler2->ScheduleRecurringJob(std::chrono::microseconds(50),
+                                   std::chrono::microseconds(20), doJob2, nullptr);
+  scheduler2.reset();
+  auto old1 = job1;
+  auto old2 = job2;
+  usleep(200);
+  ASSERT_EQ(job2, old2);
+  ASSERT_GT(job1, old1);
+}
+
 }  //  namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char **argv) {

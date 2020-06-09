@@ -2,13 +2,15 @@
 #ifndef ROCKSDB_LITE
 #include "cloud/cloud_scheduler.h"
 
+#include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 namespace ROCKSDB_NAMESPACE {
 
 struct ScheduledJob {
-  ScheduledJob(int _id, std::chrono::steady_clock::time_point _when,
+  ScheduledJob(long _id, std::chrono::steady_clock::time_point _when,
                std::chrono::microseconds _frequency,
                std::function<void(void*)> _callback, void* _arg)
       : id(_id),
@@ -17,7 +19,7 @@ struct ScheduledJob {
         callback(_callback),
         arg(_arg) {}
 
-  int id;
+  long id;
   std::chrono::steady_clock::time_point when;
   std::chrono::microseconds frequency;
   std::function<void(void*)> callback;
@@ -34,17 +36,17 @@ class CloudSchedulerImpl : public CloudScheduler {
  public:
   CloudSchedulerImpl();
   ~CloudSchedulerImpl();
-  int ScheduleJob(std::chrono::microseconds when,
-                  std::function<void(void*)> callback, void* arg) override;
-  int ScheduleRecurringJob(std::chrono::microseconds when,
-                           std::chrono::microseconds frequency,
-                           std::function<void(void*)> callback,
-                           void* arg) override;
-  bool CancelJob(int handle) override;
+  long ScheduleJob(std::chrono::microseconds when,
+                   std::function<void(void*)> callback, void* arg) override;
+  long ScheduleRecurringJob(std::chrono::microseconds when,
+                            std::chrono::microseconds frequency,
+                            std::function<void(void*)> callback,
+                            void* arg) override;
+  bool CancelJob(long handle) override;
 
  private:
   void DoWork();
-  int next_id_;
+  long next_id_;
 
   std::mutex mutex_;
   // Notified when the earliest job to be scheduled has changed.
@@ -55,10 +57,72 @@ class CloudSchedulerImpl : public CloudScheduler {
   std::unique_ptr<std::thread> thread_;
 };
 
-std::shared_ptr<CloudScheduler>& CloudScheduler::Get() {
-  static std::shared_ptr<CloudScheduler> scheduler =
+// Implementation of a CloudScheduler that keeps track of the jobs
+// it scheduled.  Only cleans up those jobs on exit or cancel.
+class LocalCloudScheduler : public CloudScheduler {
+ public:
+  LocalCloudScheduler(const std::shared_ptr<CloudScheduler>& scheduler,
+                      long local_id)
+      : scheduler_(scheduler), next_local_id_(local_id) {}
+  ~LocalCloudScheduler() override {
+    for (const auto job : jobs_) {
+      scheduler_->CancelJob(job.second);
+    }
+    jobs_.clear();
+  }
+
+  long ScheduleJob(std::chrono::microseconds when,
+                   std::function<void(void*)> callback, void* arg) override {
+    std::lock_guard<std::mutex> lk(job_mutex_);
+    long local_id = next_local_id_++;
+    auto job = [this, local_id, callback](void* a) {
+      callback(a);
+      std::lock_guard<std::mutex> cblk(job_mutex_);
+      jobs_.erase(local_id);
+    };
+    jobs_[local_id] = scheduler_->ScheduleJob(when, job, arg);
+    return local_id;
+  }
+
+  long ScheduleRecurringJob(std::chrono::microseconds when,
+                            std::chrono::microseconds frequency,
+                            std::function<void(void*)> callback,
+                            void* arg) override {
+    auto job = scheduler_->ScheduleRecurringJob(when, frequency, callback, arg);
+    std::lock_guard<std::mutex> lk(job_mutex_);
+    long local_id = next_local_id_++;
+    jobs_[local_id] = job;
+    return local_id;
+  }
+  // Cancels the job referred to by handle if it is active and associated with
+  // this scheduler
+  bool CancelJob(long handle) override {
+    std::lock_guard<std::mutex> lk(job_mutex_);
+    const auto& it = jobs_.find(handle);
+    if (it != jobs_.end()) {
+      jobs_.erase(it);
+      return scheduler_->CancelJob(it->second);
+    } else {
+      return false;
+    }
+  }
+
+ private:
+  std::mutex job_mutex_;
+  std::shared_ptr<CloudScheduler> scheduler_;
+  long next_local_id_;
+  std::unordered_map<long, long> jobs_;
+};
+
+std::shared_ptr<CloudScheduler> CloudScheduler::Get() {
+  static std::shared_ptr<CloudSchedulerImpl> scheduler =
       std::make_shared<CloudSchedulerImpl>();
-  return scheduler;
+  static long local_scheduler_id = 0;
+
+  std::shared_ptr<CloudScheduler> result =
+      std::make_shared<LocalCloudScheduler>(scheduler, local_scheduler_id);
+  local_scheduler_id += 10000;
+  return result;
 }
 
 CloudSchedulerImpl::CloudSchedulerImpl() {
@@ -80,11 +144,11 @@ CloudSchedulerImpl::~CloudSchedulerImpl() {
   thread_.reset();
 }
 
-int CloudSchedulerImpl::ScheduleJob(std::chrono::microseconds when,
-                                    std::function<void(void*)> callback,
-                                    void* arg) {
+long CloudSchedulerImpl::ScheduleJob(std::chrono::microseconds when,
+                                     std::function<void(void*)> callback,
+                                     void* arg) {
   std::lock_guard<std::mutex> lk(mutex_);
-  int id = next_id_++;
+  long id = next_id_++;
 
   auto time = std::chrono::steady_clock::now() + when;
   auto itr = scheduled_jobs_.emplace(id, time, std::chrono::microseconds(0),
@@ -96,11 +160,11 @@ int CloudSchedulerImpl::ScheduleJob(std::chrono::microseconds when,
   return id;
 }
 
-int CloudSchedulerImpl::ScheduleRecurringJob(
+long CloudSchedulerImpl::ScheduleRecurringJob(
     std::chrono::microseconds when, std::chrono::microseconds frequency,
     std::function<void(void*)> callback, void* arg) {
   std::lock_guard<std::mutex> lk(mutex_);
-  int id = next_id_++;
+  long id = next_id_++;
 
   auto time = std::chrono::steady_clock::now() + when;
   auto itr = scheduled_jobs_.emplace(id, time, frequency, callback, arg);
@@ -110,7 +174,7 @@ int CloudSchedulerImpl::ScheduleRecurringJob(
   return id;
 }
 
-bool CloudSchedulerImpl::CancelJob(int id) {
+bool CloudSchedulerImpl::CancelJob(long id) {
   std::lock_guard<std::mutex> lk(mutex_);
   for (auto it = scheduled_jobs_.begin(); it != scheduled_jobs_.end(); ++it) {
     if (it->id == id) {
