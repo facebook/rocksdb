@@ -343,7 +343,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   Cache::Handle* cache_handle() { return cache_handle_; }
 
-  virtual void Next() = 0;
+  virtual void Next() override = 0;
 
  protected:
   // Note: The type could be changed to InternalKeyComparator but we see a weird

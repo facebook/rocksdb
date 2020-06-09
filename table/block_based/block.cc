@@ -653,31 +653,27 @@ void BlockIter<TValue>::ScanAfterBinarySeek(const Slice& target, uint32_t index,
                                             bool is_index_key_result,
                                             const Comparator* comp) {
   // Linear search (within restart block) for first key >= target
-  if (is_index_key_result) {
-    SeekToRestartPoint(index);
-    Next();
-  } else {
-    SeekToRestartPoint(index);
+  SeekToRestartPoint(index);
+  Next();
+  if (!is_index_key_result) {
     uint32_t max_offset;
     if (index + 1 < num_restarts_) {
+      // We are in a non-last restart interval. Since `BinarySeek()` guarantees
+      // the next restart key is strictly greater than `target`, we can
+      // terminate upon reaching it without any additional key comparison.
       max_offset = GetRestartPoint(index + 1);
     } else {
-      max_offset = restarts_;
+      // We are in the last restart interval. The while-loop will terminate by
+      // `Valid()` returning false upon advancing past the block's last key.
+      max_offset = port::kMaxUint32;
     }
-    bool first = true;
     while (true) {
       Next();
       if (!Valid()) {
         break;
       }
-      if (first) {
-        // Skip the comparison on the first key since we already know from
-        // the binary search that it's less than target.
-        first = false;
-      } else if (current_ == max_offset) {
-        // We already know from the binary search that this key is >= target.
-        // Elide the key comparison.
-        assert(comp->Compare(applied_key_.UpdateAndGetKey(), target) >= 0);
+      if (current_ == max_offset) {
+        assert(comp->Compare(applied_key_.UpdateAndGetKey(), target) > 0);
         break;
       } else if (comp->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
         break;
