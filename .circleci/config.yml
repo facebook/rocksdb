@@ -20,7 +20,7 @@ jobs:
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y
       - run: sudo apt-get install -y libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLAL_OUTPUTS=1 make J=32 all check -j32
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make J=32 all check -j32
 
   build-linux-release:
     machine:
@@ -37,7 +37,7 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: pyenv global 3.5.2
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLAL_OUTPUTS=1 LITE=1 make J=32 all check -j32
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 LITE=1 make J=32 all check -j32
 
   build-linux-lite-release:
     machine:
@@ -61,7 +61,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: mkdir build; cd build; cmake -DWITH_GFLAGS=0 ..; make -j16
+      - run: mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make -j32
 
   build-windows:
     executor: windows-2xlarge

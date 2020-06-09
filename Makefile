@@ -975,7 +975,7 @@ J ?= 100%
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
-ifeq ($(PRINT_PARALLAL_OUTPUTS), 1)	
+ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)	
 	parallel_com = '{}'
 else
 	parallel_com = '{} >& t/log-{/}'
@@ -994,9 +994,8 @@ check_0:
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu  $(parallel_com) ; \
-	cat LOG|awk '{ if ($$7 != 0) { print } }'; \
-	if [[ "$$(grep -v 'Exitval' LOG|awk '{ if ($$7 != 0) { print } }'|wc -l)" -ne 0 ]]; then exit 1; fi
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu  $(parallel_com) && \
+	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG
 
 valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
