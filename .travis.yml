@@ -227,6 +227,7 @@ install:
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
       sudo snap install cmake --beta --classic;
+      export PATH=/snap/bin:$PATH;
     fi
   - |
     if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
