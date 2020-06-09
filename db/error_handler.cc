@@ -225,11 +225,6 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
     auto_recovery = false;
   }
 
-  if (BackgroundErrorReason::kManifestWrite == reason) {
-    // Always returns ok
-    db_->DisableFileDeletionsWithLock();
-  }
-
   // Allow some error specific overrides
   if (new_bg_err == Status::NoSpace()) {
     new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
@@ -267,6 +262,10 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   }
   if (recovery_in_prog_ && recovery_error_.ok()) {
     recovery_error_ = bg_io_err;
+  }
+  if (BackgroundErrorReason::kManifestWrite == reason) {
+    // Always returns ok
+    db_->DisableFileDeletionsWithLock();
   }
   Status new_bg_io_err = bg_io_err;
   Status s;

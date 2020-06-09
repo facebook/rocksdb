@@ -319,8 +319,10 @@ Status DBImpl::ResumeImpl() {
     if (io_s.IsIOError()) {
       // If resuming from IOError resulted from MANIFEST write, then assert
       // that we must have already set the MANIFEST writer to nullptr during
-      // clean-up phase MANIFEST writing.
+      // clean-up phase MANIFEST writing. We must have also disabled file
+      // deletions.
       assert(!versions_->descriptor_log_);
+      assert(file_deletion_disabled);
       // Since we are trying to recover from MANIFEST write error, we need to
       // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
       // Therefore, force writing a dummy version edit because we do not know
