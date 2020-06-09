@@ -725,6 +725,9 @@ size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options) {
   // or a former larger `write_buffer_size` value to avoid surprising users with
   // pinned memory usage. We use a factor of 1.5 to account for overhead
   // introduced during flush in most cases.
+  if (port::kMaxSizet / 3 < cf_options.write_buffer_size / 2) {
+    return port::kMaxSizet;
+  }
   return cf_options.write_buffer_size / 2 * 3;
 }
 

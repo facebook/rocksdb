@@ -271,6 +271,6 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
 
 // Get the max size of an L0 file for which we will pin its meta-blocks when
 // `pin_l0_filter_and_index_blocks_in_cache` is set.
-uint64_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options);
+size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options);
 
 }  // namespace ROCKSDB_NAMESPACE
