@@ -33,17 +33,13 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
+    std::unordered_map<std::string, std::string> mutable_map;
     ConfigOptions config_options;
     config_options.delimiter = "; ";
-    GetStringFromDBOptions(config_options, options, &options_str);
-    std::unordered_map<std::string, std::string> options_map;
-    StringToMap(options_str, &options_map);
-    std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto& opt : db_options_type_info) {
-      if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
-    }
+
+    GetStringFromMutableDBOptions(config_options, MutableDBOptions(options),
+                                  &options_str);
+    StringToMap(options_str, &mutable_map);
     return mutable_map;
   }
 
@@ -53,15 +49,10 @@ class DBOptionsTest : public DBTestBase {
     ConfigOptions config_options;
     config_options.delimiter = "; ";
 
-    GetStringFromColumnFamilyOptions(config_options, options, &options_str);
-    std::unordered_map<std::string, std::string> options_map;
-    StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto& opt : cf_options_type_info) {
-      if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
-    }
+    GetStringFromMutableCFOptions(config_options, MutableCFOptions(options),
+                                  &options_str);
+    StringToMap(options_str, &mutable_map);
     return mutable_map;
   }
 
