@@ -11,7 +11,59 @@ executors:
       shell: bash.exe
 
 jobs:
-  build:
+  build-linux:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: sudo apt-get update -y
+      - run: sudo apt-get install -y libgflags-dev
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make J=32 all check -j32
+
+  build-linux-release:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: make release -j32
+
+  build-linux-lite:
+    machine:
+      image: ubuntu-1604:201903-01 
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 LITE=1 make J=32 all check -j32
+
+  build-linux-lite-release:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: large
+    steps:
+      - checkout # check out the code in the project directory
+      - run: make release -j32
+
+  build-linux-clang-no-test:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: USE_CLANG=1 make all -j32
+
+  build-linux-cmake:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make -j32
+
+  build-windows:
     executor: windows-2xlarge
     
     environment:
@@ -54,3 +106,26 @@ jobs:
           shell: powershell.exe
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,env_basic_test,env_test,db_merge_operand_test -Concurrency 16
+
+workflows:
+  build-linux:
+    jobs:
+      - build-linux
+  build-linux-lite:
+    jobs:
+      - build-linux-lite
+  build-linux-release:
+    jobs:
+      - build-linux-release
+  build-linux-lite-release:
+    jobs:
+      - build-linux-lite-release
+  build-linux-clang-no-test:
+    jobs:
+      - build-linux-clang-no-test
+  build-linux-cmake:
+    jobs:
+      - build-linux-cmake
+  build-windows:
+    jobs:
+      - build-windows

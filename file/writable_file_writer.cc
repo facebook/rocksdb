@@ -236,7 +236,7 @@ const char* WritableFileWriter::GetFileChecksumFuncName() const {
   if (checksum_generator_ != nullptr) {
     return checksum_generator_->Name();
   } else {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 }
 

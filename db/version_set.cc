@@ -365,6 +365,7 @@ class FilePickerMultiGet {
         range_(range),
         batch_iter_(range->begin()),
         batch_iter_prev_(range->begin()),
+        upper_key_(range->begin()),
         maybe_repeat_key_(false),
         current_level_range_(*range, range->begin(), range->end()),
         current_file_range_(*range, range->begin(), range->end()),
@@ -481,9 +482,19 @@ class FilePickerMultiGet {
       }
       if (cmp_largest == 0) {
         // cmp_largest is 0, which means the next key will not be in this
-        // file, so stop looking further. Also don't increment megt_iter_
-        // as we may have to look for this key in the next file if we don't
-        // find it in this one
+        // file, so stop looking further. However, its possible there are
+        // duplicates in the batch, so find the upper bound for the batch
+        // in this file (upper_key_) by skipping past the duplicates. We
+        // leave batch_iter_ as is since we may have to pick up from there
+        // for the next file, if this file has a merge value rather than
+        // final value
+        upper_key_ = batch_iter_;
+        ++upper_key_;
+        while (upper_key_ != current_level_range_.end() &&
+               user_comparator_->Compare(batch_iter_->ukey, upper_key_->ukey) ==
+                   0) {
+          ++upper_key_;
+        }
         break;
       } else {
         if (curr_level_ == 0) {
@@ -503,6 +514,12 @@ class FilePickerMultiGet {
     *fd = f;
     *file_index = curr_file_index;
     *is_last_key_in_file = cmp_largest == 0;
+    if (!*is_last_key_in_file) {
+      // If the largest key in the batch overlapping the file is not the
+      // largest key in the file, upper_ley_ would not have been updated so
+      // update it here
+      upper_key_ = batch_iter_;
+    }
     return file_hit;
   }
 
@@ -524,7 +541,7 @@ class FilePickerMultiGet {
           // file regardless for all keys not found yet
           if (current_level_range_.CheckKeyDone(batch_iter_) ||
               curr_level_ == 0) {
-            ++batch_iter_;
+            batch_iter_ = upper_key_;
           }
         }
         // batch_iter_prev_ will become the start key for the next file
@@ -544,18 +561,20 @@ class FilePickerMultiGet {
                                       &is_last_key_in_file)) {
         search_ended_ = !PrepareNextLevel();
       } else {
-        MultiGetRange::Iterator upper_key = batch_iter_;
         if (is_last_key_in_file) {
           // Since cmp_largest is 0, batch_iter_ still points to the last key
           // that falls in this file, instead of the next one. Increment
-          // upper_key so we can set the range properly for SST MultiGet
-          ++upper_key;
-          ++(fp_ctx_array_[batch_iter_.index()].curr_index_in_curr_level);
+          // the file index for all keys between batch_iter_ and upper_key_
+          auto tmp_iter = batch_iter_;
+          while (tmp_iter != upper_key_) {
+            ++(fp_ctx_array_[tmp_iter.index()].curr_index_in_curr_level);
+            ++tmp_iter;
+          }
           maybe_repeat_key_ = true;
         }
         // Set the range for this file
         current_file_range_ =
-            MultiGetRange(next_file_range, batch_iter_prev_, upper_key);
+            MultiGetRange(next_file_range, batch_iter_prev_, upper_key_);
         returned_file_level_ = curr_level_;
         hit_file_level_ = curr_level_;
         is_hit_file_last_in_level_ =
@@ -607,6 +626,7 @@ class FilePickerMultiGet {
   // key found in the previous SST file, in order to serve as the start of
   // the batch key range for the next SST file
   MultiGetRange::Iterator batch_iter_prev_;
+  MultiGetRange::Iterator upper_key_;
   bool maybe_repeat_key_;
   MultiGetRange current_level_range_;
   MultiGetRange current_file_range_;
@@ -626,7 +646,7 @@ class FilePickerMultiGet {
       if (fp_ctx_array_[mget_iter.index()].curr_index_in_curr_level <
           curr_file_level_->num_files) {
         batch_iter_prev_ = current_level_range_.begin();
-        batch_iter_ = current_level_range_.begin();
+        upper_key_ = batch_iter_ = current_level_range_.begin();
         return true;
       }
     }
@@ -721,7 +741,7 @@ class FilePickerMultiGet {
       }
       if (level_contains_keys) {
         batch_iter_prev_ = current_level_range_.begin();
-        batch_iter_ = current_level_range_.begin();
+        upper_key_ = batch_iter_ = current_level_range_.begin();
         return true;
       }
       curr_level_++;
