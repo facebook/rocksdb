@@ -343,6 +343,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   Cache::Handle* cache_handle() { return cache_handle_; }
 
+  virtual void Next() override = 0;
+
  protected:
   // Note: The type could be changed to InternalKeyComparator but we see a weird
   // performance drop by that.
@@ -403,9 +405,14 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   void CorruptionError();
 
+ protected:
   template <typename DecodeKeyFunc>
   inline bool BinarySeek(const Slice& target, uint32_t left, uint32_t right,
-                         uint32_t* index, const Comparator* comp);
+                         uint32_t* index, bool* is_index_key_result,
+                         const Comparator* comp);
+
+  void FindKeyAfterBinarySeek(const Slice& target, uint32_t index,
+                              bool is_index_key_result, const Comparator* comp);
 };
 
 class DataBlockIter final : public BlockIter<Slice> {
