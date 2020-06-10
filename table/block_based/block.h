@@ -411,8 +411,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
                          uint32_t* index, bool* is_index_key_result,
                          const Comparator* comp);
 
-  void ScanAfterBinarySeek(const Slice& target, uint32_t index,
-                           bool is_index_key_result, const Comparator* comp);
+  void FindKeyAfterBinarySeek(const Slice& target, uint32_t index,
+                              bool is_index_key_result, const Comparator* comp);
 };
 
 class DataBlockIter final : public BlockIter<Slice> {
