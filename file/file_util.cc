@@ -125,7 +125,9 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
 IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
                                  FileChecksumGenFactory* checksum_factory,
                                  std::string* file_checksum,
-                                 std::string* file_checksum_func_name) {
+                                 std::string* file_checksum_func_name,
+                                 size_t verify_checksums_readahead_size,
+                                 bool allow_mmap_reads) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -137,10 +139,10 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
       checksum_factory->CreateFileChecksumGenerator(gen_context);
   uint64_t size;
   IOStatus io_s;
-  std::unique_ptr<SequentialFileReader> reader;
+  std::unique_ptr<RandomAccessFileReader> reader;
   {
-    std::unique_ptr<FSSequentialFile> r_file;
-    io_s = fs->NewSequentialFile(file_path, FileOptions(), &r_file, nullptr);
+    std::unique_ptr<FSRandomAccessFile> r_file;
+    io_s = fs->NewRandomAccessFile(file_path, FileOptions(), &r_file, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -148,22 +150,35 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
     if (!io_s.ok()) {
       return io_s;
     }
-    reader.reset(new SequentialFileReader(std::move(r_file), file_path));
+    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path));
   }
 
-  char buffer[4096];
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  size_t default_max_read_ahead_size = 256 * 1024;
+  size_t readahead_size = (verify_checksums_readahead_size != 0)
+                              ? verify_checksums_readahead_size
+                              : default_max_read_ahead_size;
+
+  FilePrefetchBuffer prefetch_buffer(
+      reader.get(), readahead_size /* readadhead_size */,
+      readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
+
   Slice slice;
+  uint64_t offset = 0;
   while (size > 0) {
-    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
-    io_s = status_to_io_status(reader->Read(bytes_to_read, &slice, buffer));
-    if (!io_s.ok()) {
-      return io_s;
+    uint64_t bytes_to_read =
+        std::min(static_cast<uint64_t>(readahead_size), size);
+    if (!prefetch_buffer.TryReadFromCache(
+            offset, static_cast<size_t>(bytes_to_read), &slice, false)) {
+      return IOStatus::Corruption("file read failed");
     }
     if (slice.size() == 0) {
       return IOStatus::Corruption("file too small");
     }
-    checksum_generator->Update(buffer, slice.size());
+    checksum_generator->Update(slice.data(), slice.size());
     size -= slice.size();
+    offset += slice.size();
   }
   checksum_generator->Finalize();
   *file_checksum = checksum_generator->GetChecksum();
