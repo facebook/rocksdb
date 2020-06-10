@@ -282,7 +282,6 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   assert(memtable_ids.size() == num_mems);
   uint64_t smallest_memtable_id = memtable_ids.front();
   uint64_t flush_memtable_id = smallest_memtable_id + num_mems_to_flush - 1;
-
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      &flush_memtable_id, env_options_, versions_.get(), &mutex_,

@@ -51,7 +51,8 @@ TableBuilder* NewTableBuilder(
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     int level, const bool skip_filters, const uint64_t creation_time,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
-    const uint64_t file_creation_time) {
+    const uint64_t file_creation_time, const std::string& db_id,
+    const std::string& db_session_id) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -61,7 +62,7 @@ TableBuilder* NewTableBuilder(
                           sample_for_compression, compression_opts,
                           skip_filters, column_family_name, level,
                           creation_time, oldest_key_time, target_file_size,
-                          file_creation_time),
+                          file_creation_time, db_id, db_session_id),
       column_family_id, file);
 }
 
@@ -85,7 +86,8 @@ Status BuildTable(
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
-    const uint64_t file_creation_time) {
+    const uint64_t file_creation_time, const std::string& db_id,
+    const std::string& db_session_id) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -142,7 +144,7 @@ Status BuildTable(
           column_family_name, file_writer.get(), compression,
           sample_for_compression, compression_opts_for_flush, level,
           false /* skip_filters */, creation_time, oldest_key_time,
-          0 /*target_file_size*/, file_creation_time);
+          0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
