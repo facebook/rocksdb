@@ -124,7 +124,8 @@ class HdfsReadableFile : virtual public SequentialFile,
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsReadableFile preading %s\n",
                     filename_.c_str());
     tSize bytes_read =
-        hdfsPread(fileSys_, hfile_, offset, static_cast<void*>(scratch), static_cast<tSize>(n));
+        hdfsPread(fileSys_, hfile_, offset, static_cast<void*>(scratch),
+                  static_cast<tSize>(n));
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsReadableFile pread %s\n",
                     filename_.c_str());
     *result = Slice(scratch, (bytes_read < 0) ? 0 : bytes_read);

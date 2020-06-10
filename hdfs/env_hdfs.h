@@ -206,8 +206,7 @@ class HdfsEnv : public Env {
     std::string portStr = (rem == 0 ? remaining :
                            remaining.substr(0, rem));
 
-    tPort port;
-    port = static_cast<tPort>(atoi(portStr.c_str()));
+    tPort port = static_cast<tPort>(atoi(portStr.c_str()));
     if (port == 0) {
       throw HdfsFatalException("Bad host-port for hdfs " + uri);
     }
