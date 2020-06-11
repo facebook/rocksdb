@@ -5,13 +5,13 @@
 
 #pragma once
 
-#include "rocksdb/rocksdb_namespace.h"
-
 #include <cassert>
 #include <iosfwd>
 #include <memory>
 #include <string>
 #include <unordered_set>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
