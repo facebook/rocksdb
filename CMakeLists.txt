@@ -986,7 +986,7 @@ if(WITH_TESTS)
         env/env_basic_test.cc
   )
   if(WITH_ALL_TESTS)
-    kust(APPEND TESTS
+    list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
