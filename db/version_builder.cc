@@ -472,7 +472,8 @@ class VersionBuilder::Rep {
     return base_vstorage_->GetFileLocation(file_number).GetLevel();
   }
 
-  uint64_t GetBlobFileNumberForTableFile(int level, uint64_t file_number) {
+  uint64_t GetOldestBlobFileNumberForTableFile(int level,
+                                               uint64_t file_number) const {
     assert(level < num_levels_);
 
     const auto& added_files = levels_[level].added_files;
@@ -527,7 +528,7 @@ class VersionBuilder::Rep {
     }
 
     const uint64_t blob_file_number =
-        GetBlobFileNumberForTableFile(level, file_number);
+        GetOldestBlobFileNumberForTableFile(level, file_number);
 
     if (blob_file_number != kInvalidBlobFileNumber &&
         IsBlobFileInVersion(blob_file_number)) {
