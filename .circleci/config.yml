@@ -47,14 +47,6 @@ jobs:
       - checkout # check out the code in the project directory
       - run: make release -j32
 
-  build-linux-clang-no-test:
-    machine:
-      image: ubuntu-1604:201903-01
-    resource_class: 2xlarge
-    steps:
-      - checkout # check out the code in the project directory
-      - run: USE_CLANG=1 make all -j32
-
   build-linux-cmake:
     machine:
       image: ubuntu-1604:201903-01
@@ -120,9 +112,6 @@ workflows:
   build-linux-lite-release:
     jobs:
       - build-linux-lite-release
-  build-linux-clang-no-test:
-    jobs:
-      - build-linux-clang-no-test
   build-linux-cmake:
     jobs:
       - build-linux-cmake
