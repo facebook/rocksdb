@@ -111,10 +111,16 @@ struct RangePtr {
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
 };
 
+// It is valid that files_checksums and files_checksum_func_names are both
+// empty (no checksum informaiton is provided for ingestion). Otherwise,
+// their sizes should be the same as external_files. The file order should
+// be the same in three vectors and guaranteed by the caller.
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
 };
 
 struct GetMergeOperandsOptions {

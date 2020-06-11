@@ -28,6 +28,8 @@ namespace ROCKSDB_NAMESPACE {
 
 Status ExternalSstFileIngestionJob::Prepare(
     const std::vector<std::string>& external_files_paths,
+    const std::vector<std::string>& files_checksums,
+    const std::vector<std::string>& files_checksum_func_names,
     uint64_t next_file_number, SuperVersion* sv) {
   Status status;
 
@@ -142,6 +144,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       break;
     }
     f.internal_file_path = path_inside_db;
+    // Initialize the checksum information of ingested files.
+    f.file_checksum = kUnknownFileChecksum;
+    f.file_checksum_func_name = kUnknownFileChecksumFuncName;
     ingestion_path_ids.insert(f.fd.GetPathId());
   }
 
@@ -159,6 +164,128 @@ Status ExternalSstFileIngestionJob::Prepare(
     }
   }
   TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncDir");
+
+  // Generate and check the sst file checksum. Note that, if
+  // IngestExternalFileOptions::write_global_seqno is true, we will not update
+  // the checksum information in the files_to_ingests_ here, since the file is
+  // upadted with the new global_seqno. After global_seqno is updated, DB will
+  // generate the new checksum and store it in the Manifest. In all other cases
+  // if ingestion_options_.write_global_seqno == true and
+  // verify_file_checksum is false, we only check the checksum function name.
+  if (status.ok() && db_options_.file_checksum_gen_factory != nullptr) {
+    if (ingestion_options_.verify_file_checksum == false &&
+        files_checksums.size() == files_to_ingest_.size() &&
+        files_checksum_func_names.size() == files_to_ingest_.size()) {
+      // Only when verify_file_checksum == false and the checksum for ingested
+      // files are provided, DB will use the provided checksum and does not
+      // generate the checksum for ingested files.
+      need_generate_file_checksum_ = false;
+    } else {
+      need_generate_file_checksum_ = true;
+    }
+    FileChecksumGenContext gen_context;
+    std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
+        db_options_.file_checksum_gen_factory->CreateFileChecksumGenerator(
+            gen_context);
+    std::vector<std::string> generated_checksums;
+    std::vector<std::string> generated_checksum_func_names;
+    // Step 1: generate the checksum for ingested sst file.
+    if (need_generate_file_checksum_) {
+      for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+        std::string generated_checksum, generated_checksum_func_name;
+        IOStatus io_s = GenerateOneFileChecksum(
+            fs_, files_to_ingest_[i].internal_file_path,
+            db_options_.file_checksum_gen_factory.get(), &generated_checksum,
+            &generated_checksum_func_name,
+            ingestion_options_.verify_checksums_readahead_size,
+            db_options_.allow_mmap_reads);
+        if (!io_s.ok()) {
+          status = io_s;
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Sst file checksum generation of file: %s failed: %s",
+                         files_to_ingest_[i].internal_file_path.c_str(),
+                         status.ToString().c_str());
+          break;
+        }
+        if (ingestion_options_.write_global_seqno == false) {
+          files_to_ingest_[i].file_checksum = generated_checksum;
+          files_to_ingest_[i].file_checksum_func_name =
+              generated_checksum_func_name;
+        }
+        generated_checksums.push_back(generated_checksum);
+        generated_checksum_func_names.push_back(generated_checksum_func_name);
+      }
+    }
+
+    // Step 2: based on the verify_file_checksum and ingested checksum
+    // information, do the verification.
+    if (status.ok()) {
+      if (files_checksums.size() == files_to_ingest_.size() &&
+          files_checksum_func_names.size() == files_to_ingest_.size()) {
+        // Verify the checksum and checksum function name.
+        if (ingestion_options_.verify_file_checksum) {
+          for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+            if (files_checksum_func_names[i] !=
+                generated_checksum_func_names[i]) {
+              status = Status::InvalidArgument(
+                  "Checksum function name does not match with the checksum "
+                  "function name of this DB");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  external_files_paths[i].c_str(), status.ToString().c_str());
+              break;
+            }
+            if (files_checksums[i] != generated_checksums[i]) {
+              status = Status::Corruption(
+                  "Ingested checksum does not match with the generated "
+                  "checksum");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  files_to_ingest_[i].internal_file_path.c_str(),
+                  status.ToString().c_str());
+              break;
+            }
+          }
+        } else {
+          // If verify_file_checksum is not enabled, we only verify the
+          // checksum function name. If it does not match, fail the ingestion.
+          // If matches, we trust the ingested checksum information and store
+          // in the Manifest.
+          for (size_t i = 0; i < files_to_ingest_.size(); i++) {
+            if (files_checksum_func_names[i] != file_checksum_gen->Name()) {
+              status = Status::InvalidArgument(
+                  "Checksum function name does not match with the checksum "
+                  "function name of this DB");
+              ROCKS_LOG_WARN(
+                  db_options_.info_log,
+                  "Sst file checksum verification of file: %s failed: %s",
+                  external_files_paths[i].c_str(), status.ToString().c_str());
+              break;
+            }
+            files_to_ingest_[i].file_checksum = files_checksums[i];
+            files_to_ingest_[i].file_checksum_func_name =
+                files_checksum_func_names[i];
+          }
+        }
+      } else if (files_checksums.size() != files_checksum_func_names.size() ||
+                 (files_checksums.size() == files_checksum_func_names.size() &&
+                  files_checksums.size() != 0)) {
+        // The checksum or checksum function name vector are not both empty
+        // and they are incomplete.
+        status = Status::InvalidArgument(
+            "The checksum information of ingested sst files are nonempty and "
+            "the size of checksums or the size of the checksum function "
+            "names "
+            "does not match with the number of ingested sst files");
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "The ingested sst files checksum information is incomplete: %s",
+            status.ToString().c_str());
+      }
+    }
+  }
 
   // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
@@ -245,6 +372,11 @@ Status ExternalSstFileIngestionJob::Run() {
       return status;
     }
 
+    status = GenerateChecksumForIngestedFile(&f);
+    if (!status.ok()) {
+      return status;
+    }
+
     // We use the import time as the ancester time. This is the time the data
     // is written to the database.
     int64_t temp_current_time = 0;
@@ -255,11 +387,11 @@ Status ExternalSstFileIngestionJob::Run() {
           static_cast<uint64_t>(temp_current_time);
     }
 
-    edit_.AddFile(
-        f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(), f.fd.GetFileSize(),
-        f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
-        f.assigned_seqno, false, kInvalidBlobFileNumber, oldest_ancester_time,
-        current_time, kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+    edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
+                  f.fd.GetFileSize(), f.smallest_internal_key,
+                  f.largest_internal_key, f.assigned_seqno, f.assigned_seqno,
+                  false, kInvalidBlobFileNumber, oldest_ancester_time,
+                  current_time, f.file_checksum, f.file_checksum_func_name);
   }
   return status;
 }
@@ -685,6 +817,31 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
 
   file_to_ingest->assigned_seqno = seqno;
   return Status::OK();
+}
+
+IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
+    IngestedFileInfo* file_to_ingest) {
+  if (db_options_.file_checksum_gen_factory == nullptr ||
+      need_generate_file_checksum_ == false ||
+      ingestion_options_.write_global_seqno == false) {
+    // If file_checksum_gen_factory is not set, we are not able to generate
+    // the checksum. if write_global_seqno is false, it means we will use
+    // file checksum generated during Prepare(). This step will be skipped.
+    return IOStatus::OK();
+  }
+  std::string file_checksum, file_checksum_func_name;
+  IOStatus io_s = GenerateOneFileChecksum(
+      fs_, file_to_ingest->internal_file_path,
+      db_options_.file_checksum_gen_factory.get(), &file_checksum,
+      &file_checksum_func_name,
+      ingestion_options_.verify_checksums_readahead_size,
+      db_options_.allow_mmap_reads);
+  if (!io_s.ok()) {
+    return io_s;
+  }
+  file_to_ingest->file_checksum = file_checksum;
+  file_to_ingest->file_checksum_func_name = file_checksum_func_name;
+  return IOStatus::OK();
 }
 
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(

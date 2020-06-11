@@ -1571,6 +1571,26 @@ struct IngestExternalFileOptions {
   // Using a large readahead size (> 2MB) can typically improve the performance
   // of forward iteration on spinning disks.
   size_t verify_checksums_readahead_size = 0;
+  // Set to TRUE if user wants to verify the sst file checksum of ingested
+  // files. The DB checksum function will generate the checksum of each
+  // ingested file (if file_checksum_gen_factory is set) and compare the
+  // checksum function name and checksum with the ingested checksum information.
+  //
+  // If this option is set to True: 1) if DB does not enable checksum
+  // (file_checksum_gen_factory == nullptr), the ingested checksum information
+  // will be ignored; 2) If DB enable the checksum function, we calculate the
+  // sst file checksum after the file is moved or copied and compare the
+  // checksum and checksum name. If checksum or checksum function name does
+  // not match, ingestion will be failed. If the verification is sucessful,
+  // checksum and checksum function name will be stored in Manifest.
+  // If this option is set to FALSE, 1) if DB does not enable checksum,
+  // the ingested checksum information will be ignored; 2) if DB enable the
+  // checksum, we only verify the ingested checksum function name and we
+  // trust the ingested checksum. If the checksum function name matches, we
+  // store the checksum in Manifest. DB does not calculate the checksum during
+  // ingestion. However, if no checksum information is provided with the
+  // ingested files, DB will generate the checksum and store in the Manifest.
+  bool verify_file_checksum = true;
 };
 
 enum TraceFilterType : uint64_t {

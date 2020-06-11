@@ -122,4 +122,68 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   return same;
 }
 
+IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
+                                 FileChecksumGenFactory* checksum_factory,
+                                 std::string* file_checksum,
+                                 std::string* file_checksum_func_name,
+                                 size_t verify_checksums_readahead_size,
+                                 bool allow_mmap_reads) {
+  if (checksum_factory == nullptr) {
+    return IOStatus::InvalidArgument("Checksum factory is invalid");
+  }
+  assert(file_checksum != nullptr);
+  assert(file_checksum_func_name != nullptr);
+
+  FileChecksumGenContext gen_context;
+  std::unique_ptr<FileChecksumGenerator> checksum_generator =
+      checksum_factory->CreateFileChecksumGenerator(gen_context);
+  uint64_t size;
+  IOStatus io_s;
+  std::unique_ptr<RandomAccessFileReader> reader;
+  {
+    std::unique_ptr<FSRandomAccessFile> r_file;
+    io_s = fs->NewRandomAccessFile(file_path, FileOptions(), &r_file, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    io_s = fs->GetFileSize(file_path, IOOptions(), &size, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path));
+  }
+
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  size_t default_max_read_ahead_size = 256 * 1024;
+  size_t readahead_size = (verify_checksums_readahead_size != 0)
+                              ? verify_checksums_readahead_size
+                              : default_max_read_ahead_size;
+
+  FilePrefetchBuffer prefetch_buffer(
+      reader.get(), readahead_size /* readadhead_size */,
+      readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
+
+  Slice slice;
+  uint64_t offset = 0;
+  while (size > 0) {
+    size_t bytes_to_read =
+        static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
+    if (!prefetch_buffer.TryReadFromCache(offset, bytes_to_read, &slice,
+                                          false)) {
+      return IOStatus::Corruption("file read failed");
+    }
+    if (slice.size() == 0) {
+      return IOStatus::Corruption("file too small");
+    }
+    checksum_generator->Update(slice.data(), slice.size());
+    size -= slice.size();
+    offset += slice.size();
+  }
+  checksum_generator->Finalize();
+  *file_checksum = checksum_generator->GetChecksum();
+  *file_checksum_func_name = checksum_generator->Name();
+  return IOStatus::OK();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
