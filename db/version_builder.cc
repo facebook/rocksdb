@@ -616,6 +616,10 @@ class VersionBuilder::Rep {
       }
     }
 
+    // Note: we process the blob file related changes first because the
+    // table file addition/deletion logic depends on the blob files
+    // already being there.
+
     // Add new blob files
     for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
       const Status s = ApplyBlobFileAddition(blob_file_addition);
