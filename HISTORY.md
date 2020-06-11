@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Behavior Changes
+* Best-efforts recovery ignores CURRENT file completely. If CURRENT file is missing during recovery, best-efforts recovery still proceeds with MANIFEST file(s).
+
 ## 6.11 (6/12/2020)
 ### Bug Fixes
 * Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
