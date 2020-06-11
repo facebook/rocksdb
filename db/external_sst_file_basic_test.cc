@@ -406,7 +406,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_EQ(file4_info.file_checksum, file_checksum4);
   ASSERT_EQ(file4_info.file_checksum_func_name, file_checksum_func_name4);
 
-  // file03.sst (1800 => 1999)
+  // file05.sst (1800 => 1899)
   std::string file5 = sst_files_dir_ + "file05.sst";
   ASSERT_OK(sst_file_writer.Open(file5));
   for (int k = 1800; k < 2000; k++) {
@@ -424,6 +424,25 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
       file5, &file_checksum5, &file_checksum_func_name5));
   ASSERT_EQ(file5_info.file_checksum, file_checksum5);
   ASSERT_EQ(file5_info.file_checksum_func_name, file_checksum_func_name5);
+
+  // file06.sst (2000 => 2199)
+  std::string file6 = sst_files_dir_ + "file06.sst";
+  ASSERT_OK(sst_file_writer.Open(file6));
+  for (int k = 2000; k < 2200; k++) {
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_overlap"));
+  }
+  ExternalSstFileInfo file6_info;
+  s = sst_file_writer.Finish(&file6_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file6_info.file_path, file6);
+  ASSERT_EQ(file6_info.num_entries, 200);
+  ASSERT_EQ(file6_info.smallest_key, Key(2000));
+  ASSERT_EQ(file6_info.largest_key, Key(2199));
+  std::string file_checksum6, file_checksum_func_name6;
+  ASSERT_OK(checksum_helper.GetSingleFileChecksumAndFuncName(
+      file6, &file_checksum6, &file_checksum_func_name6));
+  ASSERT_EQ(file6_info.file_checksum, file_checksum6);
+  ASSERT_EQ(file6_info.file_checksum_func_name, file_checksum_func_name6);
 
   s = AddFileWithFileChecksum({file1}, {file_checksum1, "xyz"},
                               {file_checksum1}, true, false, false, false);
@@ -502,7 +521,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   ASSERT_FALSE(s.ok()) << s.ToString();
 
   // Does not enable verify_file_checksum options
-  // Checksum function name matches, store the checksum being generate.
+  // Checksum function name matches, store the checksum being ingested.
   s = AddFileWithFileChecksum({file4}, {"asd"}, {file_checksum_func_name4},
                               false, false, false, false);
   ASSERT_TRUE(s.ok()) << s.ToString();
@@ -510,8 +529,8 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   dbfull()->GetLiveFilesMetaData(&live_files3);
   for (auto f : live_files3) {
     if (set1.find(f.name) == set1.end()) {
-      ASSERT_FALSE(f.file_checksum == "asd");
-      ASSERT_EQ(f.file_checksum, file_checksum4);
+      ASSERT_FALSE(f.file_checksum == file_checksum4);
+      ASSERT_EQ(f.file_checksum, "asd");
       ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name4);
       set1.insert(f.name);
     }
@@ -525,6 +544,7 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   s = AddFileWithFileChecksum({file5}, {file_checksum5},
                               {file_checksum_func_name5}, true, false, false,
                               true);
+  ASSERT_OK(s);
   ASSERT_TRUE(s.ok()) << s.ToString();
   std::vector<LiveFileMetaData> live_files4;
   dbfull()->GetLiveFilesMetaData(&live_files4);
@@ -540,6 +560,25 @@ TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   }
   ASSERT_TRUE(s.ok()) << s.ToString();
   ASSERT_OK(env_->FileExists(file5));
+
+  // Does not enable verify_file_checksum options and also the ingested file
+  // checksum information is empty. DB will generate and store the checksum
+  // in Manifest.
+  std::vector<std::string> files_c6, files_name6;
+  s = AddFileWithFileChecksum({file6}, files_c6, files_name6, false, false,
+                              false, false);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  std::vector<LiveFileMetaData> live_files6;
+  dbfull()->GetLiveFilesMetaData(&live_files6);
+  for (auto f : live_files6) {
+    if (set1.find(f.name) == set1.end()) {
+      ASSERT_EQ(f.file_checksum, file_checksum6);
+      ASSERT_EQ(f.file_checksum_func_name, file_checksum_func_name6);
+      set1.insert(f.name);
+    }
+  }
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_OK(env_->FileExists(file6));
 }
 
 TEST_F(ExternalSSTFileBasicTest, NoCopy) {

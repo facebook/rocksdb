@@ -183,6 +183,9 @@ class ExternalSstFileIngestionJob {
   // Set in ExternalSstFileIngestionJob::Prepare(), if true all files are
   // ingested in L0
   bool files_overlap_{false};
+  // Set in ExternalSstFileIngestionJob::Prepare(), if true and DB
+  // file_checksum_gen_factory is set, DB will generate checksum each file.
+  bool need_generate_file_checksum_{true};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

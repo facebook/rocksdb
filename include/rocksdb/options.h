@@ -1585,12 +1585,12 @@ struct IngestExternalFileOptions {
   // checksum and checksum function name will be stored in Manifest.
   // If this option is set to FALSE, 1) if DB does not enable checksum,
   // the ingested checksum information will be ignored; 2) if DB enable the
-  // checksum, the checksum information is generated for each ingested sst file
-  // and store the information in ithe manifest. Note that, We only verify the
-  // ingested checksum function name. If it matches or no checksum information
-  // is provided with the ingested files, we continues the ingestion.Otherwise,
-  // the ingestion will be failed.
-  bool verify_file_checksum = false;
+  // checksum, we only verify the ingested checksum function name and we
+  // trust the ingested checksum. If the checksum function name matches, we
+  // store the checksum in Manifest. DB does not calculate the checksum during
+  // ingestion. However, if no checksum information is provided with the
+  // ingested files, DB will generate the checksum and store in the Manifest.
+  bool verify_file_checksum = true;
 };
 
 enum TraceFilterType : uint64_t {
