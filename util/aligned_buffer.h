@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 // Truncate to a multiple of page_size, which is also a page boundary. This
 // helps to figuring out the right alignment.
 // Example:
-//   TruncateToPageBoundary(5000, 4096)  => 4096
-//   TruncateToPageBoundary(10000, 4096) => 8192
+//   TruncateToPageBoundary(4096, 5000)  => 4096
+//   TruncateToPageBoundary((4096, 10000) => 8192
 inline size_t TruncateToPageBoundary(size_t page_size, size_t s) {
   s -= (s & (page_size - 1));
   assert((s % page_size) == 0);
