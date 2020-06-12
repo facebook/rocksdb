@@ -358,6 +358,12 @@ class DBImpl : public DB {
 
   virtual Status Close() override;
 
+  virtual Status DisableFileDeletions() override;
+
+  virtual Status EnableFileDeletions(bool force) override;
+
+  virtual int IsFileDeletionsEnabled() const;
+
   Status GetStatsHistory(
       uint64_t start_time, uint64_t end_time,
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
@@ -365,9 +371,6 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
   virtual Status ResetStats() override;
-  virtual Status DisableFileDeletions() override;
-  virtual Status EnableFileDeletions(bool force) override;
-  virtual int IsFileDeletionsEnabled() const;
   // All the returned filenames start with "/"
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
