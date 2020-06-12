@@ -981,7 +981,7 @@ if(WITH_TESTS)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
-  set(TESTS 
+  set(TESTS
         db/db_basic_test.cc
         env/env_basic_test.cc
   )
