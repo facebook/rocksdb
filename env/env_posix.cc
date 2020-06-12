@@ -344,6 +344,7 @@ class PosixEnv : public CompositeEnvWrapper {
     thread_pools_[pool].LowerCPUPriority(pri);
 #else
     (void)pool;
+    (void)pri;
 #endif
   }
 
