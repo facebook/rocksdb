@@ -704,10 +704,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
     void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
-                     (this->status == nullptr ? "(ignoring error) " : ""),
-                     fname, static_cast<int>(bytes), s.ToString().c_str());
-      if (this->status != nullptr && this->status->ok()) {
-        *this->status = s;
+                     (status == nullptr ? "(ignoring error) " : ""), fname,
+                     static_cast<int>(bytes), s.ToString().c_str());
+      if (status != nullptr && status->ok()) {
+        *status = s;
       }
     }
   };
@@ -830,6 +830,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Slice record;
     WriteBatch batch;
 
+    TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
+                             /*arg=*/nullptr);
     while (!stop_replay_by_wal_filter &&
            reader.ReadRecord(&record, &scratch,
                              immutable_db_options_.wal_recovery_mode) &&
@@ -994,6 +996,16 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         status = Status::OK();
       } else if (immutable_db_options_.wal_recovery_mode ==
                  WALRecoveryMode::kPointInTimeRecovery) {
+        if (status.IsIOError()) {
+          ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                          "IOError during point-in-time reading log #%" PRIu64
+                          " seq #%" PRIu64
+                          ". %s. This likely mean loss of synced WAL, "
+                          "thus recovery fails.",
+                          log_number, *next_sequence,
+                          status.ToString().c_str());
+          return status;
+        }
         // We should ignore the error but not continue replaying
         status = Status::OK();
         stop_replay_for_corruption = true;
