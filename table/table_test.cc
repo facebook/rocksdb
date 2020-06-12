@@ -727,7 +727,9 @@ class HarnessTest : public testing::Test {
       : args_(args),
         ioptions_(options_),
         moptions_(options_),
-        write_buffer_(options_.db_write_buffer_size) {
+        write_buffer_(options_.db_write_buffer_size),
+        support_prev_(true),
+        only_support_prefix_seek_(false) {
     options_.compression = args_.compression;
     options_.compression_opts.parallel_threads =
         args_.compression_parallel_threads;
@@ -740,8 +742,6 @@ class HarnessTest : public testing::Test {
     internal_comparator_.reset(
         new test::PlainInternalKeyComparator(options_.comparator));
 
-    support_prev_ = true;
-    only_support_prefix_seek_ = false;
     options_.allow_mmap_reads = args_.use_mmap;
     switch (args_.type) {
       case BLOCK_BASED_TABLE_TEST:
