@@ -470,11 +470,11 @@ class VersionBuilder::Rep {
     if (add_it != add_files.end()) {
       UnrefFile(add_it->second);
       add_files.erase(add_it);
-    } else {
-      auto& del_files = level_state.deleted_files;
-      assert(del_files.find(file_number) == del_files.end());
-      del_files.emplace(file_number);
     }
+
+    auto& del_files = level_state.deleted_files;
+    assert(del_files.find(file_number) == del_files.end());
+    del_files.emplace(file_number);
 
     table_file_levels_[file_number] =
         VersionStorageInfo::FileLocation::Invalid().GetLevel();
@@ -514,14 +514,14 @@ class VersionBuilder::Rep {
     auto del_it = del_files.find(file_number);
     if (del_it != del_files.end()) {
       del_files.erase(del_it);
-    } else {
-      FileMetaData* const f = new FileMetaData(meta);
-      f->refs = 1;
-
-      auto& add_files = level_state.added_files;
-      assert(add_files.find(file_number) == add_files.end());
-      add_files.emplace(file_number, f);
     }
+
+    FileMetaData* const f = new FileMetaData(meta);
+    f->refs = 1;
+
+    auto& add_files = level_state.added_files;
+    assert(add_files.find(file_number) == add_files.end());
+    add_files.emplace(file_number, f);
 
     table_file_levels_[file_number] = level;
 
@@ -850,12 +850,28 @@ class VersionBuilder::Rep {
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
-    if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
+    const uint64_t file_number = f->fd.GetNumber();
+
+    const auto& level_state = levels_[level];
+
+    const auto& del_files = level_state.deleted_files;
+    const auto del_it = del_files.find(file_number);
+
+    if (del_it != del_files.end()) {
       // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
-      assert(ioptions_);
-      vstorage->AddFile(level, f, ioptions_->info_log);
+      const auto& add_files = level_state.added_files;
+      const auto add_it = add_files.find(file_number);
+
+      // Note: if the file appears both in the base version and in the added
+      // list, the added FileMetaData supersedes the one in the base version.
+      if (add_it != add_files.end() && add_it->second != f) {
+        vstorage->RemoveCurrentStats(f);
+      } else {
+        assert(ioptions_);
+        vstorage->AddFile(level, f, ioptions_->info_log);
+      }
     }
   }
 };
