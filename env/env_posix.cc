@@ -338,14 +338,15 @@ class PosixEnv : public CompositeEnvWrapper {
 #endif
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
-#ifdef OS_LINUX
+    thread_pools_[pool].LowerCPUPriority(CpuPriority::kLow);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
     thread_pools_[pool].LowerCPUPriority(pri);
-#else
-    (void)pool;
-    (void)pri;
-#endif
+    return Status::OK();
   }
 
   std::string TimeToString(uint64_t secondsSince1970) override {

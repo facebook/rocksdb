@@ -482,8 +482,14 @@ class Env {
   virtual void LowerThreadPoolIOPriority(Priority /*pool*/ = LOW) {}
 
   // Lower CPU priority for threads from the specified pool.
-  virtual void LowerThreadPoolCPUPriority(
-      Priority /*pool*/ = LOW, CpuPriority /*pri*/ = CpuPriority::kLow) {}
+  virtual Status LowerThreadPoolCPUPriority(Priority /*pool*/,
+                                            CpuPriority /*pri*/) {
+    return Status::NotSupported(
+        "Env::LowerThreadPoolCPUPriority(Priority, CpuPriority) not supported");
+  }
+
+  // Lower CPU priority for threads from the specified pool.
+  virtual void LowerThreadPoolCPUPriority(Priority /*pool*/ = LOW) {}
 
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
@@ -1367,8 +1373,12 @@ class EnvWrapper : public Env {
     target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
-    target_->LowerThreadPoolCPUPriority(pool, pri);
+  void LowerThreadPoolCPUPriority(Priority pool) override {
+    target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {

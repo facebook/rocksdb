@@ -559,8 +559,12 @@ class CompositeEnvWrapper : public Env {
     env_target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
-    env_target_->LowerThreadPoolCPUPriority(pool, pri);
+  void LowerThreadPoolCPUPriority(Priority pool) override {
+    env_target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return env_target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {
