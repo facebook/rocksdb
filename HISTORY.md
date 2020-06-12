@@ -24,6 +24,7 @@
 * ldb now uses options.force_consistency_checks = true by default and "--disable_consistency_checks" is added to disable it.
 * DB::OpenForReadOnly no longer creates files or directories if the named DB does not exist, unless create_if_missing is set to true.
 * The consistency checks that validate LSM state changes (table file additions/deletions during flushes and compactions) are now stricter, more efficient, and no longer optional, i.e. they are performed even if `force_consistency_checks` is `false`.
+* `Env::LowerThreadPoolCPUPriority` takes a new parameter `CpuPriority` to be able to lower to a specific priority such as `CpuPriority::kIdle`, previously, the priority is always lowered to `CpuPriority::kLow`.
 
 ### New Feature
 * sst_dump to add a new --readahead_size argument. Users can specify read size when scanning the data. Sst_dump also tries to prefetch tail part of the SST files so usually some number of I/Os are saved there too.
