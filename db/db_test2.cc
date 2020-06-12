@@ -4926,6 +4926,32 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   }
 }
 #endif  // ROCKSDB_LITE
+
+// WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
+TEST_F(DBTest2, PointInTimeRecoveryWithIOErrorWhileReadingWal) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  bool should_inject_error = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeReadWal",
+      [&](void* /*arg*/) { should_inject_error = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogReader::ReadMore:AfterReadFile", [&](void* arg) {
+        if (should_inject_error) {
+          ASSERT_NE(nullptr, arg);
+          *reinterpret_cast<Status*>(arg) = Status::IOError("Injected IOError");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

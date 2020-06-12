@@ -281,6 +281,7 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
     Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
+    TEST_SYNC_POINT_CALLBACK("LogReader::ReadMore:AfterReadFile", &status);
     end_of_buffer_offset_ += buffer_.size();
     if (!status.ok()) {
       buffer_.clear();
