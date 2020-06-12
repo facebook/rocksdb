@@ -5,12 +5,13 @@
 
 #pragma once
 
-#include "rocksdb/rocksdb_namespace.h"
-
 #include <cassert>
 #include <iosfwd>
 #include <memory>
 #include <string>
+#include <unordered_set>
+
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -90,11 +91,15 @@ std::ostream& operator<<(std::ostream& os,
 
 class BlobFileMetaData {
  public:
+  using LinkedSsts = std::unordered_set<uint64_t>;
+
   static std::shared_ptr<BlobFileMetaData> Create(
       std::shared_ptr<SharedBlobFileMetaData> shared_meta,
-      uint64_t garbage_blob_count, uint64_t garbage_blob_bytes) {
-    return std::shared_ptr<BlobFileMetaData>(new BlobFileMetaData(
-        std::move(shared_meta), garbage_blob_count, garbage_blob_bytes));
+      LinkedSsts linked_ssts, uint64_t garbage_blob_count,
+      uint64_t garbage_blob_bytes) {
+    return std::shared_ptr<BlobFileMetaData>(
+        new BlobFileMetaData(std::move(shared_meta), std::move(linked_ssts),
+                             garbage_blob_count, garbage_blob_bytes));
   }
 
   BlobFileMetaData(const BlobFileMetaData&) = delete;
@@ -128,6 +133,8 @@ class BlobFileMetaData {
     return shared_meta_->GetChecksumValue();
   }
 
+  const LinkedSsts& GetLinkedSsts() const { return linked_ssts_; }
+
   uint64_t GetGarbageBlobCount() const { return garbage_blob_count_; }
   uint64_t GetGarbageBlobBytes() const { return garbage_blob_bytes_; }
 
@@ -135,8 +142,10 @@ class BlobFileMetaData {
 
  private:
   BlobFileMetaData(std::shared_ptr<SharedBlobFileMetaData> shared_meta,
-                   uint64_t garbage_blob_count, uint64_t garbage_blob_bytes)
+                   LinkedSsts linked_ssts, uint64_t garbage_blob_count,
+                   uint64_t garbage_blob_bytes)
       : shared_meta_(std::move(shared_meta)),
+        linked_ssts_(std::move(linked_ssts)),
         garbage_blob_count_(garbage_blob_count),
         garbage_blob_bytes_(garbage_blob_bytes) {
     assert(shared_meta_);
@@ -145,6 +154,7 @@ class BlobFileMetaData {
   }
 
   std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
+  LinkedSsts linked_ssts_;
   uint64_t garbage_blob_count_;
   uint64_t garbage_blob_bytes_;
 };
