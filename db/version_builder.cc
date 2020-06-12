@@ -595,14 +595,14 @@ class VersionBuilder::Rep {
     assert(add_files.find(file_number) == add_files.end());
     add_files.emplace(file_number, f);
 
-    table_file_levels_[file_number] = level;
-
-    const uint64_t blob_file_number = meta.oldest_blob_file_number;
+    const uint64_t blob_file_number = f->oldest_blob_file_number;
 
     if (blob_file_number != kInvalidBlobFileNumber &&
         IsBlobFileInVersion(blob_file_number)) {
       blob_file_meta_deltas_[blob_file_number].LinkSst(file_number);
     }
+
+    table_file_levels_[file_number] = level;
 
     return Status::OK();
   }
