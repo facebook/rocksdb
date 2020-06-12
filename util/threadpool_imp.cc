@@ -225,7 +225,6 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     CpuPriority cpu_priority = cpu_priority_;
     lock.unlock();
 
-#ifdef OS_LINUX
     if (cpu_priority < current_cpu_priority) {
       TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::BGThread::BeforeSetCpuPriority",
                                &current_cpu_priority);
@@ -236,6 +235,7 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
                                &current_cpu_priority);
     }
 
+#ifdef OS_LINUX
     if (decrease_io_priority) {
 #define IOPRIO_CLASS_SHIFT (13)
 #define IOPRIO_PRIO_VALUE(class, data) (((class) << IOPRIO_CLASS_SHIFT) | data)
@@ -256,7 +256,6 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     }
 #else
     (void)decrease_io_priority;  // avoid 'unused variable' error
-    (void)decrease_cpu_priority;
 #endif
 
     TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::Impl::BGThread:BeforeRun",
