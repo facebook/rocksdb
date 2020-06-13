@@ -220,7 +220,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
-// 1-byte type + 32-bit crc
+// 1-byte compression type + 32-bit checksum
 static const size_t kBlockTrailerSize = 5;
 
 // Make block size calculation for IO less error prone

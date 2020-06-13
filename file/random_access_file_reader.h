@@ -132,7 +132,7 @@ class RandomAccessFileReader {
 
   FSRandomAccessFile* file() { return file_.get(); }
 
-  std::string file_name() const { return file_name_; }
+  const std::string& file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
