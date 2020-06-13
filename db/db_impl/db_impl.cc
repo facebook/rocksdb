@@ -2671,7 +2671,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         " guaranteed to be preserved, try larger iter_start_seqnum opt."));
   }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
+  ColumnFamilyData* cfd = cfh->cfd();
+  assert(cfd != nullptr);
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
@@ -2720,7 +2721,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
     // afterwards.
     // Note that the super version might not contain all the data available
     // to this snapshot, but in that case it can see all the data in the
-    // super version, which is a valid consistant state after the user
+    // super version, which is a valid consistent state after the user
     // calls NewIterator().
     snapshot = versions_->LastSequence();
   }
