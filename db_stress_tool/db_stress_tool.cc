@@ -216,6 +216,26 @@ int db_stress_tool(int argc, char** argv) {
         "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
     exit(1);
   }
+  if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
+      !FLAGS_disable_wal) {
+    fprintf(stderr,
+            "With best-efforts recovery, either skip_verifydb or disable_wal "
+            "should be set to true.\n");
+    exit(1);
+  }
+  if (FLAGS_skip_verifydb) {
+    if (FLAGS_verify_db_one_in > 0) {
+      fprintf(stderr,
+              "Must set -verify_db_one_in=0 if skip_verifydb is true.\n");
+      exit(1);
+    }
+    if (FLAGS_continuous_verification_interval > 0) {
+      fprintf(stderr,
+              "Must set -continuous_verification_interval=0 if skip_verifydb "
+              "is true.\n");
+      exit(1);
+    }
+  }
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);

@@ -844,7 +844,8 @@ endif  # PLATFORM_SHARED_EXT
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
-	blackbox_crash_test_with_txn whitebox_crash_test_with_txn
+	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
+	blackbox_crash_test_with_best_efforts_recovery
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -1077,6 +1078,8 @@ crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_cra
 
 crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
+crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1086,6 +1089,9 @@ blackbox_crash_test_with_atomic_flush: db_stress
 
 blackbox_crash_test_with_txn: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_best_efforts_recovery: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -1125,6 +1131,11 @@ asan_crash_test_with_txn:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
+asan_crash_test_with_best_efforts_recovery:
+	$(MAKE) clean
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	$(MAKE) clean
+
 ubsan_check:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
@@ -1143,6 +1154,11 @@ ubsan_crash_test_with_atomic_flush:
 ubsan_crash_test_with_txn:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_txn
+	$(MAKE) clean
+
+ubsan_crash_test_with_best_efforts_recovery:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 valgrind_test:
