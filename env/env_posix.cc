@@ -329,7 +329,7 @@ class PosixEnv : public CompositeEnvWrapper {
     thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
 #ifdef OS_LINUX
     thread_pools_[pool].LowerIOPriority();
@@ -338,13 +338,15 @@ class PosixEnv : public CompositeEnvWrapper {
 #endif
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
-#ifdef OS_LINUX
-    thread_pools_[pool].LowerCPUPriority();
-#else
-    (void)pool;
-#endif
+    thread_pools_[pool].LowerCPUPriority(CpuPriority::kLow);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
+    thread_pools_[pool].LowerCPUPriority(pri);
+    return Status::OK();
   }
 
   std::string TimeToString(uint64_t secondsSince1970) override {
