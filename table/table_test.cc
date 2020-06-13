@@ -723,43 +723,38 @@ class FixedOrLessPrefixTransform : public SliceTransform {
 
 class HarnessTest : public testing::Test {
  public:
-  HarnessTest()
-      : ioptions_(options_),
+  explicit HarnessTest(const TestArgs& args)
+      : args_(args),
+        ioptions_(options_),
         moptions_(options_),
-        constructor_(nullptr),
-        write_buffer_(options_.db_write_buffer_size) {}
-
-  void Init(const TestArgs& args) {
-    delete constructor_;
-    constructor_ = nullptr;
-    options_ = Options();
-    options_.compression = args.compression;
+        write_buffer_(options_.db_write_buffer_size),
+        support_prev_(true),
+        only_support_prefix_seek_(false) {
+    options_.compression = args_.compression;
     options_.compression_opts.parallel_threads =
-        args.compression_parallel_threads;
+        args_.compression_parallel_threads;
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
-    if (args.reverse_compare) {
+    if (args_.reverse_compare) {
       options_.comparator = &reverse_key_comparator;
     }
 
     internal_comparator_.reset(
         new test::PlainInternalKeyComparator(options_.comparator));
 
-    support_prev_ = true;
-    only_support_prefix_seek_ = false;
-    options_.allow_mmap_reads = args.use_mmap;
-    switch (args.type) {
+    options_.allow_mmap_reads = args_.use_mmap;
+    switch (args_.type) {
       case BLOCK_BASED_TABLE_TEST:
         table_options_.flush_block_policy_factory.reset(
             new FlushBlockBySizePolicyFactory());
         table_options_.block_size = 256;
-        table_options_.block_restart_interval = args.restart_interval;
-        table_options_.index_block_restart_interval = args.restart_interval;
-        table_options_.format_version = args.format_version;
+        table_options_.block_restart_interval = args_.restart_interval;
+        table_options_.index_block_restart_interval = args_.restart_interval;
+        table_options_.format_version = args_.format_version;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
-        constructor_ = new TableConstructor(
-            options_.comparator, true /* convert_to_internal_key_ */);
+        constructor_.reset(new TableConstructor(
+            options_.comparator, true /* convert_to_internal_key_ */));
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -770,8 +765,8 @@ class HarnessTest : public testing::Test {
         only_support_prefix_seek_ = true;
         options_.prefix_extractor.reset(new FixedOrLessPrefixTransform(2));
         options_.table_factory.reset(NewPlainTableFactory());
-        constructor_ = new TableConstructor(
-            options_.comparator, true /* convert_to_internal_key_ */);
+        constructor_.reset(new TableConstructor(
+            options_.comparator, true /* convert_to_internal_key_ */));
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -780,8 +775,8 @@ class HarnessTest : public testing::Test {
         only_support_prefix_seek_ = true;
         options_.prefix_extractor.reset(NewNoopTransform());
         options_.table_factory.reset(NewPlainTableFactory());
-        constructor_ = new TableConstructor(
-            options_.comparator, true /* convert_to_internal_key_ */);
+        constructor_.reset(new TableConstructor(
+            options_.comparator, true /* convert_to_internal_key_ */));
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -799,8 +794,8 @@ class HarnessTest : public testing::Test {
           options_.table_factory.reset(
               NewPlainTableFactory(plain_table_options));
         }
-        constructor_ = new TableConstructor(
-            options_.comparator, true /* convert_to_internal_key_ */);
+        constructor_.reset(new TableConstructor(
+            options_.comparator, true /* convert_to_internal_key_ */));
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -809,27 +804,25 @@ class HarnessTest : public testing::Test {
         table_options_.block_size = 256;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
-        constructor_ = new BlockConstructor(options_.comparator);
+        constructor_.reset(new BlockConstructor(options_.comparator));
         break;
       case MEMTABLE_TEST:
         table_options_.block_size = 256;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
-        constructor_ = new MemTableConstructor(options_.comparator,
-                                               &write_buffer_);
+        constructor_.reset(
+            new MemTableConstructor(options_.comparator, &write_buffer_));
         break;
       case DB_TEST:
         table_options_.block_size = 256;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
-        constructor_ = new DBConstructor(options_.comparator);
+        constructor_.reset(new DBConstructor(options_.comparator));
         break;
     }
     ioptions_ = ImmutableCFOptions(options_);
     moptions_ = MutableCFOptions(options_);
   }
-
-  ~HarnessTest() override { delete constructor_; }
 
   void Add(const std::string& key, const std::string& value) {
     constructor_->Add(key, value);
@@ -1016,38 +1009,35 @@ class HarnessTest : public testing::Test {
   // Returns nullptr if not running against a DB
   DB* db() const { return constructor_->db(); }
 
-  void RandomizedHarnessTest(size_t part, size_t total) {
-    std::vector<TestArgs> args = GenerateArgList();
-    assert(part);
-    assert(part <= total);
-    for (size_t i = 0; i < args.size(); i++) {
-      if ((i % total) + 1 != part) {
-        continue;
-      }
-      Init(args[i]);
-      Random rnd(test::RandomSeed() + 5);
-      for (int num_entries = 0; num_entries < 2000;
-           num_entries += (num_entries < 50 ? 1 : 200)) {
-        for (int e = 0; e < num_entries; e++) {
-          std::string v;
-          Add(test::RandomKey(&rnd, rnd.Skewed(4)),
-              test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
-        }
-        Test(&rnd);
-      }
-    }
-  }
-
  private:
-  Options options_ = Options();
+  TestArgs args_;
+  Options options_;
   ImmutableCFOptions ioptions_;
   MutableCFOptions moptions_;
-  BlockBasedTableOptions table_options_ = BlockBasedTableOptions();
-  Constructor* constructor_;
+  BlockBasedTableOptions table_options_;
+  std::unique_ptr<Constructor> constructor_;
   WriteBufferManager write_buffer_;
   bool support_prev_;
   bool only_support_prefix_seek_;
   std::shared_ptr<InternalKeyComparator> internal_comparator_;
+};
+
+class ParameterizedHarnessTest : public HarnessTest,
+                                 public testing::WithParamInterface<TestArgs> {
+ public:
+  ParameterizedHarnessTest() : HarnessTest(GetParam()) {}
+};
+
+INSTANTIATE_TEST_CASE_P(TableTest, ParameterizedHarnessTest,
+                        ::testing::ValuesIn(GenerateArgList()));
+
+class DBHarnessTest : public HarnessTest {
+ public:
+  DBHarnessTest()
+      : HarnessTest(TestArgs{DB_TEST, /* reverse_compare */ false,
+                             /* restart_interval */ 16, kNoCompression,
+                             /* compression_parallel_threads */ 1,
+                             /* format_version */ 0, /* use_mmap */ false}) {}
 };
 
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
@@ -3592,69 +3582,22 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
 }
 
 #ifndef ROCKSDB_VALGRIND_RUN
-// RandomizedHarnessTest is very slow for certain combination of arguments
-// Split into 8 pieces to reduce the time individual tests take.
-TEST_F(HarnessTest, Randomized1) {
-  // part 1 out of 8
-  const size_t part = 1;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized2) {
-  // part 2 out of 8
-  const size_t part = 2;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized3) {
-  // part 3 out of 8
-  const size_t part = 3;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized4) {
-  // part 4 out of 8
-  const size_t part = 4;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized5) {
-  // part 5 out of 8
-  const size_t part = 5;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized6) {
-  // part 6 out of 8
-  const size_t part = 6;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized7) {
-  // part 7 out of 8
-  const size_t part = 7;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
-}
-
-TEST_F(HarnessTest, Randomized8) {
-  // part 8 out of 8
-  const size_t part = 8;
-  const size_t total = 8;
-  RandomizedHarnessTest(part, total);
+TEST_P(ParameterizedHarnessTest, RandomizedHarnessTest) {
+  Random rnd(test::RandomSeed() + 5);
+  for (int num_entries = 0; num_entries < 2000;
+       num_entries += (num_entries < 50 ? 1 : 200)) {
+    for (int e = 0; e < num_entries; e++) {
+      std::string v;
+      Add(test::RandomKey(&rnd, rnd.Skewed(4)),
+          test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+    }
+    Test(&rnd);
+  }
 }
 
 #ifndef ROCKSDB_LITE
-TEST_F(HarnessTest, RandomizedLongDB) {
+TEST_F(DBHarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
-  TestArgs args = {DB_TEST, false, 16, kNoCompression, 0, false};
-  Init(args);
   int num_entries = 100000;
   for (int e = 0; e < num_entries; e++) {
     std::string v;
@@ -3731,49 +3674,33 @@ TEST_F(MemTableTest, Simple) {
 }
 
 // Test the empty key
-TEST_F(HarnessTest, SimpleEmptyKey) {
-  auto args = GenerateArgList();
-  for (const auto& arg : args) {
-    Init(arg);
-    Random rnd(test::RandomSeed() + 1);
-    Add("", "v");
-    Test(&rnd);
-  }
+TEST_P(ParameterizedHarnessTest, SimpleEmptyKey) {
+  Random rnd(test::RandomSeed() + 1);
+  Add("", "v");
+  Test(&rnd);
 }
 
-TEST_F(HarnessTest, SimpleSingle) {
-  auto args = GenerateArgList();
-  for (const auto& arg : args) {
-    Init(arg);
-    Random rnd(test::RandomSeed() + 2);
-    Add("abc", "v");
-    Test(&rnd);
-  }
+TEST_P(ParameterizedHarnessTest, SimpleSingle) {
+  Random rnd(test::RandomSeed() + 2);
+  Add("abc", "v");
+  Test(&rnd);
 }
 
-TEST_F(HarnessTest, SimpleMulti) {
-  auto args = GenerateArgList();
-  for (const auto& arg : args) {
-    Init(arg);
-    Random rnd(test::RandomSeed() + 3);
-    Add("abc", "v");
-    Add("abcd", "v");
-    Add("ac", "v2");
-    Test(&rnd);
-  }
+TEST_P(ParameterizedHarnessTest, SimpleMulti) {
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v");
+  Add("abcd", "v");
+  Add("ac", "v2");
+  Test(&rnd);
 }
 
-TEST_F(HarnessTest, SimpleSpecialKey) {
-  auto args = GenerateArgList();
-  for (const auto& arg : args) {
-    Init(arg);
-    Random rnd(test::RandomSeed() + 4);
-    Add("\xff\xff", "v3");
-    Test(&rnd);
-  }
+TEST_P(ParameterizedHarnessTest, SimpleSpecialKey) {
+  Random rnd(test::RandomSeed() + 4);
+  Add("\xff\xff", "v3");
+  Test(&rnd);
 }
 
-TEST_F(HarnessTest, FooterTests) {
+TEST(TableTest, FooterTests) {
   {
     // upconvert legacy block based
     std::string encoded;
