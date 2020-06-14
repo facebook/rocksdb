@@ -1571,6 +1571,11 @@ struct IngestExternalFileOptions {
   // Using a large readahead size (> 2MB) can typically improve the performance
   // of forward iteration on spinning disks.
   size_t verify_checksums_readahead_size = 0;
+  // Set to true if you are sure although the key ranges may overlap, 
+  // the memtable and the file being ingested
+  // do not have the same keys, or not care about that.
+  // The memtable flushing may block for hundreds of milliseconds.
+  bool skip_memtable_flush = false;
 };
 
 enum TraceFilterType : uint64_t {
