@@ -1283,6 +1283,144 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   }
 }
 
+//  Verify backup and restore with share_files_with_checksum and
+//  new_naming_for_backup_files on
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
+  // Use session id in the name of SST file backup
+  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  const int keys_iteration = 5000;
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
+  }
+  CloseDBAndBackupEngine();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 6);
+  }
+}
+
+// Verify backup and restore with share_files_with_checksum off and then
+// transition this option and new_naming_for_backup_files to be on
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
+  const int keys_iteration = 5000;
+  // We may set new_naming_for_backup_files to false here
+  // but even if it is true, it should have no effect when
+  // share_files_with_checksum is false
+  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  // set share_files_with_checksum to false
+  OpenDBAndBackupEngine(true, false, kShareNoChecksum);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 6);
+  }
+
+  // set share_files_with_checksum to true and do some more backups
+  // and use session id in the name of SST file backup
+  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  for (int i = 5; i < 10; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  // Verify first (about to delete)
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 11);
+
+  // For an extra challenge, make sure that GarbageCollect / DeleteBackup
+  // is OK even if we open without share_table_files but with
+  // new_naming_for_backup_files on
+  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(1);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify second (about to delete)
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 11);
+
+  // Turn off new_naming_for_backup_files and open without share_table_files
+  // Again, make sure that GarbageCollect / DeleteBackup is OK
+  backupable_options_->new_naming_for_backup_files = false;
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(2);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify rest (not deleted)
+  for (int i = 1; i < 9; ++i) {
+    AssertBackupConsistency(i + 2, 0, keys_iteration * (i + 2),
+                            keys_iteration * 11);
+  }
+}
+
+// Verify backup and restore with share_files_with_checksum on but
+// new_naming_for_backup_files off, then transition new_naming_for_backup_files
+// to be on
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
+  backupable_options_->new_naming_for_backup_files = false;
+  const int keys_iteration = 5000;
+  // set share_files_with_checksum to true
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 6);
+  }
+
+  // set new_naming_for_backup_files to true and do some more backups
+  backupable_options_->new_naming_for_backup_files = true;
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  for (int i = 5; i < 10; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  // Verify first (about to delete)
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 11);
+
+  // For an extra challenge, make sure that GarbageCollect / DeleteBackup
+  // is OK even if we open without share_table_files
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(1);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify second (about to delete)
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 11);
+
+  // Turn off new_naming_for_backup_files and open without share_table_files
+  // Again, make sure that GarbageCollect / DeleteBackup is OK
+  backupable_options_->new_naming_for_backup_files = false;
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(2);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify rest (not deleted)
+  for (int i = 2; i < 10; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 11);
+  }
+}
+
 // This test simulates cleaning up after aborted or incomplete creation
 // of a new backup.
 TEST_F(BackupableDBTest, DeleteTmpFiles) {

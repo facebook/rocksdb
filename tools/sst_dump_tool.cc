@@ -46,18 +46,22 @@ namespace ROCKSDB_NAMESPACE {
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path,
                              size_t readahead_size, bool verify_checksum,
-                             bool output_hex, bool decode_blob_index)
+                             bool output_hex, bool decode_blob_index,
+                             bool silent)
     : file_name_(file_path),
       read_num_(0),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
+      silent_(silent),
       options_(options),
       ioptions_(options_),
       moptions_(ColumnFamilyOptions(options_)),
       read_options_(verify_checksum, false),
       internal_comparator_(BytewiseComparator()) {
   read_options_.readahead_size = readahead_size;
-  fprintf(stdout, "Process %s\n", file_path.c_str());
+  if (!silent_) {
+    fprintf(stdout, "Process %s\n", file_path.c_str());
+  }
   init_result_ = GetTableReader(file_name_);
 }
 
@@ -333,7 +337,9 @@ Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
   if (s.ok()) {
     table_properties_.reset(table_properties);
   } else {
-    fprintf(stdout, "Not able to read table properties\n");
+    if (!silent_) {
+      fprintf(stdout, "Not able to read table properties\n");
+    }
   }
   return s;
 }
@@ -351,7 +357,9 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
     bbtf->tail_prefetch_stats()->RecordEffectiveSize(512 * 1024);
 
     options_.table_factory.reset(bbtf);
-    fprintf(stdout, "Sst file format: block-based\n");
+    if (!silent_) {
+      fprintf(stdout, "Sst file format: block-based\n");
+    }
 
     auto& props = table_properties_->user_collected_properties;
     auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
@@ -377,7 +385,9 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
     plain_table_options.full_scan_mode = true;
 
     options_.table_factory.reset(NewPlainTableFactory(plain_table_options));
-    fprintf(stdout, "Sst file format: plain table\n");
+    if (!silent_) {
+      fprintf(stdout, "Sst file format: plain table\n");
+    }
   } else {
     char error_msg_buffer[80];
     snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
@@ -392,7 +402,9 @@ Status SstFileDumper::SetTableOptionsByMagicNumber(
 Status SstFileDumper::SetOldTableOptions() {
   assert(table_properties_ == nullptr);
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();
-  fprintf(stdout, "Sst file format: block-based(old version)\n");
+  if (!silent_) {
+    fprintf(stdout, "Sst file format: block-based(old version)\n");
+  }
 
   return Status::OK();
 }
