@@ -4255,6 +4255,10 @@ Status DBImpl::IngestExternalFiles(
             "cannot ingest an external file into a dropped CF");
         break;
       }
+      if (args[i].options.skip_memtable_flush) {
+        need_flush[i] = false;
+        continue;
+      }
       bool tmp = false;
       status = ingestion_jobs[i].NeedsFlush(&tmp, cfd->GetSuperVersion());
       need_flush[i] = tmp;

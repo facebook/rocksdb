@@ -1584,6 +1584,11 @@ struct IngestExternalFileOptions {
   // ingestion. However, if no checksum information is provided with the
   // ingested files, DB will generate the checksum and store in the Manifest.
   bool verify_file_checksum = true;
+  // Set to true if you are sure although the key ranges may overlap,
+  // the memtable and the file being ingested do not have the same keys,
+  // or not care about that.
+  // The memtable flushing may block for hundreds of milliseconds.
+  bool skip_memtable_flush = false;
 };
 
 enum TraceFilterType : uint64_t {
