@@ -729,14 +729,16 @@ class VersionBuilder::Rep {
     assert(meta);
     assert(found_first_non_empty);
 
-    if (meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount() &&
-        meta->GetLinkedSsts().empty()) {
-      return;
+    if (!(*found_first_non_empty)) {
+      if (!meta->GetLinkedSsts().empty()) {
+        (*found_first_non_empty) = true;
+      } else {
+        return;
+      }
     }
 
-    (*found_first_non_empty) |= !meta->GetLinkedSsts().empty();
-
-    if (!(*found_first_non_empty)) {
+    if (meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount() &&
+        meta->GetLinkedSsts().empty()) {
       return;
     }
 
