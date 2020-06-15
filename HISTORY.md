@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.10.3 (6/16/2020)
+### Bug fix
+* Best-efforts recovery ignores CURRENT file completely. If CURRENT file is missing during recovery, best-efforts recovery still proceeds with MANIFEST file(s).
+
 ## 6.10.2 (6/5/2020)
 ### Bug fix
 * Fix false negative from the VerifyChecksum() API when there is a checksum mismatch in an index partition block in a BlockBasedTable format table file (index_type is kTwoLevelIndexSearch).

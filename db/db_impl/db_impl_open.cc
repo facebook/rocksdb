@@ -370,7 +370,30 @@ Status DBImpl::Recover(
     }
 
     std::string current_fname = CurrentFileName(dbname_);
-    s = env_->FileExists(current_fname);
+    // Path to any MANIFEST file in the db dir. It does not matter which one.
+    // Since best-efforts recovery ignores CURRENT file, existence of a
+    // MANIFEST indicates the recovery to recover existing db. If no MANIFEST
+    // can be found, a new db will be created.
+    std::string manifest_path;
+    if (!immutable_db_options_.best_efforts_recovery) {
+      s = env_->FileExists(current_fname);
+    } else {
+      s = Status::NotFound();
+      std::vector<std::string> files;
+      // No need to check return value
+      env_->GetChildren(dbname_, &files);
+      for (const std::string& file : files) {
+        uint64_t number = 0;
+        FileType type = kLogFile;  // initialize
+        if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
+          // Found MANIFEST (descriptor log), thus best-efforts recovery does
+          // not have to treat the db as empty.
+          s = Status::OK();
+          manifest_path = dbname_ + "/" + file;
+          break;
+        }
+      }
+    }
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
         s = NewDB();
@@ -398,14 +421,14 @@ Status DBImpl::Recover(
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
-                                   nullptr);
+      const std::string& fname =
+          manifest_path.empty() ? current_fname : manifest_path;
+      s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_fs.use_direct_reads = false;
-        s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
-                                     nullptr);
+        s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);
         if (s.ok()) {
           return Status::InvalidArgument(
               "Direct I/O is not supported by the specified DB.");
