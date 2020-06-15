@@ -976,6 +976,30 @@ endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
 
+if(WITH_TESTS OR WITH_TOOLS)
+  set(TESTUTIL_SOURCE
+      db/db_test_util.cc
+      monitoring/thread_status_updater_debug.cc
+      table/mock_table.cc
+      test_util/fault_injection_test_env.cc
+      test_util/fault_injection_test_fs.cc
+      utilities/cassandra/test_utils.cc
+  )
+  enable_testing()
+  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+  set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
+  add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
+  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB})
+  if(MSVC)
+    set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
+  endif()
+  set_target_properties(${TESTUTILLIB}
+        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+  )
+endif()
+
 if(WITH_TESTS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
@@ -1155,28 +1179,6 @@ if(WITH_TESTS)
     list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
-  set(TESTUTIL_SOURCE
-      db/db_test_util.cc
-      monitoring/thread_status_updater_debug.cc
-      table/mock_table.cc
-      test_util/fault_injection_test_env.cc
-      test_util/fault_injection_test_fs.cc
-      utilities/cassandra/test_utils.cc
-  )
-  enable_testing()
-  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
-  set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
-  add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB})
-  if(MSVC)
-    set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
-  endif()
-  set_target_properties(${TESTUTILLIB}
-        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-  )
-
   foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
       add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
@@ -1186,7 +1188,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB} gflags)
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1212,7 +1214,7 @@ if(WITH_TESTS)
     set(C_TESTS db/c_test.c)
     # C executables must link to a shared object
     add_executable(c_test db/c_test.c)
-    target_link_libraries(c_test ${ROCKSDB_SHARED_LIB} testharness)
+    target_link_libraries(c_test ${ROCKSDB_SHARED_LIB} testharness gflags)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
     add_dependencies(check c_test)
   endif()
@@ -1223,37 +1225,37 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} gflags)
 
   add_executable(cache_bench
     cache/cache_bench.cc)
   target_link_libraries(cache_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} gflags)
 
   add_executable(memtablerep_bench
     memtable/memtablerep_bench.cc)
   target_link_libraries(memtablerep_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} gflags)
 
   add_executable(range_del_aggregator_bench
     db/range_del_aggregator_bench.cc)
   target_link_libraries(range_del_aggregator_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} gflags)
 
   add_executable(table_reader_bench
     table/table_reader_bench.cc)
   target_link_libraries(table_reader_bench
-    ${ROCKSDB_LIB} testharness)
+    ${ROCKSDB_LIB} testharness gflags)
 
   add_executable(filter_bench
     util/filter_bench.cc)
   target_link_libraries(filter_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} gflags)
 
   add_executable(hash_table_bench
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} gflags)
 endif()
 
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
