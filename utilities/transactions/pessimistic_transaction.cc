@@ -558,7 +558,14 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // If we are not doing key tracking, just get the lock and return (this
   // also assumes locks are "idempotent")
   if (!do_key_tracking_) {
-    return txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
+    s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
+    if (s.ok() && !assume_tracked && snapshot_ != nullptr) {
+      // Perform validation
+      SequenceNumber tracked_at_seq = kMaxSequenceNumber;
+      SetSnapshotIfNeeded();
+      s = ValidateSnapshot(column_family, key, &tracked_at_seq);
+    }
+    return s;
   }
 
   // lock this key if this transactions hasn't already locked it

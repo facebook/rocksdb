@@ -48,7 +48,7 @@ class RangeLockingTest : public ::testing::Test {
   RangeLockingTest()
       : db(nullptr)  {
     options.create_if_missing = true;
-    dbname = test::PerThreadDBPath("transaction_testdb");
+    dbname = test::PerThreadDBPath("range_locking_testdb");
 
     DestroyDB(dbname, options);
     Status s;
@@ -70,6 +70,13 @@ class RangeLockingTest : public ::testing::Test {
     // from attempting to delete such files in DestroyDB.
     DestroyDB(dbname, options);
   }
+
+  PessimisticTransaction* NewTxn(
+      TransactionOptions txn_opt = TransactionOptions()) {
+    Transaction* txn = db->BeginTransaction(WriteOptions(), txn_opt);
+    return reinterpret_cast<PessimisticTransaction*>(txn);
+  }
+
 };
 
 // TODO: set a smaller lock wait timeout so that the test runs faster.
@@ -120,6 +127,58 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
 
   delete txn0;
   delete txn1;
+}
+
+TEST_F(RangeLockingTest, SnapshotValidation) {
+  Status s;
+  Slice key_slice= Slice("k");
+  ColumnFamilyHandle *cfh= db->DefaultColumnFamily();
+
+  auto txn0 = NewTxn();
+  txn0->Put(key_slice, Slice("initial"));
+  txn0->Commit();
+
+  // txn1
+  auto txn1 = NewTxn();
+  txn1->SetSnapshot();
+  std::string val1;
+  s = txn1->Get(ReadOptions(), cfh, key_slice, &val1);
+  ASSERT_TRUE(s.ok());
+  val1 = val1 + std::string("-txn1");
+
+  s = txn1->Put(cfh, key_slice, Slice(val1));
+  ASSERT_TRUE(s.ok());
+
+  // txn2
+  auto txn2 = NewTxn();
+  txn2->SetSnapshot();
+  std::string val2;
+  // This will see the original value as nothing is committed
+  // This is also Get, so it is doesn't acquire any locks.
+  s = txn2->Get(ReadOptions(), cfh, key_slice, &val2);
+  ASSERT_TRUE(s.ok());
+
+  // txn1
+  s = txn1->Commit();
+  ASSERT_TRUE(s.ok());
+
+  // txn2
+  val2 = val2 + std::string("-txn2");
+  // Now, this call should do Snapshot Validation and fail:
+  s = txn2->Put(cfh, key_slice, Slice(val2));
+  ASSERT_TRUE(s.IsBusy());
+
+  s = txn2->Commit();
+  ASSERT_TRUE(s.ok());
+
+  /*
+    // Not meaningful if s.IsBusy() above is true:
+    // Examine the result
+    auto txn3= NewTxn();
+    std::string val3;
+    Status s3 = txn3->Get(ReadOptions(), cfh, key_slice, &val3);
+    fprintf(stderr, "Final: %s\n", val3.c_str());
+  */
 }
 
 }  // namespace rocksdb
