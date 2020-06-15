@@ -194,7 +194,7 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   size_t src_offset = static_cast<size_t>(src.offset);
   size_t dest_end = End(*dest);
   size_t src_end = End(src);
-  if (std::max(dest_offset, dest_offset) > std::min(dest_end, src_end)) {
+  if (std::max(dest_offset, src_offset) > std::min(dest_end, src_end)) {
     return false;
   }
   dest->offset = static_cast<uint64_t>(std::min(dest_offset, src_offset));
