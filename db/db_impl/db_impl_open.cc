@@ -382,7 +382,7 @@ Status DBImpl::Recover(
       std::vector<std::string> files;
       // No need to check return value
       env_->GetChildren(dbname_, &files);
-      for (const auto& file : files) {
+      for (const std::string& file : files) {
         uint64_t number = 0;
         FileType type = kLogFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
