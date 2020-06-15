@@ -605,6 +605,17 @@ struct TestArgs {
   bool use_mmap;
 };
 
+std::ostream& operator<<(std::ostream& os, const TestArgs& args) {
+  os << "type: " << args.type << " reverse_compare: " << args.reverse_compare
+     << " restart_interval: " << args.restart_interval
+     << " compression: " << args.compression
+     << " compression_parallel_threads: " << args.compression_parallel_threads
+     << " format_version: " << args.format_version
+     << " use_mmap: " << args.use_mmap;
+
+  return os;
+}
+
 static std::vector<TestArgs> GenerateArgList() {
   std::vector<TestArgs> test_args;
   std::vector<TestType> test_types = {
@@ -662,6 +673,7 @@ static std::vector<TestArgs> GenerateArgList() {
         one_arg.restart_interval = restart_intervals[0];
         one_arg.compression = compression_types[0].first;
         one_arg.compression_parallel_threads = 1;
+        one_arg.format_version = 0;
         one_arg.use_mmap = true;
         test_args.push_back(one_arg);
         one_arg.use_mmap = false;
@@ -678,8 +690,8 @@ static std::vector<TestArgs> GenerateArgList() {
             one_arg.reverse_compare = reverse_compare;
             one_arg.restart_interval = restart_interval;
             one_arg.compression = compression_type.first;
-            one_arg.format_version = compression_type.second ? 2 : 1;
             one_arg.compression_parallel_threads = num_threads;
+            one_arg.format_version = compression_type.second ? 2 : 1;
             one_arg.use_mmap = false;
             test_args.push_back(one_arg);
           }
