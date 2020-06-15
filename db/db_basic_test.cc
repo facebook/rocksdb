@@ -2249,6 +2249,35 @@ TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
   }
 }
 
+TEST_F(DBBasicTest, RecoverWithNoManifest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  Close();
+  {
+    // Delete all MANIFEST.
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kLogFile;
+      if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
+        ASSERT_OK(env_->DeleteFile(dbname_ + "/" + file));
+      }
+    }
+  }
+  options.best_efforts_recovery = true;
+  options.create_if_missing = false;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  options.create_if_missing = true;
+  Reopen(options);
+  // Since no MANIFEST exists, best-efforts recovery creates a new, empty db.
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+}
+
 TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
