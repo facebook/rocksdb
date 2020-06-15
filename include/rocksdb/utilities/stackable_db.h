@@ -400,6 +400,10 @@ class StackableDB : public DB {
     return db_->GetDbIdentity(identity);
   }
 
+  virtual Status GetDbSessionId(std::string& session_id) const override {
+    return db_->GetDbSessionId(session_id);
+  }
+
   using DB::SetOptions;
   virtual Status SetOptions(ColumnFamilyHandle* column_family_handle,
                             const std::unordered_map<std::string, std::string>&

@@ -350,6 +350,8 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentityFromIdentityFile(std::string* identity) const;
 
+  virtual Status GetDbSessionId(std::string& session_id) const override;
+
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   ColumnFamilyHandle* PersistentStatsColumnFamily() const;
@@ -980,6 +982,9 @@ class DBImpl : public DB {
  protected:
   const std::string dbname_;
   std::string db_id_;
+  // db_session_id_ is an identifier that gets reset
+  // every time the DB is opened
+  std::string db_session_id_;
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
@@ -1160,6 +1165,10 @@ class DBImpl : public DB {
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
   Status FinishBestEffortsRecovery();
+
+  // SetDbSessionId() should be called in the constuctor DBImpl()
+  // to ensure that db_session_id_ gets updated every time the DB is opened
+  void SetDbSessionId();
 
  private:
   friend class DB;

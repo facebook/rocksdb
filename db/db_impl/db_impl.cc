@@ -249,7 +249,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
-  DumpDBFileSummary(immutable_db_options_, dbname_);
+  SetDbSessionId();
+  DumpDBFileSummary(immutable_db_options_, dbname_, db_session_id_);
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
@@ -3599,6 +3600,21 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
     identity->pop_back();
   }
   return s;
+}
+
+Status DBImpl::GetDbSessionId(std::string& session_id) const {
+  session_id.assign(db_session_id_);
+  return Status::OK();
+}
+
+void DBImpl::SetDbSessionId() {
+  // GenerateUniqueId() generates an identifier
+  // that has a negligible probability of being duplicated
+  db_session_id_ = env_->GenerateUniqueId();
+  // Remove the extra '\n' at the end if there is one
+  if (!db_session_id_.empty() && db_session_id_.back() == '\n') {
+    db_session_id_.pop_back();
+  }
 }
 
 // Default implementation -- returns not supported status
