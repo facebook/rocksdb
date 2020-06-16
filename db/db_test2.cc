@@ -86,6 +86,48 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   // With create_if_missing false, there should not be a dir in the file system
   ASSERT_NOK(env_->FileExists(dbname));
 }
+
+TEST_F(DBTest2, ReadOnlyWithCompresedCache) {
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo2", "barbarbarbarbarbarbarbar"));
+  ASSERT_OK(Flush());
+
+  for (int max_open_files : {-1, 100}) {
+    for (bool use_mmap : {false, true}) {
+      if (use_mmap && !IsMemoryMappedAccessSupported()) {
+        continue;
+      }
+      DB* db_ptr = nullptr;
+      Options options = CurrentOptions();
+      options.allow_mmap_reads = use_mmap;
+      options.max_open_files = max_open_files;
+      BlockBasedTableOptions table_options;
+      table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+      table_options.no_block_cache = true;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      options.statistics = CreateDBStatistics();
+
+      ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_ptr));
+
+      std::string v;
+      ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
+      ASSERT_EQ("bar", v);
+      ASSERT_EQ(0,
+                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+      ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
+      ASSERT_EQ("bar", v);
+      if (use_mmap) {
+        ASSERT_EQ(
+            0, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+      } else {
+        ASSERT_EQ(
+            1, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+      }
+
+      delete db_ptr;
+    }
+  }
+}
 #endif  // ROCKSDB_LITE
 
 class PrefixFullBloomWithReverseComparator
