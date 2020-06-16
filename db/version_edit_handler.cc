@@ -404,13 +404,12 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool is_initial_load) {
   assert(cfd != nullptr);
   assert(!cfd->IsDropped());
-  Status s;
   auto builder_iter = builders_.find(cfd->GetID());
   assert(builder_iter != builders_.end());
   assert(builder_iter->second != nullptr);
   VersionBuilder* builder = builder_iter->second->version_builder();
   assert(builder);
-  s = builder->LoadTableHandlers(
+  Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
@@ -551,6 +550,8 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
+    } else if (!s.ok()) {
+      break;
     }
   }
   bool missing_info = !version_edit_params_.has_log_number_ ||
@@ -558,8 +559,9 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
                       !version_edit_params_.has_last_sequence_;
 
   // Create version before apply edit
-  if (!missing_info && ((!missing_files.empty() && !prev_has_missing_files) ||
-                        (missing_files.empty() && force_create_version))) {
+  if (s.ok() && !missing_info &&
+      ((!missing_files.empty() && !prev_has_missing_files) ||
+       (missing_files.empty() && force_create_version))) {
     auto builder_iter = builders_.find(cfd->GetID());
     assert(builder_iter != builders_.end());
     auto* builder = builder_iter->second->version_builder();
