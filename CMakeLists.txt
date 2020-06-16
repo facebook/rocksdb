@@ -1110,6 +1110,7 @@ if(WITH_TESTS)
         util/file_reader_writer_test.cc
         util/filelock_test.cc
         util/hash_test.cc
+        util/hash_map_test.cc
         util/heap_test.cc
         util/random_test.cc
         util/rate_limiter_test.cc

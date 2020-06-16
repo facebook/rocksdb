@@ -527,6 +527,7 @@ TESTS = \
 	db_write_test \
 	error_handler_fs_test \
 	autovector_test \
+	hash_map_test \
 	blob_db_test \
 	cleanable_test \
 	column_family_test \
@@ -1371,6 +1372,9 @@ memkind_kmem_allocator_test: memory/memkind_kmem_allocator_test.o $(LIBOBJECTS) 
 	$(AM_LINK)
 
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+hash_map_test: util/hash_map_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 column_family_test: db/column_family_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

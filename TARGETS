@@ -484,6 +484,11 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "hash_map_test",
+        "util/hash_map_test.cc",
+        "serial",
+    ],
+    [
         "backupable_db_test",
         "utilities/backupable/backupable_db_test.cc",
         "parallel",
