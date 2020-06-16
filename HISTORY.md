@@ -2,6 +2,7 @@
 ## 6.10.3 (6/16/2020)
 ### Bug fix
 * Best-efforts recovery ignores CURRENT file completely. If CURRENT file is missing during recovery, best-efforts recovery still proceeds with MANIFEST file(s).
+* In best-efforts recovery, an error that is not Corruption or IOError::kNotFound or IOError::kPathNotFound will be overwritten silently. Fix this by checking all non-ok cases and return early.
 
 ## 6.10.2 (6/5/2020)
 ### Bug fix
