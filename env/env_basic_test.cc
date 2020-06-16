@@ -91,6 +91,7 @@ static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
                         ::testing::Values(mock_env.get()));
 
+#ifndef ROCKSDB_LITE
 // next statements run env test against default encryption code.
 static ROT13BlockCipher encrypt_block_rot13(32);
 
@@ -102,6 +103,7 @@ INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
                         ::testing::Values(encrypt_env.get()));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
                         ::testing::Values(encrypt_env.get()));
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
