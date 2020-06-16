@@ -55,6 +55,7 @@ default_params = {
     "delrangepercent": 1,
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
+    "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     "get_live_files_one_in": 1000000,
@@ -64,6 +65,7 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
+    "iterpercent": 10,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -275,6 +277,16 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
+    if dest_params.get("enable_compaction_filter", 0) == 1:
+        # Compaction filter is incompatible with snapshots. Need to avoid taking
+        # snapshots, as well as avoid operations that use snapshots for
+        # verification.
+        dest_params["acquire_snapshot_one_in"] = 0
+        dest_params["compact_range_one_in"] = 0
+        # Give the iterator ops away to reads.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
+        dest_params["test_batches_snapshots"] = 0
     return dest_params
 
 def gen_cmd_params(args):
