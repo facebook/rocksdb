@@ -224,20 +224,6 @@ class PosixEnv : public CompositeEnvWrapper {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
-  Status GetTestDirectory(std::string* result) override {
-    const char* env = getenv("TEST_TMPDIR");
-    if (env && env[0] != '\0') {
-      *result = env;
-    } else {
-      char buf[100];
-      snprintf(buf, sizeof(buf), "/tmp/rocksdbtest-%d", int(geteuid()));
-      *result = buf;
-    }
-    // Directory may already exist
-    CreateDir(*result);
-    return Status::OK();
-  }
-
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
@@ -343,7 +329,7 @@ class PosixEnv : public CompositeEnvWrapper {
     thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
 #ifdef OS_LINUX
     thread_pools_[pool].LowerIOPriority();
@@ -352,13 +338,15 @@ class PosixEnv : public CompositeEnvWrapper {
 #endif
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
-#ifdef OS_LINUX
-    thread_pools_[pool].LowerCPUPriority();
-#else
-    (void)pool;
-#endif
+    thread_pools_[pool].LowerCPUPriority(CpuPriority::kLow);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
+    thread_pools_[pool].LowerCPUPriority(pri);
+    return Status::OK();
   }
 
   std::string TimeToString(uint64_t secondsSince1970) override {

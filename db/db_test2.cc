@@ -25,6 +25,69 @@ class DBTest2 : public DBTestBase {
   DBTest2() : DBTestBase("/db_test2") {}
 };
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, OpenForReadOnly) {
+  DB* db_ptr = nullptr;
+  std::string dbname = test::PerThreadDBPath("db_readonly");
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  // OpenForReadOnly should fail but will create <dbname> in the file system
+  ASSERT_NOK(DB::OpenForReadOnly(options, dbname, &db_ptr));
+  // Since <dbname> is created, we should be able to delete the dir
+  // We first get the list files under <dbname>
+  // There should not be any subdirectories -- this is not checked here
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname, &files));
+  for (auto& f : files) {
+    if (f != "." && f != "..") {
+      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
+    }
+  }
+  // <dbname> should be empty now and we should be able to delete it
+  ASSERT_OK(env_->DeleteDir(dbname));
+  options.create_if_missing = false;
+  // OpenForReadOnly should fail since <dbname> was successfully deleted
+  ASSERT_NOK(DB::OpenForReadOnly(options, dbname, &db_ptr));
+  // With create_if_missing false, there should not be a dir in the file system
+  ASSERT_NOK(env_->FileExists(dbname));
+}
+
+TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
+  DB* db_ptr = nullptr;
+  std::string dbname = test::PerThreadDBPath("db_readonly");
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.push_back(ColumnFamilyDescriptor("goku", cf_options));
+  std::vector<ColumnFamilyHandle*> handles;
+  // OpenForReadOnly should fail but will create <dbname> in the file system
+  ASSERT_NOK(
+      DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
+  // Since <dbname> is created, we should be able to delete the dir
+  // We first get the list files under <dbname>
+  // There should not be any subdirectories -- this is not checked here
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname, &files));
+  for (auto& f : files) {
+    if (f != "." && f != "..") {
+      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
+    }
+  }
+  // <dbname> should be empty now and we should be able to delete it
+  ASSERT_OK(env_->DeleteDir(dbname));
+  options.create_if_missing = false;
+  // OpenForReadOnly should fail since <dbname> was successfully deleted
+  ASSERT_NOK(
+      DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
+  // With create_if_missing false, there should not be a dir in the file system
+  ASSERT_NOK(env_->FileExists(dbname));
+}
+#endif  // ROCKSDB_LITE
+
 class PrefixFullBloomWithReverseComparator
     : public DBTestBase,
       public ::testing::WithParamInterface<bool> {
@@ -1268,6 +1331,152 @@ class CompactionCompressionListener : public EventListener {
   const Options* db_options_;
 };
 
+enum CompressionFailureType {
+  kTestCompressionFail,
+  kTestDecompressionFail,
+  kTestDecompressionCorruption
+};
+
+class CompressionFailuresTest
+    : public DBTest2,
+      public testing::WithParamInterface<std::tuple<
+          CompressionFailureType, CompressionType, uint32_t, uint32_t>> {
+ public:
+  CompressionFailuresTest() {
+    std::tie(compression_failure_type_, compression_type_,
+             compression_max_dict_bytes_, compression_parallel_threads_) =
+        GetParam();
+  }
+
+  CompressionFailureType compression_failure_type_ = kTestCompressionFail;
+  CompressionType compression_type_ = kNoCompression;
+  uint32_t compression_max_dict_bytes_ = 0;
+  uint32_t compression_parallel_threads_ = 0;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTest2, CompressionFailuresTest,
+    ::testing::Combine(::testing::Values(kTestCompressionFail,
+                                         kTestDecompressionFail,
+                                         kTestDecompressionCorruption),
+                       ::testing::ValuesIn(GetSupportedCompressions()),
+                       ::testing::Values(0, 10), ::testing::Values(1, 4)));
+
+TEST_P(CompressionFailuresTest, CompressionFailures) {
+  if (compression_type_ == kNoCompression) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_bytes_for_level_base = 1024;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 7;
+  options.max_background_compactions = 1;
+  options.target_file_size_base = 512;
+
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 512;
+  table_options.verify_compression = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  options.compression = compression_type_;
+  options.compression_opts.parallel_threads = compression_parallel_threads_;
+  options.compression_opts.max_dict_bytes = compression_max_dict_bytes_;
+  options.bottommost_compression_opts.parallel_threads =
+      compression_parallel_threads_;
+  options.bottommost_compression_opts.max_dict_bytes =
+      compression_max_dict_bytes_;
+
+  if (compression_failure_type_ == kTestCompressionFail) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
+        [](void* arg) {
+          bool* ret = static_cast<bool*>(arg);
+          *ret = false;
+        });
+  } else if (compression_failure_type_ == kTestDecompressionFail) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
+        [](void* arg) {
+          Status* ret = static_cast<Status*>(arg);
+          ASSERT_OK(*ret);
+          *ret = Status::Corruption("kTestDecompressionFail");
+        });
+  } else if (compression_failure_type_ == kTestDecompressionCorruption) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "UncompressBlockContentsForCompressionType:"
+        "TamperWithDecompressionOutput",
+        [](void* arg) {
+          BlockContents* contents = static_cast<BlockContents*>(arg);
+          // Ensure uncompressed data != original data
+          const size_t len = contents->data.size() + 1;
+          std::unique_ptr<char[]> fake_data(new char[len]());
+          *contents = BlockContents(std::move(fake_data), len);
+        });
+  }
+
+  std::map<std::string, std::string> key_value_written;
+
+  const int kKeySize = 5;
+  const int kValUnitSize = 16;
+  const int kValSize = 256;
+  Random rnd(405);
+
+  Status s = Status::OK();
+
+  DestroyAndReopen(options);
+  // Write 10 random files
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 5; j++) {
+      std::string key = RandomString(&rnd, kKeySize);
+      // Ensure good compression ratio
+      std::string valueUnit = RandomString(&rnd, kValUnitSize);
+      std::string value;
+      for (int k = 0; k < kValSize; k += kValUnitSize) {
+        value += valueUnit;
+      }
+      s = Put(key, value);
+      if (compression_failure_type_ == kTestCompressionFail) {
+        key_value_written[key] = value;
+        ASSERT_OK(s);
+      }
+    }
+    s = Flush();
+    if (compression_failure_type_ == kTestCompressionFail) {
+      ASSERT_OK(s);
+    }
+    s = dbfull()->TEST_WaitForCompact();
+    if (compression_failure_type_ == kTestCompressionFail) {
+      ASSERT_OK(s);
+    }
+    if (i == 4) {
+      // Make compression fail at the mid of table building
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    }
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  if (compression_failure_type_ == kTestCompressionFail) {
+    // Should be kNoCompression, check content consistency
+    std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      std::string key = db_iter->key().ToString();
+      std::string value = db_iter->value().ToString();
+      ASSERT_NE(key_value_written.find(key), key_value_written.end());
+      ASSERT_EQ(key_value_written[key], value);
+      key_value_written.erase(key);
+    }
+    ASSERT_EQ(0, key_value_written.size());
+  } else if (compression_failure_type_ == kTestDecompressionFail) {
+    ASSERT_EQ(std::string(s.getState()),
+              "Could not decompress: kTestDecompressionFail");
+  } else if (compression_failure_type_ == kTestDecompressionCorruption) {
+    ASSERT_EQ(std::string(s.getState()),
+              "Decompressed block did not match raw block");
+  }
+}
+
 TEST_F(DBTest2, CompressionOptions) {
   if (!Zlib_Supported() || !Snappy_Supported()) {
     return;
@@ -1801,6 +2010,10 @@ class MockPersistentCache : public PersistentCache {
     return PersistentCache::StatsType();
   }
 
+  uint64_t NewId() override {
+    return last_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override {
     MutexLock _(&lock_);
@@ -1841,6 +2054,7 @@ class MockPersistentCache : public PersistentCache {
   const bool is_compressed_ = true;
   size_t size_ = 0;
   const size_t max_size_ = 10 * 1024;  // 10KiB
+  std::atomic<uint64_t> last_id_{1};
 };
 
 #ifdef OS_LINUX
@@ -1964,10 +2178,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 }
 #endif  // OS_LINUX
 
-// GetUniqueIdFromFile is not implemented on these platforms. Persistent cache
-// breaks when that function is not implemented and no regular block cache is
-// provided.
-#if !defined(OS_SOLARIS) && !defined(OS_WIN)
+#if !defined OS_SOLARIS
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;
 
@@ -2031,7 +2242,7 @@ TEST_F(DBTest2, PersistentCache) {
     }
   }
 }
-#endif  // !defined(OS_SOLARIS) && !defined(OS_WIN)
+#endif  // !defined OS_SOLARIS
 
 namespace {
 void CountSyncPoint() {
@@ -4717,6 +4928,32 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   }
 }
 #endif  // ROCKSDB_LITE
+
+// WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
+TEST_F(DBTest2, PointInTimeRecoveryWithIOErrorWhileReadingWal) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  bool should_inject_error = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeReadWal",
+      [&](void* /*arg*/) { should_inject_error = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogReader::ReadMore:AfterReadFile", [&](void* arg) {
+        if (should_inject_error) {
+          ASSERT_NE(nullptr, arg);
+          *reinterpret_cast<Status*>(arg) = Status::IOError("Injected IOError");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

@@ -17,7 +17,6 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
-#include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 

@@ -30,6 +30,9 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
   TEST_KILL_RANDOM("WritableFileWriter::Append:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
 
+  // Calculate the checksum of appended data
+  UpdateFileChecksum(data);
+
   {
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
@@ -89,7 +92,6 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   if (s.ok()) {
     filesize_ += data.size();
-    CalculateFileChecksum(data);
   }
   return s;
 }
@@ -223,6 +225,7 @@ IOStatus WritableFileWriter::Flush() {
 
 std::string WritableFileWriter::GetFileChecksum() {
   if (checksum_generator_ != nullptr) {
+    assert(checksum_finalized_);
     return checksum_generator_->GetChecksum();
   } else {
     return kUnknownFileChecksum;
@@ -233,7 +236,7 @@ const char* WritableFileWriter::GetFileChecksumFuncName() const {
   if (checksum_generator_ != nullptr) {
     return checksum_generator_->Name();
   } else {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 }
 
@@ -344,7 +347,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   return s;
 }
 
-void WritableFileWriter::CalculateFileChecksum(const Slice& data) {
+void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
   if (checksum_generator_ != nullptr) {
     checksum_generator_->Update(data.data(), data.size());
   }

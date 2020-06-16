@@ -1085,6 +1085,8 @@ void CompactionPicker::PickFilesMarkedForCompaction(
   Random64 rnd(/* seed */ reinterpret_cast<uint64_t>(vstorage));
   size_t random_file_index = static_cast<size_t>(rnd.Uniform(
       static_cast<uint64_t>(vstorage->FilesMarkedForCompaction().size())));
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::PickFilesMarkedForCompaction",
+                           &random_file_index);
 
   if (continuation(vstorage->FilesMarkedForCompaction()[random_file_index])) {
     // found the compaction!

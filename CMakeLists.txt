@@ -107,18 +107,32 @@ else()
     endif()
   endif()
 
-  # No config file for this
   if(WITH_GFLAGS)
-    find_package(gflags REQUIRED)
+    # Config with namespace available since gflags 2.2.2
+    option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
+    find_package(gflags CONFIG)
+    if(gflags_FOUND)
+      if(TARGET ${GFLAGS_TARGET})
+        # Config with GFLAGS_TARGET available since gflags 2.2.0
+        list(APPEND THIRDPARTY_LIBS ${GFLAGS_TARGET})
+      else()
+        # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
+        list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIBRARIES})
+      endif()
+    else()
+      find_package(gflags REQUIRED)
+      list(APPEND THIRDPARTY_LIBS gflags::gflags)
+    endif()
     add_definitions(-DGFLAGS=1)
-    include_directories(${gflags_INCLUDE_DIR})
-    list(APPEND THIRDPARTY_LIBS gflags::gflags)
   endif()
 
   if(WITH_SNAPPY)
-    find_package(snappy REQUIRED)
+    find_package(Snappy CONFIG)
+    if(NOT Snappy_FOUND)
+      find_package(Snappy REQUIRED)
+    endif()
     add_definitions(-DSNAPPY)
-    list(APPEND THIRDPARTY_LIBS snappy::snappy)
+    list(APPEND THIRDPARTY_LIBS Snappy::snappy)
   endif()
 
   if(WITH_ZLIB)
@@ -509,7 +523,6 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
@@ -526,6 +539,9 @@ set(SOURCES
         db/blob/blob_file_addition.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
+        db/blob/blob_log_format.cc
+        db/blob/blob_log_reader.cc
+        db/blob/blob_log_writer.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -717,9 +733,6 @@ set(SOURCES
         utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
-        utilities/blob_db/blob_log_reader.cc
-        utilities/blob_db/blob_log_writer.cc
-        utilities/blob_db/blob_log_format.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
@@ -790,9 +803,13 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc
-    port/win/win_thread.cc)
-
+    port/win/win_logger.cc)
+  if(NOT MINGW)
+    # Mingw only supports std::thread when using
+    # posix threads.
+    list(APPEND SOURCES
+      port/win/win_thread.cc)
+  endif()
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -839,12 +856,12 @@ else()
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
-target_link_libraries(${ROCKSDB_STATIC_LIB}
+target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
-  target_link_libraries(${ROCKSDB_SHARED_LIB}
+  target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   if(WIN32)
@@ -872,6 +889,16 @@ else()
 endif()
 
 option(WITH_JNI "build with JNI" OFF)
+# Tests are excluded from Release builds
+CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
+  "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
+option(WITH_CORE_TOOLS "build with ldb and sst_dump" ON)
+option(WITH_TOOLS "build with tools" ON)
+
+if(WITH_TESTS OR WITH_BENCHMARK_TOOLS OR WITH_TOOLS OR WITH_JNI OR JNI)
+  include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
+endif()
 if(WITH_JNI OR JNI)
   message(STATUS "JNI library is enabled")
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/java)
@@ -909,6 +936,8 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
+  install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
+
   install(
     TARGETS ${ROCKSDB_STATIC_LIB}
     EXPORT RocksDBTargets
@@ -945,16 +974,19 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-# Tests are excluded from Release builds
-CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
-  "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
+
 if(WITH_TESTS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
-
   set(TESTS
+        db/db_basic_test.cc
+        env/env_basic_test.cc
+  )
+  if(WITH_ALL_TESTS)
+    list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
@@ -969,7 +1001,6 @@ if(WITH_TESTS)
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
-        db/db_basic_test.cc
         db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
@@ -1032,7 +1063,6 @@ if(WITH_TESTS)
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
-        env/env_basic_test.cc
         env/env_test.cc
         env/io_posix_test.cc
         env/mock_env_test.cc
@@ -1053,6 +1083,7 @@ if(WITH_TESTS)
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
+        table/block_based/block_based_table_reader_test.cc
         table/block_based/block_test.cc
         table/block_based/data_block_hash_index_test.cc
         table/block_based/full_filter_block_test.cc
@@ -1064,6 +1095,7 @@ if(WITH_TESTS)
         table/sst_file_reader_test.cc
         table/table_test.cc
         table/block_fetcher_test.cc
+        test_util/testutil_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
@@ -1113,7 +1145,8 @@ if(WITH_TESTS)
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
-  )
+    )
+  endif()
   if(WITH_LIBRADOS)
     list(APPEND TESTS utilities/env_librados_test.cc)
   endif()
@@ -1158,6 +1191,10 @@ if(WITH_TESTS)
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
       endif()
+      if("${exename}" MATCHES "env_librados_test")
+        # env_librados_test.cc uses librados directly
+        target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} rados)
+      endif()
   endforeach(sourcefile ${TESTS})
 
   if(WIN32)
@@ -1181,7 +1218,6 @@ if(WITH_TESTS)
   endif()
 endif()
 
-option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
 if(WITH_BENCHMARK_TOOLS)
   add_executable(db_bench
     tools/db_bench.cc
@@ -1220,8 +1256,6 @@ if(WITH_BENCHMARK_TOOLS)
     ${ROCKSDB_LIB})
 endif()
 
-option(WITH_CORE_TOOLS "build with ldb and sst_dump" ON)
-option(WITH_TOOLS "build with tools" ON)
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
   add_subdirectory(tools)
   add_custom_target(core_tools

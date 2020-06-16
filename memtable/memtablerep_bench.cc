@@ -452,8 +452,8 @@ class Benchmark {
   MemTableRep* table_;
   KeyGenerator* key_gen_;
   uint64_t* sequence_;
-  uint64_t num_write_ops_per_thread_;
-  uint64_t num_read_ops_per_thread_;
+  uint64_t num_write_ops_per_thread_ = 0;
+  uint64_t num_read_ops_per_thread_ = 0;
   const uint32_t num_threads_;
 };
 

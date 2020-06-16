@@ -128,12 +128,38 @@ Status DBImplReadOnly::NewIterators(
   return Status::OK();
 }
 
+namespace {
+// Return OK if dbname exists in the file system
+// or create_if_missing is false
+Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
+                                     const std::string& dbname) {
+  Status s;
+  if (!db_options.create_if_missing) {
+    // Attempt to read "CURRENT" file
+    const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
+    std::string manifest_path;
+    uint64_t manifest_file_number;
+    s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,
+                                           &manifest_file_number);
+    if (!s.ok()) {
+      return Status::NotFound(CurrentFileName(dbname), "does not exist");
+    }
+  }
+  return s;
+}
+}  // namespace
+
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool /*error_if_log_file_exist*/) {
+  // If dbname does not exist in the file system, should not do anything
+  Status s = OpenForReadOnlyCheckExistence(options, dbname);
+  if (!s.ok()) {
+    return s;
+  }
+
   *dbptr = nullptr;
 
   // Try to first open DB as fully compacted DB
-  Status s;
   s = CompactedDBImpl::Open(options, dbname, dbptr);
   if (s.ok()) {
     return s;
@@ -146,7 +172,8 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
 
-  s = DB::OpenForReadOnly(db_options, dbname, column_families, &handles, dbptr);
+  s = DBImplReadOnly::OpenForReadOnlyWithoutCheck(
+      db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a
@@ -157,6 +184,22 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 }
 
 Status DB::OpenForReadOnly(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    bool error_if_log_file_exist) {
+  // If dbname does not exist in the file system, should not do anything
+  Status s = OpenForReadOnlyCheckExistence(db_options, dbname);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return DBImplReadOnly::OpenForReadOnlyWithoutCheck(
+      db_options, dbname, column_families, handles, dbptr,
+      error_if_log_file_exist);
+}
+
+Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,

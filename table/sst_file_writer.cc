@@ -243,10 +243,10 @@ Status SstFileWriter::Open(const std::string& file_path) {
       &int_tbl_prop_collector_factories, compression_type,
       sample_for_compression, compression_opts, r->skip_filters,
       r->column_family_name, unknown_level);
-  r->file_writer.reset(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(sst_file)),
-                             file_path, r->env_options, r->ioptions.env,
-                             nullptr /* stats */, r->ioptions.listeners));
+  r->file_writer.reset(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
+      r->env_options, r->ioptions.env, nullptr /* stats */,
+      r->ioptions.listeners, r->ioptions.file_checksum_gen_factory));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
@@ -299,6 +299,11 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     if (s.ok()) {
       s = r->file_writer->Close();
     }
+  }
+  if (s.ok()) {
+    r->file_info.file_checksum = r->file_writer->GetFileChecksum();
+    r->file_info.file_checksum_func_name =
+        r->file_writer->GetFileChecksumFuncName();
   }
   if (!s.ok()) {
     r->ioptions.env->DeleteFile(r->file_info.file_path);

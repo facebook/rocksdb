@@ -20,10 +20,10 @@ from util import ColorString
 # User can pass extra dependencies as a JSON object via command line, and this
 # script can include these dependencies in the generate TARGETS file.
 # Usage:
-# $python buckifier/buckify_rocksdb.py
+# $python3 buckifier/buckify_rocksdb.py
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
-# $python buckifier/buckify_rocksdb.py \
+# $python3 buckifier/buckify_rocksdb.py \
 #        '{"fake": { \
 #                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
 #                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
@@ -108,7 +108,6 @@ def get_tests(repo_path):
 
     return tests
 
-
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
     deps_map = {
@@ -147,6 +146,7 @@ def generate_targets(repo_path, deps_map):
         return False
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
+
     # rocksdb_lib
     TARGETS.add_library(
         "rocksdb_lib",
@@ -159,7 +159,10 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("TEST_LIB_SOURCES", []) +
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
-        [":rocksdb_lib"])
+        [":rocksdb_lib"],
+        extra_external_deps=""" + [
+        ("googletest", None, "gtest"),
+    ]""")
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
@@ -168,14 +171,13 @@ def generate_targets(repo_path, deps_map):
         ["test_util/testutil.cc"],
         [":rocksdb_lib"])
     # rocksdb_stress_lib
-    TARGETS.add_library(
+    TARGETS.add_rocksdb_library(
         "rocksdb_stress_lib",
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
-        + ["test_util/testutil.cc"],
-        [":rocksdb_lib", ":rocksdb_test_lib"])
+        + ["test_util/testutil.cc"])
 
-    print("Extra dependencies:\n{0}".format(str(deps_map)))
+    print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
     # test for every test we found in the Makefile
     for target_alias, deps in deps_map.items():
         for test in sorted(tests):
@@ -196,8 +198,8 @@ def generate_targets(repo_path, deps_map):
                 test_target_name,
                 match_src[0],
                 is_parallel,
-                deps['extra_deps'],
-                deps['extra_compiler_flags'])
+                json.dumps(deps['extra_deps']),
+                json.dumps(deps['extra_compiler_flags']))
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
@@ -219,6 +221,7 @@ def get_rocksdb_path():
         os.path.join(script_dir, "../"))
 
     return rocksdb_path
+
 
 def exit_with_error(msg):
     print(ColorString.error(msg))

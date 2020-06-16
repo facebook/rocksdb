@@ -38,8 +38,15 @@ std::string BlobFileMetaData::DebugString() const {
 std::ostream& operator<<(std::ostream& os, const BlobFileMetaData& meta) {
   const auto& shared_meta = meta.GetSharedMeta();
   assert(shared_meta);
+  os << (*shared_meta);
 
-  os << (*shared_meta) << " garbage_blob_count: " << meta.GetGarbageBlobCount()
+  os << " linked_ssts: {";
+  for (uint64_t file_number : meta.GetLinkedSsts()) {
+    os << ' ' << file_number;
+  }
+  os << " }";
+
+  os << " garbage_blob_count: " << meta.GetGarbageBlobCount()
      << " garbage_blob_bytes: " << meta.GetGarbageBlobBytes();
 
   return os;

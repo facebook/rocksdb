@@ -301,7 +301,7 @@ void RunSecondary() {
       std::string value;
       db->Get(ropts, key, &value);
     }
-    fprintf(stdout, "[process %ld] Point lookup thread finished\n");
+    fprintf(stdout, "[process %ld] Point lookup thread finished\n", my_pid);
   });
 
   uint64_t curr_key = 0;

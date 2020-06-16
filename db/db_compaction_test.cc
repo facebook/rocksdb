@@ -3184,6 +3184,15 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   options.level0_file_num_compaction_trigger = 5;
   options.max_background_compactions = 2;
   options.max_subcompactions = max_subcompactions_;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.write_buffer_size = 2 << 20;  // 2MB
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(64 << 20);  // 64MB
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
   DestroyAndReopen(options);
 
   const size_t kValueSize = 1 << 20;
@@ -3214,6 +3223,7 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
       ASSERT_OK(Put(Key(i + 1), value));
     }
     ASSERT_OK(Flush());
+    ASSERT_EQ(i + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   }
   dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -3228,6 +3238,16 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   for (int i = 0; i < 2; ++i) {
     ASSERT_GE(level_to_files[0][i].fd.file_size, 1 << 21);
   }
+
+  // The index/filter in the file produced by intra-L0 should not be pinned.
+  // That means clearing unref'd entries in block cache and re-accessing the
+  // file produced by intra-L0 should bump the index block miss count.
+  uint64_t prev_index_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  table_options.block_cache->EraseUnRefEntries();
+  ASSERT_EQ("", Get(Key(0)));
+  ASSERT_EQ(prev_index_misses + 1,
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
 }
 
 TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {

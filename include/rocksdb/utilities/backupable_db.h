@@ -89,7 +89,7 @@ struct BackupableDBOptions {
 
   // Only used if share_table_files is set to true. If true, will consider that
   // backups can come from different databases, hence a sst is not uniquely
-  // identifed by its name, but by the triple (file name, crc32, file length)
+  // identifed by its name, but by the triple (file name, crc32c, file length)
   // Default: false
   // Note: this is an experimental option, and you'll need to set it manually
   // *turn it on only if you know what you're doing*

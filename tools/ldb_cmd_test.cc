@@ -41,6 +41,18 @@ class LdbCmdTest : public testing::Test {
   std::shared_ptr<Env> env_guard_;
 };
 
+TEST_F(LdbCmdTest, HelpAndVersion) {
+  Options o;
+  o.env = TryLoadCustomOrDefaultEnv();
+  LDBOptions lo;
+  static const char* help[] = {"./ldb", "--help"};
+  ASSERT_EQ(0, LDBCommandRunner::RunCommand(2, help, o, lo, nullptr));
+  static const char* version[] = {"./ldb", "--version"};
+  ASSERT_EQ(0, LDBCommandRunner::RunCommand(2, version, o, lo, nullptr));
+  static const char* bad[] = {"./ldb", "--not_an_option"};
+  ASSERT_NE(0, LDBCommandRunner::RunCommand(2, bad, o, lo, nullptr));
+}
+
 TEST_F(LdbCmdTest, HexToString) {
   // map input to expected outputs.
   // odd number of "hex" half bytes doesn't make sense
@@ -550,6 +562,121 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
+}
+
+TEST_F(LdbCmdTest, DisableConsistencyChecks) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  std::string dbname = test::TmpDir();
+
+  {
+    DB* db = nullptr;
+    ASSERT_OK(DB::Open(opts, dbname, &db));
+
+    WriteOptions wopts;
+    FlushOptions fopts;
+    fopts.wait = true;
+
+    ASSERT_OK(db->Put(wopts, "foo1", "1"));
+    ASSERT_OK(db->Put(wopts, "bar1", "2"));
+    ASSERT_OK(db->Flush(fopts));
+
+    ASSERT_OK(db->Put(wopts, "foo2", "3"));
+    ASSERT_OK(db->Put(wopts, "bar2", "4"));
+    ASSERT_OK(db->Flush(fopts));
+
+    delete db;
+  }
+
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "checkconsistency";
+    char* argv[] = {arg1, arg2, arg3};
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "Version::PrepareApply:forced_check", [&](void* arg) {
+          bool* forced = reinterpret_cast<bool*>(arg);
+          ASSERT_TRUE(*forced);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "scan";
+    char* argv[] = {arg1, arg2, arg3};
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "Version::PrepareApply:forced_check", [&](void* arg) {
+          bool* forced = reinterpret_cast<bool*>(arg);
+          ASSERT_TRUE(*forced);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+  {
+    char arg1[] = "./ldb";
+    char arg2[1024];
+    snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+    char arg3[] = "scan";
+    char arg4[] = "--disable_consistency_checks";
+    char* argv[] = {arg1, arg2, arg3, arg4};
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "ColumnFamilyData::ColumnFamilyData", [&](void* arg) {
+          ColumnFamilyOptions* cfo =
+              reinterpret_cast<ColumnFamilyOptions*>(arg);
+          ASSERT_FALSE(cfo->force_consistency_checks);
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    ASSERT_EQ(
+        0, LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
+TEST_F(LdbCmdTest, TestBadDbPath) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+
+  std::string dbname = test::TmpDir();
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s/.no_such_dir", dbname.c_str());
+  char arg3[1024];
+  snprintf(arg3, sizeof(arg3), "create_column_family");
+  char arg4[] = "bad cf";
+  char* argv[] = {arg1, arg2, arg3, arg4};
+
+  ASSERT_EQ(1,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
+  snprintf(arg3, sizeof(arg3), "drop_column_family");
+  ASSERT_EQ(1,
+            LDBCommandRunner::RunCommand(4, argv, opts, LDBOptions(), nullptr));
 }
 }  // namespace ROCKSDB_NAMESPACE
 

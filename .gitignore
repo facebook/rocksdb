@@ -86,3 +86,4 @@ buckifier/__pycache__
 
 compile_commands.json
 clang-format-diff.py
+.py3/

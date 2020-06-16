@@ -97,6 +97,7 @@ class MultiGetContext {
                   const ReadOptions& read_opts)
       : num_keys_(num_keys),
         value_mask_(0),
+        value_size_(0),
         lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)) {
     if (num_keys > MAX_LOOKUP_KEYS_ON_STACK) {
       lookup_key_heap_buf.reset(new char[sizeof(LookupKey) * num_keys]);
@@ -127,6 +128,7 @@ class MultiGetContext {
   std::array<KeyContext*, MAX_BATCH_SIZE> sorted_keys_;
   size_t num_keys_;
   uint64_t value_mask_;
+  uint64_t value_size_;
   std::unique_ptr<char[]> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
 
@@ -242,6 +244,10 @@ class MultiGetContext {
       assert(ctx_ == other.ctx_);
       skip_mask_ |= other.skip_mask_;
     }
+
+    uint64_t GetValueSize() { return ctx_->value_size_; }
+
+    void AddValueSize(uint64_t value_size) { ctx_->value_size_ += value_size; }
 
    private:
     friend MultiGetContext;

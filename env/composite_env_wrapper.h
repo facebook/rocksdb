@@ -523,7 +523,9 @@ class CompositeEnvWrapper : public Env {
     return env_target_->GetThreadPoolQueueLen(pri);
   }
   Status GetTestDirectory(std::string* path) override {
-    return env_target_->GetTestDirectory(path);
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->GetTestDirectory(io_opts, path, &dbg);
   }
   uint64_t NowMicros() override { return env_target_->NowMicros(); }
   uint64_t NowNanos() override { return env_target_->NowNanos(); }
@@ -553,12 +555,16 @@ class CompositeEnvWrapper : public Env {
     return env_target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     env_target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     env_target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return env_target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {

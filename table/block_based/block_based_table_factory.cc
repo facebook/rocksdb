@@ -418,8 +418,10 @@ Status BlockBasedTableFactory::NewTableReader(
       file_size, table_reader, table_reader_options.prefix_extractor,
       prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
       table_reader_options.level, table_reader_options.immortal,
-      table_reader_options.largest_seqno, &tail_prefetch_stats_,
-      table_reader_options.block_cache_tracer);
+      table_reader_options.largest_seqno,
+      table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
+      table_reader_options.block_cache_tracer,
+      table_reader_options.max_file_size_for_l0_meta_pin);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -660,9 +662,9 @@ std::string ParseBlockBasedTableOption(const ConfigOptions& config_options,
     }
   }
   const auto& opt_info = iter->second;
-  Status s = opt_info.ParseOption(
-      config_options, iter->first, value,
-      reinterpret_cast<char*>(new_options) + opt_info.offset);
+  Status s =
+      opt_info.Parse(config_options, iter->first, value,
+                     reinterpret_cast<char*>(new_options) + opt_info.offset_);
   if (s.ok()) {
     return "";
   } else {
@@ -756,14 +758,14 @@ Status VerifyBlockBasedTableFactory(const ConfigOptions& config_options,
     // contain random values since they might not be initialized
     if (config_options.IsCheckEnabled(pair.second.GetSanityLevel())) {
       const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + pair.second.offset;
+          reinterpret_cast<const char*>(&base_opt) + pair.second.offset_;
       const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + pair.second.offset;
+          reinterpret_cast<const char*>(&file_opt) + pair.second.offset_;
 
-      if (!pair.second.MatchesOption(config_options, pair.first, base_addr,
-                                     file_addr, &mismatch) &&
-          !pair.second.MatchesByName(config_options, pair.first, base_addr,
-                                     file_addr)) {
+      if (!pair.second.AreEqual(config_options, pair.first, base_addr,
+                                file_addr, &mismatch) &&
+          !pair.second.AreEqualByName(config_options, pair.first, base_addr,
+                                      file_addr)) {
         return Status::Corruption(
             "[RocksDBOptionsParser]: "
             "failed the verification on BlockBasedTableOptions::",

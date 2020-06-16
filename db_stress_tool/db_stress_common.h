@@ -236,6 +236,9 @@ DECLARE_double(blob_db_gc_cutoff);
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
 
+DECLARE_bool(best_efforts_recovery);
+DECLARE_bool(skip_verifydb);
+
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
