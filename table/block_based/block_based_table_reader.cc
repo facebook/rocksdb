@@ -577,9 +577,8 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 }
 
 Status BlockBasedTable::Open(
-    const ReadOptions& ro,
-    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-    const BlockBasedTableOptions& table_options,
+    const ReadOptions& ro, const ImmutableCFOptions& ioptions,
+    const EnvOptions& env_options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
@@ -682,8 +681,9 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-  s = new_table->ReadRangeDelBlock(ro, prefetch_buffer.get(), metaindex_iter.get(),
-                                   internal_comparator, &lookup_context);
+  s = new_table->ReadRangeDelBlock(ro, prefetch_buffer.get(),
+                                   metaindex_iter.get(), internal_comparator,
+                                   &lookup_context);
   if (!s.ok()) {
     return s;
   }
@@ -708,8 +708,7 @@ Status BlockBasedTable::Open(
 }
 
 Status BlockBasedTable::PrefetchTail(
-    const ReadOptions& ro,
-    RandomAccessFileReader* file, uint64_t file_size,
+    const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
     bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     const bool prefetch_all, const bool preload_all,
     std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer) {
@@ -759,9 +758,8 @@ Status BlockBasedTable::PrefetchTail(
 }
 
 Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
-    const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer, const Slice& handle_value,
-    TableProperties** table_properties) {
+    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
+    const Slice& handle_value, TableProperties** table_properties) {
   assert(table_properties != nullptr);
   // If this is an external SST file ingested with write_global_seqno set to
   // true, then we expect the checksum mismatch because checksum was written
@@ -795,9 +793,8 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
 }
 
 Status BlockBasedTable::ReadPropertiesBlock(
-    const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
-    const SequenceNumber largest_seqno) {
+    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
+    InternalIterator* meta_iter, const SequenceNumber largest_seqno) {
   bool found_properties_block = true;
   Status s;
   s = SeekToPropertiesBlock(meta_iter, &found_properties_block);
@@ -811,16 +808,17 @@ Status BlockBasedTable::ReadPropertiesBlock(
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
       s = ReadProperties(
-          ro, meta_iter->value(), rep_->file.get(), prefetch_buffer, rep_->footer,
-          rep_->ioptions, &table_properties, true /* verify_checksum */,
-          nullptr /* ret_block_handle */, nullptr /* ret_block_contents */,
+          ro, meta_iter->value(), rep_->file.get(), prefetch_buffer,
+          rep_->footer, rep_->ioptions, &table_properties,
+          true /* verify_checksum */, nullptr /* ret_block_handle */,
+          nullptr /* ret_block_contents */,
           false /* compression_type_missing */, nullptr /* memory_allocator */);
     }
     IGNORE_STATUS_IF_ERROR(s);
 
     if (s.IsCorruption()) {
-      s = TryReadPropertiesWithGlobalSeqno(ro, prefetch_buffer, meta_iter->value(),
-                                           &table_properties);
+      s = TryReadPropertiesWithGlobalSeqno(
+          ro, prefetch_buffer, meta_iter->value(), &table_properties);
       IGNORE_STATUS_IF_ERROR(s);
     }
     std::unique_ptr<TableProperties> props_guard;
@@ -895,8 +893,8 @@ Status BlockBasedTable::ReadPropertiesBlock(
 }
 
 Status BlockBasedTable::ReadRangeDelBlock(
-    const ReadOptions& read_options,
-    FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
+    const ReadOptions& read_options, FilePrefetchBuffer* prefetch_buffer,
+    InternalIterator* meta_iter,
     const InternalKeyComparator& internal_comparator,
     BlockCacheLookupContext* lookup_context) {
   Status s;
@@ -931,9 +929,8 @@ Status BlockBasedTable::ReadRangeDelBlock(
 }
 
 Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
-    const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
-    BlockBasedTable* new_table, bool prefetch_all,
+    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
+    InternalIterator* meta_iter, BlockBasedTable* new_table, bool prefetch_all,
     const BlockBasedTableOptions& table_options, const int level,
     size_t file_size, size_t max_file_size_for_l0_meta_pin,
     BlockCacheLookupContext* lookup_context) {
@@ -1095,8 +1092,7 @@ size_t BlockBasedTable::ApproximateMemoryUsage() const {
 // metaindex
 // block and its iterator.
 Status BlockBasedTable::ReadMetaIndexBlock(
-    const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer,
+    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
     std::unique_ptr<Block>* metaindex_block,
     std::unique_ptr<InternalIterator>* iter) {
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
@@ -1331,9 +1327,8 @@ Status BlockBasedTable::PutDataBlockToCache(
 }
 
 std::unique_ptr<FilterBlockReader> BlockBasedTable::CreateFilterBlockReader(
-    const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
-    bool pin, BlockCacheLookupContext* lookup_context) {
+    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer, bool use_cache,
+    bool prefetch, bool pin, BlockCacheLookupContext* lookup_context) {
   auto& rep = rep_;
   auto filter_type = rep->filter_type;
   if (filter_type == Rep::FilterType::kNoFilter) {
@@ -2950,8 +2945,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 //  4. internal_comparator
 //  5. index_type
 Status BlockBasedTable::CreateIndexReader(
-    const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer,
+    const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
     InternalIterator* preloaded_meta_index_iter, bool use_cache, bool prefetch,
     bool pin, BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
@@ -2970,9 +2964,9 @@ Status BlockBasedTable::CreateIndexReader(
     case BlockBasedTableOptions::kBinarySearch:
       FALLTHROUGH_INTENDED;
     case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
-      return BinarySearchIndexReader::Create(this, ro, prefetch_buffer, use_cache,
-                                             prefetch, pin, lookup_context,
-                                             index_reader);
+      return BinarySearchIndexReader::Create(this, ro, prefetch_buffer,
+                                             use_cache, prefetch, pin,
+                                             lookup_context, index_reader);
     }
     case BlockBasedTableOptions::kHashSearch: {
       std::unique_ptr<Block> metaindex_guard;
@@ -2999,13 +2993,13 @@ Status BlockBasedTable::CreateIndexReader(
       }
 
       if (should_fallback) {
-        return BinarySearchIndexReader::Create(this, ro, prefetch_buffer, use_cache,
-                                               prefetch, pin, lookup_context,
-                                               index_reader);
+        return BinarySearchIndexReader::Create(this, ro, prefetch_buffer,
+                                               use_cache, prefetch, pin,
+                                               lookup_context, index_reader);
       } else {
-        return HashIndexReader::Create(this, ro, prefetch_buffer, meta_index_iter,
-                                       use_cache, prefetch, pin, lookup_context,
-                                       index_reader);
+        return HashIndexReader::Create(this, ro, prefetch_buffer,
+                                       meta_index_iter, use_cache, prefetch,
+                                       pin, lookup_context, index_reader);
       }
     }
     default: {

@@ -42,8 +42,7 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kCuckooTableMagicNumber;
 
 Status AdaptiveTableFactory::NewTableReader(
-    const ReadOptions& ro,
-    const TableReaderOptions& table_reader_options,
+    const ReadOptions& ro, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table,
     bool prefetch_index_and_filter_in_cache) const {

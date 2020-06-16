@@ -61,10 +61,9 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
     Status s = PrepareIOFromReadOptions(read_options_, file_->env(), opts);
-    if (s.ok() &&
-        prefetch_buffer_->TryReadFromCache(
-          opts, handle_.offset(), block_size_with_trailer_, &slice_,
-          for_compaction_)) {
+    if (s.ok() && prefetch_buffer_->TryReadFromCache(
+                      opts, handle_.offset(), block_size_with_trailer_, &slice_,
+                      for_compaction_)) {
       CheckBlockChecksum();
       if (!status_.ok()) {
         return true;

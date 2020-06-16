@@ -26,9 +26,8 @@ class UncompressionDictReader {
  public:
   static Status Create(
       const BlockBasedTable* table, const ReadOptions& ro,
-      FilePrefetchBuffer* prefetch_buffer,
-      bool use_cache, bool prefetch, bool pin,
-      BlockCacheLookupContext* lookup_context,
+      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+      bool pin, BlockCacheLookupContext* lookup_context,
       std::unique_ptr<UncompressionDictReader>* uncompression_dict_reader);
 
   Status GetOrReadUncompressionDictionary(

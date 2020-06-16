@@ -151,18 +151,17 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
 
 std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
     const BlockBasedTable* table, const ReadOptions& ro,
-    FilePrefetchBuffer* prefetch_buffer,
-    bool use_cache, bool prefetch, bool pin,
-    BlockCacheLookupContext* lookup_context) {
+    FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+    bool pin, BlockCacheLookupContext* lookup_context) {
   assert(table);
   assert(table->get_rep());
   assert(!pin || prefetch);
 
   CachableEntry<Block> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(table, prefetch_buffer, ro,
-                                     use_cache, nullptr /* get_context */,
-                                     lookup_context, &filter_block);
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
+                                     nullptr /* get_context */, lookup_context,
+                                     &filter_block);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -413,7 +412,8 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 // TODO(myabandeh): merge this with the same function in IndexReader
-void PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro, bool pin) {
+void PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
+                                                     bool pin) {
   assert(table());
 
   const BlockBasedTable::Rep* const rep = table()->get_rep();
@@ -474,9 +474,9 @@ void PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro, bool
     // TODO: Support counter batch update for partitioned index and
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
-        prefetch_buffer.get(), ro, handle,
-        UncompressionDict::GetEmptyDict(), &block, BlockType::kFilter,
-        nullptr /* get_context */, &lookup_context, nullptr /* contents */);
+        prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
+        &block, BlockType::kFilter, nullptr /* get_context */, &lookup_context,
+        nullptr /* contents */);
 
     assert(s.ok() || block.GetValue() == nullptr);
     if (s.ok() && block.GetValue() != nullptr) {

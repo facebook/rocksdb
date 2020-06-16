@@ -160,6 +160,7 @@ class PlainTableFactory : public TableFactory {
       : table_options_(_table_options) {}
 
   const char* Name() const override { return "PlainTable"; }
+  using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions& ro,
                         const TableReaderOptions& table_reader_options,
                         std::unique_ptr<RandomAccessFileReader>&& file,

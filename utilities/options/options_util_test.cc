@@ -170,6 +170,7 @@ class DummyTableFactory : public TableFactory {
 
   const char* Name() const override { return "DummyTableFactory"; }
 
+  using TableFactory::NewTableReader;
   Status NewTableReader(
       const ReadOptions& /*rp*/,
       const TableReaderOptions& /*table_reader_options*/,

@@ -2815,10 +2815,11 @@ class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
         env_(env) {}
 
   IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
-        Slice* result, char* scratch, IODebugContext* dbg) const override;
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
 
   IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-        const IOOptions& options, IODebugContext* dbg) override;
+                     const IOOptions& options, IODebugContext* dbg) override;
 
  private:
   DeadlineFS& fs_;
@@ -2923,8 +2924,9 @@ class DeadlineFS : public FileSystemWrapper {
 };
 
 IOStatus DeadlineRandomAccessFile::Read(uint64_t offset, size_t len,
-      const IOOptions& opts, Slice* result, char* scratch,
-      IODebugContext* dbg) const {
+                                        const IOOptions& opts, Slice* result,
+                                        char* scratch,
+                                        IODebugContext* dbg) const {
   int delay;
   const std::chrono::microseconds deadline = fs_.GetDeadline();
   IOStatus s;
@@ -2936,14 +2938,15 @@ IOStatus DeadlineRandomAccessFile::Read(uint64_t offset, size_t len,
   }
   if (s.ok()) {
     s = FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
-                                         dbg);
+                                        dbg);
   }
   return s;
 }
 
 IOStatus DeadlineRandomAccessFile::MultiRead(FSReadRequest* reqs,
-      size_t num_reqs, const IOOptions& options,
-      IODebugContext* dbg) {
+                                             size_t num_reqs,
+                                             const IOOptions& options,
+                                             IODebugContext* dbg) {
   int delay;
   const std::chrono::microseconds deadline = fs_.GetDeadline();
   IOStatus s;
@@ -2964,13 +2967,12 @@ IOStatus DeadlineRandomAccessFile::MultiRead(FSReadRequest* reqs,
 class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
  public:
   DBBasicTestMultiGetDeadline()
-      : DBBasicTestMultiGet("db_basic_test_multiget_deadline" /*Test dir*/,
-                             10 /*# of column families*/,
-                             false /*compressed cache enabled*/,
-                             true /*uncompressed cache enabled*/,
-                             true /*compression enabled*/,
-                             true /*ReadOptions.fill_cache*/,
-                             1 /*# of parallel compression threads*/) {}
+      : DBBasicTestMultiGet(
+            "db_basic_test_multiget_deadline" /*Test dir*/,
+            10 /*# of column families*/, false /*compressed cache enabled*/,
+            true /*uncompressed cache enabled*/, true /*compression enabled*/,
+            true /*ReadOptions.fill_cache*/,
+            1 /*# of parallel compression threads*/) {}
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
     for (size_t i = 0; i < statuses.size(); ++i) {
@@ -3015,8 +3017,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   ReadOptions ro;
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
   // Delay the first IO by 200ms
-  fs->SetDelaySequence(ro.deadline,
-      {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
 
   std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
   // The first key is successful because we check after the lookup, but
@@ -3041,8 +3043,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
     keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline,
-      {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
   statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
   CheckStatus(statuses, 3);
 
@@ -3056,8 +3058,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline,
-      {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 2);
@@ -3072,8 +3074,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline,
-      {std::tuple<int, int, IOStatus>{2, 20000, IOStatus::OK()}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{2, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 6);
@@ -3087,8 +3089,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline,
-      {std::tuple<int, int, IOStatus>{3, 20000, IOStatus::OK()}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{3, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 8);
@@ -3114,8 +3116,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline,
-      {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 64);
@@ -3165,13 +3167,11 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
     // aborted on a read timeout, so its possible those block reads
     // may get issued even if the deadline is past
     SyncPoint::GetInstance()->SetCallBack(
-        "BlockBasedTable::Get:BeforeFilterMatch", [&](void* /*arg*/) {
-          fs->IgnoreDeadline(true);
-        });
+        "BlockBasedTable::Get:BeforeFilterMatch",
+        [&](void* /*arg*/) { fs->IgnoreDeadline(true); });
     SyncPoint::GetInstance()->SetCallBack(
-        "BlockBasedTable::Get:AfterFilterMatch", [&](void* /*arg*/) {
-          fs->IgnoreDeadline(false);
-        });
+        "BlockBasedTable::Get:AfterFilterMatch",
+        [&](void* /*arg*/) { fs->IgnoreDeadline(false); });
     // DB open will create table readers unless we reduce the table cache
     // capacity.
     // SanitizeOptions will set max_open_files to minimum of 20. Table cache
@@ -3188,10 +3188,11 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
 
     Reopen(options);
 
-    if (options.table_factory && !strcmp(options.table_factory->Name(),
-                                     BlockBasedTableFactory::kName.c_str())) {
+    if (options.table_factory &&
+        !strcmp(options.table_factory->Name(),
+                BlockBasedTableFactory::kName.c_str())) {
       BlockBasedTableFactory* bbtf =
-        static_cast<BlockBasedTableFactory*>(options.table_factory.get());
+          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
       block_cache = bbtf->table_options().block_cache.get();
     }
 
@@ -3212,9 +3213,9 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
     while (timedout) {
       ReadOptions ro;
       ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-      fs->SetDelaySequence(ro.deadline,
-          {std::tuple<int, int, IOStatus>{io_deadline_trigger, 20000,
-                  IOStatus::TimedOut()}});
+      fs->SetDelaySequence(
+          ro.deadline, {std::tuple<int, int, IOStatus>{
+                           io_deadline_trigger, 20000, IOStatus::TimedOut()}});
 
       block_cache->SetCapacity(0);
       block_cache->SetCapacity(1048576);
@@ -3263,10 +3264,11 @@ TEST_F(DBBasicTest, IteratorDeadline) {
 
     Reopen(options);
 
-    if (options.table_factory && !strcmp(options.table_factory->Name(),
-                                     BlockBasedTableFactory::kName.c_str())) {
+    if (options.table_factory &&
+        !strcmp(options.table_factory->Name(),
+                BlockBasedTableFactory::kName.c_str())) {
       BlockBasedTableFactory* bbtf =
-        static_cast<BlockBasedTableFactory*>(options.table_factory.get());
+          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
       block_cache = bbtf->table_options().block_cache.get();
     }
 
@@ -3286,9 +3288,9 @@ TEST_F(DBBasicTest, IteratorDeadline) {
     while (timedout) {
       ReadOptions ro;
       ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-      fs->SetDelaySequence(ro.deadline,
-          {std::tuple<int, int, IOStatus>{io_deadline_trigger, 20000,
-                  IOStatus::TimedOut()}});
+      fs->SetDelaySequence(
+          ro.deadline, {std::tuple<int, int, IOStatus>{
+                           io_deadline_trigger, 20000, IOStatus::TimedOut()}});
 
       block_cache->SetCapacity(0);
       block_cache->SetCapacity(1048576);

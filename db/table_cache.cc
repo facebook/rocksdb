@@ -93,8 +93,7 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 }
 
 Status TableCache::GetTableReader(
-    const ReadOptions& ro,
-    const FileOptions& file_options,
+    const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
     std::unique_ptr<TableReader>* table_reader,
@@ -107,15 +106,15 @@ Status TableCache::GetTableReader(
   FileOptions fopts = file_options;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
   if (s.ok()) {
-    s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
-                                               nullptr);
+    s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file, nullptr);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
     s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
     if (s.ok()) {
-      s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file, nullptr);
+      s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
+                                            nullptr);
     }
     RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   }
@@ -223,13 +222,12 @@ InternalIterator* TableCache::NewIterator(
   auto& fd = file_meta.fd;
   table_reader = fd.table_reader;
   if (table_reader == nullptr) {
-    s = FindTable(options, file_options, icomparator, fd, &handle,
-                  prefix_extractor,
-                  options.read_tier == kBlockCacheTier /* no_io */,
-                  !for_compaction /* record_read_stats */, file_read_hist,
-                  skip_filters, level,
-                  true /* prefetch_index_and_filter_in_cache */,
-                  max_file_size_for_l0_meta_pin);
+    s = FindTable(
+        options, file_options, icomparator, fd, &handle, prefix_extractor,
+        options.read_tier == kBlockCacheTier /* no_io */,
+        !for_compaction /* record_read_stats */, file_read_hist, skip_filters,
+        level, true /* prefetch_index_and_filter_in_cache */,
+        max_file_size_for_l0_meta_pin);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(handle);
     }
