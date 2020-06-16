@@ -1280,7 +1280,11 @@ ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
   assert(coptions.credentials.HasValid().ok());
 
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
-  coptions.TEST_Initialize("dbbench.", "", region);
+  if (FLAGS_db.empty()) {
+    coptions.TEST_Initialize("dbbench.", "db-bench", region);
+  } else {
+    coptions.TEST_Initialize("dbbench.", FLAGS_db, region);
+  }
   ROCKSDB_NAMESPACE::CloudEnv* s;
   ROCKSDB_NAMESPACE::Status st = ROCKSDB_NAMESPACE::AwsEnv::NewAwsEnv(
       ROCKSDB_NAMESPACE::Env::Default(), coptions, std::move(info_log), &s);
@@ -1294,10 +1298,10 @@ static const auto& s3_reg =
     ROCKSDB_NAMESPACE::ObjectLibrary::Default()
         -> Register<ROCKSDB_NAMESPACE::Env>(
             "s3://.*", [](const std::string& uri,
-                          std::unique_ptr<ROCKSDB_NAMESPACE::Env>* env_guard,
+                          std::unique_ptr<ROCKSDB_NAMESPACE::Env>* guard,
                           std::string*) {
-              CreateAwsEnv(uri, env_guard);
-              return env_guard->get();
+              CreateAwsEnv(uri, guard);
+              return guard->get();
             });
 #endif /* USE_AWS */
 
