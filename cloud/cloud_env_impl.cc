@@ -6,6 +6,7 @@
 #include <cinttypes>
 
 #include "cloud/cloud_env_wrapper.h"
+#include "cloud/cloud_scheduler.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "env/composite_env_wrapper.h"
@@ -24,11 +25,21 @@ namespace ROCKSDB_NAMESPACE {
 
 CloudEnvImpl::CloudEnvImpl(const CloudEnvOptions& opts, Env* base,
                            const std::shared_ptr<Logger>& l)
-    : CloudEnv(opts, base, l), purger_is_running_(true) {}
+    : CloudEnv(opts, base, l), purger_is_running_(true) {
+  scheduler_ = CloudScheduler::Get();
+}
 
 CloudEnvImpl::~CloudEnvImpl() {
   if (cloud_env_options.cloud_log_controller) {
     cloud_env_options.cloud_log_controller->StopTailingStream();
+  }
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    using std::swap;
+    for (auto& e : files_to_delete_) {
+      scheduler_->CancelJob(e.second);
+    }
+    files_to_delete_.clear();
   }
   StopPurger();
 }
@@ -96,8 +107,9 @@ Status CloudEnvImpl::ListCloudObjects(const std::string& path,
         GetSrcBucketName(), GetSrcObjectPath(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[%s] GetChildren src bucket %s %s error from S3 %s", Name(),
-          GetSrcBucketName().c_str(), path.c_str(), st.ToString().c_str());
+          "[%s] GetChildren src bucket %s %s error from %s %s", Name(),
+          GetSrcBucketName().c_str(), path.c_str(),
+          cloud_env_options.storage_provider->Name(), st.ToString().c_str());
       return st;
     }
   }
@@ -106,8 +118,9 @@ Status CloudEnvImpl::ListCloudObjects(const std::string& path,
         GetDestBucketName(), GetDestObjectPath(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[%s] GetChildren dest bucket %s %s error from S3 %s", Name(),
-          GetDestBucketName().c_str(), path.c_str(), st.ToString().c_str());
+          "[%s] GetChildren dest bucket %s %s error from %s %s", Name(),
+          GetDestBucketName().c_str(), path.c_str(),
+          cloud_env_options.storage_provider->Name(), st.ToString().c_str());
     }
   }
   return st;
@@ -249,8 +262,8 @@ Status CloudEnvImpl::NewRandomAccessFile(
           stax = GetCloudObjectSize(fname, &remote_size);
         }
         if (stax.IsNotFound() && !HasDestBucket()) {
-          // It is legal for file to not be present in S3 if destination bucket
-          // is not set.
+          // It is legal for file to not be present in storage provider if
+          // destination bucket is not set.
         } else if (!stax.ok() || remote_size != local_size) {
           std::string msg = std::string("[") + Name() + "] HeadObject src " +
                             fname + " local size " +
@@ -337,7 +350,7 @@ Status CloudEnvImpl::ReopenWritableFile(const std::string& fname,
                                         std::unique_ptr<WritableFile>* result,
                                         const EnvOptions& options) {
   // This is not accurately correct because there is no wasy way to open
-  // an S3 file in append mode. We still need to support this because
+  // an provider file in append mode. We still need to support this because
   // rocksdb's ExternalSstFileIngestionJob invokes this api to reopen
   // a pre-created file to flush/sync it.
   return base_env_->ReopenWritableFile(fname, result, options);
@@ -363,7 +376,7 @@ Status CloudEnvImpl::FileExists(const std::string& logical_fname) {
       st = ExistsCloudObject(fname);
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    // read from Kinesis
+    // read from controller
     st = cloud_env_options.cloud_log_controller->FileExists(fname);
   } else {
     st = base_env_->FileExists(fname);
@@ -528,7 +541,7 @@ Status CloudEnvImpl::RenameFile(const std::string& logical_src,
   assert(HasDestBucket());
   assert(basename(target) == "IDENTITY");
 
-  // Save Identity to S3
+  // Save Identity to Cloud
   Status st = SaveIdentityToCloud(src, destname(target));
 
   // Do the rename on local filesystem too
@@ -644,6 +657,131 @@ Status CloudEnvImpl::DeleteDir(const std::string& dirname) {
   return st;
 };
 
+Status CloudEnvImpl::DeleteFile(const std::string& logical_fname) {
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
+
+  if (manifest) {
+    // We don't delete manifest files. The reason for this is that even though
+    // RocksDB creates manifest with different names (like MANIFEST-00001,
+    // MANIFEST-00008) we actually map all of them to the same filename
+    // MANIFEST-[epoch].
+    // When RocksDB wants to roll the MANIFEST (let's say from 1 to 8) it does
+    // the following:
+    // 1. Create a new MANIFEST-8
+    // 2. Write everything into MANIFEST-8
+    // 3. Sync MANIFEST-8
+    // 4. Store "MANIFEST-8" in CURRENT file
+    // 5. Delete MANIFEST-1
+    //
+    // What RocksDB cloud does behind the scenes (the numbers match the list
+    // above):
+    // 1. Create manifest file MANIFEST-[epoch].tmp
+    // 2. Forward RocksDB writes to the file created in the first step
+    // 3. Atomic rename from MANIFEST-[epoch].tmp to MANIFEST-[epoch]. The old
+    // file with the same file name is overwritten.
+    // 4. Nothing. Whatever the contents of CURRENT file, we don't care, we
+    // always remap MANIFEST files to the correct with the latest epoch.
+    // 5. Also nothing. There is no file to delete, because we have overwritten
+    // it in the third step.
+    return Status::OK();
+  }
+
+  Status st;
+  // Delete from destination bucket and local dir
+  if (sstfile || manifest || identity) {
+    if (HasDestBucket()) {
+      // add the remote file deletion to the queue
+      st = DeleteCloudFileFromDest(basename(fname));
+    }
+    // delete from local, too. Ignore the result, though. The file might not be
+    // there locally.
+    base_env_->DeleteFile(fname);
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
+    // read from Log Controller
+    st = cloud_env_options.cloud_log_controller->status();
+    if (st.ok()) {
+      // Log a Delete record to controller stream
+      std::unique_ptr<CloudLogWritableFile> f(
+          cloud_env_options.cloud_log_controller->CreateWritableFile(
+              fname, EnvOptions()));
+      if (!f || !f->status().ok()) {
+        std::string msg =
+            "[" + std::string(cloud_env_options.cloud_log_controller->Name()) +
+            "] DeleteFile";
+        st = Status::IOError(msg, fname.c_str());
+      } else {
+        st = f->LogDelete();
+      }
+    }
+  } else {
+    st = base_env_->DeleteFile(fname);
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[%s] DeleteFile file %s %s",
+      Name(), fname.c_str(), st.ToString().c_str());
+  return st;
+}
+
+void CloudEnvImpl::RemoveFileFromDeletionQueue(const std::string& filename) {
+  std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+  auto itr = files_to_delete_.find(filename);
+  if (itr != files_to_delete_.end()) {
+    scheduler_->CancelJob(itr->second);
+    files_to_delete_.erase(itr);
+  }
+}
+
+Status CloudEnvImpl::CopyLocalFileToDest(const std::string& local_name,
+                                         const std::string& dest_name) {
+  RemoveFileFromDeletionQueue(basename(local_name));
+  return cloud_env_options.storage_provider->PutCloudObject(
+      local_name, GetDestBucketName(), dest_name);
+}
+
+Status CloudEnvImpl::DeleteCloudFileFromDest(const std::string& fname) {
+  assert(HasDestBucket());
+  auto base = basename(fname);
+  // add the job to delete the file in 1 hour
+  auto doDeleteFile = [this, base](void*) {
+    {
+      std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+      auto itr = files_to_delete_.find(base);
+      if (itr == files_to_delete_.end()) {
+        // File was removed from files_to_delete_, do not delete!
+        return;
+      }
+      files_to_delete_.erase(itr);
+    }
+    auto path = GetDestObjectPath() + "/" + base;
+    // we are ready to delete the file!
+    auto st = cloud_env_options.storage_provider->DeleteCloudObject(
+        GetDestBucketName(), path);
+    if (!st.ok() && !st.IsNotFound()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[%s] DeleteFile file %s error %s", Name(), path.c_str(),
+          st.ToString().c_str());
+    }
+  };
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    if (files_to_delete_.find(base) != files_to_delete_.end()) {
+      // already in the queue
+      return Status::OK();
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
+    auto handle = scheduler_->ScheduleJob(file_deletion_delay_,
+                                          std::move(doDeleteFile), nullptr);
+    files_to_delete_.emplace(base, std::move(handle));
+  }
+  return Status::OK();
+}
+
 // Copy my IDENTITY file to cloud storage. Update dbid registry.
 Status CloudEnvImpl::SaveIdentityToCloud(const std::string& localfile,
                                          const std::string& idfile) {
@@ -654,7 +792,7 @@ Status CloudEnvImpl::SaveIdentityToCloud(const std::string& localfile,
   Status st = ReadFileToString(base_env_, localfile, &dbid);
   dbid = trim(dbid);
 
-  // Upload ID file to  S3
+  // Upload ID file to provider
   if (st.ok()) {
     st = cloud_env_options.storage_provider->PutCloudObject(
         localfile, GetDestBucketName(), idfile);
@@ -971,7 +1109,7 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
   if (HasSrcBucket()) {
     st = GetPathForDbid(src_bucket, local_dbid, &src_object_path);
     if (!st.ok() && !st.IsNotFound()) {
-      // Unable to fetch data from S3. Fail Open request.
+      // Unable to fetch data from provider Fail Open request.
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[cloud_env_impl] NeedsReinitialization: "
           "Local dbid is %s but unable to find src dbid",
@@ -997,7 +1135,7 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
   if (HasDestBucket()) {
     st = GetPathForDbid(dest_bucket, local_dbid, &dest_object_path);
     if (!st.ok() && !st.IsNotFound()) {
-      // Unable to fetch data from S3. Fail Open request.
+      // Unable to fetch data from provider Fail Open request.
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[cloud_env_impl] NeedsReinitialization: "
           "Local dbid is %s but unable to find dest dbid",
