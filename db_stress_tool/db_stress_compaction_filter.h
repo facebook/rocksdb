@@ -27,6 +27,12 @@ class DbStressCompactionFilter : public CompactionFilter {
     if (state_ == nullptr) {
       return Decision::kKeep;
     }
+    if (key.empty() || ('0' <= key[0] && key[0] <= '9')) {
+      // It is likely leftover from a test_batches_snapshots run. Below this
+      // conditional, the test_batches_snapshots key format is not handled
+      // properly. Just keep it to be safe.
+      return Decision::kKeep;
+    }
     uint64_t key_num = 0;
     bool ok = GetIntVal(key.ToString(), &key_num);
     assert(ok);
