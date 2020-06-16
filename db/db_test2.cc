@@ -101,6 +101,7 @@ TEST_F(DBTest2, ReadOnlyWithCompresedCache) {
       Options options = CurrentOptions();
       options.allow_mmap_reads = use_mmap;
       options.max_open_files = max_open_files;
+      options.compression = kSnappyCompression;
       BlockBasedTableOptions table_options;
       table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
       table_options.no_block_cache = true;
@@ -116,12 +117,14 @@ TEST_F(DBTest2, ReadOnlyWithCompresedCache) {
                 options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
       ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
       ASSERT_EQ("bar", v);
-      if (use_mmap) {
-        ASSERT_EQ(
-            0, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
-      } else {
-        ASSERT_EQ(
-            1, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+      if (Snappy_Supported()) {
+        if (use_mmap) {
+          ASSERT_EQ(0, options.statistics->getTickerCount(
+                           BLOCK_CACHE_COMPRESSED_HIT));
+        } else {
+          ASSERT_EQ(1, options.statistics->getTickerCount(
+                           BLOCK_CACHE_COMPRESSED_HIT));
+        }
       }
 
       delete db_ptr;
