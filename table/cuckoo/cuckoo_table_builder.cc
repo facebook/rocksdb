@@ -53,7 +53,8 @@ CuckooTableBuilder::CuckooTableBuilder(
     const Comparator* user_comparator, uint32_t cuckoo_block_size,
     bool use_module_hash, bool identity_as_first_hash,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t),
-    uint32_t column_family_id, const std::string& column_family_name)
+    uint32_t column_family_id, const std::string& column_family_name,
+    const std::string& db_id, const std::string& db_session_id)
     : num_hash_func_(2),
       file_(file),
       max_hash_table_ratio_(max_hash_table_ratio),
@@ -79,6 +80,8 @@ CuckooTableBuilder::CuckooTableBuilder(
   properties_.filter_size = 0;
   properties_.column_family_id = column_family_id;
   properties_.column_family_name = column_family_name;
+  properties_.db_id = db_id;
+  properties_.db_session_id = db_session_id;
 }
 
 void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {

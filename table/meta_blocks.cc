@@ -96,6 +96,8 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.file_creation_time > 0) {
     Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
   }
+  Add(TablePropertiesNames::kDbId, props.db_id);
+  Add(TablePropertiesNames::kDbSessionId, props.db_session_id);
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
@@ -311,6 +313,10 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
         continue;
       }
       *(pos->second) = val;
+    } else if (key == TablePropertiesNames::kDbId) {
+      new_table_properties->db_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kDbSessionId) {
+      new_table_properties->db_session_id = raw_val.ToString();
     } else if (key == TablePropertiesNames::kFilterPolicy) {
       new_table_properties->filter_policy_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kColumnFamilyName) {

@@ -439,7 +439,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time,
       table_builder_options.target_file_size,
-      table_builder_options.file_creation_time);
+      table_builder_options.file_creation_time, table_builder_options.db_id,
+      table_builder_options.db_session_id);
 
   return table_builder;
 }

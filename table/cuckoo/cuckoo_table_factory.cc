@@ -40,7 +40,8 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
       table_builder_options.internal_comparator.user_comparator(),
       table_options_.cuckoo_block_size, table_options_.use_module_hash,
       table_options_.identity_as_first_hash, nullptr /* get_slice_hash */,
-      column_family_id, table_builder_options.column_family_name);
+      column_family_id, table_builder_options.column_family_name,
+      table_builder_options.db_id, table_builder_options.db_session_id);
 }
 
 std::string CuckooTableFactory::GetPrintableTableOptions() const {
