@@ -577,7 +577,7 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 }
 
 Status BlockBasedTable::Open(
-    const ReadOptions& ro, const ImmutableCFOptions& ioptions,
+    const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
     const EnvOptions& env_options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
@@ -594,6 +594,13 @@ Status BlockBasedTable::Open(
   Status s;
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
+
+  // Only retain read_options.deadline. In future, we may retain more
+  // options. Specifically, w ignore verify_checksums and default to
+  // checksum verification anyway when creating the index and filter
+  // readers.
+  ReadOptions ro;
+  ro.deadline = read_options.deadline;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
