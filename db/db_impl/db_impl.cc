@@ -2724,10 +2724,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
     // super version, which is a valid consistent state after the user
     // calls NewIterator().
     snapshot = versions_->LastSequence();
+    TEST_SYNC_POINT("DBImpl::NewIterator:3");
+    TEST_SYNC_POINT("DBImpl::NewIterator:4");
   }
-
-  TEST_SYNC_POINT("DBImpl::NewIterator:3");
-  TEST_SYNC_POINT("DBImpl::NewIterator:4");
 
   // Try to generate a DB iterator tree in continuous memory area to be
   // cache friendly. Here is an example of result:
