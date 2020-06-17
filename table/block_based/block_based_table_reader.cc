@@ -1403,10 +1403,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
-  // No point to cache compressed blocks if it never goes away
   Cache* block_cache_compressed =
-      rep_->immortal_table ? nullptr
-                           : rep_->table_options.block_cache_compressed.get();
+      rep_->table_options.block_cache_compressed.get();
 
   // First, try to get the block from the cache
   //
