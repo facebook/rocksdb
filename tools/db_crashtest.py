@@ -79,6 +79,8 @@ default_params = {
     "recycle_log_file_num": lambda: random.randint(0, 1),
     "reopen": 20,
     "snapshot_hold_ops": 100000,
+    "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
+    "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
     "long_running_snapshots": lambda: random.randint(0, 1),
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
@@ -275,6 +277,8 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
+    if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
+        dest_params["sst_file_manager_bytes_per_truncate"] = 0
     return dest_params
 
 def gen_cmd_params(args):
