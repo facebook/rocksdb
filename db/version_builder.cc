@@ -765,9 +765,6 @@ class VersionBuilder::Rep {
 
       if (base_blob_file_number < delta_blob_file_number) {
         const auto& base_meta = base_it->second;
-        assert(base_meta);
-        assert(base_meta->GetGarbageBlobCount() <
-               base_meta->GetTotalBlobCount());
 
         AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
 
@@ -796,10 +793,9 @@ class VersionBuilder::Rep {
 
     while (base_it != base_it_end) {
       const auto& base_meta = base_it->second;
-      assert(base_meta);
-      assert(base_meta->GetGarbageBlobCount() < base_meta->GetTotalBlobCount());
 
       AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
+
       ++base_it;
     }
 
