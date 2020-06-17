@@ -14,6 +14,8 @@
 
 #ifdef USE_AWS
 
+#include <string.h>
+
 #include <chrono>
 #include <list>
 #include <unordered_map>

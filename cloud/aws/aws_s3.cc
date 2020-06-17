@@ -44,12 +44,16 @@
 #include "cloud/aws/aws_file.h"
 #include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/filename.h"
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/options.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+
+#ifdef _WIN32_WINNT
+#undef GetMessage
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 #ifdef USE_AWS
@@ -477,8 +481,20 @@ Status S3StorageProvider::CreateBucket(const std::string& bucket) {
   Aws::S3::Model::BucketLocationConstraint bucket_location = Aws::S3::Model::
       BucketLocationConstraintMapper::GetBucketLocationConstraintForName(
           ToAwsString(env_->GetCloudEnvOptions().dest_bucket.GetRegion()));
-  if (bucket_location != Aws::S3::Model::BucketLocationConstraint::NOT_SET) {
-    // only set the location constraint if it's not not set
+  //
+  // If you create a bucket in US-EAST-1, no location constraint should be
+  // specified
+  //
+  // https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
+  //
+  // By default, the bucket is created in the US East (N. Virginia) Region.
+  // You can optionally specify a Region in the request body. You might choose
+  // a Region to optimize latency, minimize costs, or address regulatory
+  // requirements.
+  //
+  if ((bucket_location != Aws::S3::Model::BucketLocationConstraint::NOT_SET) &&
+      (bucket_location !=
+       Aws::S3::Model::BucketLocationConstraint::us_east_1)) {
     conf.SetLocationConstraint(bucket_location);
   }
 

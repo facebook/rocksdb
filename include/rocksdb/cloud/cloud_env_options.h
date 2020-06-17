@@ -313,7 +313,7 @@ class CloudEnvOptions {
       bool _skip_dbid_verification = false,
       bool _use_aws_transfer_manager = false,
       int _number_objects_listed_in_one_iteration = 5000,
-      bool _constant_sst_file_size_in_sst_file_manager = -1,
+      int _constant_sst_file_size_in_sst_file_manager = -1,
       bool _skip_cloud_files_in_getchildren = false)
       : cloud_type(_cloud_type),
         log_type(_log_type),
