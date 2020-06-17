@@ -87,20 +87,32 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   ASSERT_NOK(env_->FileExists(dbname));
 }
 
-TEST_F(DBTest2, ReadOnlyWithCompresedCache) {
+class TestReadOnlyWithCompressedCache
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<int, bool>> {
+ public:
+  TestReadOnlyWithCompressedCache()
+      : DBTestBase("/test_readonly_with_compressed_cache") {}
+  void SetUp() override {
+    max_open_files_ = std::get<0>(GetParam());
+    use_mmap_ = std::get<1>(GetParam());
+  }
+  int max_open_files_;
+  bool use_mmap_;
+};
+
+TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
+  if (use_mmap_ && !IsMemoryMappedAccessSupported()) {
+    return;
+  }
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("foo2", "barbarbarbarbarbarbarbar"));
   ASSERT_OK(Flush());
 
-  for (int max_open_files : {-1, 100}) {
-    for (bool use_mmap : {false, true}) {
-      if (use_mmap && !IsMemoryMappedAccessSupported()) {
-        continue;
-      }
       DB* db_ptr = nullptr;
       Options options = CurrentOptions();
-      options.allow_mmap_reads = use_mmap;
-      options.max_open_files = max_open_files;
+      options.allow_mmap_reads = use_mmap_;
+      options.max_open_files = max_open_files_;
       options.compression = kSnappyCompression;
       BlockBasedTableOptions table_options;
       table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
@@ -118,7 +130,7 @@ TEST_F(DBTest2, ReadOnlyWithCompresedCache) {
       ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
       ASSERT_EQ("bar", v);
       if (Snappy_Supported()) {
-        if (use_mmap) {
+        if (use_mmap_) {
           ASSERT_EQ(0, options.statistics->getTickerCount(
                            BLOCK_CACHE_COMPRESSED_HIT));
         } else {
@@ -128,9 +140,12 @@ TEST_F(DBTest2, ReadOnlyWithCompresedCache) {
       }
 
       delete db_ptr;
-    }
-  }
 }
+
+INSTANTIATE_TEST_CASE_P(
+    TestReadOnlyWithCompressedCache, TestReadOnlyWithCompressedCache,
+    ::testing::Values(std::make_tuple(-1, false), std::make_tuple(100, false),
+                      std::make_tuple(-1, true), std::make_tuple(100, false)));
 #endif  // ROCKSDB_LITE
 
 class PrefixFullBloomWithReverseComparator
