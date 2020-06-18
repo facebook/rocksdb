@@ -27,12 +27,17 @@ VersionEditHandler::VersionEditHandler(
   assert(version_set_ != nullptr);
 }
 
-Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
+void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
+                                 std::string* db_id) {
   Slice record;
   std::string scratch;
+  assert(log_read_status);
+  assert(log_read_status->ok());
+
   size_t recovered_edits = 0;
   Status s = Initialize();
-  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+  while (s.ok() && reader.ReadRecord(&record, &scratch) &&
+         log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
@@ -70,13 +75,15 @@ Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
       }
     }
   }
+  if (!log_read_status->ok()) {
+    s = *log_read_status;
+  }
 
   CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
     status_ = s;
   }
-  return s;
 }
 
 Status VersionEditHandler::Initialize() {
