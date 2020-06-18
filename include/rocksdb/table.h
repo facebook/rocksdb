@@ -210,7 +210,8 @@ struct BlockBasedTableOptions {
   // filters are generated to "round up" and "round down" their sizes to
   // minimize internal fragmentation when loaded into memory, assuming the
   // reading DB has the same memory allocation characteristics as the
-  // generating DB.
+  // generating DB. This option does not break forward or backward
+  // compatibility.
   //
   // While individual filters will vary in bits/key and false positive rate
   // when setting is true, the implementation attempts to maintain a weighted
