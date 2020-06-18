@@ -2671,7 +2671,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         " guaranteed to be preserved, try larger iter_start_seqnum opt."));
   }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
+  ColumnFamilyData* cfd = cfh->cfd();
+  assert(cfd != nullptr);
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
@@ -2692,10 +2693,11 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
-    auto snapshot = read_options.snapshot != nullptr
-                        ? read_options.snapshot->GetSequenceNumber()
-                        : versions_->LastSequence();
-    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
+    result = NewIteratorImpl(read_options, cfd,
+                             (read_options.snapshot != nullptr)
+                                 ? read_options.snapshot->GetSequenceNumber()
+                                 : kMaxSequenceNumber,
+                             read_callback);
   }
   return result;
 }
@@ -2707,6 +2709,24 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             bool allow_blob,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+
+  TEST_SYNC_POINT("DBImpl::NewIterator:1");
+  TEST_SYNC_POINT("DBImpl::NewIterator:2");
+
+  if (snapshot == kMaxSequenceNumber) {
+    // Note that the snapshot is assigned AFTER referencing the super
+    // version because otherwise a flush happening in between may compact away
+    // data for the snapshot, so the reader would see neither data that was be
+    // visible to the snapshot before compaction nor the newer data inserted
+    // afterwards.
+    // Note that the super version might not contain all the data available
+    // to this snapshot, but in that case it can see all the data in the
+    // super version, which is a valid consistent state after the user
+    // calls NewIterator().
+    snapshot = versions_->LastSequence();
+    TEST_SYNC_POINT("DBImpl::NewIterator:3");
+    TEST_SYNC_POINT("DBImpl::NewIterator:4");
+  }
 
   // Try to generate a DB iterator tree in continuous memory area to be
   // cache friendly. Here is an example of result:
