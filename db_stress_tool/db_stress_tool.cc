@@ -236,6 +236,15 @@ int db_stress_tool(int argc, char** argv) {
       exit(1);
     }
   }
+  if (FLAGS_enable_compaction_filter &&
+      (FLAGS_acquire_snapshot_one_in > 0 || FLAGS_compact_range_one_in > 0 ||
+       FLAGS_iterpercent > 0 || FLAGS_test_batches_snapshots > 0)) {
+    fprintf(
+        stderr,
+        "Error: acquire_snapshot_one_in, compact_range_one_in, iterpercent, "
+        "test_batches_snapshots  must all be 0 when using compaction filter\n");
+    exit(1);
+  }
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
   rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);

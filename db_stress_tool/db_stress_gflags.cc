@@ -695,4 +695,9 @@ DEFINE_bool(sync_fault_injection, false,
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
 DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
+
+DEFINE_bool(enable_compaction_filter, false,
+            "If true, configures a compaction filter that returns a kRemove "
+            "decision for deleted keys.");
+
 #endif  // GFLAGS

@@ -57,11 +57,8 @@ void ThreadBody(void* v) {
 
 bool RunStressTest(StressTest* stress) {
   stress->InitDb();
-
   SharedState shared(db_stress_env, stress);
-  if (FLAGS_read_only) {
-    stress->InitReadonlyDb(&shared);
-  }
+  stress->FinishInitDb(&shared);
 
 #ifndef NDEBUG
   if (FLAGS_sync_fault_injection) {
