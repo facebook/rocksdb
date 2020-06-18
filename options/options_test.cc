@@ -625,8 +625,65 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
             dflt.parallel_threads);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, false);
+
+  // Test as struct values
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, ColumnFamilyOptions(),
+      "compression_opts={window_bits=5; level=6; strategy=7; max_dict_bytes=8;"
+      "zstd_max_train_bytes=9;parallel_threads=10;enabled=true}; "
+      "bottommost_compression_opts={window_bits=4; level=5; strategy=6;"
+      " max_dict_bytes=7;zstd_max_train_bytes=8;parallel_threads=9;"
+      "enabled=false}; ",
+      &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 5);
+  ASSERT_EQ(new_cf_opt.compression_opts.level, 6);
+  ASSERT_EQ(new_cf_opt.compression_opts.strategy, 7);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 8u);
+  ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 9u);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 10u);
+  ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 4);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 5);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 6);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 7u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 8u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads, 9u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, false);
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "compression_opts={window_bits=4; strategy=5;};"
+      "bottommost_compression_opts={level=6; strategy=7;}",
+      &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
+  ASSERT_EQ(new_cf_opt.compression_opts.strategy, 5);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
+
+  ASSERT_EQ(new_cf_opt.compression_opts.level,
+            base_cf_opt.compression_opts.level);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes,
+            base_cf_opt.compression_opts.max_dict_bytes);
+  ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes,
+            base_cf_opt.compression_opts.zstd_max_train_bytes);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads,
+            base_cf_opt.compression_opts.parallel_threads);
+  ASSERT_EQ(new_cf_opt.compression_opts.enabled,
+            base_cf_opt.compression_opts.enabled);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits,
+            base_cf_opt.bottommost_compression_opts.window_bits);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes,
+            base_cf_opt.bottommost_compression_opts.max_dict_bytes);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes,
+            base_cf_opt.bottommost_compression_opts.zstd_max_train_bytes);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
+            base_cf_opt.bottommost_compression_opts.parallel_threads);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled,
+            base_cf_opt.bottommost_compression_opts.enabled);
+
+  // Test a few individual struct values
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
       "compression_opts.enabled=false; "
       "bottommost_compression_opts.enabled=true; ",
       &new_cf_opt));
