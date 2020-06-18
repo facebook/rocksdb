@@ -812,5 +812,7 @@ void ResetTmpDirForDirectIO();
 // to the file system.
 void SetupSyncPointsToMockDirectIO();
 
+void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt);
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

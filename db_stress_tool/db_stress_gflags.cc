@@ -691,4 +691,13 @@ DEFINE_int32(read_fault_one_in, 1000,
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
             " and unsynced data in DB will lost after crash.");
+
+DEFINE_bool(best_efforts_recovery, false,
+            "If true, use best efforts recovery.");
+DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
+
+DEFINE_bool(enable_compaction_filter, false,
+            "If true, configures a compaction filter that returns a kRemove "
+            "decision for deleted keys.");
+
 #endif  // GFLAGS

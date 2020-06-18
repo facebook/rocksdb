@@ -90,7 +90,8 @@ class VersionBuilder::Rep {
    public:
     bool IsEmpty() const {
       return !shared_meta_ && !additional_garbage_count_ &&
-             !additional_garbage_bytes_;
+             !additional_garbage_bytes_ && newly_linked_ssts_.empty() &&
+             newly_unlinked_ssts_.empty();
     }
 
     std::shared_ptr<SharedBlobFileMetaData> GetSharedMeta() const {
@@ -105,6 +106,14 @@ class VersionBuilder::Rep {
       return additional_garbage_bytes_;
     }
 
+    const std::unordered_set<uint64_t>& GetNewlyLinkedSsts() const {
+      return newly_linked_ssts_;
+    }
+
+    const std::unordered_set<uint64_t>& GetNewlyUnlinkedSsts() const {
+      return newly_unlinked_ssts_;
+    }
+
     void SetSharedMeta(std::shared_ptr<SharedBlobFileMetaData> shared_meta) {
       assert(!shared_meta_);
       assert(shared_meta);
@@ -117,10 +126,44 @@ class VersionBuilder::Rep {
       additional_garbage_bytes_ += bytes;
     }
 
+    void LinkSst(uint64_t sst_file_number) {
+      assert(newly_linked_ssts_.find(sst_file_number) ==
+             newly_linked_ssts_.end());
+
+      // Reconcile with newly unlinked SSTs on the fly. (Note: an SST can be
+      // linked to and unlinked from the same blob file in the case of a trivial
+      // move.)
+      auto it = newly_unlinked_ssts_.find(sst_file_number);
+
+      if (it != newly_unlinked_ssts_.end()) {
+        newly_unlinked_ssts_.erase(it);
+      } else {
+        newly_linked_ssts_.emplace(sst_file_number);
+      }
+    }
+
+    void UnlinkSst(uint64_t sst_file_number) {
+      assert(newly_unlinked_ssts_.find(sst_file_number) ==
+             newly_unlinked_ssts_.end());
+
+      // Reconcile with newly linked SSTs on the fly. (Note: an SST can be
+      // linked to and unlinked from the same blob file in the case of a trivial
+      // move.)
+      auto it = newly_linked_ssts_.find(sst_file_number);
+
+      if (it != newly_linked_ssts_.end()) {
+        newly_linked_ssts_.erase(it);
+      } else {
+        newly_unlinked_ssts_.emplace(sst_file_number);
+      }
+    }
+
    private:
     std::shared_ptr<SharedBlobFileMetaData> shared_meta_;
     uint64_t additional_garbage_count_ = 0;
     uint64_t additional_garbage_bytes_ = 0;
+    std::unordered_set<uint64_t> newly_linked_ssts_;
+    std::unordered_set<uint64_t> newly_unlinked_ssts_;
   };
 
   const FileOptions& file_options_;
@@ -212,29 +255,19 @@ class VersionBuilder::Rep {
     return false;
   }
 
-  Status CheckConsistencyOfOldestBlobFileReference(
-      const VersionStorageInfo* vstorage, uint64_t blob_file_number) const {
-    assert(vstorage);
+  using ExpectedLinkedSsts =
+      std::unordered_map<uint64_t, BlobFileMetaData::LinkedSsts>;
 
-    // TODO: remove this check once we actually start recoding metadata for
-    // blob files in the MANIFEST.
-    if (vstorage->GetBlobFiles().empty()) {
-      return Status::OK();
-    }
+  static void UpdateExpectedLinkedSsts(
+      uint64_t table_file_number, uint64_t blob_file_number,
+      ExpectedLinkedSsts* expected_linked_ssts) {
+    assert(expected_linked_ssts);
 
     if (blob_file_number == kInvalidBlobFileNumber) {
-      return Status::OK();
+      return;
     }
 
-    if (!IsBlobFileInVersion(blob_file_number)) {
-      std::ostringstream oss;
-      oss << "Blob file #" << blob_file_number
-          << " is not part of this version";
-
-      return Status::Corruption("VersionBuilder", oss.str());
-    }
-
-    return Status::OK();
+    (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
   Status CheckConsistency(VersionStorageInfo* vstorage) {
@@ -245,9 +278,13 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 #endif
-    // Make sure the files are sorted correctly and that the oldest blob file
-    // reference for each table file points to a valid blob file in this
-    // version.
+    // Make sure the files are sorted correctly and that the links between
+    // table files and blob files are consistent. The latter is checked using
+    // the following mapping, which is built using the forward links
+    // (table file -> blob file), and is subsequently compared with the inverse
+    // mapping stored in the BlobFileMetaData objects.
+    ExpectedLinkedSsts expected_linked_ssts;
+
     for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
 
@@ -256,19 +293,14 @@ class VersionBuilder::Rep {
       }
 
       assert(level_files[0]);
-      Status s = CheckConsistencyOfOldestBlobFileReference(
-          vstorage, level_files[0]->oldest_blob_file_number);
-      if (!s.ok()) {
-        return s;
-      }
-
+      UpdateExpectedLinkedSsts(level_files[0]->fd.GetNumber(),
+                               level_files[0]->oldest_blob_file_number,
+                               &expected_linked_ssts);
       for (size_t i = 1; i < level_files.size(); i++) {
         assert(level_files[i]);
-        s = CheckConsistencyOfOldestBlobFileReference(
-            vstorage, level_files[i]->oldest_blob_file_number);
-        if (!s.ok()) {
-          return s;
-        }
+        UpdateExpectedLinkedSsts(level_files[i]->fd.GetNumber(),
+                                 level_files[i]->oldest_blob_file_number,
+                                 &expected_linked_ssts);
 
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
@@ -278,7 +310,6 @@ class VersionBuilder::Rep {
           TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency0", &pair);
 #endif
           if (!level_zero_cmp_(f1, f2)) {
-            fprintf(stderr, "L0 files are not sorted properly");
             return Status::Corruption("L0 files are not sorted properly");
           }
 
@@ -287,11 +318,6 @@ class VersionBuilder::Rep {
             SequenceNumber external_file_seqno = f2->fd.smallest_seqno;
             if (!(external_file_seqno < f1->fd.largest_seqno ||
                   external_file_seqno == 0)) {
-              fprintf(stderr,
-                      "L0 file with seqno %" PRIu64 " %" PRIu64
-                      " vs. file with global_seqno %" PRIu64 "\n",
-                      f1->fd.smallest_seqno, f1->fd.largest_seqno,
-                      external_file_seqno);
               return Status::Corruption(
                   "L0 file with seqno " +
                   NumberToString(f1->fd.smallest_seqno) + " " +
@@ -301,11 +327,6 @@ class VersionBuilder::Rep {
                   NumberToString(f1->fd.GetNumber()));
             }
           } else if (f1->fd.smallest_seqno <= f2->fd.smallest_seqno) {
-            fprintf(stderr,
-                    "L0 files seqno %" PRIu64 " %" PRIu64 " vs. %" PRIu64
-                    " %" PRIu64 "\n",
-                    f1->fd.smallest_seqno, f1->fd.largest_seqno,
-                    f2->fd.smallest_seqno, f2->fd.largest_seqno);
             return Status::Corruption(
                 "L0 files seqno " + NumberToString(f1->fd.smallest_seqno) +
                 " " + NumberToString(f1->fd.largest_seqno) + " " +
@@ -320,7 +341,6 @@ class VersionBuilder::Rep {
           TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
-            fprintf(stderr, "L%d files are not sorted properly", level);
             return Status::Corruption("L" + NumberToString(level) +
                                       " files are not sorted properly");
           }
@@ -328,9 +348,6 @@ class VersionBuilder::Rep {
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
-            fprintf(stderr, "L%d have overlapping ranges %s vs. %s\n", level,
-                    (f1->largest).DebugString(true).c_str(),
-                    (f2->smallest).DebugString(true).c_str());
             return Status::Corruption(
                 "L" + NumberToString(level) + " have overlapping ranges " +
                 (f1->largest).DebugString(true) + " vs. " +
@@ -343,14 +360,24 @@ class VersionBuilder::Rep {
     // Make sure that all blob files in the version have non-garbage data.
     const auto& blob_files = vstorage->GetBlobFiles();
     for (const auto& pair : blob_files) {
+      const uint64_t blob_file_number = pair.first;
       const auto& blob_file_meta = pair.second;
       assert(blob_file_meta);
 
       if (blob_file_meta->GetGarbageBlobCount() >=
           blob_file_meta->GetTotalBlobCount()) {
         std::ostringstream oss;
-        oss << "Blob file #" << blob_file_meta->GetBlobFileNumber()
+        oss << "Blob file #" << blob_file_number
             << " consists entirely of garbage";
+
+        return Status::Corruption("VersionBuilder", oss.str());
+      }
+
+      if (blob_file_meta->GetLinkedSsts() !=
+          expected_linked_ssts[blob_file_number]) {
+        std::ostringstream oss;
+        oss << "Links are inconsistent between table files and blob file #"
+            << blob_file_number;
 
         return Status::Corruption("VersionBuilder", oss.str());
       }
@@ -445,6 +472,28 @@ class VersionBuilder::Rep {
     return base_vstorage_->GetFileLocation(file_number).GetLevel();
   }
 
+  uint64_t GetOldestBlobFileNumberForTableFile(int level,
+                                               uint64_t file_number) const {
+    assert(level < num_levels_);
+
+    const auto& added_files = levels_[level].added_files;
+
+    auto it = added_files.find(file_number);
+    if (it != added_files.end()) {
+      const FileMetaData* const meta = it->second;
+      assert(meta);
+
+      return meta->oldest_blob_file_number;
+    }
+
+    assert(base_vstorage_);
+    const FileMetaData* const meta =
+        base_vstorage_->GetFileMetaDataByNumber(file_number);
+    assert(meta);
+
+    return meta->oldest_blob_file_number;
+  }
+
   Status ApplyFileDeletion(int level, uint64_t file_number) {
     assert(level != VersionStorageInfo::FileLocation::Invalid().GetLevel());
 
@@ -478,6 +527,14 @@ class VersionBuilder::Rep {
       return Status::OK();
     }
 
+    const uint64_t blob_file_number =
+        GetOldestBlobFileNumberForTableFile(level, file_number);
+
+    if (blob_file_number != kInvalidBlobFileNumber &&
+        IsBlobFileInVersion(blob_file_number)) {
+      blob_file_meta_deltas_[blob_file_number].UnlinkSst(file_number);
+    }
+
     auto& level_state = levels_[level];
 
     auto& add_files = level_state.added_files;
@@ -485,11 +542,11 @@ class VersionBuilder::Rep {
     if (add_it != add_files.end()) {
       UnrefFile(add_it->second);
       add_files.erase(add_it);
-    } else {
-      auto& del_files = level_state.deleted_files;
-      assert(del_files.find(file_number) == del_files.end());
-      del_files.emplace(file_number);
     }
+
+    auto& del_files = level_state.deleted_files;
+    assert(del_files.find(file_number) == del_files.end());
+    del_files.emplace(file_number);
 
     table_file_levels_[file_number] =
         VersionStorageInfo::FileLocation::Invalid().GetLevel();
@@ -529,13 +586,20 @@ class VersionBuilder::Rep {
     auto del_it = del_files.find(file_number);
     if (del_it != del_files.end()) {
       del_files.erase(del_it);
-    } else {
-      FileMetaData* const f = new FileMetaData(meta);
-      f->refs = 1;
+    }
 
-      auto& add_files = level_state.added_files;
-      assert(add_files.find(file_number) == add_files.end());
-      add_files.emplace(file_number, f);
+    FileMetaData* const f = new FileMetaData(meta);
+    f->refs = 1;
+
+    auto& add_files = level_state.added_files;
+    assert(add_files.find(file_number) == add_files.end());
+    add_files.emplace(file_number, f);
+
+    const uint64_t blob_file_number = f->oldest_blob_file_number;
+
+    if (blob_file_number != kInvalidBlobFileNumber &&
+        IsBlobFileInVersion(blob_file_number)) {
+      blob_file_meta_deltas_[blob_file_number].LinkSst(file_number);
     }
 
     table_file_levels_[file_number] = level;
@@ -552,27 +616,9 @@ class VersionBuilder::Rep {
       }
     }
 
-    // Delete files
-    for (const auto& deleted_file : edit->GetDeletedFiles()) {
-      const int level = deleted_file.first;
-      const uint64_t file_number = deleted_file.second;
-
-      const Status s = ApplyFileDeletion(level, file_number);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-
-    // Add new files
-    for (const auto& new_file : edit->GetNewFiles()) {
-      const int level = new_file.first;
-      const FileMetaData& meta = new_file.second;
-
-      const Status s = ApplyFileAddition(level, meta);
-      if (!s.ok()) {
-        return s;
-      }
-    }
+    // Note: we process the blob file related changes first because the
+    // table file addition/deletion logic depends on the blob files
+    // already being there.
 
     // Add new blob files
     for (const auto& blob_file_addition : edit->GetBlobFileAdditions()) {
@@ -590,7 +636,50 @@ class VersionBuilder::Rep {
       }
     }
 
+    // Delete table files
+    for (const auto& deleted_file : edit->GetDeletedFiles()) {
+      const int level = deleted_file.first;
+      const uint64_t file_number = deleted_file.second;
+
+      const Status s = ApplyFileDeletion(level, file_number);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    // Add new table files
+    for (const auto& new_file : edit->GetNewFiles()) {
+      const int level = new_file.first;
+      const FileMetaData& meta = new_file.second;
+
+      const Status s = ApplyFileAddition(level, meta);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
     return Status::OK();
+  }
+
+  static BlobFileMetaData::LinkedSsts ApplyLinkedSstChanges(
+      const BlobFileMetaData::LinkedSsts& base,
+      const std::unordered_set<uint64_t>& newly_linked,
+      const std::unordered_set<uint64_t>& newly_unlinked) {
+    BlobFileMetaData::LinkedSsts result(base);
+
+    for (uint64_t sst_file_number : newly_unlinked) {
+      assert(result.find(sst_file_number) != result.end());
+
+      result.erase(sst_file_number);
+    }
+
+    for (uint64_t sst_file_number : newly_linked) {
+      assert(result.find(sst_file_number) == result.end());
+
+      result.emplace(sst_file_number);
+    }
+
+    return result;
   }
 
   static std::shared_ptr<BlobFileMetaData> CreateMetaDataForNewBlobFile(
@@ -598,9 +687,11 @@ class VersionBuilder::Rep {
     auto shared_meta = delta.GetSharedMeta();
     assert(shared_meta);
 
-    auto meta = BlobFileMetaData::Create(std::move(shared_meta),
-                                         delta.GetAdditionalGarbageCount(),
-                                         delta.GetAdditionalGarbageBytes());
+    assert(delta.GetNewlyUnlinkedSsts().empty());
+
+    auto meta = BlobFileMetaData::Create(
+        std::move(shared_meta), delta.GetNewlyLinkedSsts(),
+        delta.GetAdditionalGarbageCount(), delta.GetAdditionalGarbageBytes());
 
     return meta;
   }
@@ -619,8 +710,12 @@ class VersionBuilder::Rep {
     auto shared_meta = base_meta->GetSharedMeta();
     assert(shared_meta);
 
+    auto linked_ssts = ApplyLinkedSstChanges(base_meta->GetLinkedSsts(),
+                                             delta.GetNewlyLinkedSsts(),
+                                             delta.GetNewlyUnlinkedSsts());
+
     auto meta = BlobFileMetaData::Create(
-        std::move(shared_meta),
+        std::move(shared_meta), std::move(linked_ssts),
         base_meta->GetGarbageBlobCount() + delta.GetAdditionalGarbageCount(),
         base_meta->GetGarbageBlobBytes() + delta.GetAdditionalGarbageBytes());
 
@@ -633,7 +728,8 @@ class VersionBuilder::Rep {
     assert(vstorage);
     assert(meta);
 
-    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount()) {
+    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount() ||
+        !meta->GetLinkedSsts().empty()) {
       vstorage->AddBlobFile(meta);
     }
   }
@@ -769,7 +865,8 @@ class VersionBuilder::Rep {
   Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
-                           const SliceTransform* prefix_extractor) {
+                           const SliceTransform* prefix_extractor,
+                           size_t max_file_size_for_l0_meta_pin) {
     assert(table_cache_ != nullptr);
 
     size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
@@ -838,7 +935,7 @@ class VersionBuilder::Rep {
             file_meta->fd, &file_meta->table_reader_handle, prefix_extractor,
             false /*no_io */, true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
-            prefetch_index_and_filter_in_cache);
+            prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin);
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
@@ -864,12 +961,28 @@ class VersionBuilder::Rep {
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
-    if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
+    const uint64_t file_number = f->fd.GetNumber();
+
+    const auto& level_state = levels_[level];
+
+    const auto& del_files = level_state.deleted_files;
+    const auto del_it = del_files.find(file_number);
+
+    if (del_it != del_files.end()) {
       // f is to-be-deleted table file
       vstorage->RemoveCurrentStats(f);
     } else {
-      assert(ioptions_);
-      vstorage->AddFile(level, f, ioptions_->info_log);
+      const auto& add_files = level_state.added_files;
+      const auto add_it = add_files.find(file_number);
+
+      // Note: if the file appears both in the base version and in the added
+      // list, the added FileMetaData supersedes the one in the base version.
+      if (add_it != add_files.end() && add_it->second != f) {
+        vstorage->RemoveCurrentStats(f);
+      } else {
+        assert(ioptions_);
+        vstorage->AddFile(level, f, ioptions_->info_log);
+      }
     }
   }
 };
@@ -897,10 +1010,11 @@ Status VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
 Status VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache, bool is_initial_load,
-    const SliceTransform* prefix_extractor) {
-  return rep_->LoadTableHandlers(internal_stats, max_threads,
-                                 prefetch_index_and_filter_in_cache,
-                                 is_initial_load, prefix_extractor);
+    const SliceTransform* prefix_extractor,
+    size_t max_file_size_for_l0_meta_pin) {
+  return rep_->LoadTableHandlers(
+      internal_stats, max_threads, prefetch_index_and_filter_in_cache,
+      is_initial_load, prefix_extractor, max_file_size_for_l0_meta_pin);
 }
 
 BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(

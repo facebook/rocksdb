@@ -10,13 +10,13 @@
 #include <memory>
 #include <unordered_set>
 
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_reader.h"
+#include "db/blob/blob_log_writer.h"
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {

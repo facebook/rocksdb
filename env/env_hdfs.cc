@@ -12,7 +12,6 @@
 #define ROCKSDB_HDFS_FILE_C
 
 #include <stdio.h>
-#include <sys/time.h>
 #include <time.h>
 #include <algorithm>
 #include <iostream>
@@ -124,8 +123,9 @@ class HdfsReadableFile : virtual public SequentialFile,
     Status s;
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsReadableFile preading %s\n",
                     filename_.c_str());
-    ssize_t bytes_read = hdfsPread(fileSys_, hfile_, offset,
-                                   (void*)scratch, (tSize)n);
+    tSize bytes_read =
+        hdfsPread(fileSys_, hfile_, offset, static_cast<void*>(scratch),
+                  static_cast<tSize>(n));
     ROCKS_LOG_DEBUG(mylog, "[hdfs] HdfsReadableFile pread %s\n",
                     filename_.c_str());
     *result = Slice(scratch, (bytes_read < 0) ? 0 : bytes_read);

@@ -101,7 +101,8 @@ class BlockBasedTable : public TableReader {
                      const SequenceNumber largest_seqno = 0,
                      bool force_direct_prefetch = false,
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
-                     BlockCacheTracer* const block_cache_tracer = nullptr);
+                     BlockCacheTracer* const block_cache_tracer = nullptr,
+                     size_t max_file_size_for_l0_meta_pin = 0);
 
   bool PrefixMayMatch(const Slice& internal_key,
                       const ReadOptions& read_options,
@@ -255,6 +256,7 @@ class BlockBasedTable : public TableReader {
 
  private:
   friend class MockedBlockBasedTable;
+  friend class BlockBasedTableReaderTestVerifyChecksum_ChecksumMismatch_Test;
   static std::atomic<uint64_t> next_cache_key_id_;
   BlockCacheTracer* const block_cache_tracer_;
 
@@ -420,6 +422,7 @@ class BlockBasedTable : public TableReader {
       FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
       BlockBasedTable* new_table, bool prefetch_all,
       const BlockBasedTableOptions& table_options, const int level,
+      size_t file_size, size_t max_file_size_for_l0_meta_pin,
       BlockCacheLookupContext* lookup_context);
 
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
@@ -436,10 +439,19 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
-                                  char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
-                                  size_t* size);
+  template <typename TCache, typename TFile>
+  static void GenerateCachePrefix(TCache* cc, TFile* file, char* buffer,
+                                  size_t* size) {
+    // generate an id from the file
+    *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+
+    // If the prefix wasn't generated or was too long,
+    // create one from the cache.
+    if (cc != nullptr && *size == 0) {
+      char* end = EncodeVarint64(buffer, cc->NewId());
+      *size = static_cast<size_t>(end - buffer);
+    }
+  }
 
   // Size of all data blocks, maybe approximate
   uint64_t GetApproximateDataSize();

@@ -8,6 +8,9 @@ LIB_SOURCES =                                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
+  db/blob/blob_log_format.cc                                    \
+  db/blob/blob_log_reader.cc                                    \
+  db/blob/blob_log_writer.cc                                    \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -173,6 +176,7 @@ LIB_SOURCES =                                                   \
   tools/dump/db_dump_tool.cc                                    \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
+  trace_replay/io_tracer.cc                                     \
   util/build_version.cc                                         \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
@@ -198,9 +202,6 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_db_impl.cc                             \
   utilities/blob_db/blob_db_impl_filesnapshot.cc                \
   utilities/blob_db/blob_file.cc                                \
-  utilities/blob_db/blob_log_format.cc                          \
-  utilities/blob_db/blob_log_reader.cc                          \
-  utilities/blob_db/blob_log_writer.cc                          \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
@@ -437,8 +438,9 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc				             	                    \
+  tools/trace_analyzer_test.cc				                \
   trace_replay/block_cache_tracer_test.cc                               \
+  trace_replay/io_tracer_test.cc                                        \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \

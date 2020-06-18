@@ -41,6 +41,18 @@ class LdbCmdTest : public testing::Test {
   std::shared_ptr<Env> env_guard_;
 };
 
+TEST_F(LdbCmdTest, HelpAndVersion) {
+  Options o;
+  o.env = TryLoadCustomOrDefaultEnv();
+  LDBOptions lo;
+  static const char* help[] = {"./ldb", "--help"};
+  ASSERT_EQ(0, LDBCommandRunner::RunCommand(2, help, o, lo, nullptr));
+  static const char* version[] = {"./ldb", "--version"};
+  ASSERT_EQ(0, LDBCommandRunner::RunCommand(2, version, o, lo, nullptr));
+  static const char* bad[] = {"./ldb", "--not_an_option"};
+  ASSERT_NE(0, LDBCommandRunner::RunCommand(2, bad, o, lo, nullptr));
+}
+
 TEST_F(LdbCmdTest, HexToString) {
   // map input to expected outputs.
   // odd number of "hex" half bytes doesn't make sense

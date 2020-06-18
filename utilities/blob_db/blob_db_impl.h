@@ -19,6 +19,9 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_reader.h"
+#include "db/blob/blob_log_writer.h"
 #include "db/db_iter.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -30,9 +33,6 @@
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_file.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 

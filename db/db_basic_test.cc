@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
@@ -17,6 +18,8 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,6 +39,56 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
 
   delete db2;
+}
+
+TEST_F(DBBasicTest, UniqueSession) {
+  Options options = CurrentOptions();
+  std::string sid1, sid2, sid3, sid4;
+
+  db_->GetDbSessionId(sid1);
+  Reopen(options);
+  db_->GetDbSessionId(sid2);
+  ASSERT_OK(Put("foo", "v1"));
+  db_->GetDbSessionId(sid4);
+  Reopen(options);
+  db_->GetDbSessionId(sid3);
+
+  ASSERT_NE(sid1, sid2);
+  ASSERT_NE(sid1, sid3);
+  ASSERT_NE(sid2, sid3);
+
+  ASSERT_EQ(sid2, sid4);
+
+#ifndef ROCKSDB_LITE
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  db_->GetDbSessionId(sid1);
+  // Test uniqueness between readonly open (sid1) and regular open (sid3)
+  ASSERT_NE(sid1, sid3);
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  db_->GetDbSessionId(sid2);
+  ASSERT_EQ("v1", Get("foo"));
+  db_->GetDbSessionId(sid3);
+
+  ASSERT_NE(sid1, sid2);
+
+  ASSERT_EQ(sid2, sid3);
+#endif  // ROCKSDB_LITE
+
+  CreateAndReopenWithCF({"goku"}, options);
+  db_->GetDbSessionId(sid1);
+  ASSERT_OK(Put("bar", "e1"));
+  db_->GetDbSessionId(sid2);
+  ASSERT_EQ("e1", Get("bar"));
+  db_->GetDbSessionId(sid3);
+  ReopenWithColumnFamilies({"default", "goku"}, options);
+  db_->GetDbSessionId(sid4);
+
+  ASSERT_EQ(sid1, sid2);
+  ASSERT_EQ(sid2, sid3);
+
+  ASSERT_NE(sid1, sid4);
 }
 
 #ifndef ROCKSDB_LITE
@@ -1340,6 +1393,57 @@ TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBBasicTest, MultiGetBatchedDuplicateKeys) {
+  Options opts = CurrentOptions();
+  opts.merge_operator = MergeOperators::CreateStringAppendOperator();
+  CreateAndReopenWithCF({"pikachu"}, opts);
+  SetPerfLevel(kEnableCount);
+  // To expand the power of this test, generate > 1 table file and
+  // mix with memtable
+  ASSERT_OK(Merge(1, "k1", "v1"));
+  ASSERT_OK(Merge(1, "k2", "v2"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+  ASSERT_OK(Merge(1, "k3", "v3"));
+  ASSERT_OK(Merge(1, "k4", "v4"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+  ASSERT_OK(Merge(1, "k4", "v4_2"));
+  ASSERT_OK(Merge(1, "k6", "v6"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+  ASSERT_OK(Merge(1, "k7", "v7"));
+  ASSERT_OK(Merge(1, "k8", "v8"));
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+
+  get_perf_context()->Reset();
+
+  std::vector<Slice> keys({"k8", "k8", "k8", "k4", "k4", "k1", "k3"});
+  std::vector<PinnableSlice> values(keys.size());
+  std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
+  std::vector<Status> s(keys.size());
+
+  db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
+                values.data(), s.data(), false);
+
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v8");
+  ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v8");
+  ASSERT_EQ(std::string(values[2].data(), values[2].size()), "v8");
+  ASSERT_EQ(std::string(values[3].data(), values[3].size()), "v4,v4_2");
+  ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v4,v4_2");
+  ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v1");
+  ASSERT_EQ(std::string(values[6].data(), values[6].size()), "v3");
+  ASSERT_EQ(24, (int)get_perf_context()->multiget_read_bytes);
+
+  for (Status& status : s) {
+    ASSERT_OK(status);
+  }
+
+  SetPerfLevel(kDisable);
+}
+
 TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -2145,6 +2249,35 @@ TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
   }
 }
 
+TEST_F(DBBasicTest, RecoverWithNoManifest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  Close();
+  {
+    // Delete all MANIFEST.
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kLogFile;
+      if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
+        ASSERT_OK(env_->DeleteFile(dbname_ + "/" + file));
+      }
+    }
+  }
+  options.best_efforts_recovery = true;
+  options.create_if_missing = false;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  options.create_if_missing = true;
+  Reopen(options);
+  // Since no MANIFEST exists, best-efforts recovery creates a new, empty db.
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+}
+
 TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -2184,6 +2317,33 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   ASSERT_FALSE(iter->Valid());
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(DBBasicTest, ManifestChecksumMismatch) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("bar", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum", [&](void* arg) {
+        auto* crc = reinterpret_cast<uint32_t*>(arg);
+        *crc = *crc + 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  Status s = db_->Put(write_opts, "foo", "value");
+  ASSERT_OK(s);
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(Flush());
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+}
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:

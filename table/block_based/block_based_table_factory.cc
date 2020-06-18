@@ -420,7 +420,8 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.level, table_reader_options.immortal,
       table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
-      table_reader_options.block_cache_tracer);
+      table_reader_options.block_cache_tracer,
+      table_reader_options.max_file_size_for_l0_meta_pin);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -438,7 +439,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time,
       table_builder_options.target_file_size,
-      table_builder_options.file_creation_time);
+      table_builder_options.file_creation_time, table_builder_options.db_id,
+      table_builder_options.db_session_id);
 
   return table_builder;
 }

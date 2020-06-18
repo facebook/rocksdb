@@ -111,10 +111,16 @@ struct RangePtr {
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
 };
 
+// It is valid that files_checksums and files_checksum_func_names are both
+// empty (no checksum informaiton is provided for ingestion). Otherwise,
+// their sizes should be the same as external_files. The file order should
+// be the same in three vectors and guaranteed by the caller.
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
 };
 
 struct GetMergeOperandsOptions {
@@ -1537,6 +1543,13 @@ class DB {
   // of database by setting in the identity variable
   // Returns Status::OK if identity could be set properly
   virtual Status GetDbIdentity(std::string& identity) const = 0;
+
+  // Return a unique identifier for each DB object that is opened
+  // This DB session ID should be unique among all open DB instances on all
+  // hosts, and should be unique among re-openings of the same or other DBs.
+  // (Two open DBs have the same identity from other function GetDbIdentity when
+  // one is physically copied from the other.)
+  virtual Status GetDbSessionId(std::string& session_id) const = 0;
 
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;

@@ -147,6 +147,8 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   // Compute the crc of the record type and the payload.
   crc = crc32c::Extend(crc, ptr, n);
   crc = crc32c::Mask(crc);  // Adjust for storage
+  TEST_SYNC_POINT_CALLBACK("LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum",
+                           &crc);
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload

@@ -639,6 +639,8 @@ TESTS = \
 	blob_file_garbage_test \
 	timer_test \
 	db_with_timestamp_compaction_test \
+	testutil_test \
+	io_tracer_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -843,7 +845,8 @@ endif  # PLATFORM_SHARED_EXT
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
-	blackbox_crash_test_with_txn whitebox_crash_test_with_txn
+	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
+	blackbox_crash_test_with_best_efforts_recovery
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -975,6 +978,12 @@ J ?= 100%
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
+ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)	
+	parallel_com = '{}'
+else
+	parallel_com = '{} >& t/log-{/}'
+endif
+
 .PHONY: check_0
 check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
@@ -988,7 +997,10 @@ check_0:
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu  $(parallel_com) ; \
+	parallel_retcode=$$? ; \
+	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
+	if [ $$parallel_retcode -ne 0 ] ; then exit 1 ; fi
 
 valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
@@ -1047,9 +1059,11 @@ ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
-endif
+endif	
+ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets
+endif
 
 # TODO add ldb_tests
 check_some: $(SUBSET)
@@ -1065,6 +1079,8 @@ crash_test_with_atomic_flush: whitebox_crash_test_with_atomic_flush blackbox_cra
 
 crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
+crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1074,6 +1090,9 @@ blackbox_crash_test_with_atomic_flush: db_stress
 
 blackbox_crash_test_with_txn: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --txn blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_best_efforts_recovery: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -1113,6 +1132,11 @@ asan_crash_test_with_txn:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_txn
 	$(MAKE) clean
 
+asan_crash_test_with_best_efforts_recovery:
+	$(MAKE) clean
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_best_efforts_recovery
+	$(MAKE) clean
+
 ubsan_check:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
@@ -1131,6 +1155,11 @@ ubsan_crash_test_with_atomic_flush:
 ubsan_crash_test_with_txn:
 	$(MAKE) clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_txn
+	$(MAKE) clean
+
+ubsan_crash_test_with_best_efforts_recovery:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test_with_best_efforts_recovery
 	$(MAKE) clean
 
 valgrind_test:
@@ -1864,6 +1893,11 @@ blob_file_garbage_test: db/blob/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHAR
 	$(AM_LINK)
 
 timer_test: util/timer_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+testutil_test: test_util/testutil_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+io_tracer_test: trace_replay/io_tracer_test.o trace_replay/io_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

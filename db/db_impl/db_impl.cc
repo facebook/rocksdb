@@ -249,7 +249,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
-  DumpDBFileSummary(immutable_db_options_, dbname_);
+  SetDbSessionId();
+  DumpDBFileSummary(immutable_db_options_, dbname_, db_session_id_);
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
@@ -2670,7 +2671,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         " guaranteed to be preserved, try larger iter_start_seqnum opt."));
   }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
+  ColumnFamilyData* cfd = cfh->cfd();
+  assert(cfd != nullptr);
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
@@ -2691,10 +2693,11 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // Note: no need to consider the special case of
     // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
-    auto snapshot = read_options.snapshot != nullptr
-                        ? read_options.snapshot->GetSequenceNumber()
-                        : versions_->LastSequence();
-    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
+    result = NewIteratorImpl(read_options, cfd,
+                             (read_options.snapshot != nullptr)
+                                 ? read_options.snapshot->GetSequenceNumber()
+                                 : kMaxSequenceNumber,
+                             read_callback);
   }
   return result;
 }
@@ -2706,6 +2709,24 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             bool allow_blob,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+
+  TEST_SYNC_POINT("DBImpl::NewIterator:1");
+  TEST_SYNC_POINT("DBImpl::NewIterator:2");
+
+  if (snapshot == kMaxSequenceNumber) {
+    // Note that the snapshot is assigned AFTER referencing the super
+    // version because otherwise a flush happening in between may compact away
+    // data for the snapshot, so the reader would see neither data that was be
+    // visible to the snapshot before compaction nor the newer data inserted
+    // afterwards.
+    // Note that the super version might not contain all the data available
+    // to this snapshot, but in that case it can see all the data in the
+    // super version, which is a valid consistent state after the user
+    // calls NewIterator().
+    snapshot = versions_->LastSequence();
+    TEST_SYNC_POINT("DBImpl::NewIterator:3");
+    TEST_SYNC_POINT("DBImpl::NewIterator:4");
+  }
 
   // Try to generate a DB iterator tree in continuous memory area to be
   // cache friendly. Here is an example of result:
@@ -3601,6 +3622,21 @@ Status DBImpl::GetDbIdentityFromIdentityFile(std::string* identity) const {
   return s;
 }
 
+Status DBImpl::GetDbSessionId(std::string& session_id) const {
+  session_id.assign(db_session_id_);
+  return Status::OK();
+}
+
+void DBImpl::SetDbSessionId() {
+  // GenerateUniqueId() generates an identifier
+  // that has a negligible probability of being duplicated
+  db_session_id_ = env_->GenerateUniqueId();
+  // Remove the extra '\n' at the end if there is one
+  if (!db_session_id_.empty() && db_session_id_.back() == '\n') {
+    db_session_id_.pop_back();
+  }
+}
+
 // Default implementation -- returns not supported status
 Status DB::CreateColumnFamily(const ColumnFamilyOptions& /*cf_options*/,
                               const std::string& /*column_family_name*/,
@@ -4180,7 +4216,8 @@ Status DBImpl::IngestExternalFiles(
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     exec_results[i].second = ingestion_jobs[i].Prepare(
-        args[i].external_files, start_file_number, super_version);
+        args[i].external_files, args[i].files_checksums,
+        args[i].files_checksum_func_names, start_file_number, super_version);
     exec_results[i].first = true;
     CleanupSuperVersion(super_version);
   }
@@ -4191,7 +4228,8 @@ Status DBImpl::IngestExternalFiles(
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
     exec_results[0].second = ingestion_jobs[0].Prepare(
-        args[0].external_files, next_file_number, super_version);
+        args[0].external_files, args[0].files_checksums,
+        args[0].files_checksum_func_names, next_file_number, super_version);
     exec_results[0].first = true;
     CleanupSuperVersion(super_version);
   }

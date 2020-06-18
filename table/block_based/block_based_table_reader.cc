@@ -452,44 +452,21 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
   if (rep->table_options.block_cache != nullptr) {
-    GenerateCachePrefix(rep->table_options.block_cache.get(), rep->file->file(),
-                        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
+    GenerateCachePrefix<Cache, FSRandomAccessFile>(
+        rep->table_options.block_cache.get(), rep->file->file(),
+        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
   }
   if (rep->table_options.persistent_cache != nullptr) {
-    GenerateCachePrefix(/*cache=*/nullptr, rep->file->file(),
-                        &rep->persistent_cache_key_prefix[0],
-                        &rep->persistent_cache_key_prefix_size);
+    GenerateCachePrefix<PersistentCache, FSRandomAccessFile>(
+        rep->table_options.persistent_cache.get(), rep->file->file(),
+        &rep->persistent_cache_key_prefix[0],
+        &rep->persistent_cache_key_prefix_size);
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
-    GenerateCachePrefix(rep->table_options.block_cache_compressed.get(),
-                        rep->file->file(), &rep->compressed_cache_key_prefix[0],
-                        &rep->compressed_cache_key_prefix_size);
-  }
-}
-
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
-                                          char* buffer, size_t* size) {
-  // generate an id from the file
-  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
-
-  // If the prefix wasn't generated or was too long,
-  // create one from the cache.
-  if (cc != nullptr && *size == 0) {
-    char* end = EncodeVarint64(buffer, cc->NewId());
-    *size = static_cast<size_t>(end - buffer);
-  }
-}
-
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSWritableFile* file,
-                                          char* buffer, size_t* size) {
-  // generate an id from the file
-  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
-
-  // If the prefix wasn't generated or was too long,
-  // create one from the cache.
-  if (cc != nullptr && *size == 0) {
-    char* end = EncodeVarint64(buffer, cc->NewId());
-    *size = static_cast<size_t>(end - buffer);
+    GenerateCachePrefix<Cache, FSRandomAccessFile>(
+        rep->table_options.block_cache_compressed.get(), rep->file->file(),
+        &rep->compressed_cache_key_prefix[0],
+        &rep->compressed_cache_key_prefix_size);
   }
 }
 
@@ -610,7 +587,8 @@ Status BlockBasedTable::Open(
     const int level, const bool immortal_table,
     const SequenceNumber largest_seqno, const bool force_direct_prefetch,
     TailPrefetchStats* tail_prefetch_stats,
-    BlockCacheTracer* const block_cache_tracer) {
+    BlockCacheTracer* const block_cache_tracer,
+    size_t max_file_size_for_l0_meta_pin) {
   table_reader->reset();
 
   Status s;
@@ -706,7 +684,8 @@ Status BlockBasedTable::Open(
   }
   s = new_table->PrefetchIndexAndFilterBlocks(
       prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
-      prefetch_all, table_options, level, &lookup_context);
+      prefetch_all, table_options, level, file_size,
+      max_file_size_for_l0_meta_pin, &lookup_context);
 
   if (s.ok()) {
     // Update tail prefetch stats
@@ -943,6 +922,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
     BlockBasedTable* new_table, bool prefetch_all,
     const BlockBasedTableOptions& table_options, const int level,
+    size_t file_size, size_t max_file_size_for_l0_meta_pin,
     BlockCacheLookupContext* lookup_context) {
   Status s;
 
@@ -987,9 +967,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   const bool use_cache = table_options.cache_index_and_filter_blocks;
 
-  // pin both index and filters, down to all partitions
+  // pin both index and filters, down to all partitions.
   const bool pin_all =
-      rep_->table_options.pin_l0_filter_and_index_blocks_in_cache && level == 0;
+      rep_->table_options.pin_l0_filter_and_index_blocks_in_cache &&
+      level == 0 && file_size <= max_file_size_for_l0_meta_pin;
 
   // prefetch the first level of index
   const bool prefetch_index =
@@ -1422,10 +1403,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
-  // No point to cache compressed blocks if it never goes away
   Cache* block_cache_compressed =
-      rep_->immortal_table ? nullptr
-                           : rep_->table_options.block_cache_compressed.get();
+      rep_->table_options.block_cache_compressed.get();
 
   // First, try to get the block from the cache
   //
@@ -2836,6 +2815,12 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
     if (!s.ok()) {
       break;
     }
+  }
+  if (s.ok()) {
+    // In the case of two level indexes, we would have exited the above loop
+    // by checking index_iter->Valid(), but Valid() might have returned false
+    // due to an IO error. So check the index_iter status
+    s = index_iter->status();
   }
   return s;
 }

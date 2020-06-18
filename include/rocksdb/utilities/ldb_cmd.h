@@ -78,7 +78,7 @@ class LDBCommand {
           SelectCommand);
 
   static LDBCommand* InitFromCmdLineArgs(
-      int argc, char** argv, const Options& options,
+      int argc, char const* const* argv, const Options& options,
       const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families);
 
@@ -269,11 +269,13 @@ class LDBCommand {
 
 class LDBCommandRunner {
  public:
-  static void PrintHelp(const LDBOptions& ldb_options, const char* exec_name);
+  static void PrintHelp(const LDBOptions& ldb_options, const char* exec_name,
+                        bool to_stderr = true);
 
   // Returns the status code to return. 0 is no error.
   static int RunCommand(
-      int argc, char** argv, Options options, const LDBOptions& ldb_options,
+      int argc, char const* const* argv, Options options,
+      const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families);
 };
 

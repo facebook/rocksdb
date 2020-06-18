@@ -128,17 +128,14 @@ struct DecodeKeyV4 {
 };
 
 void DataBlockIter::Next() {
-  assert(Valid());
   ParseNextDataKey<DecodeEntry>();
 }
 
 void DataBlockIter::NextOrReport() {
-  assert(Valid());
   ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
 void IndexBlockIter::Next() {
-  assert(Valid());
   ParseNextIndexKey();
 }
 
@@ -248,18 +245,14 @@ void DataBlockIter::Seek(const Slice& target) {
     return;
   }
   uint32_t index = 0;
+  bool skip_linear_scan = false;
   bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  comparator_);
+                                  &skip_linear_scan, comparator_);
 
   if (!ok) {
     return;
   }
-  SeekToRestartPoint(index);
-
-  // Linear search (within restart block) for first key >= target
-  while (ParseNextDataKey<DecodeEntry>() &&
-         comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) < 0) {
-  }
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
 }
 
 // Optimized Seek for point lookup for an internal key `target`
@@ -393,6 +386,7 @@ void IndexBlockIter::Seek(const Slice& target) {
   }
   status_ = Status::OK();
   uint32_t index = 0;
+  bool skip_linear_scan = false;
   bool ok = false;
   if (prefix_index_) {
     bool prefix_may_exist = true;
@@ -404,23 +398,21 @@ void IndexBlockIter::Seek(const Slice& target) {
       current_ = restarts_;
       status_ = Status::NotFound();
     }
+    // restart interval must be one when hash search is enabled so the binary
+    // search simply lands at the right place.
+    skip_linear_scan = true;
   } else if (value_delta_encoded_) {
     ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 comparator_);
+                                 &skip_linear_scan, comparator_);
   } else {
     ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               comparator_);
+                               &skip_linear_scan, comparator_);
   }
 
   if (!ok) {
     return;
   }
-  SeekToRestartPoint(index);
-
-  // Linear search (within restart block) for first key >= target
-  while (ParseNextIndexKey() &&
-         comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) < 0) {
-  }
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
 }
 
 void DataBlockIter::SeekForPrev(const Slice& target) {
@@ -430,18 +422,15 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
     return;
   }
   uint32_t index = 0;
+  bool skip_linear_scan = false;
   bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  comparator_);
+                                  &skip_linear_scan, comparator_);
 
   if (!ok) {
     return;
   }
-  SeekToRestartPoint(index);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
 
-  // Linear search (within restart block) for first key >= seek_key
-  while (ParseNextDataKey<DecodeEntry>() &&
-         comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) < 0) {
-  }
   if (!Valid()) {
     SeekToLast();
   } else {
@@ -659,17 +648,70 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
   }
 }
 
-// Binary search in restart array to find the first restart point that
-// is either the last restart point with a key less than target,
-// which means the key of next restart point is larger than target, or
-// the first restart point with a key = target
+template <class TValue>
+void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
+                                               uint32_t index,
+                                               bool skip_linear_scan,
+                                               const Comparator* comp) {
+  // SeekToRestartPoint() only does the lookup in the restart block. We need
+  // to follow it up with Next() to position the iterator at the restart key.
+  SeekToRestartPoint(index);
+  Next();
+
+  if (!skip_linear_scan) {
+    // Linear search (within restart block) for first key >= target
+    uint32_t max_offset;
+    if (index + 1 < num_restarts_) {
+      // We are in a non-last restart interval. Since `BinarySeek()` guarantees
+      // the next restart key is strictly greater than `target`, we can
+      // terminate upon reaching it without any additional key comparison.
+      max_offset = GetRestartPoint(index + 1);
+    } else {
+      // We are in the last restart interval. The while-loop will terminate by
+      // `Valid()` returning false upon advancing past the block's last key.
+      max_offset = port::kMaxUint32;
+    }
+    while (true) {
+      Next();
+      if (!Valid()) {
+        break;
+      }
+      if (current_ == max_offset) {
+        assert(comp->Compare(applied_key_.UpdateAndGetKey(), target) > 0);
+        break;
+      } else if (comp->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
+        break;
+      }
+    }
+  }
+}
+
+// Binary searches in restart array to find the starting restart point for the
+// linear scan, and stores it in `*index`. Assumes restart array does not
+// contain duplicate keys. It is guaranteed that the restart key at `*index + 1`
+// is strictly greater than `target` or does not exist (this can be used to
+// elide a comparison when linear scan reaches all the way to the next restart
+// key). Furthermore, `*skip_linear_scan` is set to indicate whether the
+// `*index`th restart key is the final result so that key does not need to be
+// compared again later.
 template <class TValue>
 template <typename DecodeKeyFunc>
 bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
                                    uint32_t right, uint32_t* index,
+                                   bool* skip_linear_scan,
                                    const Comparator* comp) {
   assert(left <= right);
+  if (restarts_ == 0) {
+    // SST files dedicated to range tombstones are written with index blocks
+    // that have no keys while also having `num_restarts_ == 1`. This would
+    // cause a problem for `BinarySeek()` as it'd try to access the first key
+    // which does not exist. We identify such blocks by the offset at which
+    // their restarts are stored, and return false to prevent any attempted
+    // key accesses.
+    return false;
+  }
 
+  *skip_linear_scan = false;
   while (left < right) {
     uint32_t mid = (left + right + 1) / 2;
     uint32_t region_offset = GetRestartPoint(mid);
@@ -692,11 +734,32 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
       // after "mid" are uninteresting.
       right = mid - 1;
     } else {
+      *skip_linear_scan = true;
       left = right = mid;
     }
   }
 
+  assert(left == right);
   *index = left;
+  if (*index == 0) {
+    // Special case as we land at zero as long as restart key at index 1 is >
+    // "target". We need to compare the restart key at index 0 so we can set
+    // `*skip_linear_scan` when the 0th restart key is >= "target".
+    //
+    // GetRestartPoint() is always zero for restart key zero; skip the restart
+    // block access.
+    uint32_t shared, non_shared;
+    const char* key_ptr =
+        DecodeKeyFunc()(data_, data_ + restarts_, &shared, &non_shared);
+    if (key_ptr == nullptr || (shared != 0)) {
+      CorruptionError();
+      return false;
+    }
+    Slice first_key(key_ptr, non_shared);
+    raw_key_.SetKey(first_key, false /* copy */);
+    int cmp = comp->Compare(applied_key_.UpdateAndGetKey(), target);
+    *skip_linear_scan = cmp >= 0;
+  }
   return true;
 }
 

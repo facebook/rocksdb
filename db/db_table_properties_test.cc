@@ -252,6 +252,26 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
   }
 }
 
+TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
+  CreateAndReopenWithCF({"goku"}, CurrentOptions());
+
+  for (uint32_t cf = 0; cf < 2; ++cf) {
+    Put(cf, "key", "val");
+    Put(cf, "foo", "bar");
+    Flush(cf);
+
+    TablePropertiesCollection fname_to_props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
+    ASSERT_EQ(1U, fname_to_props.size());
+
+    std::string id, sid;
+    db_->GetDbIdentity(id);
+    db_->GetDbSessionId(sid);
+    ASSERT_EQ(id, fname_to_props.begin()->second->db_id);
+    ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
+  }
+}
+
 class DeletionTriggeredCompactionTestListener : public EventListener {
  public:
   void OnCompactionBegin(DB* , const CompactionJobInfo& ci) override {

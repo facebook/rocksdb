@@ -720,6 +720,17 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
   }
 }
 
+size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options) {
+  // We do not want to pin meta-blocks that almost certainly came from intra-L0
+  // or a former larger `write_buffer_size` value to avoid surprising users with
+  // pinned memory usage. We use a factor of 1.5 to account for overhead
+  // introduced during flush in most cases.
+  if (port::kMaxSizet / 3 < cf_options.write_buffer_size / 2) {
+    return port::kMaxSizet;
+  }
+  return cf_options.write_buffer_size / 2 * 3;
+}
+
 void MutableCFOptions::RefreshDerivedOptions(int num_levels,
                                              CompactionStyle compaction_style) {
   max_file_size.resize(num_levels);

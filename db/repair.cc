@@ -183,6 +183,8 @@ class Repairer {
       }
       // Just create a DBImpl temporarily so we can reuse NewDB()
       DBImpl* db_impl = new DBImpl(db_options_, dbname_);
+      // Also use this temp DBImpl to get a session id
+      db_impl->GetDbSessionId(db_session_id_);
       status = db_impl->NewDB();
       delete db_impl;
     }
@@ -229,6 +231,7 @@ class Repairer {
   };
 
   std::string const dbname_;
+  std::string db_session_id_;
   Env* const env_;
   const EnvOptions env_options_;
   const DBOptions db_options_;
@@ -435,7 +438,9 @@ class Repairer {
           CompressionOptions(), false, nullptr /* internal_stats */,
           TableFileCreationReason::kRecovery, &io_s, nullptr /* event_logger */,
           0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time, write_hint);
+          -1 /* level */, current_time, 0 /* oldest_key_time */, write_hint,
+          0 /* file_creation_time */, "DB Repairer" /* db_id */,
+          db_session_id_);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -528,7 +533,8 @@ class Repairer {
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
-          /*level=*/-1, /*smallest_compaction_key=*/nullptr,
+          /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
+          /*smallest_compaction_key=*/nullptr,
           /*largest_compaction_key=*/nullptr,
           /*allow_unprepared_value=*/false);
       ParsedInternalKey parsed;
