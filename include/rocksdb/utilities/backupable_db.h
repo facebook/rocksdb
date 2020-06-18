@@ -293,16 +293,23 @@ class BackupEngineReadOnly {
     return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
   }
 
+  // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
   //
+  // If verify_with_checksum is true, this function
+  // inspects the current backup file checksum to see if it matches our
+  // expectation.
+  //
   // If this BackupEngine created the backup, it compares the files' current
-  // sizes against the number of bytes written to them during creation.
+  // sizes (resp., current checksum) against the number of bytes written to
+  // them (resp., the checksum calculated) during creation.
   // Otherwise, it compares the files' current sizes against their sizes when
   // the BackupEngine was opened.
   //
   // Returns Status::OK() if all checks are good
-  virtual Status VerifyBackup(BackupID backup_id) = 0;
+  virtual Status VerifyBackup(BackupID backup_id,
+                              const bool& verify_with_checksum = true) = 0;
 };
 
 // A backup engine for creating new backups.
@@ -415,9 +422,12 @@ class BackupEngine {
   }
 
   // checks that each file exists and that the size of the file matches our
-  // expectations. it does not check file checksum.
+  // expectations if verify_with_checksum is false
+  // inspects whether the file checksum matches our expectation if
+  // verify_with_checksum is true
   // Returns Status::OK() if all checks are good
-  virtual Status VerifyBackup(BackupID backup_id) = 0;
+  virtual Status VerifyBackup(BackupID backup_id,
+                              const bool& verify_with_checksum = true) = 0;
 
   // Will delete any files left over from incomplete creation or deletion of
   // a backup. This is not normally needed as those operations also clean up
