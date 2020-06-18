@@ -729,16 +729,11 @@ class VersionBuilder::Rep {
     assert(meta);
     assert(found_first_non_empty);
 
-    if (meta->GetLinkedSsts().empty()) {
-      if (!(*found_first_non_empty)) {
-        return;
-      }
-
-      if (meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
-        return;
-      }
-    } else {
+    if (!meta->GetLinkedSsts().empty()) {
       (*found_first_non_empty) = true;
+    } else if (!(*found_first_non_empty) ||
+               meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
+      return;
     }
 
     vstorage->AddBlobFile(meta);
