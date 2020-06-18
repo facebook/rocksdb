@@ -2337,6 +2337,10 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   Status s = db_->Put(write_opts, "foo", "value");
   ASSERT_OK(s);
   ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(Flush());
   s = TryReopen(options);
   ASSERT_TRUE(s.IsCorruption());
 }
