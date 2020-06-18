@@ -188,6 +188,8 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
         *aggregate_rounding_balance_ += diff;
       }
     }
+#else
+    (void)update_balance;
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     if (buf) {
       if (tmpbuf) {
