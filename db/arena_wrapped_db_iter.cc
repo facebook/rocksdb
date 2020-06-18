@@ -56,8 +56,9 @@ Status ArenaWrappedDBIter::Refresh() {
   // TODO(yiwu): For last_seq_same_as_publish_seq_==false, this is not the
   // correct behavior. Will be corrected automatically when we take a snapshot
   // here for the case of WritePreparedTxnDB.
-  SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
+  TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:1");
+  TEST_SYNC_POINT("ArenaWrappedDBIter::Refresh:2");
   if (sv_number_ != cur_sv_number) {
     Env* env = db_iter_->env();
     db_iter_->~DBIter();
@@ -65,6 +66,7 @@ Status ArenaWrappedDBIter::Refresh() {
     new (&arena_) Arena();
 
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_);
+    SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
     if (read_callback_) {
       read_callback_->Refresh(latest_seq);
     }
@@ -78,7 +80,7 @@ Status ArenaWrappedDBIter::Refresh() {
         latest_seq, /* allow_unprepared_value */ true);
     SetIterUnderDBIter(internal_iter);
   } else {
-    db_iter_->set_sequence(latest_seq);
+    db_iter_->set_sequence(db_impl_->GetLatestSequenceNumber());
     db_iter_->set_valid(false);
   }
   return Status::OK();
