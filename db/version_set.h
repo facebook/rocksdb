@@ -1213,14 +1213,14 @@ class VersionSet {
                                        const VersionEdit* edit);
 
   Status ReadAndRecover(
-      log::Reader& reader, Status& log_read_status,
-      AtomicGroupReadBuffer* read_buffer,
+      log::Reader& reader, AtomicGroupReadBuffer* read_buffer,
       const std::unordered_map<std::string, ColumnFamilyOptions>&
           name_to_options,
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      VersionEditParams* version_edit, std::string* db_id = nullptr);
+      Status* log_read_status, VersionEditParams* version_edit,
+      std::string* db_id = nullptr);
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(

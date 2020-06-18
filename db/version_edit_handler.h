@@ -40,7 +40,7 @@ class VersionEditHandler {
 
   virtual ~VersionEditHandler() {}
 
-  void Iterate(log::Reader& reader, Status& log_read_status,
+  void Iterate(log::Reader& reader, Status* log_read_status,
                std::string* db_id);
 
   const Status& status() const { return status_; }
