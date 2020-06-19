@@ -1117,10 +1117,19 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
     bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
                 std::string *new_value, bool *value_changed) const override {
       *value_changed = false;
-      if (value.size() % 3 == 1) {
-        *new_value = value.ToString() + "_new";
+      // changing value size to test value transitions between inlined data
+      // and stored-in-blob data
+      if (value.size() % 4 == 1) {
+        *new_value = value.ToString();
+        // double size by duplicating value
+        *new_value += *new_value;
         *value_changed = true;
         return false;
+      } else if (value.size() % 3 == 1) {
+        *new_value = value.ToString();
+        // trancate value size by half
+        *new_value = new_value->substr(0, new_value->size() / 2);
+        *value_changed = true;
       } else if (value.size() % 2 == 1) {
         return true;
       }
@@ -1184,8 +1193,10 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
       ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
 
       data[key] = value;
-      if (value.length() % 3 == 1) {
-        data_after_compact[key] = value + "_new";
+      if (value.length() % 4 == 1) {
+        data_after_compact[key] = value + value;
+      } else if (value.length() % 3 == 1) {
+        data_after_compact[key] = value.substr(0, value.size() / 2);
       } else if (value.length() % 2 == 1) {
         ++drop_record;
       } else {

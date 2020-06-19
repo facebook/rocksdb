@@ -225,6 +225,11 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       value_.clear();
       iter_stats_.num_record_drop_user++;
     } else if (filter == CompactionFilter::Decision::kChangeValue) {
+      if (ikey_.type == kTypeBlobIndex) {
+        // value transfer from blob file to inlined data
+        ikey_.type = kTypeValue;
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      }
       value_ = compaction_filter_value_;
     } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
       *need_skip = true;
@@ -232,8 +237,11 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                                        kValueTypeForSeek);
       *skip_until = compaction_filter_skip_until_.Encode();
     } else if (filter == CompactionFilter::Decision::kChangeBlobIndex) {
-      ikey_.type = kTypeBlobIndex;
-      current_key_.UpdateInternalKey(ikey_.sequence, kTypeBlobIndex);
+      if (ikey_.type == kTypeValue) {
+        // value transfer from inlined data to blob file
+        ikey_.type = kTypeBlobIndex;
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+      }
       value_ = compaction_filter_value_;
     }
   }
