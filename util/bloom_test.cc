@@ -548,14 +548,16 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     // optimize_filters_for_memory not implemented with legacy Bloom
     if (offm && GetParam() != BloomFilterPolicy::kLegacyBloom) {
       // This value can include a small extra penalty for kExtraPadding
-      fprintf(stderr, "Internal fragmentation (optimized): %g%%\n", (total_mem - total_size) * 100.0 / total_size);
+      fprintf(stderr, "Internal fragmentation (optimized): %g%%\n",
+              (total_mem - total_size) * 100.0 / total_size);
       // Less than 1% internal fragmentation
       EXPECT_LE(total_mem, total_size * 101 / 100);
       // Up to 2% storage penalty
       EXPECT_LE(static_cast<int64_t>(total_size),
                 ex_min_total_size * 102 / 100 + blocked_bloom_overhead);
     } else {
-      fprintf(stderr, "Internal fragmentation (not optimized): %g%%\n", (total_mem - total_size) * 100.0 / total_size);
+      fprintf(stderr, "Internal fragmentation (not optimized): %g%%\n",
+              (total_mem - total_size) * 100.0 / total_size);
       // TODO: add control checks for more allocators?
 #ifdef ROCKSDB_JEMALLOC
       fprintf(stderr, "Jemalloc detected? %d\n", HasJemalloc());
