@@ -930,11 +930,11 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
-        ReadOptions ro;
         statuses[file_idx] = table_cache_->FindTable(
-            ro, file_options_, *(base_vstorage_->InternalComparator()),
-            file_meta->fd, &file_meta->table_reader_handle, prefix_extractor,
-            false /*no_io */, true /* record_read_stats */,
+            ReadOptions(), file_options_,
+            *(base_vstorage_->InternalComparator()), file_meta->fd,
+            &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
+            true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,
             prefetch_index_and_filter_in_cache, max_file_size_for_l0_meta_pin);
         if (file_meta->table_reader_handle != nullptr) {
