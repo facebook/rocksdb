@@ -86,6 +86,64 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   // With create_if_missing false, there should not be a dir in the file system
   ASSERT_NOK(env_->FileExists(dbname));
 }
+
+class TestReadOnlyWithCompressedCache
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<int, bool>> {
+ public:
+  TestReadOnlyWithCompressedCache()
+      : DBTestBase("/test_readonly_with_compressed_cache") {
+    max_open_files_ = std::get<0>(GetParam());
+    use_mmap_ = std::get<1>(GetParam());
+  }
+  int max_open_files_;
+  bool use_mmap_;
+};
+
+TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
+  if (use_mmap_ && !IsMemoryMappedAccessSupported()) {
+    return;
+  }
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo2", "barbarbarbarbarbarbarbar"));
+  ASSERT_OK(Flush());
+
+  DB* db_ptr = nullptr;
+  Options options = CurrentOptions();
+  options.allow_mmap_reads = use_mmap_;
+  options.max_open_files = max_open_files_;
+  options.compression = kSnappyCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.statistics = CreateDBStatistics();
+
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_ptr));
+
+  std::string v;
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
+  ASSERT_EQ("bar", v);
+  ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
+  ASSERT_EQ("bar", v);
+  if (Snappy_Supported()) {
+    if (use_mmap_) {
+      ASSERT_EQ(0,
+                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+    } else {
+      ASSERT_EQ(1,
+                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+    }
+  }
+
+  delete db_ptr;
+}
+
+INSTANTIATE_TEST_CASE_P(TestReadOnlyWithCompressedCache,
+                        TestReadOnlyWithCompressedCache,
+                        ::testing::Combine(::testing::Values(-1, 100),
+                                           ::testing::Bool()));
 #endif  // ROCKSDB_LITE
 
 class PrefixFullBloomWithReverseComparator
@@ -2010,6 +2068,10 @@ class MockPersistentCache : public PersistentCache {
     return PersistentCache::StatsType();
   }
 
+  uint64_t NewId() override {
+    return last_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override {
     MutexLock _(&lock_);
@@ -2050,6 +2112,7 @@ class MockPersistentCache : public PersistentCache {
   const bool is_compressed_ = true;
   size_t size_ = 0;
   const size_t max_size_ = 10 * 1024;  // 10KiB
+  std::atomic<uint64_t> last_id_{1};
 };
 
 #ifdef OS_LINUX
@@ -2173,10 +2236,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 }
 #endif  // OS_LINUX
 
-// GetUniqueIdFromFile is not implemented on these platforms. Persistent cache
-// breaks when that function is not implemented and no regular block cache is
-// provided.
-#if !defined(OS_SOLARIS) && !defined(OS_WIN)
+#if !defined OS_SOLARIS
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;
 
@@ -2240,7 +2300,7 @@ TEST_F(DBTest2, PersistentCache) {
     }
   }
 }
-#endif  // !defined(OS_SOLARIS) && !defined(OS_WIN)
+#endif  // !defined OS_SOLARIS
 
 namespace {
 void CountSyncPoint() {
@@ -2896,6 +2956,94 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
 }
 
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTest2, IterRaceFlush1) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NewIterator:1", "DBTest2::IterRaceFlush:1"},
+       {"DBTest2::IterRaceFlush:2", "DBImpl::NewIterator:2"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
+  });
+
+  // iterator is created after the first Put(), so it should see either
+  // "v1" or "v2".
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foo", it->key().ToString());
+  }
+
+  t1.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, IterRaceFlush2) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NewIterator:3", "DBTest2::IterRaceFlush2:1"},
+       {"DBTest2::IterRaceFlush2:2", "DBImpl::NewIterator:4"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush2:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
+  });
+
+  // iterator is created after the first Put(), so it should see either
+  // "v1" or "v2".
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foo", it->key().ToString());
+  }
+
+  t1.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, IterRefreshRaceFlush) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ArenaWrappedDBIter::Refresh:1", "DBTest2::IterRefreshRaceFlush:1"},
+       {"DBTest2::IterRefreshRaceFlush:2", "ArenaWrappedDBIter::Refresh:2"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
+  });
+
+  // iterator is created after the first Put(), so it should see either
+  // "v1" or "v2".
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Refresh();
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foo", it->key().ToString());
+  }
+
+  t1.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
 
 TEST_F(DBTest2, GetRaceFlush1) {
   ASSERT_OK(Put("foo", "v1"));

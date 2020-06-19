@@ -68,7 +68,7 @@ before_build:
   - md %APPVEYOR_BUILD_FOLDER%\build
   - cd %APPVEYOR_BUILD_FOLDER%\build
   - if DEFINED CMAKE_PLATEFORM_NAME (set "PLATEFORM_OPT=-A %CMAKE_PLATEFORM_NAME%")
-  - cmake .. -G "%CMAKE_GENERATOR%" %PLATEFORM_OPT% %CMAKE_OPT% -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DLZ4=1 -DZSTD=1 -DXPRESS=1 -DJNI=1
+  - cmake .. -G "%CMAKE_GENERATOR%" %PLATEFORM_OPT% %CMAKE_OPT% -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DLZ4=1 -DZSTD=1 -DXPRESS=1 -DJNI=1 -DWITH_ALL_TESTS=0
   - cd ..
 
 build:
@@ -79,7 +79,7 @@ build:
 test:
 
 test_script:
-  - ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_with_timestamp_basic_test,db_test2,db_test,env_basic_test,env_test,db_merge_operand_test -Concurrency 8
+  - ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,env_basic_test -Concurrency 8
 
 on_failure:
   - cmd: 7z a build-failed.zip %APPVEYOR_BUILD_FOLDER%\build\ && appveyor PushArtifact build-failed.zip

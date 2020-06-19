@@ -10,6 +10,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
@@ -195,11 +196,18 @@ void StressTest::InitDb() {
   BuildOptionsTable();
 }
 
-void StressTest::InitReadonlyDb(SharedState* shared) {
-  uint64_t now = db_stress_env->NowMicros();
-  fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
-          db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
-  PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
+void StressTest::FinishInitDb(SharedState* shared) {
+  if (FLAGS_read_only) {
+    uint64_t now = db_stress_env->NowMicros();
+    fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
+            db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
+    PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
+  }
+  if (FLAGS_enable_compaction_filter) {
+    reinterpret_cast<DbStressCompactionFilterFactory*>(
+        options_.compaction_filter_factory.get())
+        ->SetSharedState(shared);
+  }
 }
 
 bool StressTest::VerifySecondaries() {
@@ -1729,6 +1737,8 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
+  fprintf(stdout, "Best efforts recovery     : %d\n",
+          static_cast<int>(FLAGS_best_efforts_recovery));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -1912,6 +1922,12 @@ void StressTest::Open() {
   } else {
     options_.merge_operator = MergeOperators::CreatePutOperator();
   }
+  if (FLAGS_enable_compaction_filter) {
+    options_.compaction_filter_factory =
+        std::make_shared<DbStressCompactionFilterFactory>();
+  }
+
+  options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 

@@ -3031,6 +3031,10 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetDbSessionId(std::string& /*session_id*/) const override {
+    return Status::OK();
+  }
+
   SequenceNumber GetLatestSequenceNumber() const override { return 0; }
 
   bool SetPreserveDeletesSequenceNumber(SequenceNumber /*seqnum*/) override {

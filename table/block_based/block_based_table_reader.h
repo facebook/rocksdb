@@ -439,10 +439,19 @@ class BlockBasedTable : public TableReader {
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
-                                  char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
-                                  size_t* size);
+  template <typename TCache, typename TFile>
+  static void GenerateCachePrefix(TCache* cc, TFile* file, char* buffer,
+                                  size_t* size) {
+    // generate an id from the file
+    *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+
+    // If the prefix wasn't generated or was too long,
+    // create one from the cache.
+    if (cc != nullptr && *size == 0) {
+      char* end = EncodeVarint64(buffer, cc->NewId());
+      *size = static_cast<size_t>(end - buffer);
+    }
+  }
 
   // Size of all data blocks, maybe approximate
   uint64_t GetApproximateDataSize();

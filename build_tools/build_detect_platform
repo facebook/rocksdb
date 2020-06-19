@@ -192,6 +192,17 @@ EOF
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/freebsd/freebsd_specific.cc
         ;;
+    GNU/kFreeBSD)
+        PLATFORM=OS_GNU_KFREEBSD
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_GNU_KFREEBSD"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/gnu_kfreebsd/gnu_kfreebsd_specific.cc
+        ;;
     NetBSD)
         PLATFORM=OS_NETBSD
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_NETBSD"

@@ -95,7 +95,7 @@ if(MSVC)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
-  if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+  if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD" AND NOT CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
     # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
@@ -448,6 +448,8 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
   add_definitions(-DOS_SOLARIS)
+elseif(CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
+  add_definitions(-DOS_GNU_KFREEBSD)
 elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   add_definitions(-DOS_FREEBSD)
 elseif(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
@@ -974,12 +976,19 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
+option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
+
 if(WITH_TESTS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
   set(TESTS
+        db/db_basic_test.cc
+        env/env_basic_test.cc
+  )
+  if(WITH_ALL_TESTS)
+    list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
@@ -994,7 +1003,6 @@ if(WITH_TESTS)
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
-        db/db_basic_test.cc
         db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
@@ -1057,7 +1065,6 @@ if(WITH_TESTS)
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
-        env/env_basic_test.cc
         env/env_test.cc
         env/io_posix_test.cc
         env/mock_env_test.cc
@@ -1140,7 +1147,8 @@ if(WITH_TESTS)
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
-  )
+    )
+  endif()
   if(WITH_LIBRADOS)
     list(APPEND TESTS utilities/env_librados_test.cc)
   endif()
@@ -1260,4 +1268,9 @@ if(WITH_TOOLS)
   add_subdirectory(db_stress_tool)
   add_custom_target(tools
     DEPENDS ${tool_deps})
+endif()
+
+option(WITH_EXAMPLES "build with examples" OFF)
+if(WITH_EXAMPLES)
+  add_subdirectory(examples)
 endif()

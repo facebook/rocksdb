@@ -10,5 +10,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 void DumpDBFileSummary(const ImmutableDBOptions& options,
-                       const std::string& dbname);
+                       const std::string& dbname,
+                       const std::string& session_id = "");
 }  // namespace ROCKSDB_NAMESPACE

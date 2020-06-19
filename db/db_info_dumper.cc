@@ -17,7 +17,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 void DumpDBFileSummary(const ImmutableDBOptions& options,
-                       const std::string& dbname) {
+                       const std::string& dbname,
+                       const std::string& session_id) {
   if (options.info_log == nullptr) {
     return;
   }
@@ -32,6 +33,8 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   std::string file_info, wal_info;
 
   Header(options.info_log, "DB SUMMARY\n");
+  Header(options.info_log, "DB Session ID:  %s\n", session_id.c_str());
+
   // Get files in dbname dir
   if (!env->GetChildren(dbname, &files).ok()) {
     Error(options.info_log,

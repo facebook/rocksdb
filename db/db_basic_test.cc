@@ -41,6 +41,56 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   delete db2;
 }
 
+TEST_F(DBBasicTest, UniqueSession) {
+  Options options = CurrentOptions();
+  std::string sid1, sid2, sid3, sid4;
+
+  db_->GetDbSessionId(sid1);
+  Reopen(options);
+  db_->GetDbSessionId(sid2);
+  ASSERT_OK(Put("foo", "v1"));
+  db_->GetDbSessionId(sid4);
+  Reopen(options);
+  db_->GetDbSessionId(sid3);
+
+  ASSERT_NE(sid1, sid2);
+  ASSERT_NE(sid1, sid3);
+  ASSERT_NE(sid2, sid3);
+
+  ASSERT_EQ(sid2, sid4);
+
+#ifndef ROCKSDB_LITE
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  db_->GetDbSessionId(sid1);
+  // Test uniqueness between readonly open (sid1) and regular open (sid3)
+  ASSERT_NE(sid1, sid3);
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  db_->GetDbSessionId(sid2);
+  ASSERT_EQ("v1", Get("foo"));
+  db_->GetDbSessionId(sid3);
+
+  ASSERT_NE(sid1, sid2);
+
+  ASSERT_EQ(sid2, sid3);
+#endif  // ROCKSDB_LITE
+
+  CreateAndReopenWithCF({"goku"}, options);
+  db_->GetDbSessionId(sid1);
+  ASSERT_OK(Put("bar", "e1"));
+  db_->GetDbSessionId(sid2);
+  ASSERT_EQ("e1", Get("bar"));
+  db_->GetDbSessionId(sid3);
+  ReopenWithColumnFamilies({"default", "goku"}, options);
+  db_->GetDbSessionId(sid4);
+
+  ASSERT_EQ(sid1, sid2);
+  ASSERT_EQ(sid2, sid3);
+
+  ASSERT_NE(sid1, sid4);
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
@@ -2199,6 +2249,35 @@ TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
   }
 }
 
+TEST_F(DBBasicTest, RecoverWithNoManifest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  Close();
+  {
+    // Delete all MANIFEST.
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kLogFile;
+      if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
+        ASSERT_OK(env_->DeleteFile(dbname_ + "/" + file));
+      }
+    }
+  }
+  options.best_efforts_recovery = true;
+  options.create_if_missing = false;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  options.create_if_missing = true;
+  Reopen(options);
+  // Since no MANIFEST exists, best-efforts recovery creates a new, empty db.
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+}
+
 TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -2238,6 +2317,33 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   ASSERT_FALSE(iter->Valid());
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(DBBasicTest, ManifestChecksumMismatch) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("bar", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum", [&](void* arg) {
+        auto* crc = reinterpret_cast<uint32_t*>(arg);
+        *crc = *crc + 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  Status s = db_->Put(write_opts, "foo", "value");
+  ASSERT_OK(s);
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(Flush());
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+}
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:

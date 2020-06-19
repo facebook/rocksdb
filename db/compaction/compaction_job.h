@@ -78,7 +78,9 @@ class CompactionJob {
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats,
                 Env::Priority thread_pri,
-                const std::atomic<bool>* manual_compaction_paused = nullptr);
+                const std::atomic<bool>* manual_compaction_paused = nullptr,
+                const std::string& db_id = "",
+                const std::string& db_session_id = "");
 
   ~CompactionJob();
 
@@ -152,6 +154,8 @@ class CompactionJob {
 
   // DBImpl state
   const std::string& dbname_;
+  const std::string db_id_;
+  const std::string db_session_id_;
   const ImmutableDBOptions& db_options_;
   const FileOptions file_options_;
 

@@ -452,44 +452,21 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
   if (rep->table_options.block_cache != nullptr) {
-    GenerateCachePrefix(rep->table_options.block_cache.get(), rep->file->file(),
-                        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
+    GenerateCachePrefix<Cache, FSRandomAccessFile>(
+        rep->table_options.block_cache.get(), rep->file->file(),
+        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
   }
   if (rep->table_options.persistent_cache != nullptr) {
-    GenerateCachePrefix(/*cache=*/nullptr, rep->file->file(),
-                        &rep->persistent_cache_key_prefix[0],
-                        &rep->persistent_cache_key_prefix_size);
+    GenerateCachePrefix<PersistentCache, FSRandomAccessFile>(
+        rep->table_options.persistent_cache.get(), rep->file->file(),
+        &rep->persistent_cache_key_prefix[0],
+        &rep->persistent_cache_key_prefix_size);
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
-    GenerateCachePrefix(rep->table_options.block_cache_compressed.get(),
-                        rep->file->file(), &rep->compressed_cache_key_prefix[0],
-                        &rep->compressed_cache_key_prefix_size);
-  }
-}
-
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
-                                          char* buffer, size_t* size) {
-  // generate an id from the file
-  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
-
-  // If the prefix wasn't generated or was too long,
-  // create one from the cache.
-  if (cc != nullptr && *size == 0) {
-    char* end = EncodeVarint64(buffer, cc->NewId());
-    *size = static_cast<size_t>(end - buffer);
-  }
-}
-
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, FSWritableFile* file,
-                                          char* buffer, size_t* size) {
-  // generate an id from the file
-  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
-
-  // If the prefix wasn't generated or was too long,
-  // create one from the cache.
-  if (cc != nullptr && *size == 0) {
-    char* end = EncodeVarint64(buffer, cc->NewId());
-    *size = static_cast<size_t>(end - buffer);
+    GenerateCachePrefix<Cache, FSRandomAccessFile>(
+        rep->table_options.block_cache_compressed.get(), rep->file->file(),
+        &rep->compressed_cache_key_prefix[0],
+        &rep->compressed_cache_key_prefix_size);
   }
 }
 
@@ -1426,10 +1403,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
-  // No point to cache compressed blocks if it never goes away
   Cache* block_cache_compressed =
-      rep_->immortal_table ? nullptr
-                           : rep_->table_options.block_cache_compressed.get();
+      rep_->table_options.block_cache_compressed.get();
 
   // First, try to get the block from the cache
   //
