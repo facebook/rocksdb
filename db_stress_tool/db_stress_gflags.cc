@@ -414,10 +414,10 @@ static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
-DEFINE_string(kill_prefix_blacklist, "",
+DEFINE_string(kill_exclude_prefixes, "",
               "If non-empty, kill points with prefix in the list given will be"
               " skipped. Items are comma-separated.");
-extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
+extern std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 

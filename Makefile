@@ -675,9 +675,9 @@ ifdef COMPILE_WITH_UBSAN
         TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
 endif
 ifdef ASSERT_STATUS_CHECKED
-	# This is a new check for which we will add support incrementally. The
-	# whitelist can be removed once support is fully added.
-	TESTS_WHITELIST = \
+	# This is a new check for which we will add support incrementally. This
+	# list can be removed once support is fully added.
+	TESTS_PASSING_ASC = \
 		arena_test \
 		autovector_test \
 		blob_file_addition_test \
@@ -723,8 +723,8 @@ ifdef ASSERT_STATUS_CHECKED
 		work_queue_test \
 		write_controller_test \
 
-	TESTS := $(filter $(TESTS_WHITELIST),$(TESTS))
-	PARALLEL_TEST := $(filter $(TESTS_WHITELIST),$(PARALLEL_TEST))
+	TESTS := $(filter $(TESTS_PASSING_ASC),$(TESTS))
+	PARALLEL_TEST := $(filter $(TESTS_PASSING_ASC),$(PARALLEL_TEST))
 endif
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
@@ -978,7 +978,7 @@ J ?= 100%
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
-ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)	
+ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)
 	parallel_com = '{}'
 else
 	parallel_com = '{} >& t/log-{/}'
@@ -1002,7 +1002,7 @@ check_0:
 	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
 	if [ $$parallel_retcode -ne 0 ] ; then exit 1 ; fi
 
-valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
+valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|MySQLStyleTransactionTest.TransactionStressTest
 
 .PHONY: valgrind_check_0
 valgrind_check_0:
@@ -1017,7 +1017,7 @@ valgrind_check_0:
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | grep -E -v '$(valgrind-blacklist-regexp)'					\
+	  | grep -E -v '$(valgrind-exclude-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
 	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
 	  '>& t/valgrind_log-{/}'
@@ -1059,7 +1059,7 @@ ifndef ASSERT_STATUS_CHECKED # not yet working with these tests
 	sh tools/rocksdb_dump_test.sh
 endif
 endif
-endif	
+endif
 ifndef SKIP_FORMAT_BUCK_CHECKS
 	$(MAKE) check-format
 	$(MAKE) check-buck-targets

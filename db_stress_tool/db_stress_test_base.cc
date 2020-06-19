@@ -1717,9 +1717,9 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
   fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
-  if (!rocksdb_kill_prefix_blacklist.empty()) {
+  if (!rocksdb_kill_exclude_prefixes.empty()) {
     fprintf(stdout, "Skipping kill points prefixes:\n");
-    for (auto& p : rocksdb_kill_prefix_blacklist) {
+    for (auto& p : rocksdb_kill_exclude_prefixes) {
       fprintf(stdout, "  %s\n", p.c_str());
     }
   }
