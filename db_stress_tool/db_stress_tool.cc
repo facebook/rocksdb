@@ -238,7 +238,8 @@ int db_stress_tool(int argc, char** argv) {
   }
   if (FLAGS_enable_compaction_filter &&
       (FLAGS_acquire_snapshot_one_in > 0 || FLAGS_compact_range_one_in > 0 ||
-       FLAGS_iterpercent > 0 || FLAGS_test_batches_snapshots > 0)) {
+       FLAGS_iterpercent > 0 || FLAGS_test_batches_snapshots ||
+       FLAGS_test_cf_consistency)) {
     fprintf(
         stderr,
         "Error: acquire_snapshot_one_in, compact_range_one_in, iterpercent, "
