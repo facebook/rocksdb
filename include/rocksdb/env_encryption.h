@@ -214,7 +214,8 @@ class EncryptedSequentialFile : public SequentialFile {
  public:
   // Default ctor. Given underlying sequential file is supposed to be at
   // offset == prefixLength.
-  EncryptedSequentialFile(std::unique_ptr<SequentialFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
+  EncryptedSequentialFile(std::unique_ptr<SequentialFile>&& f,
+                          std::unique_ptr<BlockAccessCipherStream>&& s,
                           size_t prefixLength)
       : file_(std::move(f)),
         stream_(std::move(s)),
@@ -267,9 +268,12 @@ class EncryptedRandomAccessFile : public RandomAccessFile {
   size_t prefixLength_;
 
  public:
-  EncryptedRandomAccessFile(std::unique_ptr<RandomAccessFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
+  EncryptedRandomAccessFile(std::unique_ptr<RandomAccessFile>&& f,
+                            std::unique_ptr<BlockAccessCipherStream>&& s,
                             size_t prefixLength)
-      : file_(std::move(f)), stream_(std::move(s)), prefixLength_(prefixLength) {}
+      : file_(std::move(f)),
+        stream_(std::move(s)),
+        prefixLength_(prefixLength) {}
 
   // Read up to "n" bytes from the file starting at "offset".
   // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
@@ -331,7 +335,8 @@ class EncryptedWritableFile : public WritableFileWrapper {
 
  public:
   // Default ctor. Prefix is assumed to be written already.
-  EncryptedWritableFile(std::unique_ptr<WritableFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
+  EncryptedWritableFile(std::unique_ptr<WritableFile>&& f,
+                        std::unique_ptr<BlockAccessCipherStream>&& s,
                         size_t prefixLength)
       : WritableFileWrapper(f.get()),
         file_(std::move(f)),
@@ -394,9 +399,12 @@ class EncryptedRandomRWFile : public RandomRWFile {
   size_t prefixLength_;
 
  public:
-  EncryptedRandomRWFile(std::unique_ptr<RandomRWFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
+  EncryptedRandomRWFile(std::unique_ptr<RandomRWFile>&& f,
+                        std::unique_ptr<BlockAccessCipherStream>&& s,
                         size_t prefixLength)
-      : file_(std::move(f)), stream_(std::move(s)), prefixLength_(prefixLength) {}
+      : file_(std::move(f)),
+        stream_(std::move(s)),
+        prefixLength_(prefixLength) {}
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
