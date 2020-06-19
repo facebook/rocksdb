@@ -73,6 +73,7 @@ default_params = {
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
+    "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "pause_background_one_in": 1000000,
     "prefixpercent": 5,
