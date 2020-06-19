@@ -247,7 +247,7 @@ int db_stress_tool(int argc, char** argv) {
   }
 
   rocksdb_kill_odds = FLAGS_kill_random_test;
-  rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
+  rocksdb_kill_exclude_prefixes = SplitString(FLAGS_kill_exclude_prefixes);
 
   unsigned int levels = FLAGS_max_key_len;
   std::vector<std::string> weights;

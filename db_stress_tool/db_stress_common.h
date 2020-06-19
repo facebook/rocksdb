@@ -161,7 +161,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_int32(kill_random_test);
-DECLARE_string(kill_prefix_blacklist);
+DECLARE_string(kill_exclude_prefixes);
 DECLARE_bool(disable_wal);
 DECLARE_uint64(recycle_log_file_num);
 DECLARE_int64(target_file_size_base);
