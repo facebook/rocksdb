@@ -164,21 +164,35 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
       // We need to make sure that's accounted for in choosing a
       // fragmentation-friendly size.
       const uint32_t kExtraPadding = kBlockTrailerSize;
+      size_t requested = rv + kExtraPadding;
 
-      // Allocate and adjust for usable size
-      tmpbuf.reset(new char[rv + kExtraPadding]);
+      // Allocate and get usable size
+      tmpbuf.reset(new char[requested]);
       size_t usable = malloc_usable_size(tmpbuf.get());
-      if (usable > rv + kExtraPadding) {
+
+      if (usable - usable / 4 > requested) {
+        // Ratio greater than 4/3 is too much for utilizing, if it's
+        // not a buggy or mislinked malloc_usable_size implementation.
+        // Non-linearity of FP rates with bits/key means rapidly
+        // diminishing returns in overall accuracy for additional
+        // storage on disk.
+        // Nothing to do, except assert that the result is accurate about
+        // the usable size. (Assignment never used.)
+        assert(tmpbuf[usable - 1] = 'x');
+      } else if (usable > requested) {
+        // Adjust for reasonably larger usable size
         size_t usable_len = (usable - kExtraPadding - /* metadata */ 5);
         if (usable_len >= size_t{0xffffffc0}) {
           // Max supported for this data structure implementation
           usable_len = size_t{0xffffffc0};
         }
+
         rv = (static_cast<uint32_t>(usable_len) & ~uint32_t{63}) +
              /* metadata */ 5;
         rv_fp_rate = EstimatedFpRate(num_entry, rv);
       } else {
-        assert(usable == rv + kExtraPadding);
+        // Too small means bad malloc_usable_size
+        assert(usable == requested);
       }
       memset(tmpbuf.get(), 0, rv);
 
