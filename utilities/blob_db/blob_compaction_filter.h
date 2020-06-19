@@ -11,9 +11,9 @@
 #include "monitoring/statistics.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/layered_compaction_filter_base.h"
 #include "utilities/blob_db/blob_db_gc_stats.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/compaction_filters/layered_compaction_filter_base.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
@@ -35,13 +35,13 @@ struct BlobCompactionContextGC {
 class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
  public:
   BlobIndexCompactionFilterBase(
-      BlobCompactionContext&& blob_comp_context,
+      BlobCompactionContext&& _context,
       const CompactionFilter* _user_comp_filter,
       std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory,
       uint64_t current_time, Statistics* stats)
       : LayeredCompactionFilterBase(_user_comp_filter,
                                     std::move(_user_comp_filter_from_factory)),
-        context_(std::move(blob_comp_context)),
+        context_(std::move(_context)),
         current_time_(current_time),
         statistics_(stats) {}
 
@@ -70,6 +70,11 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
   const BlobCompactionContext& context() const { return context_; }
 
  private:
+  Decision HandleValueChange(const Slice& key,
+                             const std::string& new_value_from_user_filter,
+                             std::string* new_value) const;
+
+ private:
   BlobCompactionContext context_;
   const uint64_t current_time_;
   Statistics* statistics_;
@@ -88,13 +93,13 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
 class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
  public:
   BlobIndexCompactionFilter(
-      BlobCompactionContext&& blob_comp_context,
+      BlobCompactionContext&& _context,
       const CompactionFilter* _user_comp_filter,
       std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory,
       uint64_t current_time, Statistics* stats)
-      : BlobIndexCompactionFilterBase(
-            std::move(blob_comp_context), _user_comp_filter,
-            std::move(_user_comp_filter_from_factory), current_time, stats) {}
+      : BlobIndexCompactionFilterBase(std::move(_context), _user_comp_filter,
+                                      std::move(_user_comp_filter_from_factory),
+                                      current_time, stats) {}
 
   const char* Name() const override { return "BlobIndexCompactionFilter"; }
 };
@@ -102,14 +107,13 @@ class BlobIndexCompactionFilter : public BlobIndexCompactionFilterBase {
 class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
  public:
   BlobIndexCompactionFilterGC(
-      BlobCompactionContext&& blob_comp_context,
-      BlobCompactionContextGC&& context_gc,
+      BlobCompactionContext&& _context, BlobCompactionContextGC&& context_gc,
       const CompactionFilter* _user_comp_filter,
       std::unique_ptr<const CompactionFilter> _user_comp_filter_from_factory,
       uint64_t current_time, Statistics* stats)
-      : BlobIndexCompactionFilterBase(
-            std::move(blob_comp_context), _user_comp_filter,
-            std::move(_user_comp_filter_from_factory), current_time, stats),
+      : BlobIndexCompactionFilterBase(std::move(_context), _user_comp_filter,
+                                      std::move(_user_comp_filter_from_factory),
+                                      current_time, stats),
         context_gc_(std::move(context_gc)) {}
 
   ~BlobIndexCompactionFilterGC() override;
@@ -142,6 +146,9 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
         statistics_(_statistics) {}
 
  protected:
+  std::unique_ptr<CompactionFilter> CreateUserCompactionFilterFromFactory(
+      const CompactionFilter::Context& context) const;
+
   BlobDBImpl* blob_db_impl() const { return blob_db_impl_; }
   Env* env() const { return env_; }
   Statistics* statistics() const { return statistics_; }

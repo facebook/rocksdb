@@ -233,9 +233,6 @@ class BlobDBImpl : public BlobDB {
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
 
-  Slice GetCompressedSlice(const Slice& raw, CompressionType compression_type,
-                           std::string* compression_output) const;
-
   Status DecompressSlice(const Slice& compressed_value,
                          CompressionType compression_type,
                          PinnableSlice* value_output) const;

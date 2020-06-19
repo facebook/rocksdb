@@ -1127,17 +1127,11 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
 
 Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
                                      std::string* compression_output) const {
-  return GetCompressedSlice(raw, bdb_options_.compression, compression_output);
-}
-
-Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
-                                     CompressionType compression_type,
-                                     std::string* compression_output) const {
-  if (compression_type == kNoCompression) {
+  if (bdb_options_.compression == kNoCompression) {
     return raw;
   }
   StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
-  CompressionType type = compression_type;
+  CompressionType type = bdb_options_.compression;
   CompressionOptions opts;
   CompressionContext context(type);
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(), type,
