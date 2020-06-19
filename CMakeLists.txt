@@ -1269,3 +1269,8 @@ if(WITH_TOOLS)
   add_custom_target(tools
     DEPENDS ${tool_deps})
 endif()
+
+option(WITH_EXAMPLES "build with examples" OFF)
+if(WITH_EXAMPLES)
+  add_subdirectory(examples)
+endif()
