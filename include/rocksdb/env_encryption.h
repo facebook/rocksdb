@@ -205,7 +205,7 @@ class CTREncryptionProvider : public EncryptionProvider {
 };
 
 class EncryptedSequentialFile : public SequentialFile {
- private:
+ protected:
   std::unique_ptr<SequentialFile> file_;
   std::unique_ptr<BlockAccessCipherStream> stream_;
   uint64_t offset_;
@@ -214,10 +214,10 @@ class EncryptedSequentialFile : public SequentialFile {
  public:
   // Default ctor. Given underlying sequential file is supposed to be at
   // offset == prefixLength.
-  EncryptedSequentialFile(SequentialFile* f, BlockAccessCipherStream* s,
+  EncryptedSequentialFile(std::unique_ptr<SequentialFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
                           size_t prefixLength)
-      : file_(f),
-        stream_(s),
+      : file_(std::move(f)),
+        stream_(std::move(s)),
         offset_(prefixLength),
         prefixLength_(prefixLength) {}
 
@@ -261,15 +261,15 @@ class EncryptedSequentialFile : public SequentialFile {
 
 // A file abstraction for randomly reading the contents of a file.
 class EncryptedRandomAccessFile : public RandomAccessFile {
- private:
+ protected:
   std::unique_ptr<RandomAccessFile> file_;
   std::unique_ptr<BlockAccessCipherStream> stream_;
   size_t prefixLength_;
 
  public:
-  EncryptedRandomAccessFile(RandomAccessFile* f, BlockAccessCipherStream* s,
+  EncryptedRandomAccessFile(std::unique_ptr<RandomAccessFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
                             size_t prefixLength)
-      : file_(f), stream_(s), prefixLength_(prefixLength) {}
+      : file_(std::move(f)), stream_(std::move(s)), prefixLength_(prefixLength) {}
 
   // Read up to "n" bytes from the file starting at "offset".
   // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
@@ -324,18 +324,18 @@ class EncryptedRandomAccessFile : public RandomAccessFile {
 // must provide buffering since callers may append small fragments
 // at a time to the file.
 class EncryptedWritableFile : public WritableFileWrapper {
- private:
+ protected:
   std::unique_ptr<WritableFile> file_;
   std::unique_ptr<BlockAccessCipherStream> stream_;
   size_t prefixLength_;
 
  public:
   // Default ctor. Prefix is assumed to be written already.
-  EncryptedWritableFile(WritableFile* f, BlockAccessCipherStream* s,
+  EncryptedWritableFile(std::unique_ptr<WritableFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
                         size_t prefixLength)
-      : WritableFileWrapper(f),
-        file_(f),
-        stream_(s),
+      : WritableFileWrapper(f.get()),
+        file_(std::move(f)),
+        stream_(std::move(s)),
         prefixLength_(prefixLength) {}
 
   Status Append(const Slice& data) override;
@@ -388,15 +388,15 @@ class EncryptedWritableFile : public WritableFileWrapper {
 
 // A file abstraction for random reading and writing.
 class EncryptedRandomRWFile : public RandomRWFile {
- private:
+ protected:
   std::unique_ptr<RandomRWFile> file_;
   std::unique_ptr<BlockAccessCipherStream> stream_;
   size_t prefixLength_;
 
  public:
-  EncryptedRandomRWFile(RandomRWFile* f, BlockAccessCipherStream* s,
+  EncryptedRandomRWFile(std::unique_ptr<RandomRWFile>&& f, std::unique_ptr<BlockAccessCipherStream>&& s,
                         size_t prefixLength)
-      : file_(f), stream_(s), prefixLength_(prefixLength) {}
+      : file_(std::move(f)), stream_(std::move(s)), prefixLength_(prefixLength) {}
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()

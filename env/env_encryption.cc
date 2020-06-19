@@ -405,7 +405,7 @@ class EncryptedEnv : public EnvWrapper {
       return status;
     }
     (*result) = std::unique_ptr<SequentialFile>(new EncryptedSequentialFile(
-        underlying.release(), stream.release(), prefixLength));
+        std::move(underlying), std::move(stream), prefixLength));
     return Status::OK();
   }
 
@@ -446,7 +446,7 @@ class EncryptedEnv : public EnvWrapper {
       return status;
     }
     (*result) = std::unique_ptr<RandomAccessFile>(new EncryptedRandomAccessFile(
-        underlying.release(), stream.release(), prefixLength));
+        std::move(underlying), std::move(stream), prefixLength));
     return Status::OK();
   }
 
@@ -489,7 +489,7 @@ class EncryptedEnv : public EnvWrapper {
       return status;
     }
     (*result) = std::unique_ptr<WritableFile>(new EncryptedWritableFile(
-        underlying.release(), stream.release(), prefixLength));
+        std::move(underlying), std::move(stream), prefixLength));
     return Status::OK();
   }
 
@@ -538,7 +538,7 @@ class EncryptedEnv : public EnvWrapper {
       return status;
     }
     (*result) = std::unique_ptr<WritableFile>(new EncryptedWritableFile(
-        underlying.release(), stream.release(), prefixLength));
+        std::move(underlying), std::move(stream), prefixLength));
     return Status::OK();
   }
 
@@ -583,7 +583,7 @@ class EncryptedEnv : public EnvWrapper {
       return status;
     }
     (*result) = std::unique_ptr<WritableFile>(new EncryptedWritableFile(
-        underlying.release(), stream.release(), prefixLength));
+        std::move(underlying), std::move(stream), prefixLength));
     return Status::OK();
   }
 
@@ -644,7 +644,7 @@ class EncryptedEnv : public EnvWrapper {
       return status;
     }
     (*result) = std::unique_ptr<RandomRWFile>(new EncryptedRandomRWFile(
-        underlying.release(), stream.release(), prefixLength));
+        std::move(underlying), std::move(stream), prefixLength));
     return Status::OK();
   }
 
