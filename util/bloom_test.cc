@@ -536,6 +536,12 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
     EXPECT_GE(static_cast<int64_t>(total_size), ex_min_total_size);
 
+    int64_t blocked_bloom_overhead = nfilters * (CACHE_LINE_SIZE + 5);
+    if (GetParam() == BloomFilterPolicy::kLegacyBloom) {
+      // this config can add extra cache line to make odd number
+      blocked_bloom_overhead += nfilters * CACHE_LINE_SIZE;
+    }
+
     EXPECT_GE(total_mem, total_size);
 
     // optimize_filters_for_memory not implemented with legacy Bloom
@@ -543,9 +549,8 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       // Less than 1% internal fragmentation
       EXPECT_LE(total_mem, total_size * 101 / 100);
       // Up to 2% storage penalty
-      EXPECT_LE(
-          static_cast<int64_t>(total_size),
-          102 * ex_min_total_size / 100 + nfilters * (CACHE_LINE_SIZE + 5));
+      EXPECT_LE(static_cast<int64_t>(total_size),
+                ex_min_total_size * 102 / 100 + blocked_bloom_overhead);
     } else {
       // TODO: add control checks for more allocators?
 #ifdef ROCKSDB_JEMALLOC
@@ -554,7 +559,7 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
 #endif  // ROCKSDB_JEMALLOC
       // No storage penalty, just usual overhead
       EXPECT_LE(static_cast<int64_t>(total_size),
-                ex_min_total_size + nfilters * (CACHE_LINE_SIZE + 5));
+                ex_min_total_size + blocked_bloom_overhead);
     }
   }
 }
