@@ -776,9 +776,9 @@ Status BlockBasedTable::TryReadPropertiesWithGlobalSeqno(
       EncodeFixed64(
           tmp_buf.get() + global_seqno_offset - props_block_handle.offset(), 0);
     }
-    uint32_t value = DecodeFixed32(tmp_buf.get() + block_size + 1);
-    s = ROCKSDB_NAMESPACE::VerifyChecksum(rep_->footer.checksum(),
-                                          tmp_buf.get(), block_size + 1, value);
+    s = ROCKSDB_NAMESPACE::VerifyBlockChecksum(
+        rep_->footer.checksum(), tmp_buf.get(), block_size,
+        rep_->file->file_name(), props_block_handle.offset());
   }
   return s;
 }
@@ -1728,15 +1728,14 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       if (options.verify_checksums) {
         PERF_TIMER_GUARD(block_checksum_time);
         const char* data = req.result.data();
-        uint32_t expected =
-            DecodeFixed32(data + req_offset + handle.size() + 1);
-        // Since the scratch might be shared. the offset of the data block in
+        // Since the scratch might be shared, the offset of the data block in
         // the buffer might not be 0. req.result.data() only point to the
         // begin address of each read request, we need to add the offset
         // in each read request. Checksum is stored in the block trailer,
-        // which is handle.size() + 1.
-        s = ROCKSDB_NAMESPACE::VerifyChecksum(
-            footer.checksum(), data + req_offset, handle.size() + 1, expected);
+        // beyond the payload size.
+        s = ROCKSDB_NAMESPACE::VerifyBlockChecksum(
+            footer.checksum(), data + req_offset, handle.size(),
+            rep_->file->file_name(), handle.offset());
         TEST_SYNC_POINT_CALLBACK("RetrieveMultipleBlocks:VerifyChecksum", &s);
       }
     } else if (!use_shared_buffer) {
