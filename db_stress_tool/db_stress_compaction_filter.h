@@ -36,6 +36,7 @@ class DbStressCompactionFilter : public CompactionFilter {
     uint64_t key_num = 0;
     bool ok = GetIntVal(key.ToString(), &key_num);
     assert(ok);
+    (void)ok;
     MutexLock key_lock(state_->GetMutexForKey(cf_id_, key_num));
     if (!state_->Exists(cf_id_, key_num)) {
       return Decision::kRemove;
