@@ -206,6 +206,9 @@ cf_consistency_params = {
     # more frequently
     "write_buffer_size": 1024 * 1024,
     "enable_pipelined_write": lambda: random.randint(0, 1),
+    # Snapshots are used heavily in this test mode, while they are incompatible
+    # with compaction filter.
+    "enable_compaction_filter": 0,
 }
 
 txn_params = {
