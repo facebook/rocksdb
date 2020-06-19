@@ -30,7 +30,7 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
   // the checksummed section.
   size_t len = block_size + 1;
   // And then the stored checksum value (4 bytes).
-  uint32_t stored = DecodeFixed32(data + block_size + 1);
+  uint32_t stored = DecodeFixed32(data + len);
 
   Status s;
   uint32_t computed = 0;
