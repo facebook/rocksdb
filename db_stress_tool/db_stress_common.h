@@ -485,7 +485,6 @@ inline bool GetFirstIntValInPrefix(std::string big_endian_prefix,
   unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
   if (pad < sizeof(uint64_t)) {
     big_endian_prefix.append(pad, '\0');
-    size_key += pad;
   }
   return GetIntVal(std::move(big_endian_prefix), key_p);
 }
