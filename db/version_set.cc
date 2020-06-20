@@ -4749,10 +4749,13 @@ Status VersionSet::Recover(
                                const_cast<VersionSet*>(this),
                                /*track_missing_files=*/false,
                                /*no_error_if_table_files_missing=*/false);
-    s = handler.Iterate(reader, db_id);
-    log_number = handler.GetVersionEditParams().log_number_;
-    current_manifest_file_size = reader.GetReadOffset();
-    assert(current_manifest_file_size != 0);
+    handler.Iterate(reader, &log_read_status, db_id);
+    s = handler.status();
+    if (s.ok()) {
+      log_number = handler.GetVersionEditParams().log_number_;
+      current_manifest_file_size = reader.GetReadOffset();
+      assert(current_manifest_file_size != 0);
+    }
   }
 
   if (s.ok()) {

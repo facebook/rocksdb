@@ -88,7 +88,6 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
   }
   TEST_SYNC_POINT_CALLBACK("VersionEditHandler::Iterate:Finish",
                            &recovered_edits);
-  return s;
 }
 
 Status VersionEditHandler::Initialize() {
