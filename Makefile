@@ -1756,12 +1756,13 @@ blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIB
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-timer_test: util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
+timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-testutil_test: test_util/testutil_test.o $(LIBOBJECTS) $(TESTHARNESS)
+testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
-io_tracer_test: trace_replay/io_tracer_test.o trace_replay/io_tracer.o $(LIBOBJECTS) $(TESTHARNESS)
+
+io_tracer_test: $(OBJ_DIR)/trace_replay/io_tracer_test.o $(OBJ_DIR)/trace_replay/io_tracer.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 #-------------------------------------------------
