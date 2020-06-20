@@ -15,13 +15,13 @@ LIB_SOURCES =                                                   \
   db/c.cc                                                       \
   db/column_family.cc                                           \
   db/compacted_db_impl.cc                                       \
-  db/compaction/compaction.cc                                 	\
+  db/compaction/compaction.cc                                   \
   db/compaction/compaction_iterator.cc                          \
   db/compaction/compaction_job.cc                               \
   db/compaction/compaction_picker.cc                            \
   db/compaction/compaction_picker_fifo.cc                       \
   db/compaction/compaction_picker_level.cc                      \
-  db/compaction/compaction_picker_universal.cc                 	\
+  db/compaction/compaction_picker_universal.cc                  \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl/db_impl.cc                                         \
@@ -36,7 +36,7 @@ LIB_SOURCES =                                                   \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
-  db/error_handler.cc						                                \
+  db/error_handler.cc                                           \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
   db/external_sst_file_ingestion_job.cc                         \
@@ -77,7 +77,7 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
-  env/fs_posix.cc                                           	  \
+  env/fs_posix.cc                                               \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -150,7 +150,7 @@ LIB_SOURCES =                                                   \
   table/block_based/partitioned_index_reader.cc                 \
   table/block_based/reader_common.cc                            \
   table/block_based/uncompression_dict_reader.cc                \
-  table/block_fetcher.cc                             		        \
+  table/block_fetcher.cc                                        \
   table/cuckoo/cuckoo_table_builder.cc                          \
   table/cuckoo/cuckoo_table_factory.cc                          \
   table/cuckoo/cuckoo_table_reader.cc                           \
@@ -189,7 +189,7 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
-  util/file_checksum_helper.cc      				\
+  util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
   util/string_util.cc                                           \
   util/thread_local.cc                                          \
@@ -214,7 +214,7 @@ LIB_SOURCES =                                                   \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
-  utilities/merge_operators/sortlist.cc                  		    \
+  utilities/merge_operators/sortlist.cc                         \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/uint64add.cc                        \
@@ -275,7 +275,7 @@ ANALYZER_LIB_SOURCES =                                          \
 
 MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
-  test_util/fault_injection_test_fs.cc				\
+  test_util/fault_injection_test_fs.cc                          \
   test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES =                                             \
@@ -345,7 +345,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/db_basic_test.cc                                                   \
-  db/db_with_timestamp_basic_test.cc					\
+  db/db_with_timestamp_basic_test.cc                                    \
   db/db_block_cache_test.cc                                             \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
@@ -362,7 +362,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_log_iter_test.cc                                                \
   db/db_memtable_test.cc                                                \
   db/db_merge_operator_test.cc                                          \
-  db/db_merge_operand_test.cc                                          	\
+  db/db_merge_operand_test.cc                                           \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
@@ -380,7 +380,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
-  db/error_handler_fs_test.cc						\
+  db/error_handler_fs_test.cc                                           \
   db/external_sst_file_basic_test.cc                                    \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
@@ -394,7 +394,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/memtable_list_test.cc                                              \
   db/merge_helper_test.cc                                               \
   db/merge_test.cc                                                      \
-  db/obsolete_files_test.cc						                                  \
+  db/obsolete_files_test.cc                                             \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
   db/plain_table_db_test.cc                                             \
@@ -443,11 +443,12 @@ TEST_MAIN_SOURCES =                                                     \
   table/sst_file_reader_test.cc                                         \
   table/table_test.cc                                                   \
   table/block_fetcher_test.cc                                           \
+  test_util/testutil_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc				                \
+  tools/trace_analyzer_test.cc                                          \
   trace_replay/block_cache_tracer_test.cc                               \
   trace_replay/io_tracer_test.cc                                        \
   util/autovector_test.cc                                               \
