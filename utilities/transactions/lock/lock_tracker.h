@@ -87,18 +87,20 @@ class LockTracker {
   // the current tracker.
   virtual Status Subtract(const LockTracker& tracker) = 0;
 
-  // Gets the new point locks tracked since the specified save point and add to
+  // Gets the new locks tracked since the specified save point and add to
   // result, the locks that have been tracked before the save point will not be
   // added to result.
   //
   // save_point_tracker is the tracker used by a SavePoint to track locks
   // tracked after creating the SavePoint.
   //
-  // If IsPointLockSupported returns false, returns Status::NotSupported.
+  // The implementation should document whether point lock, or range lock, or
+  // both are considered in this method. If this method is not supported,
+  // returns Status::NotSupported.
   //
   // REQUIRED: the trackers in the parameters must be of the same concrete
   // class type as the current tracker.
-  virtual Status GetTrackedPointLocksSinceSavePoint(
+  virtual Status GetTrackedLocksSinceSavePoint(
       const LockTracker& save_point_tracker, LockTracker* result);
 
   using ColumnFamilyId = uint32_t;
