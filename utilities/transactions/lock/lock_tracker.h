@@ -53,28 +53,36 @@ class LockTracker {
   virtual bool IsRangeLockSupported() const = 0;
 
   // Tracks the acquirement of a lock on key.
+  //
   // If IsPointLockSupported returns false, returns Status::NotSupported.
   virtual Status Track(const PointLockRequest& lock_request) = 0;
 
   // Tracks the acquirement of a lock on a range of keys.
+  //
   // If IsRangeLockSupported returns false, returns Status::NotSupported.
   virtual Status Track(const RangeLockRequest& lock_request) = 0;
   
   // Merges lock requests tracked in the specified tracker into the current
   // tracker.
+  //
   // E.g. for point lock, if a key in tracker is not yet tracked,
   // track this new key; otherwise, merge the tracked information of the key
   // such as lock's exclusiveness, read/write statistics.
+  //
   // If Merge is not supported, returns Status::NotSupported.
+  //
   // REQUIRED: the specified tracker must be of the same concrete class type as
   // the current tracker.
   virtual Status Merge(const LockTracker& tracker) = 0;
 
   // This is a reverse operation of Merge.
+  //
   // E.g. for point lock, if a key exists in both current and the sepcified
   // tracker, then subtract the information (such as read/write statistics) of
   // the key in the specified tracker from the current tracker.
+  //
   // If Subtract is not supported, returns Status::NotSupported.
+  //
   // REQUIRED: the specified tracker must be of the same concrete class type as
   // the current tracker.
   virtual Status Subtract(const LockTracker& tracker) = 0;
@@ -82,19 +90,26 @@ class LockTracker {
   // Gets the new point locks tracked since the specified save point and add to
   // result, the locks that have been tracked before the save point will not be
   // added to result.
+  //
   // save_point_tracker is the tracker used by a SavePoint to track locks
   // tracked after creating the SavePoint.
+  //
   // If IsPointLockSupported returns false, returns Status::NotSupported.
+  //
+  // REQUIRED: the trackers in the parameters must be of the same concrete
+  // class type as the current tracker.
   virtual Status GetTrackedPointLocksSinceSavePoint(
       const LockTracker& save_point_tracker, LockTracker* result);
 
   using ColumnFamilyId = uint32_t;
   // Gets lock related information of the key.
+  //
   // If IsPointLockSupported returns false, returns Status::NotSupported.
   virtual Status GetInfo(ColumnFamilyId column_family_id,
                          const std::string& key, PointLockInfo* info) const = 0;
 
   // Gets number of tracked point locks.
+  //
   // If IsPointLockSupported returns false, returns 0.
   virtual uint64_t GetNumPointLocks() const = 0;
 
@@ -106,6 +121,7 @@ class LockTracker {
     virtual bool HasNext() = 0;
 
     // Gets next column family id.
+    //
     // If HasNext is false, calling this method has undefined behavior.
     virtual ColumnFamilyId Next() = 0;
   };
@@ -121,11 +137,13 @@ class LockTracker {
     virtual bool HasNext() = 0;
 
     // Gets the next key.
+    //
     // If HasNext is false, calling this method has undefined behavior.
     virtual std::string Next() = 0;
   };
 
   // Gets an iterator for keys with tracked point locks in the column family.
+  //
   // If IsPointLockSupported returns false, calling HasNext on the returned
   // KeyIterator always returns false.
   virtual KeyIterator GetKeyIterator(ColumnFamilyId column_family_id) const = 0;
