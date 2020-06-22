@@ -362,7 +362,7 @@ class DBImpl : public DB {
 
   virtual Status EnableFileDeletions(bool force) override;
 
-  virtual int IsFileDeletionsEnabled() const;
+  virtual bool IsFileDeletionsEnabled() const;
 
   Status GetStatsHistory(
       uint64_t start_time, uint64_t end_time,

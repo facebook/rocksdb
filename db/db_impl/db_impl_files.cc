@@ -88,8 +88,8 @@ Status DBImpl::EnableFileDeletions(bool force) {
   return Status::OK();
 }
 
-int DBImpl::IsFileDeletionsEnabled() const {
-  return !disable_delete_obsolete_files_;
+bool DBImpl::IsFileDeletionsEnabled() const {
+  return 0 == disable_delete_obsolete_files_;
 }
 
 // * Returns the list of live files in 'sst_live' and 'blob_live'.
