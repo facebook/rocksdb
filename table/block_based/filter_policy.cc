@@ -130,6 +130,11 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
       // size and use malloc_usable_size to "round up" to the actual
       // allocation size.
 
+      // Although it can be considered bad practice to use malloc_usable_size
+      // to access an object beyond its original size, this approach should
+      // quite general: working for all allocators that properly support
+      // malloc_usable_size.
+
       // Race condition on balance is OK because it can only cause temporary
       // skew in rounding up vs. rounding down, as long as updates are atomic
       // and relative.
