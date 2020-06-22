@@ -7,6 +7,10 @@
 #include "rocksdb/env.h"
 
 #include <fcntl.h>
+#ifdef __FreeBSD__
+#include <sys/types.h>
+#include <sys/wait.h>
+#endif
 #include <vector>
 #include "test_util/testharness.h"
 #include "util/coding.h"
