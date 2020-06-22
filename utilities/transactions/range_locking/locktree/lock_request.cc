@@ -165,8 +165,21 @@ bool lock_request::deadlock_exists(const txnid_set &conflicts) {
     wait_graph.create();
 
     build_wait_graph(&wait_graph, conflicts);
-    bool deadlock = wait_graph.cycle_exists_from_txnid(m_txnid);
 
+    std::function<void(TXNID)> reporter;
+    if (m_deadlock_cb) {
+        reporter = [this](TXNID a) {
+            lock_request *req= find_lock_request(a);
+            if (req) {
+                m_deadlock_cb(req->m_txnid,
+                              (req->m_type == lock_request::WRITE),
+                              std::string((const char*)req->m_left_key->data,
+                                          req->m_left_key->size));
+            }
+        };
+    }
+
+    bool deadlock = wait_graph.cycle_exists_from_txnid(m_txnid, reporter);
     wait_graph.destroy();
     return deadlock;
 }

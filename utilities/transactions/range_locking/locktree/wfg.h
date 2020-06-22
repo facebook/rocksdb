@@ -51,6 +51,7 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 
 #pragma once
 
+#include <functional>
 #include "locktree/txnid_set.h"
 #include "util/omt.h"
 
@@ -76,7 +77,8 @@ public:
 
     // Return true if there exists a cycle from a given transaction id in the graph.
     // Return false otherwise.
-    bool cycle_exists_from_txnid(TXNID txnid);
+    bool cycle_exists_from_txnid(TXNID txnid,
+                                 std::function<void(TXNID)> reporter);
 
     // Apply a given function f to all of the nodes in the graph.  The apply function
     // returns when the function f is called for all of the nodes in the graph, or the 
@@ -108,7 +110,8 @@ private:
 
     node *find_create_node(TXNID txnid);
 
-    bool cycle_exists_from_node(node *target, node *head);
+    bool cycle_exists_from_node(node *target, node *head,
+                                std::function<void(TXNID)> reporter);
 
     static int find_by_txnid(node *const &node_a, const TXNID &txnid_b);
 };

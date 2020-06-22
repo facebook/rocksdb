@@ -205,10 +205,8 @@ class RangeLockMgr :
                  const std::string& key, Env* env, bool exclusive) override ;
 
   // Resize the deadlock-info buffer, does nothing currently
-  void Resize(uint32_t) override {}
-  std::vector<DeadlockPath> GetDeadlockInfoBuffer() override { 
-    return std::vector<DeadlockPath>();
-  };
+  void Resize(uint32_t) override;
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
 
   // Get a lock on a range
   //  @note only exclusive locks are currently supported (requesting a
@@ -262,6 +260,8 @@ class RangeLockMgr :
   // Per-thread cache of ltree_map_.
   // (uses the same approach as TransactionLockMgr::lock_maps_cache_)
   std::unique_ptr<ThreadLocalPtr> ltree_lookup_cache_;
+
+  DeadlockInfoBuffer dlock_buffer_;
 
   // Get the lock tree which stores locks for Column Family with given cf_id
   toku::locktree *get_locktree_by_cfid(uint32_t cf_id);

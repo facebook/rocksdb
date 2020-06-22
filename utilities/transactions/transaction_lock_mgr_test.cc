@@ -89,7 +89,7 @@ class MockColumnFamily : public ColumnFamilyHandle {
   const std::string& GetName() const override { return name; }
 
   Status GetDescriptor(ColumnFamilyDescriptor* ) override {
-    //ASSERT_TRUE(0);
+    assert(0);
     return Status::NotSupported();
   }
 
@@ -277,10 +277,14 @@ TEST_P(AnyLockManagerTest, LockConflict) {
   delete txn2;
 }
 
-port::Thread BlockUntilWaitingTxn(std::function<void()> f) {
+port::Thread BlockUntilWaitingTxn(bool use_range_locking,
+                                  std::function<void()> f) {
   std::atomic<bool> reached(false);
+  const char* sync_point_name =
+   use_range_locking? "RangeLockMgr::TryRangeLock:WaitingTxn":
+                      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn";
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+      sync_point_name,
       [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -311,7 +315,7 @@ TEST_P(AnyLockManagerTest, SharedLocks) {
 
 }
 
-TEST_F(TransactionLockMgrTest, Deadlock) {
+TEST_P(AnyLockManagerTest, Deadlock) {
   // Tests that deadlock can be detected.
   // Deadlock scenario:
   // txn1 exclusively locks k1, and wants to lock k2;
@@ -327,7 +331,7 @@ TEST_F(TransactionLockMgrTest, Deadlock) {
   ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
 
   // txn1 tries to lock k2, will block forever.
-  port::Thread t = BlockUntilWaitingTxn([&]() {
+  port::Thread t = BlockUntilWaitingTxn(use_range_locking, [&]() {
     // block because txn2 is holding a lock on k2.
     locker_->TryLock(txn1, 1, "k2", env_, true);
   });
@@ -346,19 +350,26 @@ TEST_F(TransactionLockMgrTest, Deadlock) {
   ASSERT_EQ(deadlocks[0].m_txn_id, txn1->GetID());
   ASSERT_EQ(deadlocks[0].m_cf_id, 1u);
   ASSERT_TRUE(deadlocks[0].m_exclusive);
-  ASSERT_EQ(deadlocks[0].m_waiting_key, "k2");
+  ASSERT_EQ(key_value(deadlocks[0].m_waiting_key), "k2");
 
   ASSERT_EQ(deadlocks[1].m_txn_id, txn2->GetID());
   ASSERT_EQ(deadlocks[1].m_cf_id, 1u);
   ASSERT_TRUE(deadlocks[1].m_exclusive);
-  ASSERT_EQ(deadlocks[1].m_waiting_key, "k1");
+  ASSERT_EQ(key_value(deadlocks[1].m_waiting_key), "k1");
 
   locker_->UnLock(txn2, 1, "k2", env_);
   t.join();
 
+  // Cleanup
+  locker_->UnLock(txn1, 1, "k1", env_);
+  locker_->UnLock(txn1, 1, "k2", env_);
   delete txn2;
   delete txn1;
 }
+
+
+// This test doesn't work with Range Lock Manager, because Range Lock Manager
+// doesn't support deadlock_detect_depth.
 
 TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
   // Tests that when detecting deadlock, if the detection depth is exceeded,
@@ -383,7 +394,7 @@ TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
   // it must have another txn waiting on it, which is txn4 in this case.
   ASSERT_OK(locker_->TryLock(txn1, 1, "k1", env_, true));
 
-  port::Thread t1 = BlockUntilWaitingTxn([&]() {
+  port::Thread t1 = BlockUntilWaitingTxn(false, [&]() {
     ASSERT_OK(locker_->TryLock(txn2, 1, "k2", env_, true));
     // block because txn1 is holding a lock on k1.
     locker_->TryLock(txn2, 1, "k1", env_, true);
@@ -391,7 +402,7 @@ TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
 
   ASSERT_OK(locker_->TryLock(txn3, 1, "k3", env_, true));
 
-  port::Thread t2 = BlockUntilWaitingTxn([&]() {
+  port::Thread t2 = BlockUntilWaitingTxn(false, [&]() {
     // block because txn3 is holding a lock on k1.
     locker_->TryLock(txn4, 1, "k3", env_, true);
   });

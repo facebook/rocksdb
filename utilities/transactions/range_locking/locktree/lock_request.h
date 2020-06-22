@@ -224,6 +224,8 @@ public:
     void (*m_start_test_callback)(void);
     void (*m_start_before_pending_test_callback)(void);
     void (*m_retry_test_callback)(void);
+public:
+    std::function<void(TXNID, bool, std::string)> m_deadlock_cb;
 
     friend class lock_request_unit_test;
 };

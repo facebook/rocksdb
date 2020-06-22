@@ -91,7 +91,8 @@ bool wfg::node_exists(TXNID txnid) {
     return n != NULL;
 }
 
-bool wfg::cycle_exists_from_node(node *target, node *head) {
+bool wfg::cycle_exists_from_node(node *target, node *head,
+                                 std::function<void(TXNID)> reporter) {
     bool cycle_found = false;
     head->visited = true;
     size_t n_edges = head->edges.size();
@@ -99,10 +100,14 @@ bool wfg::cycle_exists_from_node(node *target, node *head) {
         TXNID edge_id = head->edges.get(i);
         if (target->txnid == edge_id) { 
             cycle_found = true;
+            if (reporter)
+                reporter(edge_id);
         } else {
             node *new_head = find_node(edge_id);
             if (new_head && !new_head->visited) {
-                cycle_found = cycle_exists_from_node(target, new_head);
+                cycle_found = cycle_exists_from_node(target, new_head, reporter);
+                if (cycle_found && reporter)
+                     reporter(edge_id);
             }
         }
     }
@@ -112,11 +117,12 @@ bool wfg::cycle_exists_from_node(node *target, node *head) {
 
 // Return true if there exists a cycle from a given transaction id in the graph.
 // Return false otherwise.
-bool wfg::cycle_exists_from_txnid(TXNID txnid) {
+bool wfg::cycle_exists_from_txnid(TXNID txnid,
+                                  std::function<void(TXNID)> reporter) {
     node *a_node = find_node(txnid);
     bool cycles_found = false;
     if (a_node) {
-        cycles_found = cycle_exists_from_node(a_node, a_node);
+        cycles_found = cycle_exists_from_node(a_node, a_node, reporter);
     }
     return cycles_found;
 }

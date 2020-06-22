@@ -847,6 +847,13 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
   if (wait_time_msec != (uint64_t)-1)
     wait_time_msec = (wait_time_msec + 500) / 1000;
 
+  std::vector<DeadlockInfo> di_path;
+  request.m_deadlock_cb = [&] (TXNID txnid, bool is_exclusive,
+                               std::string key) {
+      di_path.push_back({((PessimisticTransaction*)txnid)->GetID(),
+                         column_family_id, is_exclusive, key});
+  };
+
   request.start();
 
   /*
@@ -865,6 +872,7 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
     bool done= false;
 
     static void lock_wait_callback(void *cdata, TXNID /*waiter*/, TXNID waitee) {
+      TEST_SYNC_POINT("RangeLockMgr::TryRangeLock:WaitingTxn");
       auto self= (struct st_wait_info*)cdata;
       // we know that the waiter is self->txn->GetID() (TODO: assert?)
       if (!self->done)
@@ -892,15 +900,19 @@ Status RangeLockMgr::TryRangeLock(PessimisticTransaction* txn,
 
   request.destroy();
   switch (r) {
-    case 0:
-      break; /* fall through */
-    case DB_LOCK_NOTGRANTED:
-      return Status::TimedOut(Status::SubCode::kLockTimeout);
-    case TOKUDB_OUT_OF_LOCKS:
-      return Status::Busy(Status::SubCode::kLockLimit);
-    case DB_LOCK_DEADLOCK:
-      return Status::Busy(Status::SubCode::kDeadlock);
-    default:
+  case 0:
+    break; /* fall through */
+  case DB_LOCK_NOTGRANTED:
+    return Status::TimedOut(Status::SubCode::kLockTimeout);
+  case TOKUDB_OUT_OF_LOCKS:
+    return Status::Busy(Status::SubCode::kLockLimit);
+  case DB_LOCK_DEADLOCK:
+  {
+    std::reverse(di_path.begin(), di_path.end());
+    dlock_buffer_.AddNewPath(DeadlockPath(di_path, request.get_start_time()));
+    return Status::Busy(Status::SubCode::kDeadlock);
+  }
+  default:
       assert(0);
       return Status::Busy(Status::SubCode::kLockLimit);
   }
@@ -1086,10 +1098,18 @@ int RangeLockMgr::compare_dbt_endpoints(__toku_db*, void *arg,
 
 RangeLockMgr::RangeLockMgr(std::shared_ptr<TransactionDBMutexFactory> mutex_factory) :
   mutex_factory_(mutex_factory),
-  ltree_lookup_cache_(new ThreadLocalPtr(nullptr)) {
+  ltree_lookup_cache_(new ThreadLocalPtr(nullptr)),
+  dlock_buffer_(10) {
   ltm_.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
 }
 
+void RangeLockMgr::Resize(uint32_t target_size) {
+  dlock_buffer_.Resize(target_size);
+}
+
+std::vector<DeadlockPath> RangeLockMgr::GetDeadlockInfoBuffer() {
+  return dlock_buffer_.PrepareBuffer();
+}
 
 /*
   @brief  Lock Escalation Callback function
