@@ -42,8 +42,6 @@ class PointLockTracker : public LockTracker {
  public:
   PointLockTracker() = default;
 
-  ~PointLockTracker() {}
-
   PointLockTracker(const PointLockTracker&) = delete;
   PointLockTracker& operator=(const PointLockTracker&) = delete;
 

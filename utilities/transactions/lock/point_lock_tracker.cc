@@ -13,10 +13,10 @@ void PointLockTracker::Track(const PointLockRequest& r) {
   // use c++17's try_emplace if available, to avoid rehashing the key
   // in case it is not already in the map
   auto result = keys.try_emplace(r.key, r.seq);
-  auto iter = result.first;
-  if (!result.second && r.seq < iter->second.seq) {
+  auto it = result.first;
+  if (!result.second && r.seq < it->second.seq) {
     // Now tracking this key with an earlier sequence number
-    iter->second.seq = r.seq;
+    it->second.seq = r.seq;
   }
 #else
   auto it = keys.find(r.key);
