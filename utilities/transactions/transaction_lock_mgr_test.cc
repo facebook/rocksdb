@@ -174,7 +174,7 @@ TEST_P(AnyLockManagerTest, UnlockExclusive) {
   delete txn2;
 }
 
-TEST_F(TransactionLockMgrTest, UnlockShared) {
+TEST_P(AnyLockManagerTest, UnlockShared) {
   locker_->AddColumnFamily(&cf_1);
 
   auto txn1 = NewTxn();
