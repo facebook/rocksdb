@@ -45,8 +45,8 @@ struct PointLockStatus {
 
 // Tracks the lock requests.
 // In PessimisticTransaction, it tracks the locks acquired through LockMgr;
-// In OptimisticTransaction, since there is no LockMgr, it tracks the lock intention.
-// Not thread-safe.
+// In OptimisticTransaction, since there is no LockMgr, it tracks the lock
+// intention. Not thread-safe.
 class LockTracker {
  public:
   virtual ~LockTracker() {}
@@ -190,4 +190,4 @@ class LockTracker {
 // Caller owns the returned pointer.
 LockTracker* NewLockTracker();
 
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

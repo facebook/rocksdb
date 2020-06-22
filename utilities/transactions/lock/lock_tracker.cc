@@ -4,6 +4,7 @@
 // (found in the LICENSE.Apache file in the root directory).
 
 #include "utilities/transactions/lock/lock_tracker.h"
+
 #include "utilities/transactions/lock/point_lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -13,4 +14,4 @@ LockTracker* NewLockTracker() {
   return new PointLockTracker();
 }
 
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

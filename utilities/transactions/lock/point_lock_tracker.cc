@@ -3,7 +3,6 @@
 // COPYING file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
-
 #include "utilities/transactions/lock/point_lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -195,7 +194,7 @@ PointLockStatus PointLockTracker::GetPointLockStatus(
   if (key_it == keys.end()) {
     return status;
   }
-  
+
   const TrackedKeyInfo& key_info = key_it->second;
   status.locked = true;
   status.exclusive = key_info.exclusive;
@@ -211,37 +210,31 @@ uint64_t PointLockTracker::GetNumPointLocks() const {
   return num_keys;
 }
 
-class TrackedKeysColumnFamilyIterator : public LockTracker::ColumnFamilyIterator {
+class TrackedKeysColumnFamilyIterator
+    : public LockTracker::ColumnFamilyIterator {
  public:
   TrackedKeysColumnFamilyIterator(const TrackedKeys& keys)
       : tracked_keys_(keys), it_(keys.begin()) {}
 
-  bool HasNext() const override {
-    return it_ != tracked_keys_.end();
-  }
+  bool HasNext() const override { return it_ != tracked_keys_.end(); }
 
-  ColumnFamilyId Next() override {
-    return (it_++)->first;
-  }
+  ColumnFamilyId Next() override { return (it_++)->first; }
 
  private:
   const TrackedKeys& tracked_keys_;
   TrackedKeys::const_iterator it_;
 };
 
-LockTracker::ColumnFamilyIterator* PointLockTracker::GetColumnFamilyIterator() const {
+LockTracker::ColumnFamilyIterator* PointLockTracker::GetColumnFamilyIterator()
+    const {
   return new TrackedKeysColumnFamilyIterator(tracked_keys_);
 }
 
 class EmptyKeysIterator : public LockTracker::KeyIterator {
  public:
-  bool HasNext() const override {
-    return false;
-  }
+  bool HasNext() const override { return false; }
 
-  const std::string& Next() override {
-    return kEmptyStr_;
-  }
+  const std::string& Next() override { return kEmptyStr_; }
 
  private:
   static const std::string kEmptyStr_;
@@ -254,28 +247,23 @@ class TrackedKeysIterator : public LockTracker::KeyIterator {
   TrackedKeysIterator(const TrackedKeys& keys, ColumnFamilyId id)
       : key_infos_(keys.at(id)), it_(key_infos_.begin()) {}
 
-  bool HasNext() const override {
-    return it_ != key_infos_.end();
-  }
+  bool HasNext() const override { return it_ != key_infos_.end(); }
 
-  const std::string& Next() override {
-    return (it_++)->first;
-  }
+  const std::string& Next() override { return (it_++)->first; }
 
  private:
   const TrackedKeyInfos& key_infos_;
   TrackedKeyInfos::const_iterator it_;
 };
 
-LockTracker::KeyIterator* PointLockTracker::GetKeyIterator(ColumnFamilyId column_family_id) const {
+LockTracker::KeyIterator* PointLockTracker::GetKeyIterator(
+    ColumnFamilyId column_family_id) const {
   if (tracked_keys_.find(column_family_id) == tracked_keys_.end()) {
     return new EmptyKeysIterator();
   }
   return new TrackedKeysIterator(tracked_keys_, column_family_id);
 }
 
-void PointLockTracker::Clear() {
-  tracked_keys_.clear();
-}
+void PointLockTracker::Clear() { tracked_keys_.clear(); }
 
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

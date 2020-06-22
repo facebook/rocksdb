@@ -53,7 +53,8 @@ class PointLockTracker : public LockTracker {
 
   void Track(const RangeLockRequest& /*lock_request*/) override {}
 
-  std::pair<bool, bool> Untrack(const RangeLockRequest& /*lock_request*/) override {
+  std::pair<bool, bool> Untrack(
+      const RangeLockRequest& /*lock_request*/) override {
     return {false, false};
   }
 
@@ -66,8 +67,8 @@ class PointLockTracker : public LockTracker {
   virtual LockTracker* GetTrackedLocksSinceSavePoint(
       const LockTracker& save_point_tracker) const override;
 
-  PointLockStatus GetPointLockStatus(
-      ColumnFamilyId column_family_id, const std::string& key) const override;
+  PointLockStatus GetPointLockStatus(ColumnFamilyId column_family_id,
+                                     const std::string& key) const override;
 
   uint64_t GetNumPointLocks() const override;
 
@@ -79,4 +80,4 @@ class PointLockTracker : public LockTracker {
   TrackedKeys tracked_keys_;
 };
 
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

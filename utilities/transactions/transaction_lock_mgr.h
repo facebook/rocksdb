@@ -77,7 +77,7 @@ class TransactionLockMgr {
 
   // Unlock a key locked by TryLock().  txn must be the same Transaction that
   // locked this key.
-  void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
+  void UnLock(const PessimisticTransaction* txn, const LockTracker& tracker,
               Env* env);
   void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env);
