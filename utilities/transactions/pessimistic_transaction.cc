@@ -91,7 +91,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
-  txn_db_impl_->UnLock(this, *lock_tracker_);
+  txn_db_impl_->UnLock(this, *tracked_locks_);
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
   }
@@ -101,7 +101,7 @@ PessimisticTransaction::~PessimisticTransaction() {
 }
 
 void PessimisticTransaction::Clear() {
-  txn_db_impl_->UnLock(this, *lock_tracker_);
+  txn_db_impl_->UnLock(this, *tracked_locks_);
   TransactionBaseImpl::Clear();
 }
 
@@ -450,7 +450,7 @@ Status PessimisticTransaction::RollbackToSavePoint() {
     // Unlock any keys locked since last transaction
     auto& save_point_tracker = *save_points_->top().new_locks_;
     std::unique_ptr<LockTracker> t(
-        lock_tracker_->GetTrackedLocksSinceSavePoint(save_point_tracker));
+        tracked_locks_->GetTrackedLocksSinceSavePoint(save_point_tracker));
     if (t) {
       txn_db_impl_->UnLock(this, *t);
     }
@@ -555,7 +555,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   }
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
-  PointLockStatus status = lock_tracker_->GetPointLockStatus(cfh_id, key_str);
+  PointLockStatus status = tracked_locks_->GetPointLockStatus(cfh_id, key_str);
   bool previously_locked = status.locked;
   bool lock_upgrade = exclusive && !status.exclusive;
 
@@ -636,7 +636,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     } else {
 #ifndef NDEBUG
       PointLockStatus lock_status =
-          lock_tracker_->GetPointLockStatus(cfh_id, key_str);
+          tracked_locks_->GetPointLockStatus(cfh_id, key_str);
       assert(lock_status.locked);
       assert(lock_status.seq <= tracked_at_seq);
       assert(lock_status.exclusive == exclusive);

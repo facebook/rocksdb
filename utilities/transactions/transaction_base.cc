@@ -28,7 +28,7 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
       write_batch_(cmp_, 0, true, 0),
-      lock_tracker_(NewLockTracker()),
+      tracked_locks_(NewLockTracker()),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -46,7 +46,7 @@ void TransactionBaseImpl::Clear() {
   save_points_.reset(nullptr);
   write_batch_.Clear();
   commit_time_batch_.Clear();
-  lock_tracker_->Clear();
+  tracked_locks_->Clear();
   num_puts_ = 0;
   num_deletes_ = 0;
   num_merges_ = 0;
@@ -145,7 +145,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     assert(s.ok());
 
     // Rollback any keys that were tracked since the last savepoint
-    lock_tracker_->Subtract(*save_point.new_locks_);
+    tracked_locks_->Subtract(*save_point.new_locks_);
 
     save_points_->pop();
 
@@ -545,7 +545,7 @@ uint64_t TransactionBaseImpl::GetNumDeletes() const { return num_deletes_; }
 uint64_t TransactionBaseImpl::GetNumMerges() const { return num_merges_; }
 
 uint64_t TransactionBaseImpl::GetNumKeys() const {
-  return lock_tracker_->GetNumPointLocks();
+  return tracked_locks_->GetNumPointLocks();
 }
 
 void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
@@ -559,7 +559,7 @@ void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
   r.exclusive = exclusive;
 
   // Update map of all tracked keys for this transaction
-  lock_tracker_->Track(r);
+  tracked_locks_->Track(r);
 
   if (save_points_ != nullptr && !save_points_->empty()) {
     // Update map of tracked keys in this SavePoint
@@ -610,7 +610,7 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
 
   if (can_untrack) {
     // If erased from the global tracker, then can unlock the key.
-    auto ret = lock_tracker_->Untrack(r);
+    auto ret = tracked_locks_->Untrack(r);
     bool can_unlock = ret.second;
     if (can_unlock) {
       UnlockGetForUpdate(column_family, key);

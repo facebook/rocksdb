@@ -75,7 +75,7 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
   // Clear the tracked locks so that ~PessimisticTransaction does not
   // try to unlock keys for recovered transactions.
   if (recovered_txn_) {
-    lock_tracker_->Clear();
+    tracked_locks_->Clear();
   }
 }
 
@@ -297,7 +297,7 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
     Status AddUntrackedKey(uint32_t cf, const Slice& key) {
       auto str = key.ToString();
       PointLockStatus lock_status =
-          txn_->lock_tracker_->GetPointLockStatus(cf, str);
+          txn_->tracked_locks_->GetPointLockStatus(cf, str);
       if (!lock_status.locked) {
         txn_->untracked_keys_[cf].push_back(str);
       }
@@ -720,7 +720,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // TODO(lth): We write rollback batch all in a single batch here, but this
   // should be subdivded into multiple batches as well. In phase 2, when key
   // sets are read from WAL, this will happen naturally.
-  WriteRollbackKeys(*lock_tracker_, &rollback_batch, &callback, roptions);
+  WriteRollbackKeys(*tracked_locks_, &rollback_batch, &callback, roptions);
 
   // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(rollback_batch.GetWriteBatch(), name_);
@@ -801,7 +801,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
 
 void WriteUnpreparedTxn::Clear() {
   if (!recovered_txn_) {
-    txn_db_impl_->UnLock(this, *lock_tracker_);
+    txn_db_impl_->UnLock(this, *tracked_locks_);
   }
   unprep_seqs_.clear();
   flushed_save_points_.reset(nullptr);

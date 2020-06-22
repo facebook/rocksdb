@@ -324,7 +324,7 @@ class TransactionBaseImpl : public Transaction {
   // Optimistic Transactions will keep note the requested locks (not actually
   // locked), and do conflict checking until commit time based on the tracked
   // lock requests.
-  std::unique_ptr<LockTracker> lock_tracker_;
+  std::unique_ptr<LockTracker> tracked_locks_;
 
   // Stack of the Snapshot saved at each save point. Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.

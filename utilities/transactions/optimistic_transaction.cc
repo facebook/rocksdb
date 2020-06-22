@@ -98,7 +98,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   std::set<size_t> lk_idxes;
   std::vector<std::unique_lock<std::mutex>> lks;
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
-      lock_tracker_->GetColumnFamilyIterator());
+      tracked_locks_->GetColumnFamilyIterator());
   if (!cf_it) {
     return Status::InvalidArgument(
         "Lock tracker cannot iterate through column families, "
@@ -107,7 +107,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   while (cf_it->HasNext()) {
     ColumnFamilyId cf = cf_it->Next();
     std::unique_ptr<LockTracker::KeyIterator> key_it(
-        lock_tracker_->GetKeyIterator(cf));
+        tracked_locks_->GetKeyIterator(cf));
     assert(key_it != nullptr);
     while (key_it->HasNext()) {
       const std::string& key = key_it->Next();
@@ -121,7 +121,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
     lks.emplace_back(txn_db_impl->LockBucket(v));
   }
 
-  Status s = TransactionUtil::CheckKeysForConflicts(db_impl, *lock_tracker_,
+  Status s = TransactionUtil::CheckKeysForConflicts(db_impl, *tracked_locks_,
                                                     true /* cache_only */);
   if (!s.ok()) {
     return s;
@@ -186,7 +186,7 @@ Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
   // we will do a cache-only conflict check.  This can result in TryAgain
   // getting returned if there is not sufficient memtable history to check
   // for conflicts.
-  return TransactionUtil::CheckKeysForConflicts(db_impl, *lock_tracker_,
+  return TransactionUtil::CheckKeysForConflicts(db_impl, *tracked_locks_,
                                                 true /* cache_only */);
 }
 
