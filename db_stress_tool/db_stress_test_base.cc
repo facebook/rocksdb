@@ -1762,6 +1762,8 @@ void StressTest::Open() {
         static_cast<int32_t>(FLAGS_index_block_restart_interval);
     block_based_options.filter_policy = filter_policy_;
     block_based_options.partition_filters = FLAGS_partition_filters;
+    block_based_options.optimize_filters_for_memory =
+        FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     options_.table_factory.reset(

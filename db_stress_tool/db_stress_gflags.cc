@@ -361,6 +361,11 @@ DEFINE_bool(partition_filters, false,
             "use partitioned filters "
             "for block-based table");
 
+DEFINE_bool(
+    optimize_filters_for_memory,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
+    "Minimize memory footprint of filters");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
