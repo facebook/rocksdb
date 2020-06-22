@@ -301,7 +301,7 @@ class TransactionBaseImpl : public Transaction {
     uint64_t num_merges_ = 0;
 
     // Record all locks tracked since the last savepoint
-    std::unique_ptr<LockTracker> new_locks_;
+    std::shared_ptr<LockTracker> new_locks_;
 
     SavePoint(std::shared_ptr<const Snapshot> snapshot, bool snapshot_needed,
               std::shared_ptr<TransactionNotifier> snapshot_notifier,
