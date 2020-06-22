@@ -12,6 +12,7 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/testutil.h"
@@ -2391,6 +2392,41 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
   }
   ASSERT_OK(GenerateAndAddExternalFile(options, std::move(random_data)));
   ASSERT_EQ(1, num_compression_dicts);
+}
+
+// Very slow, not worth the cost to run regularly
+TEST_F(ExternalSSTFileTest, DISABLED_HugeBlockChecksum) {
+  int max_checksum = static_cast<int>(kxxHash64);
+  for (int i = 0; i <= max_checksum; ++i) {
+    BlockBasedTableOptions table_options;
+    table_options.checksum = static_cast<ChecksumType>(i);
+    Options options = CurrentOptions();
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // 2^32 - 1, will lead to data block with more than 2^32 bytes
+    size_t huge_size = port::kMaxUint32;
+
+    std::string f = sst_files_dir_ + "f.sst";
+    ASSERT_OK(sst_file_writer.Open(f));
+    {
+      Random64 r(123);
+      std::string huge(huge_size, 0);
+      for (size_t j = 0; j + 7 < huge_size; j += 8) {
+        EncodeFixed64(&huge[j], r.Next());
+      }
+      ASSERT_OK(sst_file_writer.Put("Huge", huge));
+    }
+
+    ExternalSstFileInfo f_info;
+    ASSERT_OK(sst_file_writer.Finish(&f_info));
+    ASSERT_GT(f_info.file_size, uint64_t{huge_size} + 10);
+
+    SstFileReader sst_file_reader(options);
+    ASSERT_OK(sst_file_reader.Open(f));
+    ASSERT_OK(sst_file_reader.VerifyChecksum());
+  }
 }
 
 TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {

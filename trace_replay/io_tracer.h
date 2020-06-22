@@ -16,10 +16,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-const unsigned int kCharSize = 1;
-}  // namespace
-
 struct IOTraceRecord {
   // Required fields for all accesses.
   uint64_t access_timestamp = 0;

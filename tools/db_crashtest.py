@@ -207,6 +207,9 @@ cf_consistency_params = {
     # more frequently
     "write_buffer_size": 1024 * 1024,
     "enable_pipelined_write": lambda: random.randint(0, 1),
+    # Snapshots are used heavily in this test mode, while they are incompatible
+    # with compaction filter.
+    "enable_compaction_filter": 0,
 }
 
 txn_params = {
@@ -469,7 +472,7 @@ def whitebox_crash_main(args, unknown_args):
                     my_kill_odd = kill_random_test // 10 + 1
                 additional_opts.update({
                     "kill_random_test": my_kill_odd,
-                    "kill_prefix_blacklist": "WritableFileWriter::Append,"
+                    "kill_exclude_prefixes": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
             elif kill_mode == 2:
@@ -477,7 +480,7 @@ def whitebox_crash_main(args, unknown_args):
                 # is too small.
                 additional_opts.update({
                     "kill_random_test": (kill_random_test // 5000 + 1),
-                    "kill_prefix_blacklist": "WritableFileWriter::Append,"
+                    "kill_exclude_prefixes": "WritableFileWriter::Append,"
                     "WritableFileWriter::WriteBuffered,"
                     "PosixMmapFile::Allocate,WritableFileWriter::Flush",
                 })
