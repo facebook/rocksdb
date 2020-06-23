@@ -8,8 +8,9 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
-#include <map>
 #include <openssl/evp.h>
+
+#include <map>
 #include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
