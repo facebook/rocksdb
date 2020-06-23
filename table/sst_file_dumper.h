@@ -5,8 +5,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/sst_dump_tool.h"
-
 #include <memory>
 #include <string>
 #include "db/dbformat.h"

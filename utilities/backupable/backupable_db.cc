@@ -36,8 +36,8 @@
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
+#include "table/sst_file_dumper.h"
 #include "test_util/sync_point.h"
-#include "tools/sst_dump_tool_imp.h"
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -337,16 +337,14 @@ class BackupEngineImpl : public BackupEngine {
   //
   // @param src If non-empty, the file is copied from this pathname.
   // @param contents If non-empty, the file will be created with these contents.
-  Status CopyOrCreateFile(const std::string& src, const std::string& dst,
-                          const std::string& contents, Env* src_env,
-                          Env* dst_env, const EnvOptions& src_env_options,
-                          bool sync, RateLimiter* rate_limiter,
-                          uint64_t* size = nullptr,
-                          uint32_t* checksum_value = nullptr,
-                          uint64_t size_limit = 0,
-                          std::function<void()> progress_callback = []() {},
-                          std::string* db_id = nullptr,
-                          std::string* db_session_id = nullptr);
+  Status CopyOrCreateFile(
+      const std::string& src, const std::string& dst,
+      const std::string& contents, Env* src_env, Env* dst_env,
+      const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
+      uint64_t* size = nullptr, uint32_t* checksum_value = nullptr,
+      uint64_t size_limit = 0,
+      std::function<void()> progress_callback = []() {},
+      std::string* db_id = nullptr, std::string* db_session_id = nullptr);
 
   Status CalculateChecksum(const std::string& src, Env* src_env,
                            const EnvOptions& src_env_options,
