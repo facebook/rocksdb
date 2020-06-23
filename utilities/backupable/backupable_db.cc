@@ -1334,13 +1334,12 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
     if (curr_abs_path_to_size.find(abs_path) == curr_abs_path_to_size.end()) {
       return Status::NotFound("File missing: " + abs_path);
     }
-    if (!verify_with_checksum) {
-      // verify file size
-      if (file_info->size != curr_abs_path_to_size[abs_path]) {
-        return Status::Corruption("File corrupted: File size mismatch for " +
-                                  abs_path);
-      }
-    } else {
+    // verify file size
+    if (file_info->size != curr_abs_path_to_size[abs_path]) {
+      return Status::Corruption("File corrupted: File size mismatch for " +
+                                abs_path);
+    }
+    if (verify_with_checksum) {
       // verify file checksum
       uint32_t checksum_value = 0;
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",

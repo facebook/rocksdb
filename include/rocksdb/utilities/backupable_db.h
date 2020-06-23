@@ -298,7 +298,7 @@ class BackupEngineReadOnly {
   // expectations. it does not check file checksum.
   //
   // If verify_with_checksum is true, this function
-  // inspects the current backup file checksum to see if it matches our
+  // inspects the current backup file checksum and size to see if they match our
   // expectation.
   //
   // If this BackupEngine created the backup, it compares the files' current
@@ -423,7 +423,7 @@ class BackupEngine {
 
   // checks that each file exists and that the size of the file matches our
   // expectations if verify_with_checksum is false
-  // inspects whether the file checksum matches our expectation if
+  // inspects whether the file checksum and size match our expectation if
   // verify_with_checksum is true
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id,
