@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 #include "rocksdb/db.h"
@@ -23,6 +24,8 @@ namespace blob_db {
 //
 // The factory needs to be moved to include/rocksdb/utilities to allow
 // users to use blob DB.
+
+constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
 
 struct BlobDBOptions {
   // Name of the directory under the base DB where blobs will be stored. Using
