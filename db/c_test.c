@@ -1296,6 +1296,29 @@ int main(int argc, char** argv) {
       Free(&vals[i]);
     }
 
+    {
+      unsigned char value_found = 0;
+
+      CheckCondition(!rocksdb_key_may_exist(db, roptions, "invalid_key", 11,
+                                            NULL, NULL, NULL, 0, NULL));
+      CheckCondition(!rocksdb_key_may_exist(db, roptions, "invalid_key", 11,
+                                            &vals[0], &vals_sizes[0], NULL, 0,
+                                            &value_found));
+      if (value_found) {
+        Free(&vals[0]);
+      }
+
+      CheckCondition(!rocksdb_key_may_exist_cf(db, roptions, handles[1],
+                                               "invalid_key", 11, NULL, NULL,
+                                               NULL, 0, NULL));
+      CheckCondition(!rocksdb_key_may_exist_cf(db, roptions, handles[1],
+                                               "invalid_key", 11, &vals[0],
+                                               &vals_sizes[0], NULL, 0, NULL));
+      if (value_found) {
+        Free(&vals[0]);
+      }
+    }
+
     rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db, roptions, handles[1]);
     CheckCondition(!rocksdb_iter_valid(iter));
     rocksdb_iter_seek_to_first(iter);
