@@ -20,7 +20,7 @@
 
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // following define block from page 70:
 //  https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
@@ -553,6 +553,6 @@ Env* EncryptedEnv2::Default(EncryptedEnv2::ReadKeys_t encrypt_read,
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_OPENSSL_AES_CTR

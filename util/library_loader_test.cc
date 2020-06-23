@@ -3,11 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifdef ROCKSDB_OPENSSL_AES_CTR
+#ifndef ROCKSDB_LITE
+
 #include "util/library_loader.h"
 
 #include <gtest/gtest.h>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef OS_MACOSX
 static const char* LIB_M_NAME = "libm.dylib";
@@ -72,7 +75,10 @@ TEST(UnixLibraryLoaderTest, Crypto) {
   crypto.EVP_MD_CTX_free(context);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
+
+#endif  // ROCKSDB_LITE
+#endif  // ROCKSDB_OPENSSL_AES_CTR
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

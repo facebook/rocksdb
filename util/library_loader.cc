@@ -12,7 +12,7 @@
 
 // link with -ldl
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef OS_MACOSX
 const char* UnixLibCrypto::crypto_lib_name_ = "libcrypto.dylib";
@@ -109,7 +109,7 @@ UnixLibCrypto::UnixLibCrypto() : UnixLibraryLoader(crypto_lib_name_) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE
 #endif  // ROCKSDB_OPENSSL_AES_CTR

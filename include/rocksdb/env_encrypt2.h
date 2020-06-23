@@ -24,7 +24,7 @@
 
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -464,6 +464,6 @@ Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys_t encrypt_read,
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_OPENSSL_AES_CTR

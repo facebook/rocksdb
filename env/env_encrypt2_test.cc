@@ -12,7 +12,7 @@
 #ifndef ROCKSDB_LITE
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EnvEncrypt2_Sha1 {};
 
@@ -696,7 +696,7 @@ TEST(SstWriterBug, BugCheck) {
 }
 #endif
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_OPENSSL_AES_CTR
 #endif  // ROCKSDB_LITE

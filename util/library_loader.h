@@ -8,12 +8,13 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
-#include <openssl/evp.h>
-
 #include <map>
+#include <openssl/evp.h>
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 // Base class / interface
 //  expectation is to derive one class for unux and one for Windows
@@ -155,6 +156,6 @@ class UnixLibCrypto : public UnixLibraryLoader {
   EVP_EncryptUpdate_t encrypt_update_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
 #endif  // ROCKSDB_OPENSSL_AES_CTR
