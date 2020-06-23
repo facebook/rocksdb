@@ -55,7 +55,8 @@ TEST(UnixLibraryLoaderTest, Crypto) {
 
   ASSERT_TRUE(crypto.IsValid());
 
-  context = crypto.EVP_MD_CTX_create();
+  //  context = crypto.EVP_MD_CTX_create();  ... old call
+  context = crypto.EVP_MD_CTX_new();         //  new call
   ASSERT_TRUE(nullptr != context);
 
   ret_val = crypto.EVP_DigestInit_ex(context, crypto.EVP_sha1(), nullptr);
