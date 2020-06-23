@@ -90,10 +90,12 @@ struct AesCtrKey_t {
   AesCtrKey_t(const std::string& key_str);
 
   // see Writing Solid Code, 2nd edition
-  //   Chapter 9, page 321, Managing Secrets in Memory ... bullet 4 "Scrub the memory"
-  // Not saying this is essential or effective in initial implementation since current
-  //  usage model loads all keys at start and only deletes them at shutdown. But does
-  //  establish presidence.
+  //   Chapter 9, page 321, Managing Secrets in Memory ... bullet 4 "Scrub the
+  //   memory"
+  // Not saying this is essential or effective in initial implementation since
+  // current
+  //  usage model loads all keys at start and only deletes them at shutdown. But
+  //  does establish presidence.
   // goal is to explicitly remove key from memory once no longer needed
   ~AesCtrKey_t() {
     memset(key, 0, EVP_MAX_KEY_LENGTH);
