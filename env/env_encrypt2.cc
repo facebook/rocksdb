@@ -251,9 +251,9 @@ Status EncryptedEnv2::NewSequentialFile(const std::string& fname,
 
     if (status.ok()) {
       if (provider) {
-        (*result) = std::unique_ptr<SequentialFile>(
-            new EncryptedSequentialFile(std::move(underlying), std::move(stream),
-                                        provider->GetPrefixLength()));
+        (*result) = std::unique_ptr<SequentialFile>(new EncryptedSequentialFile(
+            std::move(underlying), std::move(stream),
+            provider->GetPrefixLength()));
 
       } else {
         // normal file, not encrypted
@@ -451,9 +451,9 @@ Status EncryptedEnv2::NewRandomRWFile(const std::string& fname,
       // establish encrypt or not, finalize file object
       if (status.ok()) {
         if (provider) {
-          (*result) = std::unique_ptr<RandomRWFile>(
-              new EncryptedRandomRWFile(std::move(underlying), std::move(stream),
-                                        provider->GetPrefixLength()));
+          (*result) = std::unique_ptr<RandomRWFile>(new EncryptedRandomRWFile(
+              std::move(underlying), std::move(stream),
+              provider->GetPrefixLength()));
         } else {
           (*result).reset(underlying.release());
         }
