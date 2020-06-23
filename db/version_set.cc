@@ -10,6 +10,7 @@
 #include "db/version_set.h"
 
 #include <stdio.h>
+
 #include <algorithm>
 #include <array>
 #include <cinttypes>
@@ -19,6 +20,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "compaction/compaction.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -50,6 +52,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -4444,24 +4447,26 @@ Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
   if (dbname.back() != '/') {
     manifest_path->push_back('/');
   }
-  *manifest_path += fname;
+  manifest_path->append(fname);
   return Status::OK();
 }
 
 Status VersionSet::ReadAndRecover(
-    log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
+    log::Reader& reader, AtomicGroupReadBuffer* read_buffer,
     const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_options,
     std::unordered_map<int, std::string>& column_families_not_found,
     std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>&
         builders,
-    VersionEditParams* version_edit_params, std::string* db_id) {
-  assert(reader != nullptr);
+    Status* log_read_status, VersionEditParams* version_edit_params,
+    std::string* db_id) {
   assert(read_buffer != nullptr);
+  assert(log_read_status != nullptr);
   Status s;
   Slice record;
   std::string scratch;
   size_t recovered_edits = 0;
-  while (reader->ReadRecord(&record, &scratch) && s.ok()) {
+  while (s.ok() && reader.ReadRecord(&record, &scratch) &&
+         log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
@@ -4504,6 +4509,9 @@ Status VersionSet::ReadAndRecover(
         recovered_edits++;
       }
     }
+  }
+  if (!log_read_status->ok()) {
+    s = *log_read_status;
   }
   if (!s.ok()) {
     // Clear the buffer if we fail to decode/apply an edit.
@@ -4551,8 +4559,7 @@ Status VersionSet::Recover(
                                  db_options_->log_readahead_size));
   }
 
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      builders;
+  VersionBuilderMap builders;
 
   // add default column family
   auto default_cf_iter = cf_name_to_options.find(kDefaultColumnFamilyName);
@@ -4574,12 +4581,13 @@ Status VersionSet::Recover(
   VersionEditParams version_edit_params;
   {
     VersionSet::LogReporter reporter;
-    reporter.status = &s;
+    Status log_read_status;
+    reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
     AtomicGroupReadBuffer read_buffer;
-    s = ReadAndRecover(&reader, &read_buffer, cf_name_to_options,
-                       column_families_not_found, builders,
+    s = ReadAndRecover(reader, &read_buffer, cf_name_to_options,
+                       column_families_not_found, builders, &log_read_status,
                        &version_edit_params, db_id);
     current_manifest_file_size = reader.GetReadOffset();
     assert(current_manifest_file_size != 0);
@@ -4845,21 +4853,20 @@ Status VersionSet::TryRecoverFromOneManifest(
                                  db_options_->log_readahead_size));
   }
 
+  assert(s.ok());
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                      /*checksum=*/true, /*log_num=*/0);
-  {
-    VersionEditHandlerPointInTime handler_pit(read_only, column_families,
-                                              const_cast<VersionSet*>(this));
+  VersionEditHandlerPointInTime handler_pit(read_only, column_families,
+                                            const_cast<VersionSet*>(this));
 
-    s = handler_pit.Iterate(reader, db_id);
+  handler_pit.Iterate(reader, &s, db_id);
 
-    assert(nullptr != has_missing_table_file);
-    *has_missing_table_file = handler_pit.HasMissingFiles();
-  }
+  assert(nullptr != has_missing_table_file);
+  *has_missing_table_file = handler_pit.HasMissingFiles();
 
-  return s;
+  return handler_pit.status();
 }
 
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
@@ -5980,8 +5987,7 @@ Status ReactiveVersionSet::Recover(
   // In recovery, nobody else can access it, so it's fine to set it to be
   // initialized earlier.
   default_cfd->set_initialized();
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      builders;
+  VersionBuilderMap builders;
   std::unordered_map<int, std::string> column_families_not_found;
   builders.insert(
       std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
@@ -5989,7 +5995,7 @@ Status ReactiveVersionSet::Recover(
 
   manifest_reader_status->reset(new Status());
   manifest_reporter->reset(new LogReporter());
-  static_cast<LogReporter*>(manifest_reporter->get())->status =
+  static_cast_with_check<LogReporter>(manifest_reporter->get())->status =
       manifest_reader_status->get();
   Status s = MaybeSwitchManifest(manifest_reporter->get(), manifest_reader);
   log::Reader* reader = manifest_reader->get();
@@ -5998,10 +6004,9 @@ Status ReactiveVersionSet::Recover(
   VersionEdit version_edit;
   while (s.ok() && retry < 1) {
     assert(reader != nullptr);
-    Slice record;
-    std::string scratch;
-    s = ReadAndRecover(reader, &read_buffer_, cf_name_to_options,
-                       column_families_not_found, builders, &version_edit);
+    s = ReadAndRecover(*reader, &read_buffer_, cf_name_to_options,
+                       column_families_not_found, builders,
+                       manifest_reader_status->get(), &version_edit);
     if (s.ok()) {
       bool enough = version_edit.has_next_file_number_ &&
                     version_edit.has_log_number_ &&

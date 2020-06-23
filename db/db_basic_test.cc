@@ -2318,6 +2318,33 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(DBBasicTest, ManifestChecksumMismatch) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("bar", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum", [&](void* arg) {
+        auto* crc = reinterpret_cast<uint32_t*>(arg);
+        *crc = *crc + 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  Status s = db_->Put(write_opts, "foo", "value");
+  ASSERT_OK(s);
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(Flush());
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
 class DBBasicTestMultiGet : public DBTestBase {
  public:
   DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,

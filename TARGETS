@@ -294,6 +294,7 @@ cpp_library(
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
         "trace_replay/block_cache_tracer.cc",
+        "trace_replay/io_tracer.cc",
         "trace_replay/trace_replay.cc",
         "util/build_version.cc",
         "util/coding.cc",
@@ -1151,6 +1152,13 @@ ROCKS_TESTS = [
     [
         "io_posix_test",
         "env/io_posix_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "io_tracer_test",
+        "trace_replay/io_tracer_test.cc",
         "serial",
         [],
         [],

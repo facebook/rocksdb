@@ -1289,7 +1289,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           mutable_cf_options.compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
           &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time, write_hint);
+          -1 /* level */, current_time, 0 /* oldest_key_time */, write_hint,
+          0 /* file_creation_time */, db_id_, db_session_id_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"

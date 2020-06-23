@@ -146,6 +146,7 @@ DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
 DECLARE_bool(partition_filters);
+DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
@@ -161,7 +162,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_int32(kill_random_test);
-DECLARE_string(kill_prefix_blacklist);
+DECLARE_string(kill_exclude_prefixes);
 DECLARE_bool(disable_wal);
 DECLARE_uint64(recycle_log_file_num);
 DECLARE_int64(target_file_size_base);
@@ -238,6 +239,7 @@ DECLARE_bool(sync_fault_injection);
 
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
+DECLARE_bool(enable_compaction_filter);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
@@ -439,19 +441,10 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
 
   assert(size_key <= key_gen_ctx.weights.size() * sizeof(uint64_t));
 
-  // Pad with zeros to make it a multiple of 8. This function may be called
-  // with a prefix, in which case we return the first index that falls
-  // inside or outside that prefix, dependeing on whether the prefix is
-  // the start of upper bound of a scan
-  unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
-  if (pad < sizeof(uint64_t)) {
-    big_endian_key.append(pad, '\0');
-    size_key += pad;
-  }
-
   std::string little_endian_key;
   little_endian_key.resize(size_key);
-  for (size_t start = 0; start < size_key; start += sizeof(uint64_t)) {
+  for (size_t start = 0; start + sizeof(uint64_t) <= size_key;
+       start += sizeof(uint64_t)) {
     size_t end = start + sizeof(uint64_t);
     for (size_t i = 0; i < sizeof(uint64_t); ++i) {
       little_endian_key[start + i] = big_endian_key[end - 1 - i];
@@ -470,9 +463,31 @@ extern inline bool GetIntVal(std::string big_endian_key, uint64_t* key_p) {
     uint64_t pfx = prefixes[i];
     key += (pfx / key_gen_ctx.weights[i]) * key_gen_ctx.window +
            pfx % key_gen_ctx.weights[i];
+    if (i < prefixes.size() - 1) {
+      // The encoding writes a `key_gen_ctx.weights[i] - 1` that counts for
+      // `key_gen_ctx.weights[i]` when there are more prefixes to come. So we
+      // need to add back the one here as we're at a non-last prefix.
+      ++key;
+    }
   }
   *key_p = key;
   return true;
+}
+
+// Given a string prefix, map it to the first corresponding index in the
+// expected values buffer.
+inline bool GetFirstIntValInPrefix(std::string big_endian_prefix,
+                                   uint64_t* key_p) {
+  size_t size_key = big_endian_prefix.size();
+  // Pad with zeros to make it a multiple of 8. This function may be called
+  // with a prefix, in which case we return the first index that falls
+  // inside or outside that prefix, dependeing on whether the prefix is
+  // the start of upper bound of a scan
+  unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
+  if (pad < sizeof(uint64_t)) {
+    big_endian_prefix.append(pad, '\0');
+  }
+  return GetIntVal(std::move(big_endian_prefix), key_p);
 }
 
 extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
@@ -480,7 +495,8 @@ extern inline uint64_t GetPrefixKeyCount(const std::string& prefix,
   uint64_t start = 0;
   uint64_t end = 0;
 
-  if (!GetIntVal(prefix, &start) || !GetIntVal(ub, &end)) {
+  if (!GetFirstIntValInPrefix(prefix, &start) ||
+      !GetFirstIntValInPrefix(ub, &end)) {
     return 0;
   }
 

@@ -55,6 +55,7 @@ default_params = {
     "delrangepercent": 1,
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
+    "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
     "get_live_files_one_in": 1000000,
@@ -64,6 +65,7 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
+    "iterpercent": 10,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -71,6 +73,7 @@ default_params = {
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
+    "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "pause_background_one_in": 1000000,
     "prefixpercent": 5,
@@ -206,6 +209,9 @@ cf_consistency_params = {
     # more frequently
     "write_buffer_size": 1024 * 1024,
     "enable_pipelined_write": lambda: random.randint(0, 1),
+    # Snapshots are used heavily in this test mode, while they are incompatible
+    # with compaction filter.
+    "enable_compaction_filter": 0,
 }
 
 txn_params = {
@@ -279,6 +285,16 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
         dest_params["sst_file_manager_bytes_per_truncate"] = 0
+    if dest_params.get("enable_compaction_filter", 0) == 1:
+        # Compaction filter is incompatible with snapshots. Need to avoid taking
+        # snapshots, as well as avoid operations that use snapshots for
+        # verification.
+        dest_params["acquire_snapshot_one_in"] = 0
+        dest_params["compact_range_one_in"] = 0
+        # Give the iterator ops away to reads.
+        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["iterpercent"] = 0
+        dest_params["test_batches_snapshots"] = 0
     return dest_params
 
 def gen_cmd_params(args):
@@ -460,7 +476,7 @@ def whitebox_crash_main(args, unknown_args):
                     my_kill_odd = kill_random_test // 10 + 1
                 additional_opts.update({
                     "kill_random_test": my_kill_odd,
-                    "kill_prefix_blacklist": "WritableFileWriter::Append,"
+                    "kill_exclude_prefixes": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
             elif kill_mode == 2:
@@ -468,7 +484,7 @@ def whitebox_crash_main(args, unknown_args):
                 # is too small.
                 additional_opts.update({
                     "kill_random_test": (kill_random_test // 5000 + 1),
-                    "kill_prefix_blacklist": "WritableFileWriter::Append,"
+                    "kill_exclude_prefixes": "WritableFileWriter::Append,"
                     "WritableFileWriter::WriteBuffered,"
                     "PosixMmapFile::Allocate,WritableFileWriter::Flush",
                 })

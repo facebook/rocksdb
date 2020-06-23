@@ -268,6 +268,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, partition_filters),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
+        {"optimize_filters_for_memory",
+         {offsetof(struct BlockBasedTableOptions, optimize_filters_for_memory),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
         {"filter_policy",
          {offsetof(struct BlockBasedTableOptions, filter_policy),
           OptionType::kUnknown, OptionVerificationType::kByNameAllowFromNull,
@@ -439,7 +443,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time,
       table_builder_options.target_file_size,
-      table_builder_options.file_creation_time);
+      table_builder_options.file_creation_time, table_builder_options.db_id,
+      table_builder_options.db_session_id);
 
   return table_builder;
 }

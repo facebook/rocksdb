@@ -10,6 +10,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
@@ -195,11 +196,18 @@ void StressTest::InitDb() {
   BuildOptionsTable();
 }
 
-void StressTest::InitReadonlyDb(SharedState* shared) {
-  uint64_t now = db_stress_env->NowMicros();
-  fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
-          db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
-  PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
+void StressTest::FinishInitDb(SharedState* shared) {
+  if (FLAGS_read_only) {
+    uint64_t now = db_stress_env->NowMicros();
+    fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
+            db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
+    PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
+  }
+  if (FLAGS_enable_compaction_filter) {
+    reinterpret_cast<DbStressCompactionFilterFactory*>(
+        options_.compaction_filter_factory.get())
+        ->SetSharedState(shared);
+  }
 }
 
 bool StressTest::VerifySecondaries() {
@@ -1709,9 +1717,9 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
   fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
-  if (!rocksdb_kill_prefix_blacklist.empty()) {
+  if (!rocksdb_kill_exclude_prefixes.empty()) {
     fprintf(stdout, "Skipping kill points prefixes:\n");
-    for (auto& p : rocksdb_kill_prefix_blacklist) {
+    for (auto& p : rocksdb_kill_exclude_prefixes) {
       fprintf(stdout, "  %s\n", p.c_str());
     }
   }
@@ -1754,6 +1762,8 @@ void StressTest::Open() {
         static_cast<int32_t>(FLAGS_index_block_restart_interval);
     block_based_options.filter_policy = filter_policy_;
     block_based_options.partition_filters = FLAGS_partition_filters;
+    block_based_options.optimize_filters_for_memory =
+        FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     options_.table_factory.reset(
@@ -1913,6 +1923,10 @@ void StressTest::Open() {
     options_.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
   } else {
     options_.merge_operator = MergeOperators::CreatePutOperator();
+  }
+  if (FLAGS_enable_compaction_filter) {
+    options_.compaction_filter_factory =
+        std::make_shared<DbStressCompactionFilterFactory>();
   }
 
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;

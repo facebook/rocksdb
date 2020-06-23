@@ -305,12 +305,15 @@ CompactionJob::CompactionJob(
     const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
-    Env::Priority thread_pri, const std::atomic<bool>* manual_compaction_paused)
+    Env::Priority thread_pri, const std::atomic<bool>* manual_compaction_paused,
+    const std::string& db_id, const std::string& db_session_id)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
       compaction_stats_(compaction->compaction_reason(), 1),
       dbname_(dbname),
+      db_id_(db_id),
+      db_session_id_(db_session_id),
       db_options_(db_options),
       file_options_(file_options),
       env_(db_options.env),
@@ -1554,7 +1557,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
       oldest_ancester_time, 0 /* oldest_key_time */,
-      sub_compact->compaction->max_output_file_size(), current_time));
+      sub_compact->compaction->max_output_file_size(), current_time, db_id_,
+      db_session_id_));
   LogFlush(db_options_.info_log);
   return s;
 }

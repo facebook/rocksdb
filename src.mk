@@ -176,6 +176,7 @@ LIB_SOURCES =                                                   \
   tools/dump/db_dump_tool.cc                                    \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
+  trace_replay/io_tracer.cc                                     \
   util/build_version.cc                                         \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
@@ -437,8 +438,9 @@ MAIN_SOURCES =                                                          \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
-  tools/trace_analyzer_test.cc				             	                    \
+  tools/trace_analyzer_test.cc				                \
   trace_replay/block_cache_tracer_test.cc                               \
+  trace_replay/io_tracer_test.cc                                        \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/coding_test.cc                                                   \

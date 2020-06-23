@@ -72,7 +72,8 @@ class FlushJob {
            CompressionType output_compression, Statistics* stats,
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
-           Env::Priority thread_pri);
+           Env::Priority thread_pri, const std::string& db_id = "",
+           const std::string& db_session_id = "");
 
   ~FlushJob();
 
@@ -103,6 +104,8 @@ class FlushJob {
 #endif  // !ROCKSDB_LITE
 
   const std::string& dbname_;
+  const std::string db_id_;
+  const std::string db_session_id_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;

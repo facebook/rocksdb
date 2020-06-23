@@ -1165,6 +1165,10 @@ class VersionSet {
   void SetIOStatusOK() { io_status_ = IOStatus::OK(); }
 
  protected:
+  using VersionBuilderMap =
+      std::unordered_map<uint32_t,
+                         std::unique_ptr<BaseReferencedVersionBuilder>>;
+
   struct ManifestWriter;
 
   friend class Version;
@@ -1176,7 +1180,9 @@ class VersionSet {
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
     virtual void Corruption(size_t /*bytes*/, const Status& s) override {
-      if (this->status->ok()) *this->status = s;
+      if (status->ok()) {
+        *status = s;
+      }
     }
   };
 
@@ -1207,13 +1213,14 @@ class VersionSet {
                                        const VersionEdit* edit);
 
   Status ReadAndRecover(
-      log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
+      log::Reader& reader, AtomicGroupReadBuffer* read_buffer,
       const std::unordered_map<std::string, ColumnFamilyOptions>&
           name_to_options,
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      VersionEditParams* version_edit, std::string* db_id = nullptr);
+      Status* log_read_status, VersionEditParams* version_edit,
+      std::string* db_id = nullptr);
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
@@ -1342,8 +1349,7 @@ class ReactiveVersionSet : public VersionSet {
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
 
  private:
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      active_version_builders_;
+  VersionBuilderMap active_version_builders_;
   AtomicGroupReadBuffer read_buffer_;
   // Number of version edits to skip by ReadAndApply at the beginning of a new
   // MANIFEST created by primary.
