@@ -441,7 +441,7 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
         fi
     fi
-    
+
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
         $CXX $CFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o /dev/null 2>/dev/null  <<EOF
@@ -457,7 +457,7 @@ EOF
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
         fi
     fi
-    
+
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
@@ -564,6 +564,18 @@ EOF
 EOF
         if [ "$?" = 0 ]; then
             PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -faligned-new -DHAVE_ALIGNED_NEW"
+        fi
+    fi
+
+    if ! test $ROCKSDB_DISABLE_OPENSSL; then
+        # Test whether openssl is available
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <openssl/evp.h>
+          int main() {}
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_OPENSSL_AES_CTR"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ldl"
         fi
     fi
 fi
@@ -759,6 +771,7 @@ echo "JEMALLOC_LIB=$JEMALLOC_LIB" >> "$OUTPUT"
 echo "ROCKSDB_MAJOR=$ROCKSDB_MAJOR" >> "$OUTPUT"
 echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
 echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
+echo "ROCKSDB_OPENSSL_AES_CTR=$ROCKSDB_OPENSSL_AES_CTR" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"

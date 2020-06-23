@@ -74,10 +74,11 @@ LIB_SOURCES =                                                   \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
   env/env_encryption.cc                                         \
+  env/env_encrypt2.cc                                           \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
-  env/fs_posix.cc                                           	  \
+  env/fs_posix.cc                                         	  \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -186,6 +187,7 @@ LIB_SOURCES =                                                   \
   util/crc32c.cc                                                \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
+  util/library_loader.cc                                        \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
@@ -397,6 +399,7 @@ MAIN_SOURCES =                                                          \
   db/write_callback_test.cc                                             \
   db/write_controller_test.cc                                           \
   env/env_basic_test.cc                                                 \
+  env/env_encrypt2_test.cc                                              \
   env/env_test.cc                                                       \
   env/io_posix_test.cc                                                  \
   env/mock_env_test.cc                                                  \
@@ -448,6 +451,7 @@ MAIN_SOURCES =                                                          \
   util/defer_test.cc                                                    \
   util/dynamic_bloom_test.cc                                            \
   util/filelock_test.cc                                                 \
+  util/library_loader_test.cc                                           \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
   util/random_test.cc                                                   \

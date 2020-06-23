@@ -487,10 +487,12 @@ TESTS = \
 	coding_test \
 	inlineskiplist_test \
 	env_basic_test \
+	env_encrypt2_test \
 	env_test \
 	env_logger_test \
 	io_posix_test \
 	hash_test \
+	library_loader_test \
 	random_test \
 	thread_local_test \
 	work_queue_test \
@@ -1398,6 +1400,9 @@ coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 hash_test: util/hash_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+library_loader_test: util/library_loader_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 random_test: util/random_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1582,6 +1587,9 @@ cache_simulator_test: utilities/simulator_cache/cache_simulator_test.o $(LIBOBJE
 	$(AM_LINK)
 
 sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+env_encrypt2_test: env/env_encrypt2_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
