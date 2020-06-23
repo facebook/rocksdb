@@ -8,9 +8,10 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
+#include <openssl/evp.h>
+
 #include <map>
 #include <string>
-#include <openssl/evp.h>
 
 namespace rocksdb {
 
@@ -19,56 +20,57 @@ namespace rocksdb {
 //
 class LibraryLoader {
  public:
-  LibraryLoader() : is_valid_(false) {};
+  LibraryLoader() : is_valid_(false){};
   virtual ~LibraryLoader() = default;
 
-  bool IsValid() const {return is_valid_;}
+  bool IsValid() const { return is_valid_; }
 
-  virtual void * GetEntryPoint(const char * function_name) = 0;
+  virtual void *GetEntryPoint(const char *function_name) = 0;
 
  protected:
   bool is_valid_;
 };
 
-
 class UnixLibraryLoader : public LibraryLoader {
  public:
   UnixLibraryLoader() = delete;
 
-  UnixLibraryLoader(const char * library_name);
+  UnixLibraryLoader(const char *library_name);
 
   virtual ~UnixLibraryLoader();
 
-  virtual void * GetEntryPoint(const char * function_name) override;
+  virtual void *GetEntryPoint(const char *function_name) override;
 
-  virtual size_t GetEntryPoints(std::map<std::string, void *> & functions);
+  virtual size_t GetEntryPoints(std::map<std::string, void *> &functions);
 
-protected:
-  void * dl_handle_;
+ protected:
+  void *dl_handle_;
   std::string last_error_msg_;
 };
 
-
 class UnixLibCrypto : public UnixLibraryLoader {
-public:
+ public:
   UnixLibCrypto();
   virtual ~UnixLibCrypto() = default;
 
   // _new & _free are ssl 1.1, replacing 1.0 _create & _destroy
-  using EVP_MD_CTX_new_t = EVP_MD_CTX * (*)(void);
-  using EVP_DigestInit_ex_t = int (*)(EVP_MD_CTX *ctx, const EVP_MD *type, ENGINE *impl);
-  using EVP_sha1_t = const EVP_MD * (*)(void);
-  using EVP_DigestUpdate_t = int (*)(EVP_MD_CTX *ctx, const void *d, size_t cnt);
-  using EVP_DigestFinal_ex_t = int (*)(EVP_MD_CTX *ctx, unsigned char *md, unsigned int *s);
+  using EVP_MD_CTX_new_t = EVP_MD_CTX *(*)(void);
+  using EVP_DigestInit_ex_t = int (*)(EVP_MD_CTX *ctx, const EVP_MD *type,
+                                      ENGINE *impl);
+  using EVP_sha1_t = const EVP_MD *(*)(void);
+  using EVP_DigestUpdate_t = int (*)(EVP_MD_CTX *ctx, const void *d,
+                                     size_t cnt);
+  using EVP_DigestFinal_ex_t = int (*)(EVP_MD_CTX *ctx, unsigned char *md,
+                                       unsigned int *s);
   using EVP_MD_CTX_free_t = void (*)(EVP_MD_CTX *ctx);
 
-  EVP_MD_CTX * EVP_MD_CTX_new() const {return ctx_new_();};
+  EVP_MD_CTX *EVP_MD_CTX_new() const { return ctx_new_(); };
 
   int EVP_DigestInit_ex(EVP_MD_CTX *ctx, const EVP_MD *type, ENGINE *impl) {
     return digest_init_(ctx, type, impl);
   }
 
-  const EVP_MD * EVP_sha1() {return sha1_();}
+  const EVP_MD *EVP_sha1() { return sha1_(); }
 
   int EVP_DigestUpdate(EVP_MD_CTX *ctx, const void *d, size_t cnt) {
     return digest_update_(ctx, d, cnt);
@@ -78,76 +80,61 @@ public:
     return digest_final_(ctx, md, s);
   }
 
-  void EVP_MD_CTX_free(EVP_MD_CTX *ctx) {
-    ctx_free_(ctx);
-  }
+  void EVP_MD_CTX_free(EVP_MD_CTX *ctx) { ctx_free_(ctx); }
 
-  EVP_MD_CTX_free_t EVP_MD_CTX_free_ptr() {
-    return ctx_free_;
-  }
+  EVP_MD_CTX_free_t EVP_MD_CTX_free_ptr() { return ctx_free_; }
 
   using RAND_bytes_t = int (*)(unsigned char *buf, int num);
   using RAND_poll_t = int (*)();
 
-  int RAND_bytes(unsigned char *buf, int num) {
-    return rand_bytes_(buf, num);
-  }
+  int RAND_bytes(unsigned char *buf, int num) { return rand_bytes_(buf, num); }
 
-  int RAND_poll() {
-    return rand_poll_();
-  }
+  int RAND_poll() { return rand_poll_(); }
 
-  using EVP_CIPHER_CTX_new_t = EVP_CIPHER_CTX * (*)(void);
+  using EVP_CIPHER_CTX_new_t = EVP_CIPHER_CTX *(*)(void);
   using EVP_CIPHER_CTX_free_t = void (*)(EVP_CIPHER_CTX *ctx);
-  using EVP_EncryptInit_ex_t = int (*)(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
-         ENGINE *impl, const unsigned char *key, const unsigned char *iv);
-  using EVP_aes_256_ctr_t = const EVP_CIPHER * (*)(void);
+  using EVP_EncryptInit_ex_t = int (*)(EVP_CIPHER_CTX *ctx,
+                                       const EVP_CIPHER *type, ENGINE *impl,
+                                       const unsigned char *key,
+                                       const unsigned char *iv);
+  using EVP_aes_256_ctr_t = const EVP_CIPHER *(*)(void);
   using EVP_EncryptUpdate_t = int (*)(EVP_CIPHER_CTX *ctx, unsigned char *out,
-         int *outl, const unsigned char *in, int inl);
+                                      int *outl, const unsigned char *in,
+                                      int inl);
 
-  EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void) const {return cipher_new_();};
+  EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void) const { return cipher_new_(); };
 
-  void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx) {
-    cipher_free_(ctx);
-  }
+  void EVP_CIPHER_CTX_free(EVP_CIPHER_CTX *ctx) { cipher_free_(ctx); }
 
-  EVP_CIPHER_CTX_free_t EVP_CIPHER_CTX_free_ptr() {
-    return cipher_free_;
-  }
+  EVP_CIPHER_CTX_free_t EVP_CIPHER_CTX_free_ptr() { return cipher_free_; }
 
   int EVP_EncryptInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *type,
-                         ENGINE *impl, const unsigned char *key, const unsigned char *iv) {
+                         ENGINE *impl, const unsigned char *key,
+                         const unsigned char *iv) {
     return encrypt_init_(ctx, type, impl, key, iv);
   }
 
-  const EVP_CIPHER * EVP_aes_256_ctr() {
-    return aes_256_ctr_();
-  }
+  const EVP_CIPHER *EVP_aes_256_ctr() { return aes_256_ctr_(); }
 
-  int EVP_EncryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out,
-                        int *outl, const unsigned char *in, int inl) {
+  int EVP_EncryptUpdate(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl,
+                        const unsigned char *in, int inl) {
     return encrypt_update_(ctx, out, outl, in, inl);
   }
 
-  static const char * crypto_lib_name_;
+  static const char *crypto_lib_name_;
 
-protected:
-  std::map<std::string, void *> functions_ {
-    {"EVP_MD_CTX_new", nullptr}, {"EVP_MD_CTX_create", nullptr},
-    {"EVP_DigestInit_ex", nullptr},
-    {"EVP_sha1", nullptr},
-    {"EVP_DigestUpdate", nullptr},
-    {"EVP_DigestFinal_ex", nullptr},
-    {"EVP_MD_CTX_free", nullptr}, {"EVP_MD_CTX_destroy", nullptr},
+ protected:
+  std::map<std::string, void *> functions_{
+      {"EVP_MD_CTX_new", nullptr},     {"EVP_MD_CTX_create", nullptr},
+      {"EVP_DigestInit_ex", nullptr},  {"EVP_sha1", nullptr},
+      {"EVP_DigestUpdate", nullptr},   {"EVP_DigestFinal_ex", nullptr},
+      {"EVP_MD_CTX_free", nullptr},    {"EVP_MD_CTX_destroy", nullptr},
 
-    {"RAND_bytes", nullptr},
-    {"RAND_poll", nullptr},
+      {"RAND_bytes", nullptr},         {"RAND_poll", nullptr},
 
-    {"EVP_CIPHER_CTX_new", nullptr},
-    {"EVP_CIPHER_CTX_free", nullptr},
-    {"EVP_EncryptInit_ex", nullptr},
-    {"EVP_aes_256_ctr", nullptr},
-    {"EVP_EncryptUpdate", nullptr},
+      {"EVP_CIPHER_CTX_new", nullptr}, {"EVP_CIPHER_CTX_free", nullptr},
+      {"EVP_EncryptInit_ex", nullptr}, {"EVP_aes_256_ctr", nullptr},
+      {"EVP_EncryptUpdate", nullptr},
 
   };
 
@@ -166,7 +153,6 @@ protected:
   EVP_EncryptInit_ex_t encrypt_init_;
   EVP_aes_256_ctr_t aes_256_ctr_;
   EVP_EncryptUpdate_t encrypt_update_;
-
 };
 
 }  // namespace rocksdb
