@@ -449,19 +449,6 @@ cpp_library(
 )
 
 cpp_library(
-    name = "rocksdb_third_party_gtest",
-    srcs = ["third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc"],
-    headers = ["third-party/gtest-1.8.1/fused-src/gtest/gtest.h"],
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
-
-cpp_library(
     name = "env_basic_test_lib",
     srcs = ["env/env_basic_test.cc"],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
