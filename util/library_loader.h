@@ -5,6 +5,9 @@
 
 #pragma once
 
+#ifdef ROCKSDB_OPENSSL_AES_CTR
+#ifndef ROCKSDB_LITE
+
 #include <map>
 #include <string>
 #include <openssl/evp.h>
@@ -127,7 +130,7 @@ public:
   }
 
   static const char * crypto_lib_name_;
-  
+
 protected:
   std::map<std::string, void *> functions_ {
     {"EVP_MD_CTX_new", nullptr}, {"EVP_MD_CTX_create", nullptr},
@@ -167,3 +170,5 @@ protected:
 };
 
 }  // namespace rocksdb
+#endif  // ROCKSDB_LITE
+#endif  // ROCKSDB_OPENSSL_AES_CTR
