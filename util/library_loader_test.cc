@@ -3,12 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <gtest/gtest.h>
+
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
 #include "util/library_loader.h"
-
-#include <gtest/gtest.h>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -56,7 +56,7 @@ TEST(UnixLibraryLoaderTest, Crypto) {
   ASSERT_TRUE(crypto.IsValid());
 
   //  context = crypto.EVP_MD_CTX_create();  ... old call
-  context = crypto.EVP_MD_CTX_new();         //  new call
+  context = crypto.EVP_MD_CTX_new();  //  new call
   ASSERT_TRUE(nullptr != context);
 
   ret_val = crypto.EVP_DigestInit_ex(context, crypto.EVP_sha1(), nullptr);
