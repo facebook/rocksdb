@@ -470,7 +470,7 @@ LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
 endif
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-  LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
+  LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
 GTEST = $(OBJ_DIR)/$(GTEST_DIR)/gtest/gtest-all.o
@@ -2138,6 +2138,9 @@ endif
 $(OBJ_DIR)/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
+$(OBJ_DIR)/%.o: %.cpp
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
+
 $(OBJ_DIR)/%.o: %.c
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
@@ -2149,7 +2152,7 @@ endif
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-  DEPFILES +=$(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(FOLLY_SOURCES))
+  DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
@@ -2161,6 +2164,10 @@ $(OBJ_DIR)/%.cc.d: %.cc
 	@mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.cc=.o)' -MT'$(<:%.cc=$(OBJ_DIR)/%.o)' \
           "$<" -o '$@'
+
+$(OBJ_DIR)/%.cpp.d: %.cpp
+	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.cpp=.o)' "$<" -o '$@'
 
 ifeq ($(HAVE_POWER8),1)
 DEPFILES_C = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C))
