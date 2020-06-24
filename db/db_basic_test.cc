@@ -3155,9 +3155,11 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
   std::shared_ptr<DeadlineFS> fs(new DeadlineFS(env_));
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
+  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
+  // properly for the DB that's opened by the DBTestBase constructor.
+  Close();
   for (int option_config = kDefault; option_config < kEnd; ++option_config) {
-    if (ShouldSkipOptions(option_config,
-                          kSkipPlainTable | kSkipMmapReads)) {
+    if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
       continue;
     }
     option_config_ = option_config;
