@@ -1347,8 +1347,11 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       CalculateChecksum(abs_path, backup_env_, EnvOptions(), 0 /* size_limit */,
                         &checksum_value);
       if (file_info->checksum_value != checksum_value) {
+        std::string checksum_info(
+            "Expected checksum is " + ToString(file_info->checksum_value) +
+            " while computed checksum is " + ToString(checksum_value));
         return Status::Corruption("File corrupted: Checksum mismatch for " +
-                                  abs_path);
+                                  abs_path + ": " + checksum_info);
       }
     }
   }
