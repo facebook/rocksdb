@@ -3155,12 +3155,18 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
   std::shared_ptr<DeadlineFS> fs(new DeadlineFS(env_));
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
-  do {
+  for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+    if (ShouldSkipOptions(option_config,
+                          kSkipPlainTable | kSkipMmapReads)) {
+      continue;
+    }
+    option_config_ = option_config;
     Options options = CurrentOptions();
     if (options.use_direct_reads) {
       continue;
     }
     options.env = env.get();
+    options.disable_auto_compactions = true;
     Cache* block_cache = nullptr;
     env_->SetTimeElapseOnlySleep(&options);
     // Fileter block reads currently don't cause the request to get
@@ -3232,7 +3238,7 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
     }
     // Reset the delay sequence in order to avoid false alarms during Reopen
     fs->SetDelaySequence(std::chrono::microseconds::zero(), {});
-  } while (ChangeOptions(kSkipPlainTable | kSkipMmapReads));
+  }
   Close();
 }
 

@@ -106,7 +106,7 @@ Status TableCache::GetTableReader(
   FileOptions fopts = file_options;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
   if (s.ok()) {
-    s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file, nullptr);
+    s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
