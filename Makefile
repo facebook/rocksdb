@@ -2154,8 +2154,9 @@ $(OBJ_DIR)/%.cc.d: %.cc
           "$<" -o '$@'
 
 $(OBJ_DIR)/%.cpp.d: %.cpp
-	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
-	  -MM -MT'$@' -MT'$(<:.cpp=.o)' "$<" -o '$@'
+	@mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.cpp=.o)' -MT'$(<:%.cpp=$(OBJ_DIR)/%.o)' \
+          "$<" -o '$@'
 
 ifeq ($(HAVE_POWER8),1)
 DEPFILES_C = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C))
