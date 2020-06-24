@@ -157,9 +157,9 @@ class CTREncryptionProvider2 : public EncryptionProvider {
 
   CTREncryptionProvider2(const CTREncryptionProvider&&) = delete;
 
-  CTREncryptionProvider2(const Sha1Description_t& key_desc,
+  CTREncryptionProvider2(const Sha1Description_t& key_desc_in,
                          const AesCtrKey_t& key_in)
-      : valid_(false), key_desc_(key_desc), key_(key_in) {
+      : valid_(false), key_desc_(key_desc_in), key_(key_in) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
 
