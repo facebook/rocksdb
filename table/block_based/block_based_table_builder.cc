@@ -1093,42 +1093,43 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   if (io_s.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
-    char* trailer_without_type = trailer + 1;
+    uint32_t checksum = 0;
     switch (r->table_options.checksum) {
       case kNoChecksum:
-        EncodeFixed32(trailer_without_type, 0);
         break;
       case kCRC32c: {
-        auto crc = crc32c::Value(block_contents.data(), block_contents.size());
-        crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
-        EncodeFixed32(trailer_without_type, crc32c::Mask(crc));
+        uint32_t crc =
+            crc32c::Value(block_contents.data(), block_contents.size());
+        // Extend to cover compression type
+        crc = crc32c::Extend(crc, trailer, 1);
+        checksum = crc32c::Mask(crc);
         break;
       }
       case kxxHash: {
         XXH32_state_t* const state = XXH32_createState();
         XXH32_reset(state, 0);
-        XXH32_update(state, block_contents.data(),
-                     static_cast<uint32_t>(block_contents.size()));
-        XXH32_update(state, trailer, 1);  // Extend  to cover block type
-        EncodeFixed32(trailer_without_type, XXH32_digest(state));
+        XXH32_update(state, block_contents.data(), block_contents.size());
+        // Extend to cover compression type
+        XXH32_update(state, trailer, 1);
+        checksum = XXH32_digest(state);
         XXH32_freeState(state);
         break;
       }
       case kxxHash64: {
         XXH64_state_t* const state = XXH64_createState();
         XXH64_reset(state, 0);
-        XXH64_update(state, block_contents.data(),
-                     static_cast<uint32_t>(block_contents.size()));
-        XXH64_update(state, trailer, 1);  // Extend  to cover block type
-        EncodeFixed32(
-            trailer_without_type,
-            static_cast<uint32_t>(XXH64_digest(state) &  // lower 32 bits
-                                  uint64_t{0xffffffff}));
+        XXH64_update(state, block_contents.data(), block_contents.size());
+        // Extend to cover compression type
+        XXH64_update(state, trailer, 1);
+        checksum = Lower32of64(XXH64_digest(state));
         XXH64_freeState(state);
         break;
       }
+      default:
+        assert(false);
+        break;
     }
-
+    EncodeFixed32(trailer + 1, checksum);
     assert(io_s.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",

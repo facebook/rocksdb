@@ -17,7 +17,7 @@
 // If non-zero, kill at various points in source code with probability 1/this
 extern int rocksdb_kill_odds;
 // If kill point has a prefix on this list, will skip killing.
-extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
+extern std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 #ifdef NDEBUG
 // empty in release build

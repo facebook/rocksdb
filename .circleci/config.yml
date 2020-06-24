@@ -55,7 +55,7 @@ jobs:
       - checkout # check out the code in the project directory
       - run: sudo apt-get update -y
       - run: sudo apt-get install -y clang
-      - run: CC=clang CXX=clang++ V=1 USE_CLANG=1 PORTABLE=1 make all -j32
+      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make all -j32
 
   build-linux-cmake:
     machine:

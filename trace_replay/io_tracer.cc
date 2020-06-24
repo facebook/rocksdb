@@ -18,6 +18,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+const unsigned int kCharSize = 1;
+}  // namespace
+
 IOTraceWriter::IOTraceWriter(Env* env, const TraceOptions& trace_options,
                              std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),

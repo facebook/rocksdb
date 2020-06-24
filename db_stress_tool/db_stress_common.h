@@ -146,6 +146,7 @@ DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
 DECLARE_bool(partition_filters);
+DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
@@ -161,7 +162,7 @@ DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
 DECLARE_int32(kill_random_test);
-DECLARE_string(kill_prefix_blacklist);
+DECLARE_string(kill_exclude_prefixes);
 DECLARE_bool(disable_wal);
 DECLARE_uint64(recycle_log_file_num);
 DECLARE_int64(target_file_size_base);
@@ -485,7 +486,6 @@ inline bool GetFirstIntValInPrefix(std::string big_endian_prefix,
   unsigned int pad = sizeof(uint64_t) - (size_key % sizeof(uint64_t));
   if (pad < sizeof(uint64_t)) {
     big_endian_prefix.append(pad, '\0');
-    size_key += pad;
   }
   return GetIntVal(std::move(big_endian_prefix), key_p);
 }

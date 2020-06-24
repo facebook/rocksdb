@@ -467,6 +467,11 @@ DEFINE_bool(partition_index, false, "Partition index blocks");
 
 DEFINE_bool(index_with_first_key, false, "Include first key in the index");
 
+DEFINE_bool(
+    optimize_filters_for_memory,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
+    "Minimize memory footprint of filters");
+
 DEFINE_int64(
     index_shortening_mode, 2,
     "mode to shorten index: 0 for no shortening; 1 for only shortening "
@@ -3821,6 +3826,8 @@ class Benchmark {
         default:
           fprintf(stderr, "Unknown key shortening mode\n");
       }
+      block_based_options.optimize_filters_for_memory =
+          FLAGS_optimize_filters_for_memory;
       block_based_options.index_shortening = index_shortening;
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
