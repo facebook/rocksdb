@@ -89,26 +89,25 @@ ifeq ($(MAKECMDGOALS),install)
 	DEBUG_LEVEL=0
 endif
 
-ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
-	ifneq ($(DEBUG_LEVEL),2)
-		DEBUG_LEVEL=0
-	endif
+
+ifneq ($(findstring jtest, $(MAKECMDGOALS)),)
+	OBJ_DIR=jl
+	LIB_MODE=shared
 endif
 
-ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
-	ifneq ($(DEBUG_LEVEL),2)
-		DEBUG_LEVEL=0
+ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
+	LIB_MODE=shared
+        ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+		OBJ_DIR=jls
+	        ifneq ($(DEBUG_LEVEL),2)
+	            DEBUG_LEVEL=0
+                endif
+                ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
+	            DEBUG_LEVEL=0
+                endif
+	else
+		OBJ_DIR=jl
 	endif
-endif
-
-ifeq ($(MAKECMDGOALS),rocksdbjavastaticreleasedocker)
-	ifneq ($(DEBUG_LEVEL),2)
-		DEBUG_LEVEL=0
-	endif
-endif
-
-ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
-	DEBUG_LEVEL=0
 endif
 
 $(info $$DEBUG_LEVEL is ${DEBUG_LEVEL})
@@ -197,7 +196,7 @@ endif
 #-----------------------------------------------
 include src.mk
 
-AM_DEFAULT_VERBOSITY = 0
+AM_DEFAULT_VERBOSITY ?= 0
 
 AM_V_GEN = $(am__v_GEN_$(V))
 am__v_GEN_ = $(am__v_GEN_$(AM_DEFAULT_VERBOSITY))
@@ -1117,6 +1116,7 @@ clean-rocks:
 	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
 clean-rocksjava:
+	rm -rf jl jls
 	cd java && $(MAKE) clean
 
 clean-not-downloaded-rocksjava:
@@ -1963,31 +1963,22 @@ endif
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIB_OBJECTS) compiled with -fPIC and a fixed set of static compression libraries
-JAVA_STATIC_LIB_OBJECTS = $(patsubst $(OBJ_DIR)/%, jls/%, $(LIB_OBJECTS))
-CLEAN_FILES += jls
-
 ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
 JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
 JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib/include
-
-jls/util/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
-
-jls/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
-
-jls/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
-
-rocksdbjavastatic: $(JAVA_STATIC_LIB_OBJECTS) $(JAVA_COMPRESSIONS)
+ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+CXXFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
+CFLAGS +=  $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
+endif
+rocksdbjavastatic: $(LIB_OBJECTS) $(JAVA_COMPRESSIONS)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
-	  $(JAVA_STATIC_LIB_OBJECTS) $(COVERAGEFLAGS) \
+	  $(LIB_OBJECTS) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
 	cd java/target;if [ "$(DEBUG_LEVEL)" == "0" ]; then \
 		strip $(STRIPFLAGS) $(ROCKSDBJNILIB); \
@@ -2058,9 +2049,6 @@ rocksdbjavastaticpublishcentral:
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC
 
-JAVA_LIB_OBJECTS = $(patsubst $(OBJ_DIR)/%, jl/%, $(LIB_OBJECTS))
-CLEAN_FILES += jl
-
 jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
@@ -2071,10 +2059,10 @@ jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 
 
-rocksdbjava: $(JAVA_LIB_OBJECTS)
+rocksdbjava: $(LIB_OBJECTS)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(JAVA_LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	$(AM_V_at)cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	$(AM_V_at)cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
