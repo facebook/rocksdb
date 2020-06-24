@@ -293,19 +293,19 @@ class BackupEngineReadOnly {
     return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
   }
 
+  // If verify_with_checksum is true, this function
+  // inspects the current checksums and file sizes of backup files to see if
+  // they match our expectation.
+  //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
-  // expectations. it does not check file checksum.
-  //
-  // If verify_with_checksum is true, this function
-  // inspects the current backup file checksum and size to see if they match our
-  // expectation.
+  // expectation. It does not check file checksum.
   //
   // If this BackupEngine created the backup, it compares the files' current
-  // sizes (resp., current checksum) against the number of bytes written to
-  // them (resp., the checksum calculated) during creation.
-  // Otherwise, it compares the files' current sizes against their sizes when
-  // the BackupEngine was opened.
+  // sizes (and current checksum) against the number of bytes written to
+  // them (and the checksum calculated) during creation.
+  // Otherwise, it compares the files' current sizes (and checksums) against
+  // their sizes (and checksums) when the BackupEngine was opened.
   //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id,
@@ -421,10 +421,14 @@ class BackupEngine {
     return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
   }
 
+  // If verify_with_checksum is true, this function
+  // inspects the current checksums and file sizes of backup files to see if
+  // they match our expectation.
+  //
+  // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
-  // expectations if verify_with_checksum is false
-  // inspects whether the file checksum and size match our expectation if
-  // verify_with_checksum is true
+  // expectation. It does not check file checksum.
+  //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id,
                               const bool& verify_with_checksum = true) = 0;
