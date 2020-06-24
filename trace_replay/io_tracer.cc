@@ -17,11 +17,6 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-namespace {
-const unsigned int kCharSize = 1;
-}  // namespace
-
 IOTraceWriter::IOTraceWriter(Env* env, const TraceOptions& trace_options,
                              std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),
@@ -143,6 +138,7 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
   record->file_name = file_name.ToString();
   // TODO: Read below options based on file_operation.
   record->len = static_cast<size_t>(enc_slice[0]);
+  const unsigned int kCharSize = 1;
   enc_slice.remove_prefix(kCharSize);
   if (enc_slice.empty()) {
     return Status::Incomplete(
