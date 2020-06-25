@@ -313,8 +313,36 @@ Status DBImpl::ResumeImpl() {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
+  bool file_deletion_disabled = !IsFileDeletionsEnabled();
   if (s.ok()) {
-    versions_->SetIOStatusOK();
+    IOStatus io_s = versions_->io_status();
+    if (io_s.IsIOError()) {
+      // If resuming from IOError resulted from MANIFEST write, then assert
+      // that we must have already set the MANIFEST writer to nullptr during
+      // clean-up phase MANIFEST writing. We must have also disabled file
+      // deletions.
+      assert(!versions_->descriptor_log_);
+      assert(file_deletion_disabled);
+      // Since we are trying to recover from MANIFEST write error, we need to
+      // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
+      // Therefore, force writing a dummy version edit because we do not know
+      // whether there are flush jobs with non-empty data to flush, triggering
+      // appends to MANIFEST.
+      VersionEdit edit;
+      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(default_cf_handle_);
+      assert(cfh);
+      ColumnFamilyData* cfd = cfh->cfd();
+      const MutableCFOptions& cf_opts = *cfd->GetLatestMutableCFOptions();
+      s = versions_->LogAndApply(cfd, cf_opts, &edit, &mutex_,
+                                 directories_.GetDbDir());
+      if (!s.ok()) {
+        io_s = versions_->io_status();
+        if (!io_s.ok()) {
+          s = error_handler_.SetBGError(io_s,
+                                        BackgroundErrorReason::kManifestWrite);
+        }
+      }
+    }
   }
 
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
@@ -365,6 +393,13 @@ Status DBImpl::ResumeImpl() {
   job_context.Clean();
 
   if (s.ok()) {
+    assert(versions_->io_status().ok());
+    // If we reach here, we should re-enable file deletions if it was disabled
+    // during previous error handling.
+    if (file_deletion_disabled) {
+      // Always return ok
+      EnableFileDeletions(/*force=*/true);
+    }
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
   mutex_.Lock();
@@ -4405,6 +4440,14 @@ Status DBImpl::IngestExternalFiles(
 #endif  // !NDEBUG
         }
       }
+    } else if (versions_->io_status().IsIOError()) {
+      // Error while writing to MANIFEST.
+      // In fact, versions_->io_status() can also be the result of renaming
+      // CURRENT file. With current code, it's just difficult to tell. So just
+      // be pessimistic and try write to a new MANIFEST.
+      // TODO: distinguish between MANIFEST write and CURRENT renaming
+      const IOStatus& io_s = versions_->io_status();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
     }
 
     // Resume writes to the DB
