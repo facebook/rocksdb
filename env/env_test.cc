@@ -1602,9 +1602,10 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
   const int kNumChildren = 10;
 
   std::string data;
+  std::string test_base_dir = test::PerThreadDBPath(env_, "env_test_chr_attr");
+  env_->CreateDir(test_base_dir);
   for (int i = 0; i < kNumChildren; ++i) {
-    const std::string path =
-        test::TmpDir(env_) + "/" + "testfile_" + std::to_string(i);
+    const std::string path = test_base_dir + "/testfile_" + std::to_string(i);
     std::unique_ptr<WritableFile> file;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
       if (soptions.use_direct_writes) {
@@ -1623,10 +1624,10 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
   }
 
     std::vector<Env::FileAttributes> file_attrs;
-    ASSERT_OK(env_->GetChildrenFileAttributes(test::TmpDir(env_), &file_attrs));
+    ASSERT_OK(env_->GetChildrenFileAttributes(test_base_dir, &file_attrs));
     for (int i = 0; i < kNumChildren; ++i) {
       const std::string name = "testfile_" + std::to_string(i);
-      const std::string path = test::TmpDir(env_) + "/" + name;
+      const std::string path = test_base_dir + "/" + name;
 
       auto file_attrs_iter = std::find_if(
           file_attrs.begin(), file_attrs.end(),
