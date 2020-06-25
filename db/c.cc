@@ -2537,6 +2537,10 @@ void rocksdb_options_set_use_fsync(
   opt->rep.use_fsync = use_fsync;
 }
 
+int rocksdb_options_get_use_fsync(rocksdb_options_t* opt) {
+  return opt->rep.use_fsync;
+}
+
 void rocksdb_options_set_db_log_dir(
     rocksdb_options_t* opt, const char* db_log_dir) {
   opt->rep.db_log_dir = db_log_dir;
@@ -2551,14 +2555,26 @@ void rocksdb_options_set_WAL_ttl_seconds(rocksdb_options_t* opt, uint64_t ttl) {
   opt->rep.WAL_ttl_seconds = ttl;
 }
 
+uint64_t rocksdb_options_get_WAL_ttl_seconds(rocksdb_options_t* opt) {
+  return opt->rep.WAL_ttl_seconds;
+}
+
 void rocksdb_options_set_WAL_size_limit_MB(
     rocksdb_options_t* opt, uint64_t limit) {
   opt->rep.WAL_size_limit_MB = limit;
 }
 
+uint64_t rocksdb_options_get_WAL_size_limit_MB(rocksdb_options_t* opt) {
+  return opt->rep.WAL_size_limit_MB;
+}
+
 void rocksdb_options_set_manifest_preallocation_size(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.manifest_preallocation_size = v;
+}
+
+size_t rocksdb_options_get_manifest_preallocation_size(rocksdb_options_t* opt) {
+  return opt->rep.manifest_preallocation_size;
 }
 
 // noop
@@ -2570,9 +2586,18 @@ void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
   opt->rep.use_direct_reads = v;
 }
 
+unsigned char rocksdb_options_get_use_direct_reads(rocksdb_options_t* opt) {
+  return opt->rep.use_direct_reads;
+}
+
 void rocksdb_options_set_use_direct_io_for_flush_and_compaction(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.use_direct_io_for_flush_and_compaction = v;
+}
+
+unsigned char rocksdb_options_get_use_direct_io_for_flush_and_compaction(
+    rocksdb_options_t* opt) {
+  return opt->rep.use_direct_io_for_flush_and_compaction;
 }
 
 void rocksdb_options_set_allow_mmap_reads(
@@ -2580,14 +2605,26 @@ void rocksdb_options_set_allow_mmap_reads(
   opt->rep.allow_mmap_reads = v;
 }
 
+unsigned char rocksdb_options_get_allow_mmap_reads(rocksdb_options_t* opt) {
+  return opt->rep.allow_mmap_reads;
+}
+
 void rocksdb_options_set_allow_mmap_writes(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.allow_mmap_writes = v;
 }
 
+unsigned char rocksdb_options_get_allow_mmap_writes(rocksdb_options_t* opt) {
+  return opt->rep.allow_mmap_writes;
+}
+
 void rocksdb_options_set_is_fd_close_on_exec(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.is_fd_close_on_exec = v;
+}
+
+unsigned char rocksdb_options_get_is_fd_close_on_exec(rocksdb_options_t* opt) {
+  return opt->rep.is_fd_close_on_exec;
 }
 
 void rocksdb_options_set_skip_log_error_on_recovery(
@@ -2731,8 +2768,16 @@ void rocksdb_options_set_max_background_jobs(rocksdb_options_t* opt, int n) {
   opt->rep.max_background_jobs = n;
 }
 
+int rocksdb_options_get_max_background_jobs(rocksdb_options_t* opt) {
+  return opt->rep.max_background_jobs;
+}
+
 void rocksdb_options_set_max_background_compactions(rocksdb_options_t* opt, int n) {
   opt->rep.max_background_compactions = n;
+}
+
+int rocksdb_options_get_max_background_compactions(rocksdb_options_t* opt) {
+  return opt->rep.max_background_compactions;
 }
 
 void rocksdb_options_set_base_background_compactions(rocksdb_options_t* opt,
@@ -2740,20 +2785,40 @@ void rocksdb_options_set_base_background_compactions(rocksdb_options_t* opt,
   opt->rep.base_background_compactions = n;
 }
 
+int rocksdb_options_get_base_background_compactions(rocksdb_options_t* opt) {
+  return opt->rep.base_background_compactions;
+}
+
 void rocksdb_options_set_max_background_flushes(rocksdb_options_t* opt, int n) {
   opt->rep.max_background_flushes = n;
+}
+
+int rocksdb_options_get_max_background_flushes(rocksdb_options_t* opt) {
+  return opt->rep.max_background_flushes;
 }
 
 void rocksdb_options_set_max_log_file_size(rocksdb_options_t* opt, size_t v) {
   opt->rep.max_log_file_size = v;
 }
 
+size_t rocksdb_options_get_max_log_file_size(rocksdb_options_t* opt) {
+  return opt->rep.max_log_file_size;
+}
+
 void rocksdb_options_set_log_file_time_to_roll(rocksdb_options_t* opt, size_t v) {
   opt->rep.log_file_time_to_roll = v;
 }
 
+size_t rocksdb_options_get_log_file_time_to_roll(rocksdb_options_t* opt) {
+  return opt->rep.log_file_time_to_roll;
+}
+
 void rocksdb_options_set_keep_log_file_num(rocksdb_options_t* opt, size_t v) {
   opt->rep.keep_log_file_num = v;
+}
+
+size_t rocksdb_options_get_keep_log_file_num(rocksdb_options_t* opt) {
+  return opt->rep.keep_log_file_num;
 }
 
 void rocksdb_options_set_recycle_log_file_num(rocksdb_options_t* opt,
@@ -2761,20 +2826,42 @@ void rocksdb_options_set_recycle_log_file_num(rocksdb_options_t* opt,
   opt->rep.recycle_log_file_num = v;
 }
 
+size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
+  return opt->rep.recycle_log_file_num;
+}
+
 void rocksdb_options_set_soft_rate_limit(rocksdb_options_t* opt, double v) {
   opt->rep.soft_rate_limit = v;
+}
+
+double rocksdb_options_get_soft_rate_limit(rocksdb_options_t* opt) {
+  return opt->rep.soft_rate_limit;
 }
 
 void rocksdb_options_set_hard_rate_limit(rocksdb_options_t* opt, double v) {
   opt->rep.hard_rate_limit = v;
 }
 
+double rocksdb_options_get_hard_rate_limit(rocksdb_options_t* opt) {
+  return opt->rep.hard_rate_limit;
+}
+
 void rocksdb_options_set_soft_pending_compaction_bytes_limit(rocksdb_options_t* opt, size_t v) {
   opt->rep.soft_pending_compaction_bytes_limit = v;
 }
 
+size_t rocksdb_options_get_soft_pending_compaction_bytes_limit(
+    rocksdb_options_t* opt) {
+  return opt->rep.soft_pending_compaction_bytes_limit;
+}
+
 void rocksdb_options_set_hard_pending_compaction_bytes_limit(rocksdb_options_t* opt, size_t v) {
   opt->rep.hard_pending_compaction_bytes_limit = v;
+}
+
+size_t rocksdb_options_get_hard_pending_compaction_bytes_limit(
+    rocksdb_options_t* opt) {
+  return opt->rep.hard_pending_compaction_bytes_limit;
 }
 
 void rocksdb_options_set_rate_limit_delay_max_milliseconds(
@@ -2782,14 +2869,27 @@ void rocksdb_options_set_rate_limit_delay_max_milliseconds(
   opt->rep.rate_limit_delay_max_milliseconds = v;
 }
 
+unsigned int rocksdb_options_get_rate_limit_delay_max_milliseconds(
+    rocksdb_options_t* opt) {
+  return opt->rep.rate_limit_delay_max_milliseconds;
+}
+
 void rocksdb_options_set_max_manifest_file_size(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.max_manifest_file_size = v;
 }
 
+size_t rocksdb_options_get_max_manifest_file_size(rocksdb_options_t* opt) {
+  return opt->rep.max_manifest_file_size;
+}
+
 void rocksdb_options_set_table_cache_numshardbits(
     rocksdb_options_t* opt, int v) {
   opt->rep.table_cache_numshardbits = v;
+}
+
+int rocksdb_options_get_table_cache_numshardbits(rocksdb_options_t* opt) {
+  return opt->rep.table_cache_numshardbits;
 }
 
 void rocksdb_options_set_table_cache_remove_scan_count_limit(
@@ -2800,6 +2900,10 @@ void rocksdb_options_set_table_cache_remove_scan_count_limit(
 void rocksdb_options_set_arena_block_size(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.arena_block_size = v;
+}
+
+size_t rocksdb_options_get_arena_block_size(rocksdb_options_t* opt) {
+  return opt->rep.arena_block_size;
 }
 
 void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t* opt, int disable) {
