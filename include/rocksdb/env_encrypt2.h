@@ -28,66 +28,66 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
-struct Sha1Description_t {
+struct Sha1Description {
   uint8_t desc[EVP_MAX_MD_SIZE];
   bool valid;
 
-  Sha1Description_t() : valid(false) { memset(desc, 0, EVP_MAX_MD_SIZE); }
+  Sha1Description() : valid(false) { memset(desc, 0, EVP_MAX_MD_SIZE); }
 
-  Sha1Description_t(const Sha1Description_t& rhs) { *this = rhs; }
+  Sha1Description(const Sha1Description& rhs) { *this = rhs; }
 
-  Sha1Description_t& operator=(const Sha1Description_t& rhs) {
+  Sha1Description& operator=(const Sha1Description& rhs) {
     memcpy(desc, rhs.desc, sizeof(desc));
     valid = rhs.valid;
     return *this;
   }
 
-  Sha1Description_t(uint8_t* Desc, size_t DescLen) : valid(false) {
+  Sha1Description(uint8_t* desc_in, size_t desc_len) : valid(false) {
     memset(desc, 0, EVP_MAX_MD_SIZE);
-    if (DescLen <= EVP_MAX_MD_SIZE) {
-      memcpy(desc, Desc, DescLen);
+    if (desc_len <= EVP_MAX_MD_SIZE) {
+      memcpy(desc, desc_in, desc_len);
       valid = true;
     }
   }
 
-  Sha1Description_t(const std::string& key_desc_str);
+  Sha1Description(const std::string& key_desc_str);
 
-  // see AesCtrKey_t destructor below.  This data is not really
+  // see AesCtrKey destructor below.  This data is not really
   //  essential to clear, but trying to set pattern for future work.
   // goal is to explicitly remove desc from memory once no longer needed
-  ~Sha1Description_t() {
+  ~Sha1Description() {
     memset(desc, 0, EVP_MAX_MD_SIZE);
     valid = false;
   }
 
-  bool operator<(const Sha1Description_t& rhs) const {
+  bool operator<(const Sha1Description& rhs) const {
     return memcmp(desc, rhs.desc, EVP_MAX_MD_SIZE) < 0;
   }
 
-  bool operator==(const Sha1Description_t& rhs) const {
+  bool operator==(const Sha1Description& rhs) const {
     return 0 == memcmp(desc, rhs.desc, EVP_MAX_MD_SIZE) && valid == rhs.valid;
   }
 
   bool IsValid() const { return valid; }
 };
 
-struct AesCtrKey_t {
+struct AesCtrKey {
   uint8_t key[EVP_MAX_KEY_LENGTH];
   bool valid;
 
-  AesCtrKey_t() : valid(false) { memset(key, 0, EVP_MAX_KEY_LENGTH); }
+  AesCtrKey() : valid(false) { memset(key, 0, EVP_MAX_KEY_LENGTH); }
 
-  AesCtrKey_t(const uint8_t* Key, size_t KeyLen) : valid(false) {
+  AesCtrKey(const uint8_t* key_in, size_t key_len) : valid(false) {
     memset(key, 0, EVP_MAX_KEY_LENGTH);
-    if (KeyLen <= EVP_MAX_KEY_LENGTH) {
-      memcpy(key, Key, KeyLen);
+    if (key_len <= EVP_MAX_KEY_LENGTH) {
+      memcpy(key, key_in, key_len);
       valid = true;
     } else {
       valid = false;
     }
   }
 
-  AesCtrKey_t(const std::string& key_str);
+  AesCtrKey(const std::string& key_str);
 
   // see Writing Solid Code, 2nd edition
   //   Chapter 9, page 321, Managing Secrets in Memory ... bullet 4 "Scrub the
@@ -97,12 +97,12 @@ struct AesCtrKey_t {
   //  usage model loads all keys at start and only deletes them at shutdown. But
   //  does establish presidence.
   // goal is to explicitly remove key from memory once no longer needed
-  ~AesCtrKey_t() {
+  ~AesCtrKey() {
     memset(key, 0, EVP_MAX_KEY_LENGTH);
     valid = false;
   }
 
-  bool operator==(const AesCtrKey_t& rhs) const {
+  bool operator==(const AesCtrKey& rhs) const {
     return (0 == memcmp(key, rhs.key, EVP_MAX_KEY_LENGTH)) &&
            (valid == rhs.valid);
   }
@@ -110,8 +110,8 @@ struct AesCtrKey_t {
   bool IsValid() const { return valid; }
 };
 
-typedef char EncryptMarker_t[8];
-static EncryptMarker_t Marker = "Encrypt";
+typedef char EncryptMarker[8];
+static EncryptMarker Marker = "Encrypt";
 
 // long term:  code_version could be used in a switch statement or factory
 // parameter version 0 is 12 byte sha1 description hash, 128 bit (16 byte)
@@ -119,34 +119,34 @@ static EncryptMarker_t Marker = "Encrypt";
 typedef struct {
   uint8_t key_description_[EVP_MAX_MD_SIZE];
   uint8_t nonce_[AES_BLOCK_SIZE / 2];  // block size is 16
-} Prefix0_t;
+} Prefix0;
 
 class AESBlockAccessCipherStream : public BlockAccessCipherStream {
  public:
-  AESBlockAccessCipherStream(const AesCtrKey_t& key, uint8_t code_version,
+  AESBlockAccessCipherStream(const AesCtrKey& key, uint8_t code_version,
                              uint8_t nonce[])
       : key_(key), code_version_(code_version) {
     memcpy(&nonce_, nonce, AES_BLOCK_SIZE / 2);
   }
 
   // BlockSize returns the size of each block supported by this cipher stream.
-  virtual size_t BlockSize() override { return AES_BLOCK_SIZE; };
+  size_t BlockSize() override { return AES_BLOCK_SIZE; };
 
  protected:
   // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
-  virtual void AllocateScratch(std::string&) override{};
+  void AllocateScratch(std::string&) override{};
 
   // Encrypt a block of data at the given block index.
   // Length of data is equal to BlockSize();
-  virtual Status EncryptBlock(uint64_t blockIndex, char* data,
+  Status EncryptBlock(uint64_t blockIndex, char* data,
                               char* scratch) override;
 
   // Decrypt a block of data at the given block index.
   // Length of data is equal to BlockSize();
-  virtual Status DecryptBlock(uint64_t blockIndex, char* data,
+  Status DecryptBlock(uint64_t blockIndex, char* data,
                               char* scratch) override;
 
-  AesCtrKey_t key_;
+  AesCtrKey key_;
   uint8_t code_version_;
   uint8_t nonce_[AES_BLOCK_SIZE / 2];
 };
@@ -157,8 +157,8 @@ class CTREncryptionProvider2 : public EncryptionProvider {
 
   CTREncryptionProvider2(const CTREncryptionProvider&&) = delete;
 
-  CTREncryptionProvider2(const Sha1Description_t& key_desc_in,
-                         const AesCtrKey_t& key_in)
+  CTREncryptionProvider2(const Sha1Description& key_desc_in,
+                         const AesCtrKey& key_in)
       : valid_(false), key_desc_(key_desc_in), key_(key_in) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
@@ -169,14 +169,14 @@ class CTREncryptionProvider2 : public EncryptionProvider {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
 
-  virtual size_t GetPrefixLength() override {
-    return sizeof(Prefix0_t) + sizeof(EncryptMarker_t);
+  size_t GetPrefixLength() override {
+    return sizeof(Prefix0) + sizeof(EncryptMarker);
   }
 
-  virtual Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
+  Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
                                  size_t prefixLength) override;
 
-  virtual Status CreateCipherStream(
+  Status CreateCipherStream(
       const std::string& /*fname*/, const EnvOptions& /*options*/,
       Slice& /*prefix*/,
       std::unique_ptr<BlockAccessCipherStream>* /*result*/) override {
@@ -189,13 +189,13 @@ class CTREncryptionProvider2 : public EncryptionProvider {
   }
 
   bool Valid() const { return valid_; };
-  const Sha1Description_t& key_desc() const { return key_desc_; };
-  const AesCtrKey_t& key() const { return key_; };
+  const Sha1Description& key_desc() const { return key_desc_; };
+  const AesCtrKey& key() const { return key_; };
 
  protected:
   bool valid_;
-  Sha1Description_t key_desc_;
-  AesCtrKey_t key_;
+  Sha1Description key_desc_;
+  AesCtrKey key_;
 };
 
 // EncryptedEnv2 implements an Env wrapper that adds encryption to files stored
@@ -203,35 +203,35 @@ class CTREncryptionProvider2 : public EncryptionProvider {
 
 class EncryptedEnv2 : public EnvWrapper {
  public:
-  using WriteKey_t =
-      std::pair<Sha1Description_t, std::shared_ptr<EncryptionProvider>>;
-  using ReadKeys_t =
-      std::map<Sha1Description_t, std::shared_ptr<EncryptionProvider>>;
+  using WriteKey =
+      std::pair<Sha1Description, std::shared_ptr<EncryptionProvider>>;
+  using ReadKeys =
+      std::map<Sha1Description, std::shared_ptr<EncryptionProvider>>;
 
   static Env* Default();
-  static Env* Default(ReadKeys_t encrypt_read, WriteKey_t encrypt_write);
+  static Env* Default(ReadKeys encrypt_read, WriteKey encrypt_write);
 
   EncryptedEnv2(Env* base_env);
 
-  EncryptedEnv2(Env* base_env, ReadKeys_t encrypt_read,
-                WriteKey_t encrypt_write);
+  EncryptedEnv2(Env* base_env, ReadKeys encrypt_read,
+                WriteKey encrypt_write);
 
-  void SetKeys(ReadKeys_t encrypt_read, WriteKey_t encrypt_write);
+  void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
 
   bool IsWriteEncrypted() const { return nullptr != encrypt_write_.second; }
 
   // NewSequentialFile opens a file for sequential reading.
-  virtual Status NewSequentialFile(const std::string& fname,
+  Status NewSequentialFile(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override;
 
   // NewRandomAccessFile opens a file for random read access.
-  virtual Status NewRandomAccessFile(const std::string& fname,
+  Status NewRandomAccessFile(const std::string& fname,
                                      std::unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options) override;
 
   // NewWritableFile opens a file for sequential writing.
-  virtual Status NewWritableFile(const std::string& fname,
+  Status NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) override;
 
@@ -242,12 +242,12 @@ class EncryptedEnv2 : public EnvWrapper {
   // returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
-  virtual Status ReopenWritableFile(const std::string& fname,
+  Status ReopenWritableFile(const std::string& fname,
                                     std::unique_ptr<WritableFile>* result,
                                     const EnvOptions& options) override;
 
   // Reuse an existing file by renaming it and opening it as writable.
-  virtual Status ReuseWritableFile(const std::string& fname,
+  Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
                                    std::unique_ptr<WritableFile>* result,
                                    const EnvOptions& options) override;
@@ -257,7 +257,7 @@ class EncryptedEnv2 : public EnvWrapper {
   // *result and returns OK.  On failure returns non-OK.
   //
   // The returned file will only be accessed by one thread at a time.
-  virtual Status NewRandomRWFile(const std::string& fname,
+  Status NewRandomRWFile(const std::string& fname,
                                  std::unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) override;
 
@@ -271,11 +271,11 @@ class EncryptedEnv2 : public EnvWrapper {
   //         NotFound if "dir" does not exist, the calling process does not have
   //                  permission to access "dir", or if "dir" is invalid.
   //         IOError if an IO Error was encountered
-  virtual Status GetChildrenFileAttributes(
+  Status GetChildrenFileAttributes(
       const std::string& dir, std::vector<FileAttributes>* result) override;
 
   // Store the size of fname in *file_size.
-  virtual Status GetFileSize(const std::string& fname,
+  Status GetFileSize(const std::string& fname,
                              uint64_t* file_size) override;
 
   // only needed for GetChildrenFileAttributes & GetFileSize
@@ -292,7 +292,7 @@ class EncryptedEnv2 : public EnvWrapper {
     stream.release();
 
     // Look for encryption marker
-    EncryptMarker_t marker;
+    EncryptMarker marker;
     Slice marker_slice;
     status = f->Read(sizeof(marker), &marker_slice, marker);
     if (status.ok()) {
@@ -302,11 +302,11 @@ class EncryptedEnv2 : public EnvWrapper {
         uint8_t code_version = (uint8_t)marker_slice[7];
 
         Slice prefix_slice;
-        Prefix0_t prefix_buffer;
+        Prefix0 prefix_buffer;
         status =
-            f->Read(sizeof(Prefix0_t), &prefix_slice, (char*)&prefix_buffer);
-        if (status.ok() && sizeof(Prefix0_t) == prefix_slice.size()) {
-          Sha1Description_t desc(prefix_buffer.key_description_,
+            f->Read(sizeof(Prefix0), &prefix_slice, (char*)&prefix_buffer);
+        if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
+          Sha1Description desc(prefix_buffer.key_description_,
                                  sizeof(prefix_buffer.key_description_));
 
           auto it = encrypt_read_.find(desc);
@@ -336,7 +336,7 @@ class EncryptedEnv2 : public EnvWrapper {
     stream.release();
 
     // Look for encryption marker
-    EncryptMarker_t marker;
+    EncryptMarker marker;
     Slice marker_slice;
     status = f->Read(0, sizeof(marker), &marker_slice, marker);
     if (status.ok()) {
@@ -346,11 +346,11 @@ class EncryptedEnv2 : public EnvWrapper {
         uint8_t code_version = (uint8_t)marker_slice[7];
 
         Slice prefix_slice;
-        Prefix0_t prefix_buffer;
-        status = f->Read(sizeof(marker), sizeof(Prefix0_t), &prefix_slice,
+        Prefix0 prefix_buffer;
+        status = f->Read(sizeof(marker), sizeof(Prefix0), &prefix_slice,
                          (char*)&prefix_buffer);
-        if (status.ok() && sizeof(Prefix0_t) == prefix_slice.size()) {
-          Sha1Description_t desc(prefix_buffer.key_description_,
+        if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
+          Sha1Description desc(prefix_buffer.key_description_,
                                  sizeof(prefix_buffer.key_description_));
 
           auto it = encrypt_read_.find(desc);
@@ -377,12 +377,12 @@ class EncryptedEnv2 : public EnvWrapper {
 
     // set up Encryption maker, code version '0'
     uint8_t code_version = {'0'};
-    Prefix0_t prefix;
-    EncryptMarker_t marker;
+    Prefix0 prefix;
+    EncryptMarker marker;
     strncpy(marker, Marker, sizeof(Marker));
-    marker[sizeof(EncryptMarker_t) - 1] = code_version;
+    marker[sizeof(EncryptMarker) - 1] = code_version;
 
-    Slice marker_slice(marker, sizeof(EncryptMarker_t));
+    Slice marker_slice(marker, sizeof(EncryptMarker));
     status = f->Append(marker_slice);
 
     if (status.ok()) {
@@ -415,12 +415,12 @@ class EncryptedEnv2 : public EnvWrapper {
 
     // set up Encryption maker, code version '0'
     uint8_t code_version = {'0'};
-    Prefix0_t prefix;
-    EncryptMarker_t marker;
+    Prefix0 prefix;
+    EncryptMarker marker;
     strncpy(marker, Marker, sizeof(Marker));
-    marker[sizeof(EncryptMarker_t) - 1] = code_version;
+    marker[sizeof(EncryptMarker) - 1] = code_version;
 
-    Slice marker_slice(marker, sizeof(EncryptMarker_t));
+    Slice marker_slice(marker, sizeof(EncryptMarker));
     status = f->Write(0, marker_slice);
 
     if (status.ok()) {
@@ -432,7 +432,7 @@ class EncryptedEnv2 : public EnvWrapper {
           encrypt_write_.second->GetPrefixLength());
 
       if (status.ok()) {
-        status = f->Write(sizeof(EncryptMarker_t), prefix_slice);
+        status = f->Write(sizeof(EncryptMarker), prefix_slice);
       }
     }
 
@@ -451,9 +451,9 @@ class EncryptedEnv2 : public EnvWrapper {
   static UnixLibCrypto crypto_;
 
  protected:
-  std::map<Sha1Description_t, std::shared_ptr<EncryptionProvider>>
+  std::map<Sha1Description, std::shared_ptr<EncryptionProvider>>
       encrypt_read_;
-  std::pair<Sha1Description_t, std::shared_ptr<EncryptionProvider>>
+  std::pair<Sha1Description, std::shared_ptr<EncryptionProvider>>
       encrypt_write_;
 
   bool valid_;
@@ -461,8 +461,8 @@ class EncryptedEnv2 : public EnvWrapper {
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.  Prefer EncryptedEnv2::Default().
-Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys_t encrypt_read,
-                      EncryptedEnv2::WriteKey_t encrypt_write);
+Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys encrypt_read,
+                      EncryptedEnv2::WriteKey encrypt_write);
 
 #endif  // ROCKSDB_LITE
 

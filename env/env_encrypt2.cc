@@ -34,7 +34,7 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
-Sha1Description_t::Sha1Description_t(const std::string& key_desc_str) {
+Sha1Description::Sha1Description(const std::string& key_desc_str) {
   bool good = {true};
   int ret_val;
   unsigned len;
@@ -66,7 +66,7 @@ Sha1Description_t::Sha1Description_t(const std::string& key_desc_str) {
   valid = good;
 }
 
-AesCtrKey_t::AesCtrKey_t(const std::string& key_str) : valid(false) {
+AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
   memset(key, 0, EVP_MAX_KEY_LENGTH);
 
   // simple parse:  must be 64 characters long and hexadecimal values
@@ -88,7 +88,7 @@ AesCtrKey_t::AesCtrKey_t(const std::string& key_str) : valid(false) {
 typedef union {
   uint64_t nums[2];
   uint8_t bytes[AES_BLOCK_SIZE];
-} AesAlignedBlock_t;
+} AesAlignedBlock;
 
 Status AESBlockAccessCipherStream::EncryptBlock(uint64_t blockIndex, char* data,
                                                 char* /*scratch*/) {
@@ -96,10 +96,10 @@ Status AESBlockAccessCipherStream::EncryptBlock(uint64_t blockIndex, char* data,
   // AES_BLOCK_SIZE assumed to be 16
   //
   assert(AES_BLOCK_SIZE == 16);
-  assert(sizeof(AesAlignedBlock_t) == AES_BLOCK_SIZE);
+  assert(sizeof(AesAlignedBlock) == AES_BLOCK_SIZE);
 
   Status status;
-  ALIGN16 AesAlignedBlock_t block_in, block_out, iv;
+  ALIGN16 AesAlignedBlock block_in, block_out, iv;
   int out_len = 0, in_len = {AES_BLOCK_SIZE}, ret_val;
 
   if (EncryptedEnv2::crypto_.IsValid()) {
@@ -155,10 +155,10 @@ Status CTREncryptionProvider2::CreateNewPrefix(const std::string& /*fname*/,
                                                size_t prefixLength) {
   Status s;
   if (EncryptedEnv2::crypto_.IsValid()) {
-    if (sizeof(Prefix0_t) <= prefixLength) {
+    if (sizeof(Prefix0) <= prefixLength) {
       int ret_val;
 
-      Prefix0_t* pf = {(Prefix0_t*)prefix};
+      Prefix0* pf = {(Prefix0*)prefix};
       memcpy(pf->key_description_, key_desc_.desc, sizeof(key_desc_.desc));
       ret_val = EncryptedEnv2::crypto_.RAND_bytes(
           (unsigned char*)&pf->nonce_,
@@ -178,8 +178,8 @@ Status CTREncryptionProvider2::CreateNewPrefix(const std::string& /*fname*/,
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
-Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys_t encrypt_read,
-                      EncryptedEnv2::WriteKey_t encrypt_write) {
+Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys encrypt_read,
+                      EncryptedEnv2::WriteKey encrypt_write) {
   Env* ret_env{base_env};
   EncryptedEnv2* new_env{nullptr};
 
@@ -201,8 +201,8 @@ Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys_t encrypt_read,
 }
 
 EncryptedEnv2::EncryptedEnv2(Env* base_env,
-                             EncryptedEnv2::ReadKeys_t encrypt_read,
-                             EncryptedEnv2::WriteKey_t encrypt_write)
+                             EncryptedEnv2::ReadKeys encrypt_read,
+                             EncryptedEnv2::WriteKey encrypt_write)
     : EnvWrapper(base_env),
       encrypt_read_(encrypt_read),
       encrypt_write_(encrypt_write),
@@ -219,8 +219,8 @@ EncryptedEnv2::EncryptedEnv2(Env* base_env,
 EncryptedEnv2::EncryptedEnv2(Env* base_env)
     : EnvWrapper(base_env), valid_(false) {}
 
-void EncryptedEnv2::SetKeys(EncryptedEnv2::ReadKeys_t encrypt_read,
-                            EncryptedEnv2::WriteKey_t encrypt_write) {
+void EncryptedEnv2::SetKeys(EncryptedEnv2::ReadKeys encrypt_read,
+                            EncryptedEnv2::WriteKey encrypt_write) {
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
 
@@ -544,8 +544,8 @@ Env* EncryptedEnv2::Default() {
   return &default_env;
 }
 
-Env* EncryptedEnv2::Default(EncryptedEnv2::ReadKeys_t encrypt_read,
-                            EncryptedEnv2::WriteKey_t encrypt_write) {
+Env* EncryptedEnv2::Default(EncryptedEnv2::ReadKeys encrypt_read,
+                            EncryptedEnv2::WriteKey encrypt_write) {
   EncryptedEnv2* default_env = (EncryptedEnv2*)Default();
   default_env->SetKeys(encrypt_read, encrypt_write);
   return default_env;
