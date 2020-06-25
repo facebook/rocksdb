@@ -29,7 +29,11 @@ namespace ROCKSDB_NAMESPACE {
 // directory (i.e., both share_table_files and share_files_with_checksum
 // are true).
 enum BackupTableNameOption : unsigned char {
+  // Backup SST filenames consist of file_number, crc32c, db_session_id
   kChecksumAndFileSize = 0,
+  // Backup SST filenames consist of file_number, crc32c, file_size
+  // When there is no `db_session_id` available in the table file, we use
+  // `file_size` as a fallback.
   kChecksumAndDbSessionId = 1
 };
 
@@ -131,10 +135,17 @@ struct BackupableDBOptions {
   // Default: INT_MAX
   int max_valid_backups_to_open;
 
-  // If true, backup SST filenames consist of file_number, crc32c, db_session_id
-  // if false, backup SST filenames consist of file_number, crc32c, file_size
+  // Naming option for share_files_with_checksum table files.
+  // The default behavior for this option fixes the backup file name collision
+  // problem, which might be possible at large scale, but the option
+  // `kChecksumAndFileSize` is added to allow use of old naming in case it is
+  // needed.
+  // This default behavior change is not an upgrade issue, because previous
+  // versions of RocksDB can read, restore, and delete backups using new names,
+  // and it's OK for a backup directory to use a mixture of table file naming
+  // schemes.
   //
-  // Default: true
+  // Default: kChecksumAndDbSessionId
   //
   // Note: This option comes into effect only if both share_files_with_checksum
   // and share_table_files are true. In the cases of old table files where no
