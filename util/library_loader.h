@@ -11,9 +11,10 @@
 #include <openssl/evp.h>
 
 #include <map>
+#include <memory>
 #include <string>
 
-#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,35 +23,23 @@ namespace ROCKSDB_NAMESPACE {
 //
 class LibraryLoader {
  public:
-  LibraryLoader() : is_valid_(false){};
+  LibraryLoader() = delete;
+  LibraryLoader(const char * library_name);
   virtual ~LibraryLoader() = default;
 
   bool IsValid() const { return is_valid_; }
 
-  virtual void *GetEntryPoint(const char *function_name) = 0;
-
- protected:
-  bool is_valid_;
-};
-
-class UnixLibraryLoader : public LibraryLoader {
- public:
-  UnixLibraryLoader() = delete;
-
-  UnixLibraryLoader(const char *library_name);
-
-  virtual ~UnixLibraryLoader();
-
-  virtual void *GetEntryPoint(const char *function_name) override;
+  virtual void *GetEntryPoint(const char *function_name);
 
   virtual size_t GetEntryPoints(std::map<std::string, void *> &functions);
 
- protected:
-  void *dl_handle_;
-  std::string last_error_msg_;
+protected:
+  bool is_valid_;
+  std::shared_ptr<DynamicLibrary> lib_;
 };
 
-class UnixLibCrypto : public UnixLibraryLoader {
+
+class UnixLibCrypto : public LibraryLoader {
  public:
   UnixLibCrypto();
   virtual ~UnixLibCrypto() = default;

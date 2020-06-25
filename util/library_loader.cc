@@ -6,59 +6,34 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/status.h"
 #include "util/library_loader.h"
-
-#include <dlfcn.h>
-
-// link with -ldl
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef OS_MACOSX
-const char* UnixLibCrypto::crypto_lib_name_ = "libcrypto.dylib";
-#else
-const char* UnixLibCrypto::crypto_lib_name_ = "libcrypto.so";
-#endif
+const char* UnixLibCrypto::crypto_lib_name_ = "crypto";
 
-UnixLibraryLoader::UnixLibraryLoader(const char* library_name)
-    : dl_handle_(nullptr) {
-  if (nullptr != library_name && '\0' != *library_name) {
-    dl_handle_ = dlopen(library_name, RTLD_NOW | RTLD_GLOBAL);
+LibraryLoader::LibraryLoader(const char* library_name)
+    : is_valid_(false) {
 
-    is_valid_ = (nullptr != dl_handle_);
+  Status stat = Env::Default()->LoadLibrary(library_name,
+                                                       std::string(),
+                                                       &lib_);
+  is_valid_ = stat.ok() && nullptr!=lib_.get();
 
-    if (!is_valid_) {
-      last_error_msg_ = dlerror();
-    }
-  }
 }
 
-UnixLibraryLoader::~UnixLibraryLoader() {
-  if (nullptr != dl_handle_) {
-    int ret_val = dlclose(dl_handle_);
-    dl_handle_ = nullptr;
-    is_valid_ = false;
-
-    if (0 != ret_val) {
-      last_error_msg_ = dlerror();
-    }
-  }
-}
-
-void* UnixLibraryLoader::GetEntryPoint(const char* function_name) {
+void* LibraryLoader::GetEntryPoint(const char* function_name) {
   void* ret_ptr = {nullptr};
 
   if (is_valid_) {
-    ret_ptr = dlsym(dl_handle_, function_name);
-    if (nullptr == ret_ptr) {
-      last_error_msg_ = dlerror();
-    }
+    Status stat = lib_->LoadSymbol(function_name, &ret_ptr);
   }
 
   return ret_ptr;
 }
 
-size_t UnixLibraryLoader::GetEntryPoints(
+size_t LibraryLoader::GetEntryPoints(
     std::map<std::string, void*>& functions) {
   size_t num_found{0};
 
@@ -77,7 +52,8 @@ size_t UnixLibraryLoader::GetEntryPoints(
   return num_found;
 }
 
-UnixLibCrypto::UnixLibCrypto() : UnixLibraryLoader(crypto_lib_name_) {
+
+UnixLibCrypto::UnixLibCrypto() : LibraryLoader(crypto_lib_name_) {
   if (is_valid_) {
     // size of map minus two since _new/_create and _free/_destroy
     //  only resolve one of the two.
