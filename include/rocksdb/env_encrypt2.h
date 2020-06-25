@@ -359,8 +359,8 @@ class EncryptedEnv2 : public EnvWrapper {
             }
           }
         } else {
-          status = Status::NotSupported(
-              "Unknown encryption code version required.");
+          status =
+              Status::NotSupported("Unknown encryption code version required.");
         }
       }
     }
@@ -445,12 +445,12 @@ class EncryptedEnv2 : public EnvWrapper {
 
   bool IsValid() const { return valid_; }
 
-protected:
+ protected:
   // following is not thread safe, intended for constuction
   //  and unit test only
   void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
 
-public:
+ public:
   static UnixLibCrypto crypto_;
 
  protected:
