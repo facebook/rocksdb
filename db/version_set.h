@@ -1159,10 +1159,7 @@ class VersionSet {
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
   // Get the IO Status returned by written Manifest.
-  IOStatus io_status() const { return io_status_; }
-
-  // Set the IO Status to OK. Called before Manifest write if needed.
-  void SetIOStatus(const IOStatus& s) { io_status_ = s; }
+  const IOStatus& io_status() const { return io_status_; }
 
  protected:
   using VersionBuilderMap =
