@@ -56,7 +56,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
 
  protected:
   bool IsBlobFileOpened() const;
-  bool OpenNewBlobFileIfNeeded() const;
+  virtual bool OpenNewBlobFileIfNeeded() const;
   bool ReadBlobFromOldFile(const Slice& key, const BlobIndex& blob_index,
                            PinnableSlice* blob, bool need_decompress,
                            CompressionType* compression_type) const;
@@ -70,9 +70,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
   const BlobCompactionContext& context() const { return context_; }
 
  private:
-  Decision HandleValueChange(const Slice& key,
-                             const std::string& new_value_from_user_filter,
-                             std::string* new_value) const;
+  Decision HandleValueChange(const Slice& key, std::string* new_value) const;
 
  private:
   BlobCompactionContext context_;
@@ -124,7 +122,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                                  std::string* new_value) const override;
 
  private:
-  bool OpenNewBlobFileWithStatsIfNeeded() const;
+  virtual bool OpenNewBlobFileIfNeeded() const override;
 
  private:
   BlobCompactionContextGC context_gc_;
@@ -139,11 +137,11 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
   BlobIndexCompactionFilterFactoryBase(BlobDBImpl* _blob_db_impl, Env* _env,
                                        const ColumnFamilyOptions& _cf_options,
                                        Statistics* _statistics)
-      : user_comp_filter_(_cf_options.compaction_filter),
-        user_comp_filter_factory_(_cf_options.compaction_filter_factory),
-        blob_db_impl_(_blob_db_impl),
+      : blob_db_impl_(_blob_db_impl),
         env_(_env),
-        statistics_(_statistics) {}
+        statistics_(_statistics),
+        user_comp_filter_(_cf_options.compaction_filter),
+        user_comp_filter_factory_(_cf_options.compaction_filter_factory) {}
 
  protected:
   std::unique_ptr<CompactionFilter> CreateUserCompactionFilterFromFactory(
@@ -152,15 +150,14 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
   BlobDBImpl* blob_db_impl() const { return blob_db_impl_; }
   Env* env() const { return env_; }
   Statistics* statistics() const { return statistics_; }
-
- protected:
-  const CompactionFilter* user_comp_filter_;
-  std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
+  const CompactionFilter* user_comp_filter() const { return user_comp_filter_; }
 
  private:
   BlobDBImpl* blob_db_impl_;
   Env* env_;
   Statistics* statistics_;
+  const CompactionFilter* user_comp_filter_;
+  std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
 };
 
 class BlobIndexCompactionFilterFactory

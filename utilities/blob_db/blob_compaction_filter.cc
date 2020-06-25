@@ -32,11 +32,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
       return Decision::kKeep;
     }
     // Apply user compaction filter for inlined data.
-    std::string new_value_from_user_filter;
-    CompactionFilter::Decision decision = ucf->FilterV2(
-        level, key, value_type, value, &new_value_from_user_filter, skip_until);
+    CompactionFilter::Decision decision =
+        ucf->FilterV2(level, key, value_type, value, new_value, skip_until);
     if (decision == Decision::kChangeValue) {
-      return HandleValueChange(key, new_value_from_user_filter, new_value);
+      return HandleValueChange(key, new_value);
     }
     return decision;
   }
@@ -92,16 +91,12 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     constexpr bool need_decompress = true;
     if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob, need_decompress,
                              &compression_type)) {
-      // Keep the blob index in case fails to read the blob value.
-      return Decision::kKeep;
+      return Decision::kIOError;
     }
-    std::string new_value_from_user_filter;
-    CompactionFilter::Decision decision =
-        ucf->FilterV2(level, ikey.user_key, kValue, blob,
-                      &new_value_from_user_filter, skip_until);
+    CompactionFilter::Decision decision = ucf->FilterV2(
+        level, ikey.user_key, kValue, blob, new_value, skip_until);
     if (decision == Decision::kChangeValue) {
-      return HandleValueChange(ikey.user_key, new_value_from_user_filter,
-                               new_value);
+      return HandleValueChange(ikey.user_key, new_value);
     }
     return decision;
   }
@@ -109,40 +104,36 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
 }
 
 CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
-    const Slice& key, const std::string& new_value_from_user_filter,
-    std::string* new_value) const {
+    const Slice& key, std::string* new_value) const {
   BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
   assert(blob_db_impl);
 
-  if (new_value_from_user_filter.size() >
-      blob_db_impl->bdb_options_.min_blob_size) {
-    if (!OpenNewBlobFileIfNeeded()) {
-      return Decision::kKeep;
-    }
-    Slice new_blob_value(new_value_from_user_filter);
-    std::string compression_output;
-    if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-      new_blob_value =
-          blob_db_impl->GetCompressedSlice(new_blob_value, &compression_output);
-    }
-    uint64_t new_blob_file_number = 0;
-    uint64_t new_blob_offset = 0;
-    // For kBlobIndex 'key' is internal key; Otherwise, it is user key.
-    if (!WriteBlobToNewFile(key, new_blob_value, &new_blob_file_number,
-                            &new_blob_offset)) {
-      return Decision::kKeep;
-    }
-    if (!CloseAndRegisterNewBlobFileIfNeeded()) {
-      return Decision::kKeep;
-    }
-    BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
-                          new_blob_value.size(),
-                          blob_db_impl->bdb_options_.compression);
-    return Decision::kChangeBlobIndex;
+  if (new_value->size() < blob_db_impl->bdb_options_.min_blob_size) {
+    // Keep new_value inlined.
+    return Decision::kChangeValue;
   }
-
-  *new_value = new_value_from_user_filter;
-  return Decision::kChangeValue;
+  if (!OpenNewBlobFileIfNeeded()) {
+    return Decision::kIOError;
+  }
+  Slice new_blob_value(*new_value);
+  std::string compression_output;
+  if (blob_db_impl->bdb_options_.compression != kNoCompression) {
+    new_blob_value =
+        blob_db_impl->GetCompressedSlice(new_blob_value, &compression_output);
+  }
+  uint64_t new_blob_file_number = 0;
+  uint64_t new_blob_offset = 0;
+  if (!WriteBlobToNewFile(key, new_blob_value, &new_blob_file_number,
+                          &new_blob_offset)) {
+    return Decision::kIOError;
+  }
+  if (!CloseAndRegisterNewBlobFileIfNeeded()) {
+    return Decision::kIOError;
+  }
+  BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
+                        new_blob_value.size(),
+                        blob_db_impl->bdb_options_.compression);
+  return Decision::kChangeBlobIndex;
 }
 
 BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
@@ -355,7 +346,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   // workload, might result in many small blob files. The total number of files
   // is bounded though (determined by the number of compactions and the blob
   // file size option).
-  if (!OpenNewBlobFileWithStatsIfNeeded()) {
+  if (!OpenNewBlobFileIfNeeded()) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
@@ -387,11 +378,11 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
   return BlobDecision::kChangeValue;
 }
 
-bool BlobIndexCompactionFilterGC::OpenNewBlobFileWithStatsIfNeeded() const {
+bool BlobIndexCompactionFilterGC::OpenNewBlobFileIfNeeded() const {
   if (IsBlobFileOpened()) {
     return true;
   }
-  bool result = OpenNewBlobFileIfNeeded();
+  bool result = BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded();
   if (result) {
     gc_stats_.AddNewFile();
   }
@@ -430,7 +421,7 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
       CreateUserCompactionFilterFromFactory(_context);
 
   return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
-      std::move(context), user_comp_filter_,
+      std::move(context), user_comp_filter(),
       std::move(user_comp_filter_from_factory), current_time, statistics()));
 }
 
@@ -456,7 +447,7 @@ BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
       CreateUserCompactionFilterFromFactory(_context);
 
   return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilterGC(
-      std::move(context), std::move(context_gc), user_comp_filter_,
+      std::move(context), std::move(context_gc), user_comp_filter(),
       std::move(user_comp_filter_from_factory), current_time, statistics()));
 }
 

@@ -243,6 +243,10 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
       value_ = compaction_filter_value_;
+    } else if (filter == CompactionFilter::Decision::kIOError) {
+      status_ =
+          Status::IOError("Failed to access blob during compaction filter");
+      valid_ = false;
     }
   }
 }

@@ -1130,6 +1130,7 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
         // trancate value size by half
         *new_value = new_value->substr(0, new_value->size() / 2);
         *value_changed = true;
+        return false;
       } else if (value.size() % 2 == 1) {
         return true;
       }
@@ -1157,8 +1158,6 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.blob_file_size = kMaxValueSize * 10;
-  bdb_options.enable_garbage_collection = true;
-  bdb_options.garbage_collection_cutoff = 0.25;
   bdb_options.disable_background_tasks = true;
   bdb_options.compression = CompressionType::kSnappyCompression;
   // case_num == 0: Test user defined compaction filter
