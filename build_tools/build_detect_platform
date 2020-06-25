@@ -623,6 +623,13 @@ else
   if test "$USE_SSE"; then
     TRY_SSE_ETC="1"
   fi
+
+  if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
+    # For portability compile for macOS 10.12 (2016) or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
+    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+  fi
 fi
 
 if test "$TRY_SSE_ETC"; then
