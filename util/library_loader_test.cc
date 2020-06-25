@@ -13,15 +13,14 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef OS_MACOSX
-    static const char * LIB_M_NAME = "libm";
-    static const char * LIB_BAD_NAME = "libbubbagump.dylib";
-    static const char * LIB_SSL_NAME = "ssl";
+static const char* LIB_M_NAME = "libm";
+static const char* LIB_BAD_NAME = "libbubbagump.dylib";
+static const char* LIB_SSL_NAME = "ssl";
 #else
-    static const char * LIB_M_NAME = "libm.so.6";
-    static const char * LIB_BAD_NAME = "libbubbagump.so";
-    static const char * LIB_SSL_NAME = "ssl";
+static const char* LIB_M_NAME = "libm.so.6";
+static const char* LIB_BAD_NAME = "libbubbagump.so";
+static const char* LIB_SSL_NAME = "ssl";
 #endif
-
 
 class UnixLibraryLoaderTest {};
 

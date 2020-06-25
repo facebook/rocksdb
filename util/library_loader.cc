@@ -6,21 +6,17 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/status.h"
 #include "util/library_loader.h"
+
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 const char* UnixLibCrypto::crypto_lib_name_ = "crypto";
 
-LibraryLoader::LibraryLoader(const char* library_name)
-    : is_valid_(false) {
-
-  Status stat = Env::Default()->LoadLibrary(library_name,
-                                                       std::string(),
-                                                       &lib_);
-  is_valid_ = stat.ok() && nullptr!=lib_.get();
-
+LibraryLoader::LibraryLoader(const char* library_name) : is_valid_(false) {
+  Status stat = Env::Default()->LoadLibrary(library_name, std::string(), &lib_);
+  is_valid_ = stat.ok() && nullptr != lib_.get();
 }
 
 void* LibraryLoader::GetEntryPoint(const char* function_name) {
@@ -33,8 +29,7 @@ void* LibraryLoader::GetEntryPoint(const char* function_name) {
   return ret_ptr;
 }
 
-size_t LibraryLoader::GetEntryPoints(
-    std::map<std::string, void*>& functions) {
+size_t LibraryLoader::GetEntryPoints(std::map<std::string, void*>& functions) {
   size_t num_found{0};
 
   if (is_valid_) {
@@ -51,7 +46,6 @@ size_t LibraryLoader::GetEntryPoints(
 
   return num_found;
 }
-
 
 UnixLibCrypto::UnixLibCrypto() : LibraryLoader(crypto_lib_name_) {
   if (is_valid_) {

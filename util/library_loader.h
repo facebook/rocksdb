@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 class LibraryLoader {
  public:
   LibraryLoader() = delete;
-  LibraryLoader(const char * library_name);
+  LibraryLoader(const char *library_name);
   virtual ~LibraryLoader() = default;
 
   bool IsValid() const { return is_valid_; }
@@ -33,11 +33,10 @@ class LibraryLoader {
 
   virtual size_t GetEntryPoints(std::map<std::string, void *> &functions);
 
-protected:
+ protected:
   bool is_valid_;
   std::shared_ptr<DynamicLibrary> lib_;
 };
-
 
 class UnixLibCrypto : public LibraryLoader {
  public:
