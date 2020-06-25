@@ -694,6 +694,7 @@ set(SOURCES
         table/plain/plain_table_index.cc
         table/plain/plain_table_key_coding.cc
         table/plain/plain_table_reader.cc
+        table/sst_file_dumper.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc

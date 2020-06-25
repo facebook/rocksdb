@@ -3073,6 +3073,33 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   Close();
 }
 
+TEST_F(DBBasicTest, ManifestWriteFailure) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto* s = reinterpret_cast<Status*>(arg);
+        ASSERT_OK(*s);
+        // Manually overwrite return status
+        *s = Status::IOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_NOK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

@@ -2990,10 +2990,11 @@ class ModelDB : public DB {
 
   Status SyncWAL() override { return Status::OK(); }
 
-#ifndef ROCKSDB_LITE
   Status DisableFileDeletions() override { return Status::OK(); }
 
   Status EnableFileDeletions(bool /*force*/) override { return Status::OK(); }
+#ifndef ROCKSDB_LITE
+
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
                       bool /*flush_memtable*/ = true) override {
     return Status::OK();

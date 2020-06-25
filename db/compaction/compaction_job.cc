@@ -724,7 +724,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
-  versions_->SetIOStatusOK();
+  versions_->SetIOStatus(IOStatus::OK());
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
   }
