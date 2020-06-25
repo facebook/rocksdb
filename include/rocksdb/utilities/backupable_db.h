@@ -24,6 +24,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// BackupTableNameOption describes possible naming schemes for backup
+// table file names when the table files are stored in the shared_checksum
+// directory (i.e., both share_table_files and share_files_with_checksum
+// are true).
+enum BackupTableNameOption : unsigned char {
+  kChecksumAndFileSize = 0,
+  kChecksumAndDbSessionId = 1
+};
+
 struct BackupableDBOptions {
   // Where to keep the backup files. Has to be different than dbname_
   // Best to set this to dbname_ + "/backups"
@@ -93,9 +102,9 @@ struct BackupableDBOptions {
   // (file name, crc32c, db session id or file length)
   //
   // Note: If this option is set to true, we recommend setting
-  // new_naming_for_backup_files to true as well, which is also our default
-  // option. Otherwise, there is a non-negligible chance of filename collision
-  // when sharing tables in shared_checksum among several DBs.
+  // share_files_with_checksum_naming to kChecksumAndDbSessionId, which is also
+  // our default option. Otherwise, there is a non-negligible chance of filename
+  // collision when sharing tables in shared_checksum among several DBs.
   // *turn it on only if you know what you're doing*
   //
   // Default: false
@@ -131,7 +140,7 @@ struct BackupableDBOptions {
   // and share_table_files are true. In the cases of old table files where no
   // db_session_id is stored, we use the file_size to replace the empty
   // db_session_id as a fallback.
-  bool new_naming_for_backup_files;
+  BackupTableNameOption share_files_with_checksum_naming;
 
   void Dump(Logger* logger) const;
 
@@ -143,7 +152,8 @@ struct BackupableDBOptions {
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
-      bool _new_naming_for_backup_files = true)
+      BackupTableNameOption _share_files_with_checksum_naming =
+          kChecksumAndDbSessionId)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -157,7 +167,7 @@ struct BackupableDBOptions {
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
-        new_naming_for_backup_files(_new_naming_for_backup_files) {
+        share_files_with_checksum_naming(_share_files_with_checksum_naming) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
