@@ -2,6 +2,7 @@
 ## 6.11.3 (7/9/2020)
 ### Bug Fixes
 * Fix a bug when index_type == kTwoLevelIndexSearch in PartitionedIndexBuilder to update FlushPolicy to point to internal key partitioner when it changes from user-key mode to internal-key mode in index partition.
+* Disable file deletion after MANIFEST write/sync failure until db re-open or Resume() so that subsequent re-open will not see MANIFEST referencing deleted SSTs.
 
 ## 6.11.1 (6/23/2020)
 ### Bug Fixes

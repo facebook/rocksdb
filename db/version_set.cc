@@ -4001,12 +4001,16 @@ Status VersionSet::ProcessManifestWrites(
       }
       if (s.ok()) {
         io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        TEST_SYNC_POINT_CALLBACK(
+            "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }
       if (!io_s.ok()) {
         io_status_ = io_s;
         s = io_s;
         ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write %s\n",
                         s.ToString().c_str());
+      } else if (io_status_.IsIOError()) {
+        io_status_ = io_s;
       }
     }
 
@@ -4018,6 +4022,8 @@ Status VersionSet::ProcessManifestWrites(
       if (!io_s.ok()) {
         io_status_ = io_s;
         s = io_s;
+      } else if (io_status_.IsIOError()) {
+        io_status_ = io_s;
       }
       TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:AfterNewManifest");
     }

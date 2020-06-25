@@ -1162,7 +1162,7 @@ class VersionSet {
   IOStatus io_status() const { return io_status_; }
 
   // Set the IO Status to OK. Called before Manifest write if needed.
-  void SetIOStatusOK() { io_status_ = IOStatus::OK(); }
+  void SetIOStatus(const IOStatus& s) { io_status_ = s; }
 
  protected:
   using VersionBuilderMap =
