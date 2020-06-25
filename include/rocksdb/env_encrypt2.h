@@ -213,8 +213,6 @@ class EncryptedEnv2 : public EnvWrapper {
 
   EncryptedEnv2(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
 
-  void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
-
   bool IsWriteEncrypted() const { return nullptr != encrypt_write_.second; }
 
   // NewSequentialFile opens a file for sequential reading.
@@ -337,28 +335,32 @@ class EncryptedEnv2 : public EnvWrapper {
     if (status.ok()) {
       if (sizeof(marker) == marker_slice.size() &&
           marker_slice.starts_with(Marker)) {
-        // code_version currently unused
         uint8_t code_version = (uint8_t)marker_slice[7];
 
-        Slice prefix_slice;
-        Prefix0 prefix_buffer;
-        status = f->Read(sizeof(marker), sizeof(Prefix0), &prefix_slice,
-                         (char*)&prefix_buffer);
-        if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
-          Sha1Description desc(prefix_buffer.key_description_,
-                               sizeof(prefix_buffer.key_description_));
+        if ('0' == code_version) {
+          Slice prefix_slice;
+          Prefix0 prefix_buffer;
+          status = f->Read(sizeof(marker), sizeof(Prefix0), &prefix_slice,
+                           (char*)&prefix_buffer);
+          if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
+            Sha1Description desc(prefix_buffer.key_description_,
+                                 sizeof(prefix_buffer.key_description_));
 
-          auto it = encrypt_read_.find(desc);
-          if (encrypt_read_.end() != it) {
-            CTREncryptionProvider2* ptr =
-                (CTREncryptionProvider2*)it->second.get();
-            provider = it->second;
-            stream.reset(new AESBlockAccessCipherStream(
-                ptr->key(), code_version, prefix_buffer.nonce_));
-          } else {
-            status = Status::NotSupported(
-                "No encryption key found to match input file");
+            auto it = encrypt_read_.find(desc);
+            if (encrypt_read_.end() != it) {
+              CTREncryptionProvider2* ptr =
+                  (CTREncryptionProvider2*)it->second.get();
+              provider = it->second;
+              stream.reset(new AESBlockAccessCipherStream(
+                  ptr->key(), code_version, prefix_buffer.nonce_));
+            } else {
+              status = Status::NotSupported(
+                  "No encryption key found to match input file");
+            }
           }
+        } else {
+          status = Status::NotSupported(
+              "Unknown encryption code version required.");
         }
       }
     }
@@ -443,6 +445,12 @@ class EncryptedEnv2 : public EnvWrapper {
 
   bool IsValid() const { return valid_; }
 
+protected:
+  // following is not thread safe, intended for constuction
+  //  and unit test only
+  void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
+
+public:
   static UnixLibCrypto crypto_;
 
  protected:
