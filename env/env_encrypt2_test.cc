@@ -427,7 +427,7 @@ std::shared_ptr<EncryptionProvider> encrypt2_provider_ctr(
 static EncryptedEnv2::ReadKeys encrypt_readers = {
     {KeyDesc, encrypt2_provider_ctr}};
 static EncryptedEnv2::WriteKey encrypt_writer = {KeyDesc,
-                                                   encrypt2_provider_ctr};
+                                                 encrypt2_provider_ctr};
 
 static std::unique_ptr<Env> encrypt2_env(new NormalizingEnvWrapper(
     EncryptedEnv2::Default(encrypt_readers, encrypt_writer)));
