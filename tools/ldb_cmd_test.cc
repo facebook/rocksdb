@@ -94,7 +94,7 @@ TEST_F(LdbCmdTest, MemEnv) {
   opts.create_if_missing = true;
 
   DB* db = nullptr;
-  std::string dbname = test::TmpDir();
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   WriteOptions wopts;
@@ -274,7 +274,7 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   opts.create_if_missing = true;
 
   DB* db = nullptr;
-  std::string dbname = test::TmpDir();
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   WriteOptions wopts;
@@ -359,7 +359,7 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
 
   DB* db = nullptr;
-  std::string dbname = test::TmpDir();
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   WriteOptions wopts;
@@ -482,7 +482,7 @@ TEST_F(LdbCmdTest, ListFileTombstone) {
   opts.create_if_missing = true;
 
   DB* db = nullptr;
-  std::string dbname = test::TmpDir();
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   WriteOptions wopts;
@@ -571,7 +571,7 @@ TEST_F(LdbCmdTest, DisableConsistencyChecks) {
   opts.env = env.get();
   opts.create_if_missing = true;
 
-  std::string dbname = test::TmpDir();
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
 
   {
     DB* db = nullptr;
@@ -663,7 +663,7 @@ TEST_F(LdbCmdTest, TestBadDbPath) {
   opts.env = env.get();
   opts.create_if_missing = true;
 
-  std::string dbname = test::TmpDir();
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
   char arg1[] = "./ldb";
   char arg2[1024];
   snprintf(arg2, sizeof(arg2), "--db=%s/.no_such_dir", dbname.c_str());

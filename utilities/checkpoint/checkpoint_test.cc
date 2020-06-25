@@ -68,7 +68,7 @@ class CheckpointTest : public testing::Test {
     EXPECT_OK(DestroyDB(snapshot_tmp_name, options));
     env_->DeleteDir(snapshot_tmp_name);
     Reopen(options);
-    export_path_ = test::TmpDir(env_) + "/export";
+    export_path_ = test::PerThreadDBPath("/export");
     test::DestroyDir(env_, export_path_);
     cfh_reverse_comp_ = nullptr;
     metadata_ = nullptr;
