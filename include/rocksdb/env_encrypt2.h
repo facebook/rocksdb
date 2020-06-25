@@ -138,13 +138,11 @@ class AESBlockAccessCipherStream : public BlockAccessCipherStream {
 
   // Encrypt a block of data at the given block index.
   // Length of data is equal to BlockSize();
-  Status EncryptBlock(uint64_t blockIndex, char* data,
-                              char* scratch) override;
+  Status EncryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 
   // Decrypt a block of data at the given block index.
   // Length of data is equal to BlockSize();
-  Status DecryptBlock(uint64_t blockIndex, char* data,
-                              char* scratch) override;
+  Status DecryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 
   AesCtrKey key_;
   uint8_t code_version_;
@@ -174,7 +172,7 @@ class CTREncryptionProvider2 : public EncryptionProvider {
   }
 
   Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
-                                 size_t prefixLength) override;
+                         size_t prefixLength) override;
 
   Status CreateCipherStream(
       const std::string& /*fname*/, const EnvOptions& /*options*/,
@@ -213,8 +211,7 @@ class EncryptedEnv2 : public EnvWrapper {
 
   EncryptedEnv2(Env* base_env);
 
-  EncryptedEnv2(Env* base_env, ReadKeys encrypt_read,
-                WriteKey encrypt_write);
+  EncryptedEnv2(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
 
   void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
 
@@ -222,18 +219,18 @@ class EncryptedEnv2 : public EnvWrapper {
 
   // NewSequentialFile opens a file for sequential reading.
   Status NewSequentialFile(const std::string& fname,
-                                   std::unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options) override;
+                           std::unique_ptr<SequentialFile>* result,
+                           const EnvOptions& options) override;
 
   // NewRandomAccessFile opens a file for random read access.
   Status NewRandomAccessFile(const std::string& fname,
-                                     std::unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options) override;
+                             std::unique_ptr<RandomAccessFile>* result,
+                             const EnvOptions& options) override;
 
   // NewWritableFile opens a file for sequential writing.
   Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) override;
+                         std::unique_ptr<WritableFile>* result,
+                         const EnvOptions& options) override;
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -243,14 +240,14 @@ class EncryptedEnv2 : public EnvWrapper {
   //
   // The returned file will only be accessed by one thread at a time.
   Status ReopenWritableFile(const std::string& fname,
-                                    std::unique_ptr<WritableFile>* result,
-                                    const EnvOptions& options) override;
+                            std::unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override;
 
   // Reuse an existing file by renaming it and opening it as writable.
   Status ReuseWritableFile(const std::string& fname,
-                                   const std::string& old_fname,
-                                   std::unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options) override;
+                           const std::string& old_fname,
+                           std::unique_ptr<WritableFile>* result,
+                           const EnvOptions& options) override;
 
   // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
@@ -258,8 +255,8 @@ class EncryptedEnv2 : public EnvWrapper {
   //
   // The returned file will only be accessed by one thread at a time.
   Status NewRandomRWFile(const std::string& fname,
-                                 std::unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options) override;
+                         std::unique_ptr<RandomRWFile>* result,
+                         const EnvOptions& options) override;
 
   // Store in *result the attributes of the children of the specified directory.
   // In case the implementation lists the directory prior to iterating the files
@@ -275,8 +272,7 @@ class EncryptedEnv2 : public EnvWrapper {
       const std::string& dir, std::vector<FileAttributes>* result) override;
 
   // Store the size of fname in *file_size.
-  Status GetFileSize(const std::string& fname,
-                             uint64_t* file_size) override;
+  Status GetFileSize(const std::string& fname, uint64_t* file_size) override;
 
   // only needed for GetChildrenFileAttributes & GetFileSize
   virtual Status GetEncryptionProvider(
@@ -303,11 +299,10 @@ class EncryptedEnv2 : public EnvWrapper {
 
         Slice prefix_slice;
         Prefix0 prefix_buffer;
-        status =
-            f->Read(sizeof(Prefix0), &prefix_slice, (char*)&prefix_buffer);
+        status = f->Read(sizeof(Prefix0), &prefix_slice, (char*)&prefix_buffer);
         if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
           Sha1Description desc(prefix_buffer.key_description_,
-                                 sizeof(prefix_buffer.key_description_));
+                               sizeof(prefix_buffer.key_description_));
 
           auto it = encrypt_read_.find(desc);
           if (encrypt_read_.end() != it) {
@@ -351,7 +346,7 @@ class EncryptedEnv2 : public EnvWrapper {
                          (char*)&prefix_buffer);
         if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
           Sha1Description desc(prefix_buffer.key_description_,
-                                 sizeof(prefix_buffer.key_description_));
+                               sizeof(prefix_buffer.key_description_));
 
           auto it = encrypt_read_.find(desc);
           if (encrypt_read_.end() != it) {
@@ -451,8 +446,7 @@ class EncryptedEnv2 : public EnvWrapper {
   static UnixLibCrypto crypto_;
 
  protected:
-  std::map<Sha1Description, std::shared_ptr<EncryptionProvider>>
-      encrypt_read_;
+  std::map<Sha1Description, std::shared_ptr<EncryptionProvider>> encrypt_read_;
   std::pair<Sha1Description, std::shared_ptr<EncryptionProvider>>
       encrypt_write_;
 
