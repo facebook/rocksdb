@@ -9,7 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/utilities/backupable_db.h"
+
 #include <stdlib.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -33,7 +36,7 @@
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "table/sst_file_dumper.h"
 #include "test_util/sync_point.h"
 #include "util/channel.h"
 #include "util/coding.h"
@@ -129,6 +132,9 @@ class BackupEngineImpl : public BackupEngine {
 
   Status Initialize();
 
+  // Whether new naming for backup files is used or not
+  bool UseNewNaming() const { return options_.new_naming_for_backup_files; }
+
  private:
   void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
   Status DeleteBackupInternal(BackupID backup_id);
@@ -140,8 +146,14 @@ class BackupEngineImpl : public BackupEngine {
       std::unordered_map<std::string, uint64_t>* result);
 
   struct FileInfo {
-    FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum)
-      : refs(0), filename(fname), size(sz), checksum_value(checksum) {}
+    FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum,
+             const std::string& id = "", const std::string& sid = "")
+        : refs(0),
+          filename(fname),
+          size(sz),
+          checksum_value(checksum),
+          db_id(id),
+          db_session_id(sid) {}
 
     FileInfo(const FileInfo&) = delete;
     FileInfo& operator=(const FileInfo&) = delete;
@@ -150,6 +162,11 @@ class BackupEngineImpl : public BackupEngine {
     const std::string filename;
     const uint64_t size;
     const uint32_t checksum_value;
+    // DB identities
+    // db_id is obtained for potential usage in the future but not used
+    // currently; db_session_id appears in the backup SST filename
+    const std::string db_id;
+    const std::string db_session_id;
   };
 
   class BackupMeta {
@@ -281,14 +298,20 @@ class BackupEngineImpl : public BackupEngine {
     return GetSharedChecksumDirRel() + "/" + (tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
-  inline std::string GetSharedFileWithChecksum(const std::string& file,
-                                               const uint32_t checksum_value,
-                                               const uint64_t file_size) const {
+  // If UseNewNaming() && !db_session_id.empty(), backup SST filenames consist
+  // of file_number, crc32c, db_session_id.
+  // Otherwise, backup SST filenames consist of file_number, crc32c, file_size
+  inline std::string GetSharedFileWithChecksum(
+      const std::string& file, const uint32_t checksum_value,
+      const uint64_t file_size, const std::string& db_session_id) const {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
-    return file_copy.insert(file_copy.find_last_of('.'),
-                            "_" + ROCKSDB_NAMESPACE::ToString(checksum_value) +
-                                "_" + ROCKSDB_NAMESPACE::ToString(file_size));
+    const std::string suffix = UseNewNaming() && !db_session_id.empty()
+                                   ? db_session_id
+                                   : ROCKSDB_NAMESPACE::ToString(file_size);
+    return file_copy.insert(
+        file_copy.find_last_of('.'),
+        "_" + ROCKSDB_NAMESPACE::ToString(checksum_value) + "_" + suffix);
   }
   inline std::string GetFileFromChecksumFile(const std::string& file) const {
     assert(file.size() == 0 || file[0] != '/');
@@ -304,6 +327,9 @@ class BackupEngineImpl : public BackupEngine {
     return GetBackupMetaDir() + "/" + (tmp ? "." : "") +
            ROCKSDB_NAMESPACE::ToString(backup_id) + (tmp ? ".tmp" : "");
   }
+  inline bool IsSstFile(const std::string& fname) const {
+    return fname.length() > 4 && fname.rfind(".sst") == fname.length() - 4;
+  }
 
   // If size_limit == 0, there is no size limit, copy everything.
   //
@@ -311,22 +337,28 @@ class BackupEngineImpl : public BackupEngine {
   //
   // @param src If non-empty, the file is copied from this pathname.
   // @param contents If non-empty, the file will be created with these contents.
-  Status CopyOrCreateFile(const std::string& src, const std::string& dst,
-                          const std::string& contents, Env* src_env,
-                          Env* dst_env, const EnvOptions& src_env_options,
-                          bool sync, RateLimiter* rate_limiter,
-                          uint64_t* size = nullptr,
-                          uint32_t* checksum_value = nullptr,
-                          uint64_t size_limit = 0,
-                          std::function<void()> progress_callback = []() {});
+  Status CopyOrCreateFile(
+      const std::string& src, const std::string& dst,
+      const std::string& contents, Env* src_env, Env* dst_env,
+      const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
+      uint64_t* size = nullptr, uint32_t* checksum_value = nullptr,
+      uint64_t size_limit = 0,
+      std::function<void()> progress_callback = []() {},
+      std::string* db_id = nullptr, std::string* db_session_id = nullptr);
 
   Status CalculateChecksum(const std::string& src, Env* src_env,
                            const EnvOptions& src_env_options,
                            uint64_t size_limit, uint32_t* checksum_value);
 
+  // Obtain db_id and db_session_id from the table properties of file_path
+  Status GetFileDbIdentities(Env* src_env, const std::string& file_path,
+                             std::string* db_id, std::string* db_session_id);
+
   struct CopyOrCreateResult {
     uint64_t size;
     uint32_t checksum_value;
+    std::string db_id;
+    std::string db_session_id;
     Status status;
   };
 
@@ -644,6 +676,9 @@ Status BackupEngineImpl::Initialize() {
       continue;
     }
     assert(backups_.find(backup_id) == backups_.end());
+    // Insert all the (backup_id, BackupMeta) that will be loaded later
+    // The loading performed later will check whether there are corrupt backups
+    // and move the corrupt backups to corrupt_backups_
     backups_.insert(std::make_pair(
         backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                        GetBackupMetaFile(backup_id, false /* tmp */),
@@ -667,7 +702,11 @@ Status BackupEngineImpl::Initialize() {
       return s;
     }
   } else {  // Load data from storage
+    // abs_path_to_size: maps absolute paths of files in backup directory to
+    // their corresponding sizes
     std::unordered_map<std::string, uint64_t> abs_path_to_size;
+    // Insert files and their sizes in backup sub-directories (shared and
+    // shared_checksum) to abs_path_to_size
     for (const auto& rel_dir :
          {GetSharedFileRel(), GetSharedFileWithChecksumRel()}) {
       const auto abs_dir = GetAbsolutePath(rel_dir);
@@ -687,6 +726,8 @@ Status BackupEngineImpl::Initialize() {
         break;
       }
 
+      // Insert files and their sizes in backup sub-directories
+      // (private/backup_id) to abs_path_to_size
       InsertPathnameToSizeBytes(
           GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
@@ -765,7 +806,7 @@ Status BackupEngineImpl::Initialize() {
             work_item.src_env, work_item.dst_env, work_item.src_env_options,
             work_item.sync, work_item.rate_limiter, &result.size,
             &result.checksum_value, work_item.size_limit,
-            work_item.progress_callback);
+            work_item.progress_callback, &result.db_id, &result.db_session_id);
         work_item.result.set_value(std::move(result));
       }
     });
@@ -924,10 +965,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                                                 item.dst_path);
     }
     if (item_status.ok()) {
-      item_status = new_backup.get()->AddFile(
-              std::make_shared<FileInfo>(item.dst_relative,
-                                         result.size,
-                                         result.checksum_value));
+      item_status = new_backup.get()->AddFile(std::make_shared<FileInfo>(
+          item.dst_relative, result.size, result.checksum_value, result.db_id,
+          result.db_session_id));
     }
     if (!item_status.ok()) {
       s = item_status;
@@ -1199,12 +1239,13 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     // 1. extract the filename
     size_t slash = file.find_last_of('/');
     // file will either be shared/<file>, shared_checksum/<file_crc32c_size>
-    // or private/<number>/<file>
+    // shared_checksum/<file_crc32c_session>, or private/<number>/<file>
     assert(slash != std::string::npos);
     dst = file.substr(slash + 1);
 
     // if the file was in shared_checksum, extract the real file name
     // in this case the file is <number>_<checksum>_<size>.<type>
+    // or <number>_<checksum>_<session>.<type> if new naming is used
     if (file.substr(0, slash) == GetSharedChecksumDirRel()) {
       dst = GetFileFromChecksumFile(dst);
     }
@@ -1214,7 +1255,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     FileType type;
     bool ok = ParseFileName(dst, &number, &type);
     if (!ok) {
-      return Status::Corruption("Backup corrupted");
+      return Status::Corruption("Backup corrupted: Fail to parse filename " +
+                                dst);
     }
     // 3. Construct the final path
     // kLogFile lives in wal_dir and all the rest live in db_dir
@@ -1297,7 +1339,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
     const std::string& src, const std::string& dst, const std::string& contents,
     Env* src_env, Env* dst_env, const EnvOptions& src_env_options, bool sync,
     RateLimiter* rate_limiter, uint64_t* size, uint32_t* checksum_value,
-    uint64_t size_limit, std::function<void()> progress_callback) {
+    uint64_t size_limit, std::function<void()> progress_callback,
+    std::string* db_id, std::string* db_session_id) {
   assert(src.empty() != contents.empty());
   Status s;
   std::unique_ptr<WritableFile> dst_file;
@@ -1310,6 +1353,12 @@ Status BackupEngineImpl::CopyOrCreateFile(
   }
   if (checksum_value != nullptr) {
     *checksum_value = 0;
+  }
+  if (db_id != nullptr) {
+    *db_id = "";
+  }
+  if (db_session_id != nullptr) {
+    *db_session_id = "";
   }
 
   // Check if size limit is set. if not, set it to very big number
@@ -1381,6 +1430,22 @@ Status BackupEngineImpl::CopyOrCreateFile(
   if (s.ok()) {
     s = dest_writer->Close();
   }
+  if (s.ok() && UseNewNaming()) {
+    // When copying SST files and using db_session_id in the name,
+    // try to get DB identities
+    // Note that when CopyOrCreateFile() is called while restoring, we still
+    // try obtaining the ids but as for now we do not use ids to verify
+    // the restored file
+    if (!src.empty()) {
+      // copying
+      if (IsSstFile(src)) {
+        // SST file
+        // Ignore the returned status
+        // In the failed cases, db_id and db_session_id will be empty
+        GetFileDbIdentities(src_env, src, db_id, db_session_id);
+      }
+    }
+  }
   return s;
 }
 
@@ -1400,19 +1465,28 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   std::string dst_relative_tmp;
   Status s;
   uint32_t checksum_value = 0;
+  std::string db_id;
+  std::string db_session_id;
 
+  // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
-    // add checksum and file length to the file name
+    // Prepare checksum to add to file name
     s = CalculateChecksum(src_dir + fname, db_env_, src_env_options, size_limit,
                           &checksum_value);
     if (!s.ok()) {
       return s;
     }
+    if (UseNewNaming()) {
+      // Prepare db_session_id to add to the file name
+      // Ignore the returned status
+      // In the failed cases, db_id and db_session_id will be empty
+      GetFileDbIdentities(db_env_, src_dir + fname, &db_id, &db_session_id);
+    }
     if (size_bytes == port::kMaxUint64) {
       return Status::NotFound("File missing: " + src_dir + fname);
     }
-    dst_relative =
-        GetSharedFileWithChecksum(dst_relative, checksum_value, size_bytes);
+    dst_relative = GetSharedFileWithChecksum(dst_relative, checksum_value,
+                                             size_bytes, db_session_id);
     dst_relative_tmp = GetSharedFileWithChecksumRel(dst_relative, true);
     dst_relative = GetSharedFileWithChecksumRel(dst_relative, false);
   } else if (shared) {
@@ -1436,6 +1510,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     copy_dest_path = &final_dest_path;
   }
 
+  // Step 2: Determine whether to copy or not
   // if it's shared, we also need to check if it exists -- if it does, no need
   // to copy it again.
   bool need_to_copy = true;
@@ -1445,6 +1520,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   bool file_exists = false;
   if (shared && !same_path) {
+    // Should be in shared directory but not a live path, check existence in
+    // shared directory
     Status exist = backup_env_->FileExists(final_dest_path);
     if (exist.ok()) {
       file_exists = true;
@@ -1461,9 +1538,17 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   } else if (shared && (same_path || file_exists)) {
     need_to_copy = false;
     if (shared_checksum) {
-      ROCKS_LOG_INFO(options_.info_log,
-                     "%s already present, with checksum %u and size %" PRIu64,
-                     fname.c_str(), checksum_value, size_bytes);
+      if (UseNewNaming() && !db_session_id.empty()) {
+        ROCKS_LOG_INFO(options_.info_log,
+                       "%s already present, with checksum %u, size %" PRIu64
+                       " and DB session identity %s",
+                       fname.c_str(), checksum_value, size_bytes,
+                       db_session_id.c_str());
+      } else {
+        ROCKS_LOG_INFO(options_.info_log,
+                       "%s already present, with checksum %u and size %" PRIu64,
+                       fname.c_str(), checksum_value, size_bytes);
+      }
     } else if (backuped_file_infos_.find(dst_relative) ==
                backuped_file_infos_.end() && !same_path) {
       // file already exists, but it's not referenced by any backup. overwrite
@@ -1481,10 +1566,24 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
                      "%s already present, calculate checksum", fname.c_str());
       s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
                             size_limit, &checksum_value);
+      if (!s.ok()) {
+        return s;
+      }
+      // try to get the db identities as they are also members of
+      // the class CopyOrCreateResult
+      if (UseNewNaming()) {
+        assert(IsSstFile(fname));
+        ROCKS_LOG_INFO(options_.info_log,
+                       "%s checksum checksum calculated, try to obtain DB "
+                       "session identity",
+                       fname.c_str());
+        GetFileDbIdentities(db_env_, src_dir + fname, &db_id, &db_session_id);
+      }
     }
   }
   live_dst_paths.insert(final_dest_path);
 
+  // Step 3: Add work item
   if (!contents.empty() || need_to_copy) {
     ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
                    copy_dest_path->c_str());
@@ -1507,6 +1606,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     result.status = s;
     result.size = size_bytes;
     result.checksum_value = checksum_value;
+    result.db_id = db_id;
+    result.db_session_id = db_session_id;
     promise_result.set_value(std::move(result));
   }
   return s;
@@ -1549,6 +1650,48 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
   } while (data.size() > 0 && size_limit > 0);
 
   return s;
+}
+
+Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
+                                             const std::string& file_path,
+                                             std::string* db_id,
+                                             std::string* db_session_id) {
+  // Prepare the full_path of file_path under src_env for SstFileDumper
+  std::string full_path;
+  src_env->GetAbsolutePath(file_path, &full_path);
+
+  SstFileDumper sst_reader(Options(), full_path,
+                           2 * 1024 * 1024
+                           /* readahead_size */,
+                           false /* verify_checksum */, false /* output_hex */,
+                           false /* decode_blob_index */, true /* silent */);
+
+  const TableProperties* table_properties = nullptr;
+  std::shared_ptr<const TableProperties> tp;
+  Status s = sst_reader.getStatus();
+
+  if (s.ok()) {
+    // Try to get table properties from the table reader of sst_reader
+    if (!sst_reader.ReadTableProperties(&tp).ok()) {
+      // Try to use table properites from the initialization of sst_reader
+      table_properties = sst_reader.GetInitTableProperties();
+    } else {
+      table_properties = tp.get();
+    }
+  } else {
+    return s;
+  }
+
+  if (table_properties != nullptr) {
+    db_id->assign(table_properties->db_id);
+    db_session_id->assign(table_properties->db_session_id);
+    if (db_session_id->empty()) {
+      return Status::NotFound("DB session identity not found in " + file_path);
+    }
+    return Status::OK();
+  } else {
+    return Status::Corruption("Table properties missing in " + file_path);
+  }
 }
 
 void BackupEngineImpl::DeleteChildren(const std::string& dir,
@@ -1814,6 +1957,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   for (uint32_t i = 0; s.ok() && i < num_files; ++i) {
     auto line = GetSliceUntil(&data, '\n');
+    // filename is relative, i.e., shared/number.sst,
+    // shared_checksum/number.sst, or private/backup_id/number.sst
     std::string filename = GetSliceUntil(&line, ' ').ToString();
 
     uint64_t size;

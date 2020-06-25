@@ -88,11 +88,17 @@ struct BackupableDBOptions {
   std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
   // Only used if share_table_files is set to true. If true, will consider that
-  // backups can come from different databases, hence a sst is not uniquely
-  // identifed by its name, but by the triple (file name, crc32c, file length)
-  // Default: false
-  // Note: this is an experimental option, and you'll need to set it manually
+  // backups can come from different databases, hence an sst is not uniquely
+  // identifed by its name, but by the triple
+  // (file name, crc32c, db session id or file length)
+  //
+  // Note: If this option is set to true, we recommend setting
+  // new_naming_for_backup_files to true as well, which is also our default
+  // option. Otherwise, there is a non-negligible chance of filename collision
+  // when sharing tables in shared_checksum among several DBs.
   // *turn it on only if you know what you're doing*
+  //
+  // Default: false
   bool share_files_with_checksum;
 
   // Up to this many background threads will copy files for CreateNewBackup()
@@ -116,6 +122,17 @@ struct BackupableDBOptions {
   // Default: INT_MAX
   int max_valid_backups_to_open;
 
+  // If true, backup SST filenames consist of file_number, crc32c, db_session_id
+  // if false, backup SST filenames consist of file_number, crc32c, file_size
+  //
+  // Default: true
+  //
+  // Note: This option comes into effect only if both share_files_with_checksum
+  // and share_table_files are true. In the cases of old table files where no
+  // db_session_id is stored, we use the file_size to replace the empty
+  // db_session_id as a fallback.
+  bool new_naming_for_backup_files;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
@@ -125,7 +142,8 @@ struct BackupableDBOptions {
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
-      int _max_valid_backups_to_open = INT_MAX)
+      int _max_valid_backups_to_open = INT_MAX,
+      bool _new_naming_for_backup_files = true)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -138,7 +156,8 @@ struct BackupableDBOptions {
         share_files_with_checksum(false),
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
-        max_valid_backups_to_open(_max_valid_backups_to_open) {
+        max_valid_backups_to_open(_max_valid_backups_to_open),
+        new_naming_for_backup_files(_new_naming_for_backup_files) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };

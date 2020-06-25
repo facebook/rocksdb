@@ -5,8 +5,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/sst_dump_tool.h"
-
 #include <memory>
 #include <string>
 #include "db/dbformat.h"
@@ -19,7 +17,8 @@ class SstFileDumper {
  public:
   explicit SstFileDumper(const Options& options, const std::string& file_name,
                          size_t readahead_size, bool verify_checksum,
-                         bool output_hex, bool decode_blob_index);
+                         bool output_hex, bool decode_blob_index,
+                         bool silent = false);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
@@ -74,6 +73,8 @@ class SstFileDumper {
   bool output_hex_;
   bool decode_blob_index_;
   EnvOptions soptions_;
+  // less verbose in stdout/stderr
+  bool silent_;
 
   // options_ and internal_comparator_ will also be used in
   // ReadSequential internally (specifically, seek-related operations)

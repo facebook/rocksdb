@@ -16,6 +16,7 @@
 ### New Features
 * DB identity (`db_id`) and DB session identity (`db_session_id`) are added to table properties and stored in SST files. SST files generated from SstFileWriter and Repairer have DB identity “SST Writer” and “DB Repairer”, respectively. Their DB session IDs are generated in the same way as `DB::GetDbSessionId`. The session ID for SstFileWriter (resp., Repairer) resets every time `SstFileWriter::Open` (resp., `Repairer::Run`) is called.
 * Added experimental option BlockBasedTableOptions::optimize_filters_for_memory for reducing allocated memory size of Bloom filters (~10% savings with Jemalloc) while preserving the same general accuracy. To have an effect, the option requires format_version=5 and malloc_usable_size. Enabling this option is forward and backward compatible with existing format_version=5.
+* `BackupableDBOptions::new_naming_for_backup_files` is added. This option is true by default. When it is true, backup table filenames are of the form `<file_number>_<crc32c>_<db_session_id>.sst` as opposed to `<file_number>_<crc32c>_<file_size>.sst`. When there is no `db_session_id` available in the table file, we use `file_size` as a fallback. Note that when this option is true, it comes into effect only when both `share_files_with_checksum` and `share_table_files` are true.
 
 ### Bug Fixes
 * Fail recovery and report once hitting a physical log record checksum mismatch, while reading MANIFEST. RocksDB should not continue processing the MANIFEST any further.
