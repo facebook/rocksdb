@@ -7,7 +7,9 @@
 #ifndef ROCKSDB_LITE
 
 #include "util/library_loader.h"
+
 #include <stdio.h>
+
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
