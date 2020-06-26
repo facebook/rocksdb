@@ -181,6 +181,7 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
                     "Error opening new blob file during GC, status: %s",
                     s.ToString().c_str());
     blob_file_.reset();
+    writer_.reset();
     return false;
   }
 
