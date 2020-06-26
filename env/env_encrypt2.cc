@@ -35,9 +35,9 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 
 // reuse cipher context between calls to Encrypt & Decrypt
-static void do_nothing(EVP_CIPHER_CTX *) {};
-thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)> aes_context(nullptr, &do_nothing);
-
+static void do_nothing(EVP_CIPHER_CTX*){};
+thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>
+    aes_context(nullptr, &do_nothing);
 
 Sha1Description::Sha1Description(const std::string& key_desc_str) {
   bool good = {true};
@@ -110,9 +110,9 @@ Status AESBlockAccessCipherStream::EncryptBlock(uint64_t blockIndex, char* data,
   if (EncryptedEnv2::crypto_.IsValid()) {
     // make a context once per thread
     if (!aes_context) {
-      aes_context = std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)> (
-        EncryptedEnv2::crypto_.EVP_CIPHER_CTX_new(),
-        EncryptedEnv2::crypto_.EVP_CIPHER_CTX_free_ptr());
+      aes_context = std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
+          EncryptedEnv2::crypto_.EVP_CIPHER_CTX_new(),
+          EncryptedEnv2::crypto_.EVP_CIPHER_CTX_free_ptr());
     }
 
     ret_val = EncryptedEnv2::crypto_.EVP_CIPHER_CTX_reset(aes_context.get());
@@ -129,13 +129,14 @@ Status AESBlockAccessCipherStream::EncryptBlock(uint64_t blockIndex, char* data,
           key_.key, iv.bytes);
       if (1 == ret_val) {
         ret_val = EncryptedEnv2::crypto_.EVP_EncryptUpdate(
-            aes_context.get(), block_out.bytes, &out_len, block_in.bytes, in_len);
+            aes_context.get(), block_out.bytes, &out_len, block_in.bytes,
+            in_len);
 
         if (1 != ret_val || AES_BLOCK_SIZE != out_len) {
           status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
                                            AES_BLOCK_SIZE == out_len
-                                           ? "bad return value"
-                                           : "output length short");
+                                               ? "bad return value"
+                                               : "output length short");
         }
       } else {
         status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");

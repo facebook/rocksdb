@@ -81,7 +81,7 @@ class UnixLibCrypto : public LibraryLoader {
 
   int RAND_poll() { return rand_poll_(); }
 
-  using EVP_CIPHER_CTX_reset_t = int (*)(EVP_CIPHER_CTX * ctx);
+  using EVP_CIPHER_CTX_reset_t = int (*)(EVP_CIPHER_CTX *ctx);
   using EVP_CIPHER_CTX_new_t = EVP_CIPHER_CTX *(*)(void);
   using EVP_CIPHER_CTX_free_t = void (*)(EVP_CIPHER_CTX *ctx);
   using EVP_EncryptInit_ex_t = int (*)(EVP_CIPHER_CTX *ctx,
@@ -93,7 +93,7 @@ class UnixLibCrypto : public LibraryLoader {
                                       int *outl, const unsigned char *in,
                                       int inl);
 
-  int EVP_CIPHER_CTX_reset(EVP_CIPHER_CTX *ctx) {return cipher_reset_(ctx); }
+  int EVP_CIPHER_CTX_reset(EVP_CIPHER_CTX *ctx) { return cipher_reset_(ctx); }
 
   EVP_CIPHER_CTX *EVP_CIPHER_CTX_new(void) const { return cipher_new_(); }
 
