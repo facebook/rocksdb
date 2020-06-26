@@ -169,6 +169,7 @@ class PosixEnv : public CompositeEnvWrapper {
   Status LoadLibrary(const std::string& name, const std::string& path,
                      std::shared_ptr<DynamicLibrary>* result) override {
     Status status;
+    std::string library_name = name;
     assert(result != nullptr);
     if (name.empty()) {
       void* hndl = dlopen(NULL, RTLD_NOW);
@@ -177,7 +178,6 @@ class PosixEnv : public CompositeEnvWrapper {
         return Status::OK();
       }
     } else {
-      std::string library_name = name;
       if (library_name.find(kSharedLibExt) == std::string::npos) {
         library_name = library_name + kSharedLibExt;
       }
@@ -209,7 +209,7 @@ class PosixEnv : public CompositeEnvWrapper {
       }
     }
     return Status::IOError(
-        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
+        IOErrorMsg("Failed to open shared library: ", library_name), dlerror());
   }
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
