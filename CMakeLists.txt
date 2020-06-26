@@ -107,6 +107,7 @@ else()
     endif()
   endif()
 
+  set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
     option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
@@ -114,15 +115,17 @@ else()
     if(gflags_FOUND)
       if(TARGET ${GFLAGS_TARGET})
         # Config with GFLAGS_TARGET available since gflags 2.2.0
-        list(APPEND THIRDPARTY_LIBS ${GFLAGS_TARGET})
+        set(GFLAGS_LIB ${GFLAGS_TARGET})
       else()
         # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
-        list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIBRARIES})
+        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
       endif()
     else()
       find_package(gflags REQUIRED)
-      list(APPEND THIRDPARTY_LIBS gflags::gflags)
+        set(GFLAGS_LIB gflags::gflags)
     endif()
+    include_directories(${GFLAGS_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
     add_definitions(-DGFLAGS=1)
   endif()
 
@@ -1189,7 +1192,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${GFLAGS_LIB} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1226,37 +1229,37 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(cache_bench
     cache/cache_bench.cc)
   target_link_libraries(cache_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(memtablerep_bench
     memtable/memtablerep_bench.cc)
   target_link_libraries(memtablerep_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(range_del_aggregator_bench
     db/range_del_aggregator_bench.cc)
   target_link_libraries(range_del_aggregator_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(table_reader_bench
     table/table_reader_bench.cc)
   target_link_libraries(table_reader_bench
-    ${ROCKSDB_LIB} testharness)
+    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
   add_executable(filter_bench
     util/filter_bench.cc)
   target_link_libraries(filter_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(hash_table_bench
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
