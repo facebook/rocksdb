@@ -1336,10 +1336,10 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
     }
     // verify file size
     if (file_info->size != curr_abs_path_to_size[abs_path]) {
-      std::string size_info("Expected file size is "
-                          + ToString(file_info->size)
-                          + " while found file size is "
-                          + ToString(curr_abs_path_to_size[abs_path]));
+      std::string size_info("Expected file size is " +
+                            ToString(file_info->size) +
+                            " while found file size is " +
+                            ToString(curr_abs_path_to_size[abs_path]));
       return Status::Corruption("File corrupted: File size mismatch for " +
                                 abs_path + ": " + size_info);
     }
