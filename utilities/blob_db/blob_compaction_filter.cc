@@ -6,15 +6,17 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_compaction_filter.h"
-#include "db/dbformat.h"
 
 #include <cinttypes>
+
+#include "db/dbformat.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 BlobIndexCompactionFilterBase::~BlobIndexCompactionFilterBase() {
-  if (blob_file_) {
+  if (blob_file_ && blob_file_->GetWriter()) {
     CloseAndRegisterNewBlobFile();
   }
   RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
@@ -229,6 +231,7 @@ bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
 bool BlobIndexCompactionFilterBase::WriteBlobToNewFile(
     const Slice& key, const Slice& blob, uint64_t* new_blob_file_number,
     uint64_t* new_blob_offset) const {
+  TEST_SYNC_POINT("BlobIndexCompactionFilterBase::WriteBlobToNewFile");
   assert(new_blob_file_number);
   assert(new_blob_offset);
 
@@ -295,17 +298,15 @@ bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
   }
 
   assert(blob_file_->Immutable());
-  blob_file_.reset();
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
                     "Error closing new blob file %s during GC, status: %s",
                     blob_file_->PathName().c_str(), s.ToString().c_str());
-
-    return false;
   }
 
-  return true;
+  blob_file_.reset();
+  return s.ok();
 }
 
 CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(

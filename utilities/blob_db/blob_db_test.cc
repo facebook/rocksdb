@@ -1159,7 +1159,9 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
   bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.blob_file_size = kMaxValueSize * 10;
   bdb_options.disable_background_tasks = true;
+#ifdef SNAPPY
   bdb_options.compression = CompressionType::kSnappyCompression;
+#endif
   // case_num == 0: Test user defined compaction filter
   // case_num == 1: Test user defined compaction filter factory
   for (int case_num = 0; case_num < 2; case_num++) {
@@ -1214,6 +1216,80 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
     VerifyDB(data_after_compact);
     ASSERT_EQ(drop_record,
               options.statistics->getTickerCount(COMPACTION_KEY_DROP_USER));
+    delete options.compaction_filter;
+    Destroy();
+  }
+}
+
+// Test user comapction filter when there is IO error on blob data.
+TEST_F(BlobDBTest, UserCompactionFilter_BlobIOError) {
+  class CustomerFilter : public CompactionFilter {
+   public:
+    bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
+                std::string *new_value, bool *value_changed) const override {
+      *new_value = value.ToString() + "_new";
+      *value_changed = true;
+      return false;
+    }
+    bool IgnoreSnapshots() const override { return true; }
+    const char *Name() const override { return "CustomerFilter"; }
+  };
+
+  constexpr size_t kNumPuts = 100;
+  constexpr int kValueSize = 100;
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = kValueSize * 10;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = CompressionType::kNoCompression;
+
+  std::vector<std::string> io_failure_cases = {
+      "BlobDBImpl::CreateBlobFileAndWriter",
+      "BlobIndexCompactionFilterBase::WriteBlobToNewFile",
+      "BlobDBImpl::CloseBlobFile"};
+
+  for (size_t case_num = 0; case_num < io_failure_cases.size(); case_num++) {
+    Options options;
+    options.compaction_filter = new CustomerFilter();
+    options.disable_auto_compactions = true;
+    options.env = fault_injection_env_.get();
+    options.statistics = CreateDBStatistics();
+    Open(bdb_options, options);
+
+    std::map<std::string, std::string> data;
+    Random rnd(301);
+    for (size_t i = 0; i < kNumPuts; ++i) {
+      std::ostringstream oss;
+      oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+      const std::string key(oss.str());
+      const std::string value(
+          test::RandomHumanReadableString(&rnd, kValueSize));
+      const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+      ASSERT_OK(Put(key, value));
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+      data[key] = value;
+    }
+
+    // Verify full data set
+    VerifyDB(data);
+
+    SyncPoint::GetInstance()->SetCallBack(
+        io_failure_cases[case_num], [&](void * /*arg*/) {
+          fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto s = blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_TRUE(s.IsIOError());
+
+    // Verify full data set after compaction failure
+    VerifyDB(data);
+
+    // Reactivate file system to allow test to close DB.
+    fault_injection_env_->SetFilesystemActive(true);
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     delete options.compaction_filter;
     Destroy();
   }
@@ -2009,7 +2085,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
       {"BlobDBTest.ShutdownWait:3", "BlobDBImpl::EvictExpiredFiles:3"},
   });
   // Force all tasks to be scheduled immediately.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "TimeQueue::Add:item.end", [&](void *arg) {
         std::chrono::steady_clock::time_point *tp =
             static_cast<std::chrono::steady_clock::time_point *>(arg);
@@ -2017,7 +2093,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
             std::chrono::steady_clock::now() - std::chrono::milliseconds(10000);
       });
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "BlobDBImpl::EvictExpiredFiles:cb", [&](void * /*arg*/) {
         // Sleep 3 ms to increase the chance of data race.
         // We've synced up the code so that EvictExpiredFiles()

@@ -182,7 +182,7 @@ void CompactionIterator::Next() {
   PrepareOutput();
 }
 
-void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
+bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                               Slice* skip_until) {
   if (compaction_filter_ != nullptr &&
       (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex)) {
@@ -246,9 +246,10 @@ void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     } else if (filter == CompactionFilter::Decision::kIOError) {
       status_ =
           Status::IOError("Failed to access blob during compaction filter");
-      valid_ = false;
+      return false;
     }
   }
+  return true;
 }
 
 void CompactionIterator::NextFromInput() {
@@ -311,8 +312,9 @@ void CompactionIterator::NextFromInput() {
 
       // Apply the compaction filter to the first committed version of the user
       // key.
-      if (current_key_committed_) {
-        InvokeFilterIfNeeded(&need_skip, &skip_until);
+      if (current_key_committed_ &&
+          !InvokeFilterIfNeeded(&need_skip, &skip_until)) {
+        break;
       }
     } else {
       // Update the current key to reflect the new sequence number/type without
@@ -332,8 +334,9 @@ void CompactionIterator::NextFromInput() {
         current_key_committed_ = KeyCommitted(ikey_.sequence);
         // Apply the compaction filter to the first committed version of the
         // user key.
-        if (current_key_committed_) {
-          InvokeFilterIfNeeded(&need_skip, &skip_until);
+        if (current_key_committed_ &&
+            !InvokeFilterIfNeeded(&need_skip, &skip_until)) {
+          break;
         }
       }
     }

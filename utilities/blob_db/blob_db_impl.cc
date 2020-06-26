@@ -815,6 +815,7 @@ Status BlobDBImpl::CreateBlobFileAndWriter(
     bool has_ttl, const ExpirationRange& expiration_range,
     const std::string& reason, std::shared_ptr<BlobFile>* blob_file,
     std::shared_ptr<Writer>* writer) {
+  TEST_SYNC_POINT("BlobDBImpl::CreateBlobFileAndWriter");
   assert(has_ttl == (expiration_range.first || expiration_range.second));
   assert(blob_file);
   assert(writer);
@@ -1717,6 +1718,7 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 }
 
 Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
+  TEST_SYNC_POINT("BlobDBImpl::CloseBlobFile");
   assert(bfile);
   assert(!bfile->Immutable());
   assert(!bfile->Obsolete());

@@ -122,7 +122,7 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
                                  std::string* new_value) const override;
 
  private:
-  virtual bool OpenNewBlobFileIfNeeded() const override;
+  bool OpenNewBlobFileIfNeeded() const override;
 
  private:
   BlobCompactionContextGC context_gc_;
