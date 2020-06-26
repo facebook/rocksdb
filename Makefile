@@ -1255,7 +1255,7 @@ unity.a: unity.o
 
 TOOLLIBOBJECTS = $(TOOL_LIB_SOURCES:.cc=.o)
 # try compiling db_test with unity
-unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) $(TOOLLIBOBJECTS) unity.a
+unity_test: db/db_basic_test.o db/db_test_util.o $(TESTHARNESS) $(TOOLLIBOBJECTS) unity.a
 	$(AM_LINK)
 	./unity_test
 

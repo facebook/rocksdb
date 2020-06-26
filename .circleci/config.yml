@@ -20,6 +20,7 @@ jobs:
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y
       - run: sudo apt-get install -y libgflags-dev
+      - run: gcc -v
       - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make J=32 all check -j32
 
   build-linux-release:
@@ -91,6 +92,15 @@ jobs:
       - checkout # check out the code in the project directory
       - run: mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make -j32
 
+  build-linux-unity:
+    docker: # executor type
+      - image: gcc:latest
+    resource_class: xlarge
+    steps:
+      - run: gcc -v
+      - checkout # check out the code in the project directory
+      - run: TEST_TMPDIR=/dev/shm && make unity_test -j
+
   build-windows:
     executor: windows-2xlarge
     
@@ -160,6 +170,9 @@ workflows:
   build-linux-cmake:
     jobs:
       - build-linux-cmake
+  build-linux-unity:
+    jobs:
+      - build-linux-unity
   build-windows:
     jobs:
       - build-windows
