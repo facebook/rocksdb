@@ -16,7 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 BlobIndexCompactionFilterBase::~BlobIndexCompactionFilterBase() {
-  if (blob_file_ && blob_file_->GetWriter()) {
+  if (blob_file_) {
     CloseAndRegisterNewBlobFile();
   }
   RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
@@ -180,7 +180,7 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
     ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
                     "Error opening new blob file during GC, status: %s",
                     s.ToString().c_str());
-
+    blob_file_.reset();
     return false;
   }
 

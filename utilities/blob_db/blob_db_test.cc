@@ -1159,9 +1159,9 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
   bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.blob_file_size = kMaxValueSize * 10;
   bdb_options.disable_background_tasks = true;
-#ifdef SNAPPY
-  bdb_options.compression = CompressionType::kSnappyCompression;
-#endif
+  if (Snappy_Supported()) {
+    bdb_options.compression = CompressionType::kSnappyCompression;
+  }
   // case_num == 0: Test user defined compaction filter
   // case_num == 1: Test user defined compaction filter factory
   for (int case_num = 0; case_num < 2; case_num++) {
