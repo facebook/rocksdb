@@ -288,6 +288,8 @@ int db_stress_tool(int argc, char** argv) {
     stress.reset(CreateCfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(CreateBatchedOpsStressTest());
+  } else if (FLAGS_test_read_after_write) {
+    stress.reset(CreateReadAfterWriteStressTest());
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }

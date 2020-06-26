@@ -89,6 +89,8 @@ class ArenaWrappedDBIter : public Iterator {
     allow_blob_ = allow_blob;
   }
 
+  SequenceNumber TEST_get_seqnum() const { return db_iter_->TEST_get_seqnum(); }
+
  private:
   DBIter* db_iter_;
   Arena arena_;

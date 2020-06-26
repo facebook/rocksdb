@@ -87,6 +87,10 @@ DEFINE_bool(test_cf_consistency, false,
             "multiple column families are consistent. Setting this implies "
             "`atomic_flush=true` is set true if `disable_wal=false`.\n");
 
+DEFINE_bool(test_read_after_write, false,
+            "If set, run a test that can validate data correctness for read "
+            "after write. crash and recovery are not supported yet.\n");
+
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
 DEFINE_int32(ttl, -1,

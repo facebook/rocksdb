@@ -201,6 +201,8 @@ class DBIter final : public Iterator {
   }
   void set_valid(bool v) { valid_ = v; }
 
+  SequenceNumber TEST_get_seqnum() const { return sequence_; }
+
  private:
   // For all methods in this block:
   // PRE: iter_->Valid() && status_.ok()
