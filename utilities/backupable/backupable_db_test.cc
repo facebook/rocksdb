@@ -376,6 +376,27 @@ class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
 
+  Status GetRandomFileInDir(const std::string& dir, std::string* fname,
+                            uint64_t* fsize) {
+    std::vector<FileAttributes> children;
+    GetChildrenFileAttributes(dir, &children);
+    if (children.size() <= 2) {  // . and ..
+      return Status::NotFound("Empty directory: " + dir);
+    }
+    assert(fname != nullptr);
+    while (true) {
+      int i = rnd_.Next() % children.size();
+      if (children[i].name != "." && children[i].name != "..") {
+        fname->assign(dir + "/" + children[i].name);
+        *fsize = children[i].size_bytes;
+        return Status::OK();
+      }
+    }
+    // should never get here
+    assert(false);
+    return Status::NotFound("");
+  }
+
   Status DeleteRandomFileInDir(const std::string& dir) {
     std::vector<std::string> children;
     GetChildren(dir, &children);
@@ -702,7 +723,6 @@ class BackupableDBTestWithParam : public BackupableDBTest,
 // invalid backups
 TEST_P(BackupableDBTestWithParam, VerifyBackup) {
   const int keys_iteration = 5000;
-  Random rnd(6);
   Status s;
   OpenDBAndBackupEngine(true);
   // create five backups
@@ -1048,6 +1068,73 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   CloseDBAndBackupEngine();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+}
+
+// Corrupt a file but maintain its size
+TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
+  const int keys_iteration = 5000;
+  Status s;
+  OpenDBAndBackupEngine(true);
+  // create a backup
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  // verify with file size
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  // verify with file checksum
+  ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+
+  std::string file_to_corrupt;
+  uint64_t file_size = 0;
+  // under normal circumstance, there should be at least one nonempty file
+  while (file_size == 0) {
+    // get a random file in /private/1
+    ASSERT_OK(file_manager_->GetRandomFileInDir(backupdir_ + "/private/1",
+                                                &file_to_corrupt, &file_size));
+    // corrupt the file by replacing its content by file_size random bytes
+    ASSERT_OK(file_manager_->CorruptFile(file_to_corrupt, file_size));
+  }
+  // file sizes match
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  // file checksums mismatch
+  ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+  // sanity check, use default second argument
+  ASSERT_NOK(backup_engine_->VerifyBackup(1));
+  CloseDBAndBackupEngine();
+
+  // an extra challenge
+  // set share_files_with_checksum to true and do two more backups
+  // corrupt all the table files in shared_checksum but maintain their sizes
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+  // creat two backups
+  for (int i = 1; i < 3; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  std::vector<FileAttributes> children;
+  const std::string dir = backupdir_ + "/shared_checksum";
+  ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+  for (const auto& child : children) {
+    if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+      continue;
+    }
+    // corrupt the file by replacing its content by file_size random bytes
+    ASSERT_OK(
+        file_manager_->CorruptFile(dir + "/" + child.name, child.size_bytes));
+  }
+  // file sizes match
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  ASSERT_OK(backup_engine_->VerifyBackup(2, false));
+  // file checksums mismatch
+  ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+  ASSERT_NOK(backup_engine_->VerifyBackup(2, true));
+  CloseDBAndBackupEngine();
 }
 
 TEST_F(BackupableDBTest, InterruptCreationTest) {

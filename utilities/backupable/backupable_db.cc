@@ -128,7 +128,8 @@ class BackupEngineImpl : public BackupEngine {
                                wal_dir);
   }
 
-  Status VerifyBackup(BackupID backup_id) override;
+  Status VerifyBackup(BackupID backup_id,
+                      bool verify_with_checksum = true) override;
 
   Status Initialize();
 
@@ -1297,7 +1298,9 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
   return s;
 }
 
-Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
+Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
+                                      bool verify_with_checksum) {
+  // Check if backup_id is corrupted, or valid and registered
   assert(initialized_);
   auto corrupt_itr = corrupt_backups_.find(backup_id);
   if (corrupt_itr != corrupt_backups_.end()) {
@@ -1316,6 +1319,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
 
   ROCKS_LOG_INFO(options_.info_log, "Verifying backup id %u\n", backup_id);
 
+  // Find all existing backup files belong to backup_id
   std::unordered_map<std::string, uint64_t> curr_abs_path_to_size;
   for (const auto& rel_dir : {GetPrivateFileRel(backup_id), GetSharedFileRel(),
                               GetSharedFileWithChecksumRel()}) {
@@ -1323,13 +1327,36 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
     InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size);
   }
 
+  // For all files registered in backup
   for (const auto& file_info : backup->GetFiles()) {
     const auto abs_path = GetAbsolutePath(file_info->filename);
+    // check existence of the file
     if (curr_abs_path_to_size.find(abs_path) == curr_abs_path_to_size.end()) {
       return Status::NotFound("File missing: " + abs_path);
     }
+    // verify file size
     if (file_info->size != curr_abs_path_to_size[abs_path]) {
-      return Status::Corruption("File corrupted: " + abs_path);
+      std::string size_info("Expected file size is " +
+                            ToString(file_info->size) +
+                            " while found file size is " +
+                            ToString(curr_abs_path_to_size[abs_path]));
+      return Status::Corruption("File corrupted: File size mismatch for " +
+                                abs_path + ": " + size_info);
+    }
+    if (verify_with_checksum) {
+      // verify file checksum
+      uint32_t checksum_value = 0;
+      ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
+                     abs_path.c_str());
+      CalculateChecksum(abs_path, backup_env_, EnvOptions(), 0 /* size_limit */,
+                        &checksum_value);
+      if (file_info->checksum_value != checksum_value) {
+        std::string checksum_info(
+            "Expected checksum is " + ToString(file_info->checksum_value) +
+            " while computed checksum is " + ToString(checksum_value));
+        return Status::Corruption("File corrupted: Checksum mismatch for " +
+                                  abs_path + ": " + checksum_info);
+      }
     }
   }
   return Status::OK();
@@ -2132,8 +2159,9 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
     return backup_engine_->RestoreDBFromLatestBackup(options, db_dir, wal_dir);
   }
 
-  Status VerifyBackup(BackupID backup_id) override {
-    return backup_engine_->VerifyBackup(backup_id);
+  Status VerifyBackup(BackupID backup_id,
+                      bool verify_with_checksum = true) override {
+    return backup_engine_->VerifyBackup(backup_id, verify_with_checksum);
   }
 
   Status Initialize() { return backup_engine_->Initialize(); }
