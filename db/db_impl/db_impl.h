@@ -1199,7 +1199,7 @@ class DBImpl : public DB {
   friend class StatsHistoryTest_PersistentStatsCreateColumnFamilies_Test;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
-  friend class WriteCallbackTest_WriteWithCallbackTest_Test;
+  friend class WriteCallbackPTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
