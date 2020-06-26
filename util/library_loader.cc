@@ -72,6 +72,7 @@ UnixLibCrypto::UnixLibCrypto() : LibraryLoader(crypto_lib_name_) {
     rand_poll_ = (RAND_poll_t)functions_["RAND_poll"];
 
     cipher_new_ = (EVP_CIPHER_CTX_new_t)functions_["EVP_CIPHER_CTX_new"];
+    cipher_reset_ = (EVP_CIPHER_CTX_reset_t)functions_["EVP_CIPHER_CTX_reset"];
     cipher_free_ = (EVP_CIPHER_CTX_free_t)functions_["EVP_CIPHER_CTX_free"];
     encrypt_init_ = (EVP_EncryptInit_ex_t)functions_["EVP_EncryptInit_ex"];
     aes_256_ctr_ = (EVP_aes_256_ctr_t)functions_["EVP_aes_256_ctr"];

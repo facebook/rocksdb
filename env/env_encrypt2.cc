@@ -34,6 +34,11 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
+// reuse cipher context between calls to Encrypt & Decrypt
+static void do_nothing(EVP_CIPHER_CTX *) {};
+thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)> aes_context(nullptr, &do_nothing);
+
+
 Sha1Description::Sha1Description(const std::string& key_desc_str) {
   bool good = {true};
   int ret_val;
@@ -103,32 +108,40 @@ Status AESBlockAccessCipherStream::EncryptBlock(uint64_t blockIndex, char* data,
   int out_len = 0, in_len = {AES_BLOCK_SIZE}, ret_val;
 
   if (EncryptedEnv2::crypto_.IsValid()) {
-    std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)> context(
+    // make a context once per thread
+    if (!aes_context) {
+      aes_context = std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)> (
         EncryptedEnv2::crypto_.EVP_CIPHER_CTX_new(),
         EncryptedEnv2::crypto_.EVP_CIPHER_CTX_free_ptr());
+    }
 
-    // https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf
-    memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE / 2);
-    EncodeFixed64((char*)&iv.bytes[AES_BLOCK_SIZE / 2],
-                  blockIndex);  // this will be little endian
-    block_in.nums[0] = 0;
-    block_in.nums[1] = 0;
-
-    ret_val = EncryptedEnv2::crypto_.EVP_EncryptInit_ex(
-        context.get(), EncryptedEnv2::crypto_.EVP_aes_256_ctr(), nullptr,
-        key_.key, iv.bytes);
+    ret_val = EncryptedEnv2::crypto_.EVP_CIPHER_CTX_reset(aes_context.get());
     if (1 == ret_val) {
-      ret_val = EncryptedEnv2::crypto_.EVP_EncryptUpdate(
-          context.get(), block_out.bytes, &out_len, block_in.bytes, in_len);
+      // https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf
+      memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE / 2);
+      EncodeFixed64((char*)&iv.bytes[AES_BLOCK_SIZE / 2],
+                    blockIndex);  // this will be little endian
+      block_in.nums[0] = 0;
+      block_in.nums[1] = 0;
 
-      if (1 != ret_val || AES_BLOCK_SIZE != out_len) {
-        status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
-                                         AES_BLOCK_SIZE == out_len
-                                             ? "bad return value"
-                                             : "output length short");
+      ret_val = EncryptedEnv2::crypto_.EVP_EncryptInit_ex(
+          aes_context.get(), EncryptedEnv2::crypto_.EVP_aes_256_ctr(), nullptr,
+          key_.key, iv.bytes);
+      if (1 == ret_val) {
+        ret_val = EncryptedEnv2::crypto_.EVP_EncryptUpdate(
+            aes_context.get(), block_out.bytes, &out_len, block_in.bytes, in_len);
+
+        if (1 != ret_val || AES_BLOCK_SIZE != out_len) {
+          status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
+                                           AES_BLOCK_SIZE == out_len
+                                           ? "bad return value"
+                                           : "output length short");
+        }
+      } else {
+        status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
       }
     } else {
-      status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
+      status = Status::InvalidArgument("EVP_CIPHER_CTX_reset failed.");
     }
 
     // XOR data with ciphertext.
