@@ -63,11 +63,25 @@ jobs:
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: sudo sh -c 'echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" >> /etc/apt/sources.list'
-      - run: sudo sh -c 'echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" >> /etc/apt/sources.list'
+      - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
       - run: sudo apt-get update -y
       - run: sudo apt-get install -y clang-10
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make all -j32 # aligned new doesn't work for reason we haven't figured out
+
+  build-linux-clang10-asan:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: sudo apt-get update -y
+      - run: sudo apt-get install -y clang-10
+      - run: sudo apt-get install -y libgflags-dev
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make asan_check -j32 # aligned new doesn't work for reason we haven't figured out
 
   build-linux-cmake:
     machine:
@@ -140,6 +154,9 @@ workflows:
   build-linux-clang10-no-test:
     jobs:
       - build-linux-clang10-no-test
+  build-linux-clang10-asan:
+    jobs:
+      - build-linux-clang10-asan
   build-linux-cmake:
     jobs:
       - build-linux-cmake
