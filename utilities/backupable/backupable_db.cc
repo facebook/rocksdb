@@ -129,7 +129,7 @@ class BackupEngineImpl : public BackupEngine {
   }
 
   Status VerifyBackup(BackupID backup_id,
-                      const bool& verify_with_checksum = true) override;
+                      bool verify_with_checksum = true) override;
 
   Status Initialize();
 
@@ -1299,7 +1299,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
 }
 
 Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
-                                      const bool& verify_with_checksum) {
+                                      bool verify_with_checksum) {
   // Check if backup_id is corrupted, or valid and registered
   assert(initialized_);
   auto corrupt_itr = corrupt_backups_.find(backup_id);
@@ -1336,8 +1336,12 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
     }
     // verify file size
     if (file_info->size != curr_abs_path_to_size[abs_path]) {
+      std::string size_info("Expected file size is "
+                          + ToString(file_info->size)
+                          + " while found file size is "
+                          + ToString(curr_abs_path_to_size[abs_path]));
       return Status::Corruption("File corrupted: File size mismatch for " +
-                                abs_path);
+                                abs_path + ": " + size_info);
     }
     if (verify_with_checksum) {
       // verify file checksum
@@ -2156,7 +2160,7 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   }
 
   Status VerifyBackup(BackupID backup_id,
-                      const bool& verify_with_checksum = true) override {
+                      bool verify_with_checksum = true) override {
     return backup_engine_->VerifyBackup(backup_id, verify_with_checksum);
   }
 
