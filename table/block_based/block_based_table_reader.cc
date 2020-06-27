@@ -1380,7 +1380,6 @@ InternalIteratorBase<IndexValue>* BlockBasedTable::NewIndexIterator(
                                          lookup_context);
 }
 
-
 template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
@@ -1402,7 +1401,6 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       rep->index_key_includes_seq, rep->index_value_is_full,
       block_contents_pinned);
 }
-
 
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.

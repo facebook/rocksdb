@@ -310,7 +310,7 @@ class BlockConstructor : public Constructor {
   BlockConstructor();
 };
 
-class TableConstructor: public Constructor {
+class TableConstructor : public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
                             bool convert_to_internal_key = false,
