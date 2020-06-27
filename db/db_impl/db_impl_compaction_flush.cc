@@ -2703,7 +2703,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
-    versions_->SetIOStatus(IOStatus::OK());
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
@@ -2761,7 +2760,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       }
     }
 
-    versions_->SetIOStatus(IOStatus::OK());
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());

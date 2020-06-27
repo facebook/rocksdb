@@ -470,7 +470,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
       }
 
       // this can release and reacquire the mutex.
-      vset->SetIOStatus(IOStatus::OK());
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);
       *io_s = vset->io_status();
