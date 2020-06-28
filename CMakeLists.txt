@@ -986,15 +986,17 @@ endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
 
+add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
+add_library(testharness STATIC
+test_util/testharness.cc)
+target_link_libraries(testharness gtest)
+set(TESTS
+      db/db_basic_test.cc
+      env/env_basic_test.cc
+)
+
 if(WITH_TESTS)
-  add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
-  add_library(testharness STATIC
-  test_util/testharness.cc)
-  target_link_libraries(testharness gtest)
-  set(TESTS
-        db/db_basic_test.cc
-        env/env_basic_test.cc
-  )
+
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
         cache/cache_test.cc
