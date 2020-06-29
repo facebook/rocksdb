@@ -107,7 +107,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
                              static_cast<size_t>(prefetch_size));
 
-    s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size, &footer);
+    s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
+                           &footer);
   }
   if (s.ok()) {
     magic_number = footer.table_magic_number();
