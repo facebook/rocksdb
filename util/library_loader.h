@@ -118,17 +118,25 @@ class UnixLibCrypto : public LibraryLoader {
 
  protected:
   std::map<std::string, void *> functions_{
-      {"EVP_MD_CTX_new", nullptr},     {"EVP_MD_CTX_create", nullptr},
-      {"EVP_DigestInit_ex", nullptr},  {"EVP_sha1", nullptr},
-      {"EVP_DigestUpdate", nullptr},   {"EVP_DigestFinal_ex", nullptr},
-      {"EVP_MD_CTX_free", nullptr},    {"EVP_MD_CTX_destroy", nullptr},
+      {"EVP_MD_CTX_new", nullptr},
+      {"EVP_MD_CTX_create", nullptr},
+      {"EVP_DigestInit_ex", nullptr},
+      {"EVP_sha1", nullptr},
+      {"EVP_DigestUpdate", nullptr},
+      {"EVP_DigestFinal_ex", nullptr},
+      {"EVP_MD_CTX_free", nullptr},
+      {"EVP_MD_CTX_destroy", nullptr},
 
-      {"RAND_bytes", nullptr},         {"RAND_poll", nullptr},
+      {"RAND_bytes", nullptr},
+      {"RAND_poll", nullptr},
 
-      {"EVP_CIPHER_CTX_new", nullptr}, {"EVP_CIPHER_CTX_free", nullptr},
-      {"EVP_EncryptInit_ex", nullptr}, {"EVP_aes_256_ctr", nullptr},
+      {"EVP_CIPHER_CTX_new", nullptr},
+      {"EVP_CIPHER_CTX_free", nullptr},
+      {"EVP_EncryptInit_ex", nullptr},
+      {"EVP_aes_256_ctr", nullptr},
       {"EVP_EncryptUpdate", nullptr},
-      {"EVP_CIPHER_CTX_reset", nullptr},{"EVP_CIPHER_CTX_cleanup", nullptr},
+      {"EVP_CIPHER_CTX_reset", nullptr},
+      {"EVP_CIPHER_CTX_cleanup", nullptr},
 
   };
 
