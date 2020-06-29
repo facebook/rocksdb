@@ -25,6 +25,8 @@ constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
 
 struct FileChecksumGenContext {
   std::string file_name;
+  // The name of the requested checksum generator
+  std::string requested_function_name;
 };
 
 // FileChecksumGenerator is the class to generates the checksum value
@@ -50,6 +52,7 @@ class FileChecksumGenerator {
   virtual std::string GetChecksum() const = 0;
 
   // Returns a name that identifies the current file checksum function.
+  // The name should not contain ':'.
   virtual const char* Name() const = 0;
 };
 

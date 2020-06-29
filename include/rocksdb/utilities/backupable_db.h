@@ -25,9 +25,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 // The default DB file checksum function name.
-constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
+constexpr char kDefaultDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 // The default BackupEngine file checksum function name.
-constexpr char kBackupFileChecksumFuncName[] = "crc32c";
+constexpr char kDefaultBackupFileChecksumFuncName[] = "crc32c";
 
 // BackupTableNameOption describes possible naming schemes for backup
 // table file names when the table files are stored in the shared_checksum
@@ -165,6 +165,46 @@ struct BackupableDBOptions {
   // db_session_id as a fallback.
   BackupTableNameOption share_files_with_checksum_naming;
 
+  // Option for custom checksum functions.
+  // When this option is nullptr, BackupEngine will use its default crc32c as
+  // the checksum function.
+  //
+  // When it is not nullptr, BackupEngine will use the checksum function
+  // returned by
+  // backup_checksum_gen_factory
+  //                   ->CreateFileChecksumGenerator(FileChecksumGenContext)
+  // with FileChecksumGenContext::requested_function_name being empty as its
+  // checksum function for creating new backups.
+  //
+  // When verifying or restoring a backup, BackupEngine will try to find the
+  // checksum function, which was used to create the backup, in the checksum
+  // factory passed in by this option. If the requested checksum function is
+  // not found in the factory, BackupEngine will faill the verfiying or
+  // restoring process.
+  // One exception is that when one tries to verfiy or resotre a backup created
+  // with backup_checksum_gen_factory = GetFileChecksumGenCrc32cFactory(),
+  // using a different checksum factory that does not necessarily have the
+  // checksum generator FileChecksumGenCrc32c(), BackupEngine will use its
+  // default crc32c checksum function to verify or restore the backup even if
+  // FileChecksumGenCrc32c() is not found in the custom factory.
+  //
+  // Note: If share_files_with_checksum and share_table_files are true, when
+  // one creates two backups that share some table files using different
+  // checksum functions, the same table files will be duplicated in the
+  // shared_checksum directory with different names.
+  //
+  // For example, backup 1 and 2 share table 000007.sst and they were created
+  // using checksum function A and B, respectively. The checksums for 000007.sst
+  // for backup 1 and 2 are a7 and b7, respectively.
+  // Then files 000007_a7_<file_size_or_session_id>.sst and
+  // 000007_b7_<file_size_or_session_id>.sst are created in the shared_checksum
+  // directory with the same content.
+  // The only exception is when both A and B have the same checksum value for
+  // the shared file.
+  //
+  // Default: nullptr
+  std::shared_ptr<FileChecksumGenFactory> backup_checksum_gen_factory;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
@@ -176,7 +216,9 @@ struct BackupableDBOptions {
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
       BackupTableNameOption _share_files_with_checksum_naming =
-          kOptionalChecksumAndDbSessionId)
+          kOptionalChecksumAndDbSessionId,
+      std::shared_ptr<FileChecksumGenFactory> _backup_checksum_gen_factory =
+          nullptr)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -190,7 +232,8 @@ struct BackupableDBOptions {
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
-        share_files_with_checksum_naming(_share_files_with_checksum_naming) {
+        share_files_with_checksum_naming(_share_files_with_checksum_naming),
+        backup_checksum_gen_factory(_backup_checksum_gen_factory) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
