@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
+
 #include "file/file_util.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
