@@ -445,7 +445,8 @@ Status DBImpl::Recover(
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
     s = versions_->TryRecover(column_families, read_only, &db_id_,
-                              &missing_table_file);
+                              &missing_table_file,
+                              &dbname_children, dbname_children_s);
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
@@ -534,7 +535,6 @@ Status DBImpl::Recover(
     std::vector<std::string>* filenames_p = nullptr;
     std::vector<std::string> wal_dir_files;
     if (!immutable_db_options_.best_efforts_recovery) {
-      // s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
       if (immutable_db_options_.wal_dir == dbname_){
         s = dbname_children_s;
         filenames_p = &dbname_children;
