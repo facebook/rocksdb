@@ -1337,7 +1337,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
   if (db_stress_env->FileExists(checkpoint_dir).ok()) {
     // If the directory might still exist, try to delete the files one by one.
-    // Likely a track file is still there.
+    // Likely a trash file is still there.
     Status my_s = test::DestroyDir(db_stress_env, checkpoint_dir);
     if (!my_s.ok()) {
       fprintf(stderr, "Fail to destory directory before checkpoint: %s",
