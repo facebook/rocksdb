@@ -356,6 +356,8 @@ Status DBImpl::Recover(
 
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
+  std::vector<std::strings> dbname_children;
+  Status dbname_children_s = env_->GetChildren(dbname_, dbname_children);
   if (!read_only) {
     Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
@@ -368,7 +370,7 @@ Status DBImpl::Recover(
     if (!s.ok()) {
       return s;
     }
-
+    
     std::string current_fname = CurrentFileName(dbname_);
     // Path to any MANIFEST file in the db dir. It does not matter which one.
     // Since best-efforts recovery ignores CURRENT file, existence of a
