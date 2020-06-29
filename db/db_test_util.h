@@ -277,7 +277,7 @@ class SpecialEnv : public EnvWrapper {
           env_->SleepForMicroseconds(100000);
         }
         Status s;
-        if (!env_->if_skip_fsync_) {
+        if (!env_->skip_fsync_) {
           s = base_->Sync();
         }
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -317,7 +317,7 @@ class SpecialEnv : public EnvWrapper {
         if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated sync error");
         } else {
-          if (env_->if_skip_fsync_) {
+          if (env_->skip_fsync_) {
             return Status::OK();
           } else {
             return base_->Sync();
@@ -376,7 +376,7 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
-        if (env_->if_skip_fsync_) {
+        if (env_->skip_fsync_) {
           return Status::OK();
         } else {
           return base_->Sync();
@@ -402,7 +402,7 @@ class SpecialEnv : public EnvWrapper {
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
-        if (env_->if_skip_fsync_) {
+        if (env_->skip_fsync_) {
           return Status::OK();
         } else {
           return base_->Sync();
@@ -585,7 +585,7 @@ class SpecialEnv : public EnvWrapper {
 
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
-    if (!if_skip_fsync_) {
+    if (!skip_fsync_) {
       return target()->NewDirectory(name, result);
     } else {
       class NoopDirectory : public Directory {
@@ -648,8 +648,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int> sync_counter_;
 
-  // If true, all fsync to files are skipped.
-  bool if_skip_fsync_ = false;
+  // If true, all fsync to files and directories are skipped.
+  bool skip_fsync_ = false;
 
   std::atomic<uint32_t> non_writeable_rate_;
 

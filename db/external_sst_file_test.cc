@@ -1123,7 +1123,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   do {
     Options options = CurrentOptions();
-    env_->if_skip_fsync_ = true;
+    env_->skip_fsync_ = true;
     DestroyAndReopen(options);
 
     SstFileWriter sst_file_writer(EnvOptions(), options);
@@ -1734,7 +1734,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
 }
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
-  env_->if_skip_fsync_ = true;
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.IncreaseParallelism(20);
   options.level0_slowdown_writes_trigger = 256;
