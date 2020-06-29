@@ -4730,7 +4730,9 @@ Status VersionSet::Recover(
 namespace {
 class ManifestPicker {
  public:
-  explicit ManifestPicker(const std::string& dbname, FileSystem* fs);
+  explicit ManifestPicker(const std::string& dbname,
+                          std::vector<std::string>* dbname_children,
+                          Status dbname_children_s);
   void SeekToFirstManifest();
   // REQUIRES Valid() == true
   std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
@@ -4739,25 +4741,31 @@ class ManifestPicker {
 
  private:
   const std::string& dbname_;
-  FileSystem* const fs_;
   // MANIFEST file names(s)
   std::vector<std::string> manifest_files_;
   std::vector<std::string>::const_iterator manifest_file_iter_;
+  std::vector<std::string>* dbname_children_p;
   Status status_;
 };
 
-ManifestPicker::ManifestPicker(const std::string& dbname, FileSystem* fs)
-    : dbname_(dbname), fs_(fs) {}
+ManifestPicker::ManifestPicker(const std::string& dbname,
+                              std::vector<std::string>* dbname_children,
+                              Status dbname_children_s)
+    : dbname_(dbname), dbname_children_p(dbname_children),
+    status_(dbname_children_s) {}
 
 void ManifestPicker::SeekToFirstManifest() {
-  assert(fs_ != nullptr);
-  std::vector<std::string> children;
-  Status s = fs_->GetChildren(dbname_, IOOptions(), &children, /*dbg=*/nullptr);
-  if (!s.ok()) {
-    status_ = s;
+  // assert(fs_ != nullptr);
+  // std::vector<std::string> children;
+  // Status s = fs_->GetChildren(dbname_, IOOptions(), &children, /*dbg=*/nullptr);
+  // if (!s.ok()) {
+  //   status_ = s;
+  //   return;
+  // }
+  if (!status_.ok()){
     return;
   }
-  for (const auto& fname : children) {
+  for (const auto& fname : *dbname_children_p) {
     uint64_t file_num = 0;
     FileType file_type;
     bool parse_ok = ParseFileName(fname, &file_num, &file_type);
@@ -4817,8 +4825,10 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
 
 Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    std::string* db_id, bool* has_missing_table_file) {
-  ManifestPicker manifest_picker(dbname_, fs_);
+    std::string* db_id, bool* has_missing_table_file,
+    std::vector<std::string>* dbname_children,
+    Status dbname_children_s) {
+  ManifestPicker manifest_picker(dbname_, dbname_children, dbname_children_s);
   manifest_picker.SeekToFirstManifest();
   Status s = manifest_picker.status();
   if (!s.ok()) {
