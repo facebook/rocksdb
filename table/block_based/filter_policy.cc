@@ -183,7 +183,7 @@ class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
         // storage on disk.
         // Nothing to do, except assert that the result is accurate about
         // the usable size. (Assignment never used.)
-        assert(tmpbuf[usable - 1] = 'x');
+        assert((tmpbuf[usable - 1] = 'x'));
       } else if (usable > requested) {
         // Adjust for reasonably larger usable size
         size_t usable_len = (usable - kExtraPadding - /* metadata */ 5);

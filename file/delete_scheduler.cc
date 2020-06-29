@@ -71,6 +71,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
                      ", total_trash_size %" PRIu64 " max_trash_db_ratio %lf",
                      file_path.c_str(), rate_bytes_per_sec_.load(),
                      total_trash_size_.load(), max_trash_db_ratio_.load());
+      InstrumentedMutexLock l(&mu_);
       RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
@@ -90,12 +91,12 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
       sst_file_manager_->OnDeleteFile(file_path);
       ROCKS_LOG_INFO(info_log_, "Deleted file %s immediately",
                      trash_file.c_str());
+      InstrumentedMutexLock l(&mu_);
       RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
 
-  RecordTick(stats_.get(), FILES_MARKED_TRASH);
   // Update the total trash size
   uint64_t trash_file_size = 0;
   fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
@@ -104,6 +105,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   // Add file to delete queue
   {
     InstrumentedMutexLock l(&mu_);
+    RecordTick(stats_.get(), FILES_MARKED_TRASH);
     queue_.emplace(trash_file, dir_to_sync);
     pending_files_++;
     if (pending_files_ == 1) {

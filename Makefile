@@ -1096,7 +1096,7 @@ unity.a: $(OBJ_DIR)/unity.o
 
 
 # try compiling db_test with unity
-unity_test: $(OBJ_DIR)/db/db_test.o $(TEST_OBJECTS) $(TOOL_OBJECTS) unity.a
+unity_test: $(OBJ_DIR)/db/db_basic_test.o $(OBJ_DIR)/db/db_test_util.o $(TEST_OBJECTS) $(TOOL_OBJECTS) unity.a
 	$(AM_LINK)
 	./unity_test
 

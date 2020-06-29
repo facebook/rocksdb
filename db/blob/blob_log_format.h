@@ -9,7 +9,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <limits>
 #include <memory>
 #include <utility>
 
@@ -23,7 +22,6 @@ namespace blob_db {
 
 constexpr uint32_t kMagicNumber = 2395959;  // 0x00248f37
 constexpr uint32_t kVersion1 = 1;
-constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
 
 using ExpirationRange = std::pair<uint64_t, uint64_t>;
 
