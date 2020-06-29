@@ -4321,8 +4321,10 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     uint64_t file_size = ss_rw.contents().size();
 
     Footer footer;
-    ASSERT_OK(ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
-                                 &footer, kBlockBasedTableMagicNumber));
+    IOOptions opts;
+    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
+                                 file_size, &footer,
+                                 kBlockBasedTableMagicNumber));
 
     auto BlockFetchHelper = [&](const BlockHandle& handle, BlockType block_type,
                                 BlockContents* contents) {
@@ -4408,7 +4410,8 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // read footer
   Footer footer;
-  ASSERT_OK(ReadFooterFromFile(table_reader.get(),
+  IOOptions opts;
+  ASSERT_OK(ReadFooterFromFile(opts, table_reader.get(),
                                nullptr /* prefetch_buffer */, table_size,
                                &footer, kBlockBasedTableMagicNumber));
 
@@ -4505,9 +4508,10 @@ TEST_F(BBTTailPrefetchTest, TestTailPrefetchStats) {
 TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   TailPrefetchStats tpstats;
   FilePrefetchBuffer buffer(nullptr, 0, 0, false, true);
-  buffer.TryReadFromCache(500, 10, nullptr);
-  buffer.TryReadFromCache(480, 10, nullptr);
-  buffer.TryReadFromCache(490, 10, nullptr);
+  IOOptions opts;
+  buffer.TryReadFromCache(opts, 500, 10, nullptr);
+  buffer.TryReadFromCache(opts, 480, 10, nullptr);
+  buffer.TryReadFromCache(opts, 490, 10, nullptr);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

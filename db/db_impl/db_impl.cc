@@ -2685,8 +2685,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
   }
-  // We will eventually support deadline for iterators too, but safeguard
-  // for now
   if (read_options.deadline != std::chrono::microseconds::zero()) {
     return NewErrorIterator(
         Status::NotSupported("ReadOptions deadline is not supported"));

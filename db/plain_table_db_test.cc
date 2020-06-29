@@ -336,8 +336,9 @@ class TestPlainTableFactory : public PlainTableFactory {
         column_family_id_(column_family_id),
         column_family_name_(std::move(column_family_name)) {}
 
+  using PlainTableFactory::NewTableReader;
   Status NewTableReader(
-      const TableReaderOptions& table_reader_options,
+      const ReadOptions& /*ro*/, const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table,
       bool /*prefetch_index_and_filter_in_cache*/) const override {

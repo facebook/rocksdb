@@ -166,10 +166,11 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
 
   Slice slice;
   uint64_t offset = 0;
+  IOOptions opts;
   while (size > 0) {
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
-    if (!prefetch_buffer.TryReadFromCache(offset, bytes_to_read, &slice,
+    if (!prefetch_buffer.TryReadFromCache(opts, offset, bytes_to_read, &slice,
                                           false)) {
       return IOStatus::Corruption("file read failed");
     }

@@ -556,7 +556,19 @@ class TableFactory {
       const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
-      bool prefetch_index_and_filter_in_cache = true) const = 0;
+      bool prefetch_index_and_filter_in_cache = true) const {
+    ReadOptions ro;
+    return NewTableReader(ro, table_reader_options, std::move(file), file_size,
+                          table_reader, prefetch_index_and_filter_in_cache);
+  }
+
+  // Overload of the above function that allows the caller to pass in a
+  // ReadOptions
+  virtual Status NewTableReader(
+      const ReadOptions& ro, const TableReaderOptions& table_reader_options,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache) const = 0;
 
   // Return a table builder to write to a file for this table type.
   //

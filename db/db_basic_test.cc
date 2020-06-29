@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstring>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
@@ -2801,132 +2803,176 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Values(1, 4)));
 
+// Forward declaration
+class DeadlineFS;
+
+class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
+ public:
+  DeadlineRandomAccessFile(DeadlineFS& fs, SpecialEnv* env,
+                           std::unique_ptr<FSRandomAccessFile>& file)
+      : FSRandomAccessFileWrapper(file.get()),
+        fs_(fs),
+        file_(std::move(file)),
+        env_(env) {}
+
+  IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
+
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
+
+ private:
+  DeadlineFS& fs_;
+  std::unique_ptr<FSRandomAccessFile> file_;
+  SpecialEnv* env_;
+};
+
+class DeadlineFS : public FileSystemWrapper {
+ public:
+  explicit DeadlineFS(SpecialEnv* env)
+      : FileSystemWrapper(FileSystem::Default()),
+        delay_idx_(0),
+        deadline_(std::chrono::microseconds::zero()),
+        env_(env),
+        timedout_(false),
+        ignore_deadline_(false) {}
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s;
+
+    s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    result->reset(new DeadlineRandomAccessFile(*this, env_, file));
+
+    int delay;
+    const std::chrono::microseconds deadline = GetDeadline();
+    if (deadline.count()) {
+      AssertDeadline(deadline, opts.io_options);
+    }
+    if (ShouldDelay(&delay, &s)) {
+      env_->SleepForMicroseconds(delay);
+    }
+    return s;
+  }
+
+  // Set a vector of {IO counter, delay in microseconds, return status} tuples
+  // that control when to inject a delay and duration of the delay
+  void SetDelaySequence(
+      const std::chrono::microseconds deadline,
+      const std::vector<std::tuple<int, int, IOStatus>>&& seq) {
+    int total_delay = 0;
+    for (auto& seq_iter : seq) {
+      // Ensure no individual delay is > 500ms
+      ASSERT_LT(std::get<1>(seq_iter), 500000);
+      total_delay += std::get<1>(seq_iter);
+    }
+    // ASSERT total delay is < 1s. This is mainly to keep the test from
+    // timing out in CI test frameworks
+    ASSERT_LT(total_delay, 1000000);
+    delay_seq_ = seq;
+    delay_idx_ = 0;
+    io_count_ = 0;
+    deadline_ = deadline;
+    timedout_ = false;
+  }
+
+  // Increment the IO counter and return a delay in microseconds
+  bool ShouldDelay(int* delay, IOStatus* s) {
+    if (!ignore_deadline_ && delay_idx_ < delay_seq_.size() &&
+        std::get<0>(delay_seq_[delay_idx_]) == io_count_++) {
+      *delay = std::get<1>(delay_seq_[delay_idx_]);
+      *s = std::get<2>(delay_seq_[delay_idx_]);
+      delay_idx_++;
+      timedout_ = true;
+      return true;
+    }
+    *s = IOStatus::OK();
+    return false;
+  }
+
+  const std::chrono::microseconds GetDeadline() {
+    return ignore_deadline_ ? std::chrono::microseconds::zero() : deadline_;
+  }
+
+  bool TimedOut() { return timedout_; }
+
+  void IgnoreDeadline(bool ignore) { ignore_deadline_ = ignore; }
+
+  void AssertDeadline(const std::chrono::microseconds deadline,
+                      const IOOptions& opts) const {
+    // Give a leeway of +- 10us as it can take some time for the Get/
+    // MultiGet call to reach here, in order to avoid false alarms
+    std::chrono::microseconds now =
+        std::chrono::microseconds(env_->NowMicros());
+    if (deadline - now != opts.timeout) {
+      ASSERT_EQ(deadline - now, opts.timeout);
+    }
+  }
+
+ private:
+  std::vector<std::tuple<int, int, IOStatus>> delay_seq_;
+  size_t delay_idx_;
+  int io_count_;
+  std::chrono::microseconds deadline_;
+  SpecialEnv* env_;
+  bool timedout_;
+  bool ignore_deadline_;
+};
+
+IOStatus DeadlineRandomAccessFile::Read(uint64_t offset, size_t len,
+                                        const IOOptions& opts, Slice* result,
+                                        char* scratch,
+                                        IODebugContext* dbg) const {
+  int delay;
+  const std::chrono::microseconds deadline = fs_.GetDeadline();
+  IOStatus s;
+  if (deadline.count()) {
+    fs_.AssertDeadline(deadline, opts);
+  }
+  if (fs_.ShouldDelay(&delay, &s)) {
+    env_->SleepForMicroseconds(delay);
+  }
+  if (s.ok()) {
+    s = FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
+                                        dbg);
+  }
+  return s;
+}
+
+IOStatus DeadlineRandomAccessFile::MultiRead(FSReadRequest* reqs,
+                                             size_t num_reqs,
+                                             const IOOptions& options,
+                                             IODebugContext* dbg) {
+  int delay;
+  const std::chrono::microseconds deadline = fs_.GetDeadline();
+  IOStatus s;
+  if (deadline.count()) {
+    fs_.AssertDeadline(deadline, options);
+  }
+  if (fs_.ShouldDelay(&delay, &s)) {
+    env_->SleepForMicroseconds(delay);
+  }
+  if (s.ok()) {
+    s = FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
+  }
+  return s;
+}
+
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature
 class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
  public:
   DBBasicTestMultiGetDeadline()
-      : DBBasicTestMultiGet("db_basic_test_multiget_deadline" /*Test dir*/,
-                             10 /*# of column families*/,
-                             false /*compressed cache enabled*/,
-                             true /*uncompressed cache enabled*/,
-                             true /*compression enabled*/,
-                             true /*ReadOptions.fill_cache*/,
-                             1 /*# of parallel compression threads*/) {}
-
-  // Forward declaration
-  class DeadlineFS;
-
-  class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
-   public:
-    DeadlineRandomAccessFile(DeadlineFS& fs, SpecialEnv* env,
-                             std::unique_ptr<FSRandomAccessFile>& file)
-        : FSRandomAccessFileWrapper(file.get()),
-          fs_(fs),
-          file_(std::move(file)),
-          env_(env) {}
-
-    IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
-          Slice* result, char* scratch, IODebugContext* dbg) const override {
-      int delay;
-      const std::chrono::microseconds deadline = fs_.GetDeadline();
-      if (deadline.count()) {
-        AssertDeadline(deadline, opts);
-      }
-      if (fs_.ShouldDelay(&delay)) {
-        env_->SleepForMicroseconds(delay);
-      }
-      return FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
-                                             dbg);
-    }
-
-    IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-          const IOOptions& options, IODebugContext* dbg) override {
-      int delay;
-      const std::chrono::microseconds deadline = fs_.GetDeadline();
-      if (deadline.count()) {
-        AssertDeadline(deadline, options);
-      }
-      if (fs_.ShouldDelay(&delay)) {
-        env_->SleepForMicroseconds(delay);
-      }
-      return FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
-    }
-
-   private:
-    void AssertDeadline(const std::chrono::microseconds deadline,
-                        const IOOptions& opts) const {
-      // Give a leeway of +- 10us as it can take some time for the Get/
-      // MultiGet call to reach here, in order to avoid false alarms
-      std::chrono::microseconds now =
-          std::chrono::microseconds(env_->NowMicros());
-      ASSERT_EQ(deadline - now, opts.timeout);
-    }
-    DeadlineFS& fs_;
-    std::unique_ptr<FSRandomAccessFile> file_;
-    SpecialEnv* env_;
-  };
-
-  class DeadlineFS : public FileSystemWrapper {
-   public:
-    DeadlineFS(SpecialEnv* env)
-        : FileSystemWrapper(FileSystem::Default()),
-          delay_idx_(0),
-          deadline_(std::chrono::microseconds::zero()),
-          env_(env) {}
-    ~DeadlineFS() = default;
-
-    IOStatus NewRandomAccessFile(const std::string& fname,
-                                 const FileOptions& opts,
-                                 std::unique_ptr<FSRandomAccessFile>* result,
-                                 IODebugContext* dbg) override {
-      std::unique_ptr<FSRandomAccessFile> file;
-      IOStatus s;
-
-      s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
-      result->reset(new DeadlineRandomAccessFile(*this, env_, file));
-      return s;
-    }
-
-    // Set a vector of {IO counter, delay in microseconds} pairs that control
-    // when to inject a delay and duration of the delay
-    void SetDelaySequence(const std::chrono::microseconds deadline,
-                          const std::vector<std::pair<int, int>>&& seq) {
-      int total_delay = 0;
-      for (auto& seq_iter : seq) {
-        // Ensure no individual delay is > 500ms
-        ASSERT_LT(seq_iter.second, 500000);
-        total_delay += seq_iter.second;
-      }
-      // ASSERT total delay is < 1s. This is mainly to keep the test from
-      // timing out in CI test frameworks
-      ASSERT_LT(total_delay, 1000000);
-      delay_seq_ = seq;
-      delay_idx_ = 0;
-      io_count_ = 0;
-      deadline_ = deadline;
-    }
-
-    // Increment the IO counter and return a delay in microseconds
-    bool ShouldDelay(int* delay) {
-      if (delay_idx_ < delay_seq_.size() &&
-          delay_seq_[delay_idx_].first == io_count_++) {
-        *delay = delay_seq_[delay_idx_].second;
-        delay_idx_++;
-        return true;
-      }
-      return false;
-    }
-
-    const std::chrono::microseconds GetDeadline() { return deadline_; }
-
-   private:
-    std::vector<std::pair<int, int>> delay_seq_;
-    size_t delay_idx_;
-    int io_count_;
-    std::chrono::microseconds deadline_;
-    SpecialEnv* env_;
-  };
+      : DBBasicTestMultiGet(
+            "db_basic_test_multiget_deadline" /*Test dir*/,
+            10 /*# of column families*/, false /*compressed cache enabled*/,
+            true /*uncompressed cache enabled*/, true /*compression enabled*/,
+            true /*ReadOptions.fill_cache*/,
+            1 /*# of parallel compression threads*/) {}
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
     for (size_t i = 0; i < statuses.size(); ++i) {
@@ -2940,8 +2986,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 };
 
 TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
-  std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
-      new DBBasicTestMultiGetDeadline::DeadlineFS(env_));
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
   env_->SetTimeElapseOnlySleep(&options);
@@ -2972,7 +3017,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   ReadOptions ro;
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
   // Delay the first IO by 200ms
-  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
 
   std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
   // The first key is successful because we check after the lookup, but
@@ -2997,7 +3043,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
     keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
   statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
   CheckStatus(statuses, 3);
 
@@ -3011,7 +3058,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 2);
@@ -3026,7 +3074,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{2, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{2, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 6);
@@ -3040,7 +3089,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{3, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{3, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 8);
@@ -3066,7 +3116,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 64);
@@ -3098,6 +3149,99 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
+}
+
+TEST_F(DBBasicTest, PointLookupDeadline) {
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
+  // properly for the DB that's opened by the DBTestBase constructor.
+  Close();
+  for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+    if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
+      continue;
+    }
+    option_config_ = option_config;
+    Options options = CurrentOptions();
+    if (options.use_direct_reads) {
+      continue;
+    }
+    options.env = env.get();
+    options.disable_auto_compactions = true;
+    Cache* block_cache = nullptr;
+    env_->SetTimeElapseOnlySleep(&options);
+    // Fileter block reads currently don't cause the request to get
+    // aborted on a read timeout, so its possible those block reads
+    // may get issued even if the deadline is past
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTable::Get:BeforeFilterMatch",
+        [&](void* /*arg*/) { fs->IgnoreDeadline(true); });
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTable::Get:AfterFilterMatch",
+        [&](void* /*arg*/) { fs->IgnoreDeadline(false); });
+    // DB open will create table readers unless we reduce the table cache
+    // capacity.
+    // SanitizeOptions will set max_open_files to minimum of 20. Table cache
+    // is allocated with max_open_files - 10 as capacity. So override
+    // max_open_files to 11 so table cache capacity will become 1. This will
+    // prevent file open during DB open and force the file to be opened
+    // during MultiGet
+    SyncPoint::GetInstance()->SetCallBack(
+        "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+          int* max_open_files = (int*)arg;
+          *max_open_files = 11;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Reopen(options);
+
+    if (options.table_factory &&
+        !strcmp(options.table_factory->Name(),
+                BlockBasedTableFactory::kName.c_str())) {
+      BlockBasedTableFactory* bbtf =
+          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
+      block_cache = bbtf->table_options().block_cache.get();
+    }
+
+    Random rnd(301);
+    for (int i = 0; i < 400; ++i) {
+      std::string key = "k" + ToString(i);
+      Put(key, RandomString(&rnd, 100));
+    }
+    Flush();
+
+    bool timedout = true;
+    // A timeout will be forced when the IO counter reaches this value
+    int io_deadline_trigger = 0;
+    // Keep incrementing io_deadline_trigger and call Get() until there is an
+    // iteration that doesn't cause a timeout. This ensures that we cover
+    // all file reads in the point lookup path that can potentially timeout
+    // and cause the Get() to fail.
+    while (timedout) {
+      ReadOptions ro;
+      ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+      fs->SetDelaySequence(
+          ro.deadline, {std::tuple<int, int, IOStatus>{
+                           io_deadline_trigger, 20000, IOStatus::TimedOut()}});
+
+      block_cache->SetCapacity(0);
+      block_cache->SetCapacity(1048576);
+
+      std::string value;
+      Status s = dbfull()->Get(ro, "k50", &value);
+      if (fs->TimedOut()) {
+        ASSERT_EQ(s, Status::TimedOut());
+      } else {
+        timedout = false;
+        ASSERT_OK(s);
+      }
+      io_deadline_trigger++;
+    }
+    // Reset the delay sequence in order to avoid false alarms during Reopen
+    fs->SetDelaySequence(std::chrono::microseconds::zero(), {});
+  }
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

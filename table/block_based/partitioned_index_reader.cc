@@ -7,13 +7,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
+
+#include "file/file_util.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status PartitionIndexReader::Create(
-    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-    bool use_cache, bool prefetch, bool pin,
-    BlockCacheLookupContext* lookup_context,
+    const BlockBasedTable* table, const ReadOptions& ro,
+    FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+    bool pin, BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
   assert(table != nullptr);
   assert(table->get_rep());
@@ -23,7 +25,7 @@ Status PartitionIndexReader::Create(
   CachableEntry<Block> index_block;
   if (prefetch || !use_cache) {
     const Status s =
-        ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
+        ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
                        /*get_context=*/nullptr, lookup_context, &index_block);
     if (!s.ok()) {
       return s;
@@ -75,6 +77,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   } else {
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
+    ro.deadline = read_options.deadline;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
@@ -100,7 +103,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   // the first level iter is always on heap and will attempt to delete it
   // in its destructor.
 }
-void PartitionIndexReader::CacheDependencies(bool pin) {
+void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
   // Before read partitions, prefetch them to avoid lots of IOs
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   const BlockBasedTable::Rep* rep = table()->rep_;
@@ -147,12 +150,15 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
-  s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
-                                static_cast<size_t>(prefetch_len));
+  IOOptions opts;
+  s = PrepareIOFromReadOptions(ro, rep->file->env(), opts);
+  if (s.ok()) {
+    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                  static_cast<size_t>(prefetch_len));
+  }
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
-  auto ro = ReadOptions();
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
     CachableEntry<Block> block;

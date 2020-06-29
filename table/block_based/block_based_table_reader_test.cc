@@ -90,7 +90,8 @@ class BlockBasedTableReaderTest
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
 
     std::unique_ptr<TableReader> table_reader;
-    ASSERT_OK(BlockBasedTable::Open(ioptions, EnvOptions(),
+    ReadOptions ro;
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
                                     table_factory_->table_options(), comparator,
                                     std::move(file), file_size, &table_reader));
 

@@ -244,7 +244,8 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
 
     std::unique_ptr<TableReader> table_reader;
-    ASSERT_OK(BlockBasedTable::Open(ioptions, EnvOptions(),
+    ReadOptions ro;
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
                                     table_factory_.table_options(), comparator,
                                     std::move(file), file_size, &table_reader));
 
@@ -259,8 +260,9 @@ class BlockFetcherTest : public testing::Test {
   void ReadFooter(RandomAccessFileReader* file, Footer* footer) {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
-    ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size, footer,
-                       kBlockBasedTableMagicNumber);
+    IOOptions opts;
+    ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */, file_size,
+                       footer, kBlockBasedTableMagicNumber);
   }
 
   // NOTE: compression_type returns the compression type of the fetched block
@@ -315,8 +317,9 @@ class BlockFetcherTest : public testing::Test {
     NewTableReader(ioptions, foptions, comparator, table_name, &table);
 
     std::unique_ptr<BlockBasedTable::IndexReader> index_reader;
+    ReadOptions ro;
     ASSERT_OK(BinarySearchIndexReader::Create(
-        table.get(), nullptr /* prefetch_buffer */, false /* use_cache */,
+        table.get(), ro, nullptr /* prefetch_buffer */, false /* use_cache */,
         false /* prefetch */, false /* pin */, nullptr /* lookup_context */,
         &index_reader));
 

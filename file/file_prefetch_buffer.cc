@@ -21,7 +21,8 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
+Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
+                                    RandomAccessFileReader* reader,
                                     uint64_t offset, size_t n,
                                     bool for_compaction) {
   if (!enable_ || reader == nullptr) {
@@ -87,7 +88,7 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
 
   Slice result;
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
-  s = reader->Read(IOOptions(), rounddown_offset + chunk_len, read_len, &result,
+  s = reader->Read(opts, rounddown_offset + chunk_len, read_len, &result,
                    buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
 #ifndef NDEBUG
   if (!s.ok() || result.size() < read_len) {
@@ -103,7 +104,8 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   return s;
 }
 
-bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
+bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
+                                          uint64_t offset, size_t n,
                                           Slice* result, bool for_compaction) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
@@ -122,10 +124,11 @@ bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
       assert(max_readahead_size_ >= readahead_size_);
       Status s;
       if (for_compaction) {
-        s = Prefetch(file_reader_, offset, std::max(n, readahead_size_),
+        s = Prefetch(opts, file_reader_, offset, std::max(n, readahead_size_),
                      for_compaction);
       } else {
-        s = Prefetch(file_reader_, offset, n + readahead_size_, for_compaction);
+        s = Prefetch(opts, file_reader_, offset, n + readahead_size_,
+                     for_compaction);
       }
       if (!s.ok()) {
         return false;

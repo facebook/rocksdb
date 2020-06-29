@@ -85,9 +85,9 @@ class BlockBasedFilterBlockReader
   void operator=(const BlockBasedFilterBlockReader&) = delete;
 
   static std::unique_ptr<FilterBlockReader> Create(
-      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-      bool use_cache, bool prefetch, bool pin,
-      BlockCacheLookupContext* lookup_context);
+      const BlockBasedTable* table, const ReadOptions& ro,
+      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+      bool pin, BlockCacheLookupContext* lookup_context);
 
   bool IsBlockBased() override { return true; }
 

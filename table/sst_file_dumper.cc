@@ -103,10 +103,12 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                  ? kSstDumpTailPrefetchSize
                                  : file_size;
     uint64_t prefetch_off = file_size - prefetch_size;
-    prefetch_buffer.Prefetch(file_.get(), prefetch_off,
+    IOOptions opts;
+    prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
                              static_cast<size_t>(prefetch_size));
 
-    s = ReadFooterFromFile(file_.get(), &prefetch_buffer, file_size, &footer);
+    s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
+                           &footer);
   }
   if (s.ok()) {
     magic_number = footer.table_magic_number();

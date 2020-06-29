@@ -129,7 +129,7 @@ class TableCache {
   // Find table reader
   // @param skip_filters Disables loading/accessing the filter block
   // @param level == -1 means not specified
-  Status FindTable(const FileOptions& toptions,
+  Status FindTable(const ReadOptions& ro, const FileOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
                    const SliceTransform* prefix_extractor = nullptr,
@@ -195,7 +195,7 @@ class TableCache {
 
  private:
   // Build a table reader
-  Status GetTableReader(const FileOptions& file_options,
+  Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
                         const InternalKeyComparator& internal_comparator,
                         const FileDescriptor& fd, bool sequential_mode,
                         bool record_read_stats, HistogramImpl* file_read_hist,
