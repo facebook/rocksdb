@@ -453,13 +453,12 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public static RocksDB openAsSecondary(final Options options,
-      final String path, final String secondaryPath) throws RocksDBException {
+  public static RocksDB openAsSecondary(final Options options, final String path,
+      final String secondaryPath) throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
-    final RocksDB db = new RocksDB(
-        openAsSecondary(options.nativeHandle_, path, secondaryPath));
+    final RocksDB db = new RocksDB(openAsSecondary(options.nativeHandle_, path, secondaryPath));
     db.storeOptionsInstance(options);
     return db;
   }
@@ -494,11 +493,9 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public static RocksDB openAsSecondary(final DBOptions options,
-      final String path, final String secondaryPath,
-      final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
+  public static RocksDB openAsSecondary(final DBOptions options, final String path,
+      final String secondaryPath, final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
@@ -506,14 +503,13 @@ public class RocksDB extends RocksObject {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
-          .get(i);
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
       cfNames[i] = cfDescriptor.getName();
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
-    final long[] handles = openAsSecondary(options.nativeHandle_, path,
-        secondaryPath, cfNames, cfOptionHandles);
+    final long[] handles =
+        openAsSecondary(options.nativeHandle_, path, secondaryPath, cfNames, cfOptionHandles);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -4395,14 +4391,12 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyOptions
   ) throws RocksDBException;
 
-  private native static long openAsSecondary(final long optionsHandle,
-      final String path, final String secondaryPath)
-      throws RocksDBException;
+  private native static long openAsSecondary(final long optionsHandle, final String path,
+      final String secondaryPath) throws RocksDBException;
 
-  private native static long[] openAsSecondary(final long optionsHandle,
-      final String path, final String secondaryPath,
-      final byte[][] columnFamilyNames, final long[] columnFamilyOptions)
-      throws RocksDBException;
+  private native static long[] openAsSecondary(final long optionsHandle, final String path,
+      final String secondaryPath, final byte[][] columnFamilyNames,
+      final long[] columnFamilyOptions) throws RocksDBException;
 
   @Override protected native void disposeInternal(final long handle);
 
@@ -4650,8 +4644,7 @@ public class RocksDB extends RocksObject {
   private native void startTrace(final long handle, final long maxTraceFileSize,
       final long traceWriterHandle) throws RocksDBException;
   private native void endTrace(final long handle) throws RocksDBException;
-  private native void tryCatchUpWithPrimary(final long handle)
-      throws RocksDBException;
+  private native void tryCatchUpWithPrimary(final long handle) throws RocksDBException;
   private native void deleteFilesInRanges(long handle, long cfHandle, final byte[][] ranges,
       boolean include_end) throws RocksDBException;
 

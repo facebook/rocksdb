@@ -214,7 +214,8 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
 jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_2(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
     jstring jsecondary_db_path) {
-  const char* secondary_db_path = env->GetStringUTFChars(jsecondary_db_path, nullptr);
+  const char* secondary_db_path =
+      env->GetStringUTFChars(jsecondary_db_path, nullptr);
   if (secondary_db_path == nullptr) {
     // exception thrown: OutOfMemoryError
     return 0;
@@ -223,12 +224,11 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
   jlong db_handle = rocksdb_open_helper(
       env, jopt_handle, jdb_path,
       [secondary_db_path](const ROCKSDB_NAMESPACE::Options& options,
-         const std::string& db_path,
-         ROCKSDB_NAMESPACE::DB** db) {
-          return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(
-              options, db_path, secondary_db_path, db);
-        }
-  );
+                          const std::string& db_path,
+                          ROCKSDB_NAMESPACE::DB** db) {
+        return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(options, db_path,
+                                                      secondary_db_path, db);
+      });
 
   // we have now finished with secondary_db_path
   env->ReleaseStringUTFChars(jsecondary_db_path, secondary_db_path);
@@ -241,11 +241,13 @@ jlong Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_S
  * Method:    openAsSecondary
  * Signature: (JLjava/lang/String;Ljava/lang/String;[[B[J)[J
  */
-jlongArray Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_2_3_3B_3J(
+jlongArray
+Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_2_3_3B_3J(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
     jstring jsecondary_db_path, jobjectArray jcolumn_names,
     jlongArray jcolumn_options) {
-  const char* secondary_db_path = env->GetStringUTFChars(jsecondary_db_path, nullptr);
+  const char* secondary_db_path =
+      env->GetStringUTFChars(jsecondary_db_path, nullptr);
   if (secondary_db_path == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
@@ -253,16 +255,16 @@ jlongArray Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_l
 
   jlongArray handles = rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-      [secondary_db_path](const ROCKSDB_NAMESPACE::DBOptions& options,
-         const std::string& db_path,
-         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
-             column_families,
-         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-         ROCKSDB_NAMESPACE::DB** db) {
-          return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(
-              options, db_path, secondary_db_path, column_families, handles, db);
-        }
-  );
+      [secondary_db_path](
+          const ROCKSDB_NAMESPACE::DBOptions& options,
+          const std::string& db_path,
+          const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
+              column_families,
+          std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
+          ROCKSDB_NAMESPACE::DB** db) {
+        return ROCKSDB_NAMESPACE::DB::OpenAsSecondary(
+            options, db_path, secondary_db_path, column_families, handles, db);
+      });
 
   // we have now finished with secondary_db_path
   env->ReleaseStringUTFChars(jsecondary_db_path, secondary_db_path);
@@ -3374,8 +3376,7 @@ void Java_org_rocksdb_RocksDB_startTrace(
  * Method:    endTrace
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksDB_endTrace(
-    JNIEnv* env, jobject, jlong jdb_handle) {
+void Java_org_rocksdb_RocksDB_endTrace(JNIEnv* env, jobject, jlong jdb_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto s = db->EndTrace();
   if (!s.ok()) {
@@ -3388,8 +3389,8 @@ void Java_org_rocksdb_RocksDB_endTrace(
  * Method:    tryCatchUpWithPrimary
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksDB_tryCatchUpWithPrimary(
-    JNIEnv* env, jobject, jlong jdb_handle) {
+void Java_org_rocksdb_RocksDB_tryCatchUpWithPrimary(JNIEnv* env, jobject,
+                                                    jlong jdb_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto s = db->TryCatchUpWithPrimary();
   if (!s.ok()) {
@@ -3457,9 +3458,11 @@ bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
  * Method:    deleteFilesInRanges
  * Signature: (JJLjava/util/List;Z)V
  */
-void Java_org_rocksdb_RocksDB_deleteFilesInRanges(
-    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jcf_handle,
-    jobjectArray ranges, jboolean include_end) {
+void Java_org_rocksdb_RocksDB_deleteFilesInRanges(JNIEnv* env, jobject /*jdb*/,
+                                                  jlong jdb_handle,
+                                                  jlong jcf_handle,
+                                                  jobjectArray ranges,
+                                                  jboolean include_end) {
   jsize length = env->GetArrayLength(ranges);
 
   std::vector<ROCKSDB_NAMESPACE::RangePtr> rangesVector;
