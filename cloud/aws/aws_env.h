@@ -21,8 +21,8 @@
 #include <unordered_map>
 
 namespace ROCKSDB_NAMESPACE {
-
 class S3ReadableFile;
+
 //
 // The S3 environment for rocksdb. This class overrides all the
 // file/dir access methods and delegates all other methods to the

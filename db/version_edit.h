@@ -386,10 +386,10 @@ class VersionEdit {
   Status DecodeFrom(const Slice& src);
 
   bool GetNextFileNumber(uint64_t* result) const {
-      if (has_next_file_number_) {
-          *result = next_file_number_;
-      }
-      return has_next_file_number_;
+    if (has_next_file_number_) {
+      *result = next_file_number_;
+    }
+    return has_next_file_number_;
   }
 
   std::string DebugString(bool hex_key = false) const;

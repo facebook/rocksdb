@@ -4,6 +4,7 @@
 #ifdef USE_AWS
 
 #include <aws/core/Aws.h>
+
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {

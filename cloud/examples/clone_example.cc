@@ -44,10 +44,9 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
 
   // Create new AWS env
   CloudEnv* cenv;
-  Status st = CloudEnv::NewAwsEnv(Env::Default(),
-                                  src_bucket, src_object_path, kRegion,
-                                  dest_bucket, dest_object_path, kRegion,
-                                  cloud_env_options, nullptr, &cenv);
+  Status st = CloudEnv::NewAwsEnv(Env::Default(), src_bucket, src_object_path,
+                                  kRegion, dest_bucket, dest_object_path,
+                                  kRegion, cloud_env_options, nullptr, &cenv);
   if (!st.ok()) {
     fprintf(stderr,
             "Unable to create an AWS environment with "
@@ -107,16 +106,14 @@ int main() {
   const std::string bucketName = bucketPrefix + kBucketSuffix;
 
   // Needed if using bucket prefix other than the default "rockset."
-  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
-  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
-  
+  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
-  Status s =
-      CloudEnv::NewAwsEnv(Env::Default(),
-                          kBucketSuffix, kDBPath, kRegion,
-                          kBucketSuffix, kDBPath, kRegion,
-                          cloud_env_options, nullptr, &cenv);
+  Status s = CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath,
+                                 kRegion, kBucketSuffix, kDBPath, kRegion,
+                                 cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
             bucketName.c_str(), s.ToString().c_str());

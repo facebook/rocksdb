@@ -47,19 +47,17 @@ int main() {
 
   // "rockset." is the default bucket prefix
   const std::string bucketPrefix = "rockset.";
-  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
-  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix,bucketPrefix);
+  cloud_env_options.src_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
+  cloud_env_options.dest_bucket.SetBucketName(kBucketSuffix, bucketPrefix);
 
   // create a bucket name for debugging purposes
   const std::string bucketName = bucketPrefix + kBucketSuffix;
-  
+
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
-  Status s =
-      CloudEnv::NewAwsEnv(Env::Default(),
-                          kBucketSuffix, kDBPath, kRegion,
-                          kBucketSuffix, kDBPath, kRegion,
-                          cloud_env_options, nullptr, &cenv);
+  Status s = CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath,
+                                 kRegion, kBucketSuffix, kDBPath, kRegion,
+                                 cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env in bucket %s. %s\n",
             bucketName.c_str(), s.ToString().c_str());

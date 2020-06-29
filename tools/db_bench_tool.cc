@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -930,7 +931,7 @@ DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
 DEFINE_string(aws_access_id, "", "Access id for AWS");
 DEFINE_string(aws_secret_key, "", "Secret key for AWS");
 DEFINE_string(aws_region, "", "AWS region");
-DEFINE_bool(keep_local_sst_files , true ,
+DEFINE_bool(keep_local_sst_files, true,
             "Keep all files in local storage as well as cloud storage");
 #endif  // ROCKSDB_LITE
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
@@ -1279,7 +1280,11 @@ ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
   assert(coptions.credentials.HasValid().ok());
 
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
-  coptions.TEST_Initialize("dbbench.", "", region);
+  if (FLAGS_db.empty()) {
+    coptions.TEST_Initialize("dbbench.", "db-bench", region);
+  } else {
+    coptions.TEST_Initialize("dbbench.", FLAGS_db, region);
+  }
   ROCKSDB_NAMESPACE::CloudEnv* s;
   ROCKSDB_NAMESPACE::Status st = ROCKSDB_NAMESPACE::AwsEnv::NewAwsEnv(
       ROCKSDB_NAMESPACE::Env::Default(), coptions, std::move(info_log), &s);
