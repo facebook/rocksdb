@@ -89,14 +89,10 @@ class WriteCallbackPTest
       public ::testing::WithParamInterface<
           std::tuple<bool, bool, bool, bool, bool, bool, bool>> {
  public:
-  void SetUp() override {
-    unordered_write_ = std::get<0>(GetParam());
-    seq_per_batch_ = std::get<1>(GetParam());
-    two_queues_ = std::get<2>(GetParam());
-    allow_parallel_ = std::get<3>(GetParam());
-    allow_batching_ = std::get<4>(GetParam());
-    enable_WAL_ = std::get<5>(GetParam());
-    enable_pipelined_write_ = std::get<6>(GetParam());
+  WriteCallbackPTest() {
+    std::tie(unordered_write_, seq_per_batch_, two_queues_, allow_parallel_,
+             allow_batching_, enable_WAL_, enable_pipelined_write_) =
+        GetParam();
   }
 
  protected:
