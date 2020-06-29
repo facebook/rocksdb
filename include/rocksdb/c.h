@@ -320,6 +320,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf(
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
 
+// The value is only allocated (using malloc) and returned if it is found and
+// value_found isn't NULL. In that case the user is responsible for freeing it.
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_key_may_exist(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t key_len, char** value, size_t* val_len, const char* timestamp,
+    size_t timestamp_len, unsigned char* value_found);
+
+// The value is only allocated (using malloc) and returned if it is found and
+// value_found isn't NULL. In that case the user is responsible for freeing it.
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_key_may_exist_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t key_len, char** value, size_t* val_len, const char* timestamp,
+    size_t timestamp_len, unsigned char* value_found);
+
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db, const rocksdb_readoptions_t* options);
 

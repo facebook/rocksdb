@@ -996,6 +996,55 @@ void rocksdb_multi_get_cf(
   }
 }
 
+unsigned char rocksdb_key_may_exist(rocksdb_t* db,
+                                    const rocksdb_readoptions_t* options,
+                                    const char* key, size_t key_len,
+                                    char** value, size_t* val_len,
+                                    const char* timestamp, size_t timestamp_len,
+                                    unsigned char* value_found) {
+  std::string tmp;
+  std::string time;
+  if (timestamp) {
+    time.assign(timestamp, timestamp_len);
+  }
+  bool found = false;
+  const bool result = db->rep->KeyMayExist(options->rep, Slice(key, key_len),
+                                           &tmp, timestamp ? &time : nullptr,
+                                           value_found ? &found : nullptr);
+  if (value_found) {
+    *value_found = found;
+    if (found) {
+      *val_len = tmp.size();
+      *value = CopyString(tmp);
+    }
+  }
+  return result;
+}
+
+unsigned char rocksdb_key_may_exist_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t key_len, char** value, size_t* val_len, const char* timestamp,
+    size_t timestamp_len, unsigned char* value_found) {
+  std::string tmp;
+  std::string time;
+  if (timestamp) {
+    time.assign(timestamp, timestamp_len);
+  }
+  bool found = false;
+  const bool result = db->rep->KeyMayExist(
+      options->rep, column_family->rep, Slice(key, key_len), &tmp,
+      timestamp ? &time : nullptr, value_found ? &found : nullptr);
+  if (value_found) {
+    *value_found = found;
+    if (found) {
+      *val_len = tmp.size();
+      *value = CopyString(tmp);
+    }
+  }
+  return result;
+}
+
 rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db,
     const rocksdb_readoptions_t* options) {
