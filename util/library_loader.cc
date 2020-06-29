@@ -79,7 +79,8 @@ UnixLibCrypto::UnixLibCrypto() : LibraryLoader(crypto_lib_name_) {
     cipher_new_ = (EVP_CIPHER_CTX_new_t)functions_["EVP_CIPHER_CTX_new"];
     cipher_reset_ = (EVP_CIPHER_CTX_reset_t)functions_["EVP_CIPHER_CTX_reset"];
     if (nullptr == cipher_reset_) {
-      cipher_reset_ = (EVP_CIPHER_CTX_reset_t)functions_["EVP_CIPHER_CTX_cleanup"];
+      cipher_reset_ =
+          (EVP_CIPHER_CTX_reset_t)functions_["EVP_CIPHER_CTX_cleanup"];
     }
     cipher_free_ = (EVP_CIPHER_CTX_free_t)functions_["EVP_CIPHER_CTX_free"];
     encrypt_init_ = (EVP_EncryptInit_ex_t)functions_["EVP_EncryptInit_ex"];
