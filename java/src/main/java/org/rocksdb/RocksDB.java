@@ -375,12 +375,11 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public static RocksDB openReadOnly(final Options options, final String path,
-        final boolean errorIfLogFileExists) throws RocksDBException {
+      final boolean errorIfLogFileExists) throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
-    final RocksDB db = new RocksDB(
-        openROnly(options.nativeHandle_, path, errorIfLogFileExists));
+    final RocksDB db = new RocksDB(openROnly(options.nativeHandle_, path, errorIfLogFileExists));
     db.storeOptionsInstance(options);
     return db;
   }
@@ -407,8 +406,7 @@ public class RocksDB extends RocksObject {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     final DBOptions options = new DBOptions();
-    return openReadOnly(options, path, columnFamilyDescriptors,
-        columnFamilyHandles, false);
+    return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
   }
 
   /**
@@ -435,10 +433,8 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB openReadOnly(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
-      throws RocksDBException {
-    return openReadOnly(options, path, columnFamilyDescriptors,
-        columnFamilyHandles, false);
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
+    return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
   }
 
   /**
@@ -467,8 +463,8 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB openReadOnly(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles,
-      final boolean errorIfLogFileExists) throws RocksDBException {
+      final List<ColumnFamilyHandle> columnFamilyHandles, final boolean errorIfLogFileExists)
+      throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
@@ -482,8 +478,8 @@ public class RocksDB extends RocksObject {
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
-    final long[] handles = openROnly(options.nativeHandle_, path, cfNames,
-        cfOptionHandles, errorIfLogFileExists);
+    final long[] handles =
+        openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles, errorIfLogFileExists);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -4438,9 +4434,8 @@ public class RocksDB extends RocksObject {
       final String path, final byte[][] columnFamilyNames,
       final long[] columnFamilyOptions) throws RocksDBException;
 
-  private native static long openROnly(final long optionsHandle,
-      final String path, final boolean errorIfLogFileExists)
-      throws RocksDBException;
+  private native static long openROnly(final long optionsHandle, final String path,
+      final boolean errorIfLogFileExists) throws RocksDBException;
 
   /**
    * @param optionsHandle Native handle pointing to an Options object
@@ -4454,10 +4449,9 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if the database could not be opened
    */
-  private native static long[] openROnly(final long optionsHandle,
-      final String path, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions, final boolean errorIfLogFileExists
-  ) throws RocksDBException;
+  private native static long[] openROnly(final long optionsHandle, final String path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions,
+      final boolean errorIfLogFileExists) throws RocksDBException;
 
   private native static long openAsSecondary(final long optionsHandle, final String path,
       final String secondaryPath) throws RocksDBException;

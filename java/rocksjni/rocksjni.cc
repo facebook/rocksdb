@@ -81,9 +81,10 @@ jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path,
       [error_if_log_file_exist](const ROCKSDB_NAMESPACE::Options& options,
-         const std::string& db_path, ROCKSDB_NAMESPACE::DB** db) {
+                                const std::string& db_path,
+                                ROCKSDB_NAMESPACE::DB** db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
-            error_if_log_file_exist);
+                                                      error_if_log_file_exist);
       });
 }
 
@@ -184,14 +185,16 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
   const bool error_if_log_file_exist = jerror_if_log_file_exist == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-      [error_if_log_file_exist](const ROCKSDB_NAMESPACE::DBOptions& options,
-         const std::string& db_path,
-         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
-             column_families,
-         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-         ROCKSDB_NAMESPACE::DB** db) {
+      [error_if_log_file_exist](
+          const ROCKSDB_NAMESPACE::DBOptions& options,
+          const std::string& db_path,
+          const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
+              column_families,
+          std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
+          ROCKSDB_NAMESPACE::DB** db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(
-            options, db_path, column_families, handles, db, error_if_log_file_exist);
+            options, db_path, column_families, handles, db,
+            error_if_log_file_exist);
       });
 }
 
