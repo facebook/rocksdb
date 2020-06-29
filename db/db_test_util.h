@@ -276,7 +276,10 @@ class SpecialEnv : public EnvWrapper {
         while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
-        Status s = base_->Sync();
+        Status s;
+        if (!env_->skip_fsync_) {
+          s = base_->Sync();
+        }
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Sync", &s);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
@@ -314,7 +317,11 @@ class SpecialEnv : public EnvWrapper {
         if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated sync error");
         } else {
-          return base_->Sync();
+          if (env_->skip_fsync_) {
+            return Status::OK();
+          } else {
+            return base_->Sync();
+          }
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
@@ -369,11 +376,39 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
-        return base_->Sync();
+        if (env_->skip_fsync_) {
+          return Status::OK();
+        } else {
+          return base_->Sync();
+        }
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
       }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
+
+     private:
+      SpecialEnv* env_;
+      std::unique_ptr<WritableFile> base_;
+    };
+    class OtherFile : public WritableFile {
+     public:
+      OtherFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
+          : env_(env), base_(std::move(b)) {}
+      Status Append(const Slice& data) override { return base_->Append(data); }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      Status Close() override { return base_->Close(); }
+      Status Flush() override { return base_->Flush(); }
+      Status Sync() override {
+        if (env_->skip_fsync_) {
+          return Status::OK();
+        } else {
+          return base_->Sync();
+        }
+      }
+      uint64_t GetFileSize() override { return base_->GetFileSize(); }
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
@@ -416,6 +451,8 @@ class SpecialEnv : public EnvWrapper {
         r->reset(new ManifestFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "log") != nullptr) {
         r->reset(new WalFile(this, std::move(*r)));
+      } else {
+        r->reset(new OtherFile(this, std::move(*r)));
       }
     }
     return s;
@@ -546,6 +583,24 @@ class SpecialEnv : public EnvWrapper {
     options->stats_persist_period_sec = 0;
   }
 
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override {
+    if (!skip_fsync_) {
+      return target()->NewDirectory(name, result);
+    } else {
+      class NoopDirectory : public Directory {
+       public:
+        NoopDirectory() {}
+        ~NoopDirectory() {}
+
+        Status Fsync() override { return Status::OK(); }
+      };
+
+      result->reset(new NoopDirectory());
+      return Status::OK();
+    }
+  }
+
   // Something to return when mocking current time
   const int64_t maybe_starting_time_;
 
@@ -592,6 +647,9 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int64_t> bytes_written_;
 
   std::atomic<int> sync_counter_;
+
+  // If true, all fsync to files and directories are skipped.
+  bool skip_fsync_ = false;
 
   std::atomic<uint32_t> non_writeable_rate_;
 
