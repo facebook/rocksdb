@@ -356,8 +356,8 @@ Status DBImpl::Recover(
 
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
-  std::vector<std::strings> dbname_children;
-  Status dbname_children_s = env_->GetChildren(dbname_, dbname_children);
+  std::vector<std::string> dbname_children;
+  Status dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
   if (!read_only) {
     Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
@@ -381,10 +381,7 @@ Status DBImpl::Recover(
       s = env_->FileExists(current_fname);
     } else {
       s = Status::NotFound();
-      std::vector<std::string> files;
-      // No need to check return value
-      env_->GetChildren(dbname_, &files);
-      for (const std::string& file : files) {
+      for (const std::string& file : dbname_children) {
         uint64_t number = 0;
         FileType type = kLogFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
@@ -608,13 +605,13 @@ Status DBImpl::Recover(
     // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
     std::vector<std::string> file_names;
     if (s.ok()) {
-      s = env_->GetChildren(GetName(), &file_names);
+      s = dbname_children_s;
     }
     if (s.ok()) {
       uint64_t number = 0;
       uint64_t options_file_number = 0;
       FileType type;
-      for (const auto& fname : file_names) {
+      for (const auto& fname : dbname_children) {
         if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
           options_file_number = std::max(number, options_file_number);
         }
