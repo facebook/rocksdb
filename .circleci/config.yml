@@ -103,7 +103,10 @@ jobs:
 
   build-windows:
     executor: windows-2xlarge
-    
+    parameters:
+      extra_cmake_opt:
+        default: ""
+        type: string
     environment:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
@@ -136,7 +139,7 @@ jobs:
           command: |
             mkdir build
             cd build
-            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 ..
+            ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
@@ -176,3 +179,7 @@ workflows:
   build-windows:
     jobs:
       - build-windows
+  build-windows-cxx20:
+    jobs:
+      - build-windows:
+          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
