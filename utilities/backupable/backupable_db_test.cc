@@ -1101,7 +1101,7 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
   // file checksums mismatch
   ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
   // sanity check, use default second argument
-  ASSERT_NOK(backup_engine_->VerifyBackup(1));
+  ASSERT_OK(backup_engine_->VerifyBackup(1));
   CloseDBAndBackupEngine();
 
   // an extra challenge

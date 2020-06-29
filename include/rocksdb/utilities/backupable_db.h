@@ -330,7 +330,7 @@ class BackupEngineReadOnly {
   //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id,
-                              bool verify_with_checksum = true) = 0;
+                              bool verify_with_checksum = false) = 0;
 };
 
 // A backup engine for creating new backups.
@@ -452,7 +452,7 @@ class BackupEngine {
   //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id,
-                              bool verify_with_checksum = true) = 0;
+                              bool verify_with_checksum = false) = 0;
 
   // Will delete any files left over from incomplete creation or deletion of
   // a backup. This is not normally needed as those operations also clean up

@@ -129,7 +129,7 @@ class BackupEngineImpl : public BackupEngine {
   }
 
   Status VerifyBackup(BackupID backup_id,
-                      bool verify_with_checksum = true) override;
+                      bool verify_with_checksum = false) override;
 
   Status Initialize();
 
@@ -2166,7 +2166,7 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   }
 
   Status VerifyBackup(BackupID backup_id,
-                      bool verify_with_checksum = true) override {
+                      bool verify_with_checksum = false) override {
     return backup_engine_->VerifyBackup(backup_id, verify_with_checksum);
   }
 
