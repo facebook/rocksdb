@@ -127,7 +127,8 @@ class UnixLibCrypto : public LibraryLoader {
 
       {"EVP_CIPHER_CTX_new", nullptr}, {"EVP_CIPHER_CTX_free", nullptr},
       {"EVP_EncryptInit_ex", nullptr}, {"EVP_aes_256_ctr", nullptr},
-      {"EVP_EncryptUpdate", nullptr},  {"EVP_CIPHER_CTX_reset", nullptr},
+      {"EVP_EncryptUpdate", nullptr},
+      {"EVP_CIPHER_CTX_reset", nullptr},{"EVP_CIPHER_CTX_cleanup", nullptr},
 
   };
 
