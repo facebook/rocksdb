@@ -2829,14 +2829,13 @@ class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
 
 class DeadlineFS : public FileSystemWrapper {
  public:
-  DeadlineFS(SpecialEnv* env)
+  explicit DeadlineFS(SpecialEnv* env)
       : FileSystemWrapper(FileSystem::Default()),
         delay_idx_(0),
         deadline_(std::chrono::microseconds::zero()),
         env_(env),
         timedout_(false),
         ignore_deadline_(false) {}
-  ~DeadlineFS() = default;
 
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
@@ -2986,7 +2985,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 };
 
 TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
-  std::shared_ptr<DeadlineFS> fs(new DeadlineFS(env_));
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
   env_->SetTimeElapseOnlySleep(&options);
@@ -3152,7 +3151,7 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
 }
 
 TEST_F(DBBasicTest, PointLookupDeadline) {
-  std::shared_ptr<DeadlineFS> fs(new DeadlineFS(env_));
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   // Since we call SetTimeElapseOnlySleep, Close() later on may not work
