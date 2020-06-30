@@ -254,7 +254,16 @@ class BaseDeltaIterator : public Iterator {
     }
   }
   bool BaseValid() const { return base_iterator_->Valid(); }
-  bool DeltaValid() const { return delta_iterator_->Valid(); }
+  bool DeltaValid() const {
+    if (forward_ && iterate_upper_bound_) {
+      auto delta_entry = delta_iterator_->Entry();
+      if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >= 0) {
+        return false;
+      }
+    }
+
+    return delta_iterator_->Valid();
+  }
   void UpdateCurrent() {
 // Suppress false positive clang analyzer warnings.
 #ifndef __clang_analyzer__
@@ -281,13 +290,6 @@ class BaseDeltaIterator : public Iterator {
         if (!DeltaValid()) {
           // Finished
           return;
-        }
-        if (iterate_upper_bound_) {
-          if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >=
-              0) {
-            // out of upper bound -> finished.
-            return;
-          }
         }
         if (delta_entry.type == kDeleteRecord ||
             delta_entry.type == kSingleDeleteRecord) {
@@ -537,14 +539,13 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   // Extract key
   Slice key;
   bool success __attribute__((__unused__));
-  success =
-      ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
+  success = ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
   assert(success);
 
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
-                                      key.data() - wb_data.data(), key.size());
+                                     key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
 }
 
@@ -588,8 +589,8 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid);
     if (!s.ok()) {
       break;
     }
@@ -669,14 +670,16 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
                                read_options);
 }
 
-Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    Iterator* base_iterator, const ReadOptions* read_options) {
   if (rep->overwrite_key == false) {
     assert(false);
     return nullptr;
   }
   // default column family's comparator
   return new BaseDeltaIterator(base_iterator, NewIterator(),
-                               rep->comparator.default_comparator());
+                               rep->comparator.default_comparator(),
+                               read_options);
 }
 
 Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
