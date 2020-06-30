@@ -4731,8 +4731,8 @@ namespace {
 class ManifestPicker {
  public:
   explicit ManifestPicker(const std::string& dbname,
-                          std::vector<std::string>* dbname_children,
-                          Status dbname_children_s);
+                          const std::vector<std::string>& dbname_children,
+                          const Status& dbname_children_s);
   void SeekToFirstManifest();
   // REQUIRES Valid() == true
   std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
@@ -4744,14 +4744,14 @@ class ManifestPicker {
   // MANIFEST file names(s)
   std::vector<std::string> manifest_files_;
   std::vector<std::string>::const_iterator manifest_file_iter_;
-  std::vector<std::string>* dbname_children_p;
+  const std::vector<std::string>& dbname_children_;
   Status status_;
 };
 
 ManifestPicker::ManifestPicker(const std::string& dbname,
-                              std::vector<std::string>* dbname_children,
-                              Status dbname_children_s)
-    : dbname_(dbname), dbname_children_p(dbname_children),
+                              const std::vector<std::string>& dbname_children,
+                              const Status& dbname_children_s)
+    : dbname_(dbname), dbname_children_(dbname_children),
     status_(dbname_children_s) {}
 
 void ManifestPicker::SeekToFirstManifest() {
@@ -4765,7 +4765,7 @@ void ManifestPicker::SeekToFirstManifest() {
   if (!status_.ok()){
     return;
   }
-  for (const auto& fname : *dbname_children_p) {
+  for (const auto& fname : dbname_children_) {
     uint64_t file_num = 0;
     FileType file_type;
     bool parse_ok = ParseFileName(fname, &file_num, &file_type);
@@ -4826,8 +4826,8 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
 Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file,
-    std::vector<std::string>* dbname_children,
-    Status dbname_children_s) {
+    const std::vector<std::string>& dbname_children,
+    const Status& dbname_children_s) {
   ManifestPicker manifest_picker(dbname_, dbname_children, dbname_children_s);
   manifest_picker.SeekToFirstManifest();
   Status s = manifest_picker.status();

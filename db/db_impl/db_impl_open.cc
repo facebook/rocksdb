@@ -446,7 +446,7 @@ Status DBImpl::Recover(
   } else {
     s = versions_->TryRecover(column_families, read_only, &db_id_,
                               &missing_table_file,
-                              &dbname_children, dbname_children_s);
+                              dbname_children, dbname_children_s);
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
