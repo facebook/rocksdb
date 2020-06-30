@@ -722,6 +722,11 @@ class VersionBuilder::Rep {
     return meta;
   }
 
+  // Add the blob file specified by meta to *vstorage if it is determined to
+  // contain valid data (blobs). We make this decision based on the amount
+  // of garbage in the file, and whether the file or any lower-numbered blob
+  // files have any linked SSTs. The latter condition is tracked using the
+  // flag *found_first_non_empty.
   void AddBlobFileIfNeeded(VersionStorageInfo* vstorage,
                            const std::shared_ptr<BlobFileMetaData>& meta,
                            bool* found_first_non_empty) const {
