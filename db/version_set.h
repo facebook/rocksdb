@@ -964,8 +964,8 @@ class VersionSet {
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
                     bool read_only, std::string* db_id,
                     bool* has_missing_table_file,
-                    std::vector<std::string>* dbname_children,
-                    Status dbname_children_s);
+                    const std::vector<std::string>& dbname_children,
+                    const Status& dbname_children_s);
 
   // Try to recover the version set to the most recent consistent state
   // recorded in the specified manifest.
