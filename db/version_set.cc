@@ -4749,20 +4749,21 @@ class ManifestPicker {
 };
 
 ManifestPicker::ManifestPicker(const std::string& dbname,
-                              const std::vector<std::string>& dbname_children,
-                              const Status& dbname_children_s)
-    : dbname_(dbname), dbname_children_(dbname_children),
-    status_(dbname_children_s) {}
+                               const std::vector<std::string>& dbname_children,
+                               const Status& dbname_children_s)
+    : dbname_(dbname),
+      dbname_children_(dbname_children),
+      status_(dbname_children_s) {}
 
 void ManifestPicker::SeekToFirstManifest() {
   // assert(fs_ != nullptr);
   // std::vector<std::string> children;
-  // Status s = fs_->GetChildren(dbname_, IOOptions(), &children, /*dbg=*/nullptr);
-  // if (!s.ok()) {
+  // Status s = fs_->GetChildren(dbname_, IOOptions(), &children,
+  // /*dbg=*/nullptr); if (!s.ok()) {
   //   status_ = s;
   //   return;
   // }
-  if (!status_.ok()){
+  if (!status_.ok()) {
     return;
   }
   for (const auto& fname : dbname_children_) {
