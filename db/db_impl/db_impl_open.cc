@@ -532,17 +532,9 @@ Status DBImpl::Recover(
     // Note that prev_log_number() is no longer used, but we pay
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
-    std::vector<std::string>* filenames_p = nullptr;
-    std::vector<std::string> wal_dir_files;
+    std::vector<std::string> wal_dir_children;
     if (!immutable_db_options_.best_efforts_recovery) {
-      if (immutable_db_options_.wal_dir == dbname_){
-        s = dbname_children_s;
-        filenames_p = &dbname_children;
-      } else {
-        filenames_p = &wal_dir_files;
-        s = env_->GetChildren(immutable_db_options_.wal_dir, filenames_p);
-      }
-
+      s = env_->GetChildren(immutable_db_options_.wal_dir, &wal_dir_children);
       if (s.IsNotFound()) {
         return Status::InvalidArgument("wal_dir not found",
                                       immutable_db_options_.wal_dir);
@@ -551,15 +543,15 @@ Status DBImpl::Recover(
       }
 
       std::vector<uint64_t> logs;
-      for (size_t i = 0; i < filenames_p->size(); i++) {
+      for (size_t i = 0; i < wal_dir_children.size(); i++) {
         uint64_t number;
         FileType type;
-        if (ParseFileName(filenames_p->at(i), &number, &type) && type == kLogFile) {
+        if (ParseFileName(wal_dir_children[i], &number, &type) && type == kLogFile) {
           if (is_new_db) {
             return Status::Corruption(
                 "While creating a new Db, wal_dir contains "
                 "existing log file: ",
-                filenames_p->at(i));
+                wal_dir_children[i]);
           } else {
             logs.push_back(number);
           }
