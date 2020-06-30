@@ -39,7 +39,7 @@ class ObsoleteFilesTest : public DBTestBase {
  public:
   ObsoleteFilesTest()
       : DBTestBase("/obsolete_files_test", /*env_do_fsync=*/true),
-        wal_dir_(dbname_ + "/wal_files", /*env_do_fsync=*/true) {}
+        wal_dir_(dbname_ + "/wal_files") {}
 
   void AddKeys(int numkeys, int startkey) {
     WriteOptions options;
