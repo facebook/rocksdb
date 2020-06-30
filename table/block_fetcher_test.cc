@@ -424,9 +424,9 @@ TEST_F(BlockFetcherTest, FetchUncompressedDataBlock) {
                                        0 /* num_compressed_buf_allocations */,
                                    }};
   std::array<TestStats, NumModes> expected_stats_by_mode = {
-      expected_non_mmap_stats /* kBufferedRead */,
-      expected_mmap_stats /* kBufferedMmap */,
-      expected_non_mmap_stats /* kDirectRead */,
+      {expected_non_mmap_stats} /* kBufferedRead */,
+      {expected_mmap_stats} /* kBufferedMmap */,
+      {expected_non_mmap_stats} /* kDirectRead */,
   };
   TestFetchDataBlock("FetchUncompressedDataBlock", false, false,
                      expected_stats_by_mode);
@@ -461,9 +461,9 @@ TEST_F(BlockFetcherTest, FetchCompressedDataBlock) {
                                        0 /* num_compressed_buf_allocations */,
                                    }};
   std::array<TestStats, NumModes> expected_stats_by_mode = {
-      expected_non_mmap_stats /* kBufferedRead */,
-      expected_mmap_stats /* kBufferedMmap */,
-      expected_non_mmap_stats /* kDirectRead */,
+      {expected_non_mmap_stats} /* kBufferedRead */,
+      {expected_mmap_stats} /* kBufferedMmap */,
+      {expected_non_mmap_stats} /* kDirectRead */,
   };
   TestFetchDataBlock("FetchCompressedDataBlock", true, false,
                      expected_stats_by_mode);
@@ -508,9 +508,9 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
           0 /* num_compressed_buf_allocations */,
       }};
   std::array<TestStats, NumModes> expected_stats_by_mode = {
-      expected_buffered_read_stats,
-      expected_mmap_stats,
-      expected_direct_read_stats,
+      {expected_buffered_read_stats},
+      {expected_mmap_stats},
+      {expected_direct_read_stats},
   };
   TestFetchDataBlock("FetchAndUncompressCompressedDataBlock", true, true,
                      expected_stats_by_mode);
