@@ -135,15 +135,16 @@ struct BackupableDBOptions {
   // Default: INT_MAX
   int max_valid_backups_to_open;
 
-  // Naming option for share_files_with_checksum table files.
-  // The default behavior for this option fixes the backup file name collision
-  // problem, which might be possible at large scale, but the option
-  // `kChecksumAndFileSize` is added to allow use of old naming in case it is
-  // needed.
-  // This default behavior change is not an upgrade issue, because previous
-  // versions of RocksDB can read, restore, and delete backups using new names,
-  // and it's OK for a backup directory to use a mixture of table file naming
-  // schemes.
+  // Naming option for share_files_with_checksum table files. This option
+  // can be set to kChecksumAndFileSize or kChecksumAndDbSessionId.
+  // kChecksumAndFileSize is susceptible to collision as file size is not a
+  // good source of entroy.
+  // kChecksumAndDbSessionId is immune to collision.
+  //
+  // Modifying this option cannot introduce a downgrade compatibility issue
+  // because RocksDB can read, restore, and delete backups using different file
+  // names, and it's OK for a backup directory to use a mixture of table file
+  // naming schemes.
   //
   // Default: kChecksumAndDbSessionId
   //
