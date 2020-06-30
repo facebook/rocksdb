@@ -173,6 +173,7 @@ LIB_SOURCES =                                                   \
   table/two_level_iterator.cc                                   \
   test_util/sync_point.cc                                       \
   test_util/sync_point_impl.cc                                  \
+  test_util/transaction_test_util.cc                            \
   tools/dump/db_dump_tool.cc                                    \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
@@ -297,7 +298,6 @@ TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
-  test_util/transaction_test_util.cc                            \
   utilities/cassandra/test_utils.cc                             \
 
 FOLLY_SOURCES = \

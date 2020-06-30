@@ -474,7 +474,6 @@ endif
 
 GTEST = $(OBJ_DIR)/$(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = $(OBJ_DIR)/test_util/testutil.o
-TXNTESTUTIL = $(OBJ_DIR)/test_util/transaction_test_util.o
 TESTHARNESS = $(OBJ_DIR)/test_util/testharness.o $(TESTUTIL) $(GTEST)
 VALGRIND_ERROR = 2
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
@@ -1187,7 +1186,7 @@ librocksdb_env_basic_test.a: $(OBJ_DIR)/env/env_basic_test.o $(LIB_OBJECTS) $(TE
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-db_bench: $(OBJ_DIR)/tools/db_bench.o $(BENCH_OBJECTS) $(TXNTESTUTIL) $(TESTUTIL) $(LIBRARY)
+db_bench: $(OBJ_DIR)/tools/db_bench.o $(BENCH_OBJECTS) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
 trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
@@ -1207,7 +1206,7 @@ cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(LIBRARY)
 persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(TXNTESTUTIL) $(TESTUTIL) $(LIBRARY)
+memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
