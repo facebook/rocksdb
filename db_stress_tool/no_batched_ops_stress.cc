@@ -268,7 +268,8 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 #endif
     for (size_t i = 0; i < num_keys; ++i) {
-      key_str.emplace_back(Key(rand_keys[i]));
+      std::string key = txn->GetName() + "-" + Key(rand_keys[i]);
+      key_str.emplace_back(key);
       keys.emplace_back(key_str.back());
 #ifndef ROCKSDB_LITE
       if (use_txn) {
