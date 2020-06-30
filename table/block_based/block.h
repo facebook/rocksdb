@@ -239,7 +239,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     assert(num_restarts > 0);  // Ensure the param is valid
 
     ucmp_wrapper_ = UserComparatorWrapper(ucmp);
-    icmp_ = InternalKeyComparator(ucmp);
+    icmp_ = InternalKeyComparator(ucmp, false /* named */);
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;

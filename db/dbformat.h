@@ -213,11 +213,16 @@ class InternalKeyComparator
  public:
   InternalKeyComparator() = default;
 
-  explicit InternalKeyComparator(const Comparator* c)
-      : Comparator(c->timestamp_size()),
-        user_comparator_(c),
-        name_("rocksdb.InternalKeyComparator:" +
-              std::string(user_comparator_.Name())) {}
+  // @param named If true, assign a name to this comparator based on the
+  //    underlying comparator's name. Otherwise, use a generic name to save an
+  //    allocation and copy.
+  explicit InternalKeyComparator(const Comparator* c, bool named = true)
+      : Comparator(c->timestamp_size()), user_comparator_(c) {
+    if (named) {
+      name_ = "rocksdb.InternalKeyComparator:" +
+              std::string(user_comparator_.Name());
+    }
+  }
   virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const override;
