@@ -187,7 +187,20 @@ IOStatus WritableFileWriter::Flush() {
     }
   }
 
-  s = writable_file_->Flush(IOOptions(), nullptr);
+  {
+    IOSTATS_TIMER_GUARD(wirte_nanos);
+    TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
+    FileOperationInfo::TimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts = std::chrono::system_clock::now();
+    }
+    s = writable_file_->Flush(IOOptions(), nullptr);
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = std::chrono::system_clock::now();
+      NotifyOnFileFlushFinish(next_write_offset_, buf_.CurrentSize(), start_ts,
+                              finish_ts, s);
+    }
+  }
 
   if (!s.ok()) {
     return s;
