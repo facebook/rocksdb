@@ -99,10 +99,28 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
 
 inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
-  if (do_uncompress_ &&
+  if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
       block_size_with_trailer_ < kDefaultStackBufferSize) {
     // If we've got a small enough hunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
+    //
+    // `GetBlockContents()` cannot return this data as its lifetime is tied to
+    // this `BlockFetcher`'s lifetime. That is fine because this is only used
+    // in cases where we do not expect the `GetBlockContents()` result to be the
+    // same buffer we are assigning here. If we guess incorrectly, there will be
+    // a heap allocation and memcpy in `GetBlockContents()` to obtain the final
+    // result. Considering we are eliding a heap allocation here by using the
+    // stack buffer, the cost of guessing incorrectly here is one extra memcpy.
+    //
+    // When `do_uncompress_` is true, we expect the uncompression step will
+    // allocate heap memory for the final result. However this expectation will
+    // be wrong if the block turns out to already be uncompressed, which we
+    // won't know for sure until after reading it.
+    //
+    // When `ioptions_.allow_mmap_reads` is true, we do not expect the file
+    // reader to use the scratch buffer at all, but instead return a pointer
+    // into the mapped memory. This expectation will be wrong when using a
+    // file reader that does not implement mmap reads properly.
     used_buf_ = &stack_buf_[0];
   } else if (maybe_compressed_ && !do_uncompress_) {
     compressed_buf_ = AllocateBlock(block_size_with_trailer_,
@@ -226,11 +244,11 @@ Status BlockFetcher::ReadBlockContents() {
                               &slice_, used_buf_, nullptr, for_compaction_);
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
-        if (used_buf_ == &stack_buf_[0]) {
+        if (slice_.data() == &stack_buf_[0]) {
           num_stack_buf_memcpy_++;
-        } else if (used_buf_ == heap_buf_.get()) {
+        } else if (slice_.data() == heap_buf_.get()) {
           num_heap_buf_memcpy_++;
-        } else if (used_buf_ == compressed_buf_.get()) {
+        } else if (slice_.data() == compressed_buf_.get()) {
           num_compressed_buf_memcpy_++;
         }
 #endif
