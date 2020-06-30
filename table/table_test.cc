@@ -283,7 +283,7 @@ class BlockConstructor : public Constructor {
     block_ = nullptr;
     BlockBuilder builder(table_options.block_restart_interval);
 
-    for (const auto kv : kv_map) {
+    for (const auto& kv : kv_map) {
       ParsedInternalKey ikey(kv.first, kMaxSequenceNumber, kTypeValue);
       std::string encoded;
       AppendInternalKey(&encoded, ikey);
