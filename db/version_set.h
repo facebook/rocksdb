@@ -1161,6 +1161,18 @@ class VersionSet {
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
 
+  void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
+    assert(cfd);
+
+    const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+    Version* const version =
+        new Version(cfd, this, file_options_, mutable_cf_options);
+
+    constexpr bool update_stats = false;
+    version->PrepareApply(mutable_cf_options, update_stats);
+    AppendVersion(cfd, version);
+  }
+
  protected:
   using VersionBuilderMap =
       std::unordered_map<uint32_t,

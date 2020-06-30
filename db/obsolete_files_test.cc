@@ -202,37 +202,41 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
   assert(cfd);
 
-  // Add a blob file that consists of nothing but garbage (and is thus obsolete)
-  // and another one that is live.
-  VersionEdit edit;
+  const ImmutableCFOptions* const ioptions = cfd->ioptions();
+  assert(ioptions);
+  assert(!ioptions->cf_paths.empty());
 
+  const std::string& path = ioptions->cf_paths.front().path;
+
+  // Add an obsolete blob file.
   constexpr uint64_t first_blob_file_number = 234;
-  constexpr uint64_t first_total_blob_count = 555;
-  constexpr uint64_t first_total_blob_bytes = 66666;
-  constexpr char first_checksum_method[] = "CRC32";
-  constexpr char first_checksum_value[] = "3d87ff57";
+  versions->AddObsoleteBlobFile(first_blob_file_number, path);
 
-  edit.AddBlobFile(first_blob_file_number, first_total_blob_count,
-                   first_total_blob_bytes, first_checksum_method,
-                   first_checksum_value);
-  edit.AddBlobFileGarbage(first_blob_file_number, first_total_blob_count,
-                          first_total_blob_bytes);
+  // Add a live blob file.
+  Version* const version = cfd->current();
+  assert(version);
+
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
 
   constexpr uint64_t second_blob_file_number = 456;
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
   constexpr char second_checksum_value[] = "6dbdf23a";
-  edit.AddBlobFile(second_blob_file_number, second_total_blob_count,
-                   second_total_blob_bytes, second_checksum_method,
-                   second_checksum_value);
 
-  dbfull()->TEST_LockMutex();
-  Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                   &edit, dbfull()->mutex());
-  dbfull()->TEST_UnlockMutex();
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
+      second_checksum_method, second_checksum_value);
 
-  ASSERT_OK(s);
+  constexpr uint64_t second_garbage_blob_count = 0;
+  constexpr uint64_t second_garbage_blob_bytes = 0;
+
+  auto meta = BlobFileMetaData::Create(
+      std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+      second_garbage_blob_count, second_garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
 
   // Check for obsolete files and make sure the first blob file is picked up
   // and grabbed for purge. The second blob file should be on the live list.
@@ -261,10 +265,6 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   // list and adjusting the pending file number. We add the two files
   // above as well as two additional ones, where one is old
   // and should be cleaned up, and the other is still pending.
-  assert(cfd->ioptions());
-  assert(!cfd->ioptions()->cf_paths.empty());
-  const std::string& path = cfd->ioptions()->cf_paths.front().path;
-
   constexpr uint64_t old_blob_file_number = 123;
   constexpr uint64_t pending_blob_file_number = 567;
 

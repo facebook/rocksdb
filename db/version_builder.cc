@@ -722,16 +722,26 @@ class VersionBuilder::Rep {
     return meta;
   }
 
-  void AddBlobFileIfNeeded(
-      VersionStorageInfo* vstorage,
-      const std::shared_ptr<BlobFileMetaData>& meta) const {
+  // Add the blob file specified by meta to *vstorage if it is determined to
+  // contain valid data (blobs). We make this decision based on the amount
+  // of garbage in the file, and whether the file or any lower-numbered blob
+  // files have any linked SSTs. The latter condition is tracked using the
+  // flag *found_first_non_empty.
+  void AddBlobFileIfNeeded(VersionStorageInfo* vstorage,
+                           const std::shared_ptr<BlobFileMetaData>& meta,
+                           bool* found_first_non_empty) const {
     assert(vstorage);
     assert(meta);
+    assert(found_first_non_empty);
 
-    if (meta->GetGarbageBlobCount() < meta->GetTotalBlobCount() ||
-        !meta->GetLinkedSsts().empty()) {
-      vstorage->AddBlobFile(meta);
+    if (!meta->GetLinkedSsts().empty()) {
+      (*found_first_non_empty) = true;
+    } else if (!(*found_first_non_empty) ||
+               meta->GetGarbageBlobCount() >= meta->GetTotalBlobCount()) {
+      return;
     }
+
+    vstorage->AddBlobFile(meta);
   }
 
   // Merge the blob file metadata from the base version with the changes (edits)
@@ -739,6 +749,8 @@ class VersionBuilder::Rep {
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
     assert(base_vstorage_);
     assert(vstorage);
+
+    bool found_first_non_empty = false;
 
     const auto& base_blob_files = base_vstorage_->GetBlobFiles();
     auto base_it = base_blob_files.begin();
@@ -753,11 +765,8 @@ class VersionBuilder::Rep {
 
       if (base_blob_file_number < delta_blob_file_number) {
         const auto& base_meta = base_it->second;
-        assert(base_meta);
-        assert(base_meta->GetGarbageBlobCount() <
-               base_meta->GetTotalBlobCount());
 
-        vstorage->AddBlobFile(base_meta);
+        AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
 
         ++base_it;
       } else if (delta_blob_file_number < base_blob_file_number) {
@@ -775,7 +784,7 @@ class VersionBuilder::Rep {
 
         auto meta = GetOrCreateMetaDataForExistingBlobFile(base_meta, delta);
 
-        AddBlobFileIfNeeded(vstorage, meta);
+        AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
 
         ++base_it;
         ++delta_it;
@@ -784,10 +793,9 @@ class VersionBuilder::Rep {
 
     while (base_it != base_it_end) {
       const auto& base_meta = base_it->second;
-      assert(base_meta);
-      assert(base_meta->GetGarbageBlobCount() < base_meta->GetTotalBlobCount());
 
-      vstorage->AddBlobFile(base_meta);
+      AddBlobFileIfNeeded(vstorage, base_meta, &found_first_non_empty);
+
       ++base_it;
     }
 
@@ -796,7 +804,7 @@ class VersionBuilder::Rep {
 
       auto meta = CreateMetaDataForNewBlobFile(delta);
 
-      AddBlobFileIfNeeded(vstorage, meta);
+      AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
 
       ++delta_it;
     }

@@ -2344,24 +2344,31 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
   assert(cfd);
 
-  // Add a live blob file.
-  VersionEdit edit;
+  Version* const version = cfd->current();
+  assert(version);
 
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  // Add a live blob file.
   constexpr uint64_t blob_file_number = 234;
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
   constexpr char checksum_value[] = "3d87ff57";
 
-  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
-                   checksum_method, checksum_value);
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+      checksum_value);
 
-  dbfull()->TEST_LockMutex();
-  Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                   &edit, dbfull()->mutex());
-  dbfull()->TEST_UnlockMutex();
+  constexpr uint64_t garbage_blob_count = 0;
+  constexpr uint64_t garbage_blob_bytes = 0;
 
-  ASSERT_OK(s);
+  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                       BlobFileMetaData::LinkedSsts(),
+                                       garbage_blob_count, garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
 
   // Make sure it appears in the results returned by GetLiveFiles.
   uint64_t manifest_size = 0;
