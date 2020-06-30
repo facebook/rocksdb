@@ -13,6 +13,8 @@ test_dir=${TEST_TMPDIR:-"/tmp"}"/format_compatible_check"
 script_copy_dir=$test_dir"/script_copy"
 input_data_path=$test_dir"/test_data_input/"
 
+python_bin=$(which python3 || which python || echo python3)
+
 mkdir $test_dir || true
 mkdir $input_data_path || true
 rm -rf $script_copy_dir
@@ -23,7 +25,7 @@ for i in {1..6}
 do
   input_data[$i]=$input_data_path/data$i
   echo == Generating random input file ${input_data[$i]}
-  python - <<EOF
+  $python_bin - <<EOF
 import random
 random.seed($i)
 symbols=['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
@@ -38,19 +40,19 @@ with open('${input_data[$i]}', 'w') as f:
     v = ""
     for j in range(1, random.randint(1, 5)):
       v = v + vb
-    print >> f, k + " ==> " + v
+    print(k + " ==> " + v, file=f)
 EOF
 done
 
 # Generate file(s) with sorted keys.
 sorted_input_data=$input_data_path/sorted_data
 echo == Generating file with sorted keys ${sorted_input_data}
-python - <<EOF
+$python_bin - <<EOF
 with open('${sorted_input_data}', 'w') as f:
   for i in range(0,10):
     k = str(i)
     v = "value" + k
-    print >> f, k + " ==> " + v
+    print(k + " ==> " + v, file=f)
 EOF
 
 declare -a backward_compatible_checkout_objs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb" "5.5.fb" "5.6.fb" "5.7.fb" "5.8.fb" "5.9.fb" "5.10.fb" "5.11.fb" "5.12.fb" "5.13.fb" "5.14.fb" "5.15.fb")
