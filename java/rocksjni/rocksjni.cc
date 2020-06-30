@@ -253,7 +253,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
     return nullptr;
   }
 
-  jlongArray handles = rocksdb_open_helper(
+  jlongArray jhandles = rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
       [secondary_db_path](
           const ROCKSDB_NAMESPACE::DBOptions& options,
@@ -269,7 +269,7 @@ Java_org_rocksdb_RocksDB_openAsSecondary__JLjava_lang_String_2Ljava_lang_String_
   // we have now finished with secondary_db_path
   env->ReleaseStringUTFChars(jsecondary_db_path, secondary_db_path);
 
-  return handles;
+  return jhandles;
 }
 
 /*
