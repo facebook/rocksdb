@@ -370,7 +370,7 @@ Status DBImpl::Recover(
     if (!s.ok()) {
       return s;
     }
-    
+
     std::string current_fname = CurrentFileName(dbname_);
     // Path to any MANIFEST file in the db dir. It does not matter which one.
     // Since best-efforts recovery ignores CURRENT file, existence of a
@@ -445,8 +445,8 @@ Status DBImpl::Recover(
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
     s = versions_->TryRecover(column_families, read_only, &db_id_,
-                              &missing_table_file,
-                              dbname_children, dbname_children_s);
+                              &missing_table_file, dbname_children,
+                              dbname_children_s);
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
@@ -537,7 +537,7 @@ Status DBImpl::Recover(
       s = env_->GetChildren(immutable_db_options_.wal_dir, &wal_dir_children);
       if (s.IsNotFound()) {
         return Status::InvalidArgument("wal_dir not found",
-                                      immutable_db_options_.wal_dir);
+                                       immutable_db_options_.wal_dir);
       } else if (!s.ok()) {
         return s;
       }
@@ -546,7 +546,8 @@ Status DBImpl::Recover(
       for (size_t i = 0; i < wal_dir_children.size(); i++) {
         uint64_t number;
         FileType type;
-        if (ParseFileName(wal_dir_children[i], &number, &type) && type == kLogFile) {
+        if (ParseFileName(wal_dir_children[i], &number, &type) &&
+            type == kLogFile) {
           if (is_new_db) {
             return Status::Corruption(
                 "While creating a new Db, wal_dir contains "
@@ -592,7 +593,7 @@ Status DBImpl::Recover(
           // Clear memtables if recovery failed
           for (auto cfd : *versions_->GetColumnFamilySet()) {
             cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                  kMaxSequenceNumber);
+                                   kMaxSequenceNumber);
           }
         }
       }
