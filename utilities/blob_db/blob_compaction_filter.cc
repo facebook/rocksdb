@@ -6,18 +6,40 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_compaction_filter.h"
-#include "db/dbformat.h"
 
 #include <cinttypes>
+
+#include "db/dbformat.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
+BlobIndexCompactionFilterBase::~BlobIndexCompactionFilterBase() {
+  if (blob_file_) {
+    CloseAndRegisterNewBlobFile();
+  }
+  RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_COUNT, expired_count_);
+  RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED_SIZE, expired_size_);
+  RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_COUNT, evicted_count_);
+  RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EVICTED_SIZE, evicted_size_);
+}
+
 CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
-    int /*level*/, const Slice& key, ValueType value_type, const Slice& value,
-    std::string* /*new_value*/, std::string* /*skip_until*/) const {
+    int level, const Slice& key, ValueType value_type, const Slice& value,
+    std::string* new_value, std::string* skip_until) const {
+  const CompactionFilter* ucf = user_comp_filter();
   if (value_type != kBlobIndex) {
-    return Decision::kKeep;
+    if (ucf == nullptr) {
+      return Decision::kKeep;
+    }
+    // Apply user compaction filter for inlined data.
+    CompactionFilter::Decision decision =
+        ucf->FilterV2(level, key, value_type, value, new_value, skip_until);
+    if (decision == Decision::kChangeValue) {
+      return HandleValueChange(key, new_value);
+    }
+    return decision;
   }
   BlobIndex blob_index;
   Status s = blob_index.DecodeFrom(value);
@@ -44,26 +66,82 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
     // get sequence number.
     ParsedInternalKey ikey;
-    bool ok = ParseInternalKey(key, &ikey);
+    if (!ParseInternalKey(key, &ikey)) {
+      assert(false);
+      return Decision::kKeep;
+    }
     // Remove keys that could have been remove by last FIFO eviction.
     // If get error while parsing key, ignore and continue.
-    if (ok && ikey.sequence < context_.fifo_eviction_seq) {
+    if (ikey.sequence < context_.fifo_eviction_seq) {
       evicted_count_++;
       evicted_size_ += key.size() + value.size();
       return Decision::kRemove;
     }
   }
+  // Apply user compaction filter for all non-TTL blob data.
+  if (ucf != nullptr && !blob_index.HasTTL()) {
+    // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
+    // get sequence number.
+    ParsedInternalKey ikey;
+    if (!ParseInternalKey(key, &ikey)) {
+      assert(false);
+      return Decision::kKeep;
+    }
+    // Read value from blob file.
+    PinnableSlice blob;
+    CompressionType compression_type = kNoCompression;
+    constexpr bool need_decompress = true;
+    if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob, need_decompress,
+                             &compression_type)) {
+      return Decision::kIOError;
+    }
+    CompactionFilter::Decision decision = ucf->FilterV2(
+        level, ikey.user_key, kValue, blob, new_value, skip_until);
+    if (decision == Decision::kChangeValue) {
+      return HandleValueChange(ikey.user_key, new_value);
+    }
+    return decision;
+  }
   return Decision::kKeep;
 }
 
-BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
-  if (blob_file_) {
-    CloseAndRegisterNewBlobFile();
+CompactionFilter::Decision BlobIndexCompactionFilterBase::HandleValueChange(
+    const Slice& key, std::string* new_value) const {
+  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+  assert(blob_db_impl);
+
+  if (new_value->size() < blob_db_impl->bdb_options_.min_blob_size) {
+    // Keep new_value inlined.
+    return Decision::kChangeValue;
   }
+  if (!OpenNewBlobFileIfNeeded()) {
+    return Decision::kIOError;
+  }
+  Slice new_blob_value(*new_value);
+  std::string compression_output;
+  if (blob_db_impl->bdb_options_.compression != kNoCompression) {
+    new_blob_value =
+        blob_db_impl->GetCompressedSlice(new_blob_value, &compression_output);
+  }
+  uint64_t new_blob_file_number = 0;
+  uint64_t new_blob_offset = 0;
+  if (!WriteBlobToNewFile(key, new_blob_value, &new_blob_file_number,
+                          &new_blob_offset)) {
+    return Decision::kIOError;
+  }
+  if (!CloseAndRegisterNewBlobFileIfNeeded()) {
+    return Decision::kIOError;
+  }
+  BlobIndex::EncodeBlob(new_value, new_blob_file_number, new_blob_offset,
+                        new_blob_value.size(),
+                        blob_db_impl->bdb_options_.compression);
+  return Decision::kChangeBlobIndex;
+}
 
-  assert(context_gc_.blob_db_impl);
+BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
+  assert(context().blob_db_impl);
 
-  ROCKS_LOG_INFO(context_gc_.blob_db_impl->db_options_.info_log,
+  ROCKS_LOG_INFO(context().blob_db_impl->db_options_.info_log,
                  "GC pass finished %s: encountered %" PRIu64 " blobs (%" PRIu64
                  " bytes), relocated %" PRIu64 " blobs (%" PRIu64
                  " bytes), created %" PRIu64 " new blob file(s)",
@@ -80,12 +158,164 @@ BlobIndexCompactionFilterGC::~BlobIndexCompactionFilterGC() {
   RecordTick(statistics(), BLOB_DB_GC_FAILURES, gc_stats_.HasError());
 }
 
+bool BlobIndexCompactionFilterBase::IsBlobFileOpened() const {
+  if (blob_file_) {
+    assert(writer_);
+    return true;
+  }
+  return false;
+}
+
+bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
+  if (IsBlobFileOpened()) {
+    return true;
+  }
+
+  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+  assert(blob_db_impl);
+
+  const Status s = blob_db_impl->CreateBlobFileAndWriter(
+      /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                    "Error opening new blob file during GC, status: %s",
+                    s.ToString().c_str());
+    blob_file_.reset();
+    writer_.reset();
+    return false;
+  }
+
+  assert(blob_file_);
+  assert(writer_);
+
+  return true;
+}
+
+bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
+    const Slice& key, const BlobIndex& blob_index, PinnableSlice* blob,
+    bool need_decompress, CompressionType* compression_type) const {
+  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+  assert(blob_db_impl);
+
+  Status s = blob_db_impl->GetRawBlobFromFile(
+      key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
+      blob, compression_type);
+
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                    "Error reading blob during GC, key: %s (%s), status: %s",
+                    key.ToString(/* output_hex */ true).c_str(),
+                    blob_index.DebugString(/* output_hex */ true).c_str(),
+                    s.ToString().c_str());
+
+    return false;
+  }
+
+  if (need_decompress && *compression_type != kNoCompression) {
+    s = blob_db_impl->DecompressSlice(*blob, *compression_type, blob);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(
+          blob_db_impl->db_options_.info_log,
+          "Uncompression error during blob read from file: %" PRIu64
+          " blob_offset: %" PRIu64 " blob_size: %" PRIu64
+          " key: %s status: '%s'",
+          blob_index.file_number(), blob_index.offset(), blob_index.size(),
+          key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
+
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool BlobIndexCompactionFilterBase::WriteBlobToNewFile(
+    const Slice& key, const Slice& blob, uint64_t* new_blob_file_number,
+    uint64_t* new_blob_offset) const {
+  TEST_SYNC_POINT("BlobIndexCompactionFilterBase::WriteBlobToNewFile");
+  assert(new_blob_file_number);
+  assert(new_blob_offset);
+
+  assert(blob_file_);
+  *new_blob_file_number = blob_file_->BlobFileNumber();
+
+  assert(writer_);
+  uint64_t new_key_offset = 0;
+  const Status s = writer_->AddRecord(key, blob, kNoExpiration, &new_key_offset,
+                                      new_blob_offset);
+
+  if (!s.ok()) {
+    const BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+    assert(blob_db_impl);
+
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error writing blob to new file %s during GC, key: %s, status: %s",
+        blob_file_->PathName().c_str(),
+        key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
+    return false;
+  }
+
+  const uint64_t new_size =
+      BlobLogRecord::kHeaderSize + key.size() + blob.size();
+  blob_file_->BlobRecordAdded(new_size);
+
+  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+  assert(blob_db_impl);
+
+  blob_db_impl->total_blob_size_ += new_size;
+
+  return true;
+}
+
+bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFileIfNeeded()
+    const {
+  const BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+  assert(blob_db_impl);
+
+  assert(blob_file_);
+  if (blob_file_->GetFileSize() < blob_db_impl->bdb_options_.blob_file_size) {
+    return true;
+  }
+
+  return CloseAndRegisterNewBlobFile();
+}
+
+bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
+  BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
+  assert(blob_db_impl);
+  assert(blob_file_);
+
+  Status s;
+
+  {
+    WriteLock wl(&blob_db_impl->mutex_);
+
+    s = blob_db_impl->CloseBlobFile(blob_file_);
+
+    // Note: we delay registering the new blob file until it's closed to
+    // prevent FIFO eviction from processing it during the GC run.
+    blob_db_impl->RegisterBlobFile(blob_file_);
+  }
+
+  assert(blob_file_->Immutable());
+
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                    "Error closing new blob file %s during GC, status: %s",
+                    blob_file_->PathName().c_str(), s.ToString().c_str());
+  }
+
+  blob_file_.reset();
+  return s.ok();
+}
+
 CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
     const Slice& key, const Slice& existing_value,
     std::string* new_value) const {
   assert(new_value);
 
-  const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
+  const BlobDBImpl* const blob_db_impl = context().blob_db_impl;
   (void)blob_db_impl;
 
   assert(blob_db_impl);
@@ -125,7 +355,7 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
-  if (!ReadBlobFromOldFile(key, blob_index, &blob, &compression_type)) {
+  if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
   }
@@ -151,139 +381,30 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
 }
 
 bool BlobIndexCompactionFilterGC::OpenNewBlobFileIfNeeded() const {
-  if (blob_file_) {
-    assert(writer_);
+  if (IsBlobFileOpened()) {
     return true;
   }
-
-  BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-  assert(blob_db_impl);
-
-  const Status s = blob_db_impl->CreateBlobFileAndWriter(
-      /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error opening new blob file during GC, status: %s",
-                    s.ToString().c_str());
-
-    return false;
+  bool result = BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded();
+  if (result) {
+    gc_stats_.AddNewFile();
   }
-
-  assert(blob_file_);
-  assert(writer_);
-
-  gc_stats_.AddNewFile();
-
-  return true;
+  return result;
 }
 
-bool BlobIndexCompactionFilterGC::ReadBlobFromOldFile(
-    const Slice& key, const BlobIndex& blob_index, PinnableSlice* blob,
-    CompressionType* compression_type) const {
-  BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-  assert(blob_db_impl);
-
-  const Status s = blob_db_impl->GetRawBlobFromFile(
-      key, blob_index.file_number(), blob_index.offset(), blob_index.size(),
-      blob, compression_type);
-
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error reading blob during GC, key: %s (%s), status: %s",
-                    key.ToString(/* output_hex */ true).c_str(),
-                    blob_index.DebugString(/* output_hex */ true).c_str(),
-                    s.ToString().c_str());
-
-    return false;
+std::unique_ptr<CompactionFilter>
+BlobIndexCompactionFilterFactoryBase::CreateUserCompactionFilterFromFactory(
+    const CompactionFilter::Context& context) const {
+  std::unique_ptr<CompactionFilter> user_comp_filter_from_factory;
+  if (user_comp_filter_factory_) {
+    user_comp_filter_from_factory =
+        user_comp_filter_factory_->CreateCompactionFilter(context);
   }
-
-  return true;
-}
-
-bool BlobIndexCompactionFilterGC::WriteBlobToNewFile(
-    const Slice& key, const Slice& blob, uint64_t* new_blob_file_number,
-    uint64_t* new_blob_offset) const {
-  assert(new_blob_file_number);
-  assert(new_blob_offset);
-
-  assert(blob_file_);
-  *new_blob_file_number = blob_file_->BlobFileNumber();
-
-  assert(writer_);
-  uint64_t new_key_offset = 0;
-  const Status s = writer_->AddRecord(key, blob, kNoExpiration, &new_key_offset,
-                                      new_blob_offset);
-
-  if (!s.ok()) {
-    const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-    assert(blob_db_impl);
-
-    ROCKS_LOG_ERROR(
-        blob_db_impl->db_options_.info_log,
-        "Error writing blob to new file %s during GC, key: %s, status: %s",
-        blob_file_->PathName().c_str(),
-        key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
-    return false;
-  }
-
-  const uint64_t new_size =
-      BlobLogRecord::kHeaderSize + key.size() + blob.size();
-  blob_file_->BlobRecordAdded(new_size);
-
-  BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-  assert(blob_db_impl);
-
-  blob_db_impl->total_blob_size_ += new_size;
-
-  return true;
-}
-
-bool BlobIndexCompactionFilterGC::CloseAndRegisterNewBlobFileIfNeeded() const {
-  const BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-  assert(blob_db_impl);
-
-  assert(blob_file_);
-  if (blob_file_->GetFileSize() < blob_db_impl->bdb_options_.blob_file_size) {
-    return true;
-  }
-
-  return CloseAndRegisterNewBlobFile();
-}
-
-bool BlobIndexCompactionFilterGC::CloseAndRegisterNewBlobFile() const {
-  BlobDBImpl* const blob_db_impl = context_gc_.blob_db_impl;
-  assert(blob_db_impl);
-  assert(blob_file_);
-
-  Status s;
-
-  {
-    WriteLock wl(&blob_db_impl->mutex_);
-
-    s = blob_db_impl->CloseBlobFile(blob_file_);
-
-    // Note: we delay registering the new blob file until it's closed to
-    // prevent FIFO eviction from processing it during the GC run.
-    blob_db_impl->RegisterBlobFile(blob_file_);
-  }
-
-  assert(blob_file_->Immutable());
-  blob_file_.reset();
-
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error closing new blob file %s during GC, status: %s",
-                    blob_file_->PathName().c_str(), s.ToString().c_str());
-
-    return false;
-  }
-
-  return true;
+  return user_comp_filter_from_factory;
 }
 
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactory::CreateCompactionFilter(
-    const CompactionFilter::Context& /*context*/) {
+    const CompactionFilter::Context& _context) {
   assert(env());
 
   int64_t current_time = 0;
@@ -298,13 +419,17 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
   BlobCompactionContext context;
   blob_db_impl()->GetCompactionContext(&context);
 
+  std::unique_ptr<CompactionFilter> user_comp_filter_from_factory =
+      CreateUserCompactionFilterFromFactory(_context);
+
   return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
-      std::move(context), current_time, statistics()));
+      std::move(context), user_comp_filter(),
+      std::move(user_comp_filter_from_factory), current_time, statistics()));
 }
 
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
-    const CompactionFilter::Context& /*context*/) {
+    const CompactionFilter::Context& _context) {
   assert(env());
 
   int64_t current_time = 0;
@@ -320,8 +445,12 @@ BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
   BlobCompactionContextGC context_gc;
   blob_db_impl()->GetCompactionContext(&context, &context_gc);
 
+  std::unique_ptr<CompactionFilter> user_comp_filter_from_factory =
+      CreateUserCompactionFilterFromFactory(_context);
+
   return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilterGC(
-      std::move(context), std::move(context_gc), current_time, statistics()));
+      std::move(context), std::move(context_gc), user_comp_filter(),
+      std::move(user_comp_filter_from_factory), current_time, statistics()));
 }
 
 }  // namespace blob_db
