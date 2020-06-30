@@ -266,6 +266,43 @@ class BlockIter : public InternalIteratorBase<TValue> {
   }
 
   bool Valid() const override { return current_ < restarts_; }
+
+  virtual void SeekToFirst() override final {
+    SeekToFirstImpl();
+    UpdateKey();
+  }
+
+  virtual void SeekToLast() override final {
+    SeekToLastImpl();
+    UpdateKey();
+  }
+
+  virtual void Seek(const Slice& target) override final {
+    SeekImpl(target);
+    UpdateKey();
+  }
+
+  virtual void SeekForPrev(const Slice& target) override final {
+    SeekForPrevImpl(target);
+    UpdateKey();
+  }
+
+  virtual void Next() override final {
+    NextImpl();
+    UpdateKey();
+  }
+
+  virtual bool NextAndGetResult(IterateResult* result) override final {
+    // This does not need to call `UpdateKey()` as the parent class only has
+    // access to the `UpdateKey()`-invoking functions.
+    return InternalIteratorBase<TValue>::NextAndGetResult(result);
+  }
+
+  virtual void Prev() override final {
+    PrevImpl();
+    UpdateKey();
+  }
+
   Status status() const override { return status_; }
   Slice key() const override {
     assert(Valid());
@@ -300,8 +337,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   Cache::Handle* cache_handle() { return cache_handle_; }
 
-  virtual void Next() override = 0;
-
  protected:
   UserComparatorWrapper ucmp_wrapper_;
   InternalKeyComparator icmp_;
@@ -329,13 +364,17 @@ class BlockIter : public InternalIteratorBase<TValue> {
   bool block_contents_pinned_;
   SequenceNumber global_seqno_;
 
+  virtual void SeekToFirstImpl() = 0;
+  virtual void SeekToLastImpl() = 0;
+  virtual void SeekImpl(const Slice& target) = 0;
+  virtual void SeekForPrevImpl(const Slice& target) = 0;
+  virtual void NextImpl() = 0;
+  virtual void PrevImpl() = 0;
+
   // Must be called every time a key is found that needs to be returned to user,
   // and may be called when no key is found (as a no-op). Updates `key_`,
   // `key_buf_`, and `key_pinned_` with info about the found key.
-  //
-  // @param raw_key_cached True if raw_key_ points into a transient buffer like
-  //    `DataBlockIter`'s key cache for reverse scan.
-  void UpdateKey(bool raw_key_cached = false) {
+  void UpdateKey() {
     key_buf_.Clear();
     if (!Valid()) {
       return;
@@ -343,10 +382,10 @@ class BlockIter : public InternalIteratorBase<TValue> {
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
       key_ = raw_key_.GetUserKey();
-      key_pinned_ = raw_key_.IsKeyPinned() && !raw_key_cached;
+      key_pinned_ = raw_key_.IsKeyPinned();
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
       key_ = raw_key_.GetInternalKey();
-      key_pinned_ = raw_key_.IsKeyPinned() && !raw_key_cached;
+      key_pinned_ = raw_key_.IsKeyPinned();
     } else {
       key_buf_.SetInternalKey(raw_key_.GetUserKey(), global_seqno_,
                               ExtractValueType(raw_key_.GetInternalKey()));
@@ -446,36 +485,32 @@ class DataBlockIter final : public BlockIter<Slice> {
     return value_;
   }
 
-  void Seek(const Slice& target) override;
-
   inline bool SeekForGet(const Slice& target) {
     if (!data_block_hash_index_) {
-      Seek(target);
+      SeekImpl(target);
+      UpdateKey();
       return true;
     }
-
-    return SeekForGetImpl(target);
+    bool res = SeekForGetImpl(target);
+    UpdateKey();
+    return res;
   }
-
-  void SeekForPrev(const Slice& target) override;
-
-  void Prev() override;
-
-  void Next() final override;
 
   // Try to advance to the next entry in the block. If there is data corruption
   // or error, report it to the caller instead of aborting the process. May
   // incur higher CPU overhead because we need to perform check on every entry.
-  void NextOrReport();
-
-  void SeekToFirst() override;
+  void NextOrReport() {
+    NextOrReportImpl();
+    UpdateKey();
+  }
 
   // Try to seek to the first entry in the block. If there is data corruption
   // or error, report it to caller instead of aborting the process. May incur
   // higher CPU overhead because we need to perform check on every entry.
-  void SeekToFirstOrReport();
-
-  void SeekToLast() override;
+  void SeekToFirstOrReport() {
+    SeekToFirstOrReportImpl();
+    UpdateKey();
+  }
 
   void Invalidate(Status s) {
     InvalidateBase(s);
@@ -484,6 +519,14 @@ class DataBlockIter final : public BlockIter<Slice> {
     prev_entries_.clear();
     prev_entries_idx_ = -1;
   }
+
+ protected:
+  virtual void SeekToFirstImpl() override;
+  virtual void SeekToLastImpl() override;
+  virtual void SeekImpl(const Slice& target) override;
+  virtual void SeekForPrevImpl(const Slice& target) override;
+  virtual void NextImpl() override;
+  virtual void PrevImpl() override;
 
  private:
   // read-amp bitmap
@@ -520,6 +563,8 @@ class DataBlockIter final : public BlockIter<Slice> {
   inline bool ParseNextDataKey(const char* limit = nullptr);
 
   bool SeekForGetImpl(const Slice& target);
+  void NextOrReportImpl();
+  void SeekToFirstOrReportImpl();
 };
 
 class IndexBlockIter final : public BlockIter<IndexValue> {
@@ -567,6 +612,13 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     }
   }
 
+  void Invalidate(Status s) { InvalidateBase(s); }
+
+  bool IsValuePinned() const override {
+    return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
+  }
+
+ protected:
   // IndexBlockIter follows a different contract for prefix iterator
   // from data iterators.
   // If prefix of the seek key `target` exists in the file, it must
@@ -574,9 +626,9 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   // If the prefix of `target` doesn't exist in the file, it can either
   // return the result of total order seek, or set both of Valid() = false
   // and status() = NotFound().
-  void Seek(const Slice& target) override;
+  void SeekImpl(const Slice& target) override;
 
-  void SeekForPrev(const Slice&) override {
+  void SeekForPrevImpl(const Slice&) override {
     assert(false);
     current_ = restarts_;
     restart_index_ = num_restarts_;
@@ -587,19 +639,13 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
     value_.clear();
   }
 
-  void Prev() override;
+  void PrevImpl() override;
 
-  void Next() override;
+  void NextImpl() override;
 
-  void SeekToFirst() override;
+  void SeekToFirstImpl() override;
 
-  void SeekToLast() override;
-
-  void Invalidate(Status s) { InvalidateBase(s); }
-
-  bool IsValuePinned() const override {
-    return global_seqno_state_ != nullptr ? false : BlockIter::IsValuePinned();
-  }
+  void SeekToLastImpl() override;
 
  private:
   bool value_delta_encoded_;

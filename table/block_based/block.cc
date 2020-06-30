@@ -127,22 +127,15 @@ struct DecodeKeyV4 {
   }
 };
 
-void DataBlockIter::Next() {
-  ParseNextDataKey<DecodeEntry>();
-  UpdateKey();
-}
+void DataBlockIter::NextImpl() { ParseNextDataKey<DecodeEntry>(); }
 
-void DataBlockIter::NextOrReport() {
+void DataBlockIter::NextOrReportImpl() {
   ParseNextDataKey<CheckAndDecodeEntry>();
-  UpdateKey();
 }
 
-void IndexBlockIter::Next() {
-  ParseNextIndexKey();
-  UpdateKey();
-}
+void IndexBlockIter::NextImpl() { ParseNextIndexKey(); }
 
-void IndexBlockIter::Prev() {
+void IndexBlockIter::PrevImpl() {
   assert(Valid());
   // Scan backwards to a restart point before current_
   const uint32_t original = current_;
@@ -159,11 +152,10 @@ void IndexBlockIter::Prev() {
   // Loop until end of current entry hits the start of original entry
   while (ParseNextIndexKey() && NextEntryOffset() < original) {
   }
-  UpdateKey();
 }
 
-// Similar to IndexBlockIter::Prev but also caches the prev entries
-void DataBlockIter::Prev() {
+// Similar to IndexBlockIter::PrevImpl but also caches the prev entries
+void DataBlockIter::PrevImpl() {
   assert(Valid());
 
   assert(prev_entries_idx_ == -1 ||
@@ -190,10 +182,14 @@ void DataBlockIter::Prev() {
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
-    raw_key_.SetKey(current_key, false /* copy */);
+    // TODO(ajkr): the copy when `raw_key_cached` is done here for convenience,
+    // not necessity. It is convenient since this class treats keys as pinned
+    // when `raw_key_` points to an outside buffer. So we cannot allow
+    // `raw_key_` point into Prev cache as it is a transient outside buffer
+    // (i.e., keys in it are not actually pinned).
+    raw_key_.SetKey(current_key, raw_key_cached /* copy */);
     value_ = current_prev_entry.value;
 
-    UpdateKey(raw_key_cached);
     return;
   }
 
@@ -237,10 +233,9 @@ void DataBlockIter::Prev() {
     // Loop until end of current entry hits the start of original entry
   } while (NextEntryOffset() < original);
   prev_entries_idx_ = static_cast<int32_t>(prev_entries_.size()) - 1;
-  UpdateKey();
 }
 
-void DataBlockIter::Seek(const Slice& target) {
+void DataBlockIter::SeekImpl(const Slice& target) {
   Slice seek_key = target;
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
@@ -288,7 +283,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 
   if (entry == kCollision) {
     // HashSeek not effective, falling back
-    Seek(target);
+    SeekImpl(target);
     return true;
   }
 
@@ -368,16 +363,15 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
       value_type != ValueType::kTypeDeletion &&
       value_type != ValueType::kTypeSingleDeletion &&
       value_type != ValueType::kTypeBlobIndex) {
-    Seek(target);
+    SeekImpl(target);
     return true;
   }
 
   // Result found, and the iter is correctly set.
-  UpdateKey();
   return true;
 }
 
-void IndexBlockIter::Seek(const Slice& target) {
+void IndexBlockIter::SeekImpl(const Slice& target) {
   TEST_SYNC_POINT("IndexBlockIter::Seek:0");
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
@@ -418,7 +412,7 @@ void IndexBlockIter::Seek(const Slice& target) {
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 }
 
-void DataBlockIter::SeekForPrev(const Slice& target) {
+void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   PERF_TIMER_GUARD(block_seek_nanos);
   Slice seek_key = target;
   if (data_ == nullptr) {  // Not init yet
@@ -435,44 +429,40 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
-    SeekToLast();
+    SeekToLastImpl();
   } else {
     while (Valid() && CompareCurrentKey(seek_key) > 0) {
-      Prev();
+      PrevImpl();
     }
   }
-  UpdateKey();
 }
 
-void DataBlockIter::SeekToFirst() {
+void DataBlockIter::SeekToFirstImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   SeekToRestartPoint(0);
   ParseNextDataKey<DecodeEntry>();
-  UpdateKey();
 }
 
-void DataBlockIter::SeekToFirstOrReport() {
+void DataBlockIter::SeekToFirstOrReportImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   SeekToRestartPoint(0);
   ParseNextDataKey<CheckAndDecodeEntry>();
-  UpdateKey();
 }
 
-void IndexBlockIter::SeekToFirst() {
+void IndexBlockIter::SeekToFirstImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   status_ = Status::OK();
   SeekToRestartPoint(0);
   ParseNextIndexKey();
-  UpdateKey();
 }
 
-void DataBlockIter::SeekToLast() {
+void DataBlockIter::SeekToLastImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -480,10 +470,9 @@ void DataBlockIter::SeekToLast() {
   while (ParseNextDataKey<DecodeEntry>() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
-  UpdateKey();
 }
 
-void IndexBlockIter::SeekToLast() {
+void IndexBlockIter::SeekToLastImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -492,7 +481,6 @@ void IndexBlockIter::SeekToLast() {
   while (ParseNextIndexKey() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
-  UpdateKey();
 }
 
 template <class TValue>
@@ -657,9 +645,10 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
                                                uint32_t index,
                                                bool skip_linear_scan) {
   // SeekToRestartPoint() only does the lookup in the restart block. We need
-  // to follow it up with Next() to position the iterator at the restart key.
+  // to follow it up with NextImpl() to position the iterator at the restart
+  // key.
   SeekToRestartPoint(index);
-  Next();
+  NextImpl();
 
   if (!skip_linear_scan) {
     // Linear search (within restart block) for first key >= target
@@ -675,7 +664,7 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
       max_offset = port::kMaxUint32;
     }
     while (true) {
-      Next();
+      NextImpl();
       if (!Valid()) {
         break;
       }
