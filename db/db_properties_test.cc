@@ -26,7 +26,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBPropertiesTest : public DBTestBase {
  public:
-  DBPropertiesTest() : DBTestBase("/db_properties_test") {}
+  DBPropertiesTest()
+      : DBTestBase("/db_properties_test", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE

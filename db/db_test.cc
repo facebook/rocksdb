@@ -70,9 +70,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Note that this hope test disables fsync for files and directories.
+// If this logic needs to be covered, put the file in other tests.
 class DBTest : public DBTestBase {
  public:
-  DBTest() : DBTestBase("/db_test") {}
+  DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
 };
 
 class DBTestWithParam
@@ -1788,7 +1790,6 @@ TEST_F(DBTest, Snapshot) {
 TEST_F(DBTest, HiddenValuesAreRemoved) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
-  env_->skip_fsync_ = true;
   do {
     Options options = CurrentOptions(options_override);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -3986,7 +3987,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
   Options options;
-  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -5133,7 +5133,6 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
-  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.write_buffer_size = 100000;  // Small write buffer
@@ -5493,7 +5492,6 @@ TEST_F(DBTest, MergeTestTime) {
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
-  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
