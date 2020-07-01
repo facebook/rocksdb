@@ -288,7 +288,7 @@ endif
 
 ifeq ($(LIB_MODE),shared)
 # So that binaries are executable from build location, in addition to install location
-EXEC_LDFLAGS += -Wl,-rpath='$$ORIGIN'
+EXEC_LDFLAGS += -Wl,-rpath -Wl,'$$ORIGIN'
 endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
@@ -1211,10 +1211,10 @@ filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 ifeq ($(DEBUG_LEVEL),0)
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(TESTUTIL) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 else
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(TEST_LIBRARY) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 endif
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
