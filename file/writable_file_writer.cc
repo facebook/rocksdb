@@ -188,8 +188,8 @@ IOStatus WritableFileWriter::Flush() {
   }
 
   {
-    IOSTATS_TIMER_GUARD(write_nanos);
-    TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
+    // TODO: add IOSTATS_TIMER_GUARD(flush_nanos)
+    TEST_SYNC_POINT("WritableFileWriter::Flush:0");
     FileOperationInfo::TimePoint start_ts;
     if (ShouldNotifyListeners()) {
       start_ts = std::chrono::system_clock::now();
@@ -197,7 +197,7 @@ IOStatus WritableFileWriter::Flush() {
     s = writable_file_->Flush(IOOptions(), nullptr);
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::system_clock::now();
-      NotifyOnFileFlushFinish(next_write_offset_, buf_.CurrentSize(), start_ts,
+      NotifyOnFileFlushFinish(start_ts,
                               finish_ts, s);
     }
   }

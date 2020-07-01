@@ -48,13 +48,10 @@ class WritableFileWriter {
     }
     info.status.PermitUncheckedError();
   }
-  void NotifyOnFileFlushFinish(uint64_t offset, size_t length,
-                               const FileOperationInfo::TimePoint& start_ts,
+  void NotifyOnFileFlushFinish(const FileOperationInfo::TimePoint& start_ts,
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
-    info.offset = offset;
-    info.length = length;
     info.status = io_status;
 
     for (auto& listener : listeners_) {
