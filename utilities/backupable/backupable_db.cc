@@ -1469,7 +1469,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
     // the restored file
     if (!src.empty()) {
       // copying
-      if (IsSstFile(src)) {
+      if (IsSstFile(src) && db_session_id != nullptr) {
         // SST file
         // Ignore the returned status
         // In the failed cases, db_id and db_session_id will be empty
@@ -1716,8 +1716,12 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
   }
 
   if (table_properties != nullptr) {
-    db_id->assign(table_properties->db_id);
+    assert(db_session_id != nullptr);
+    if (db_id != nullptr) {
+      db_id->assign(table_properties->db_id);
+    }
     db_session_id->assign(table_properties->db_session_id);
+
     if (db_session_id->empty()) {
       return Status::NotFound("DB session identity not found in " + file_path);
     }
