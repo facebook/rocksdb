@@ -252,6 +252,11 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
   endif(HAS_ARMV8_CRC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv64")
+  string(APPEND CMAKE_C_STANDARD_LIBRARIES " -latomic")
+  string(APPEND CMAKE_CXX_STANDARD_LIBRARIES " -latomic")
+endif()
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
