@@ -200,8 +200,7 @@ IOStatus WritableFileWriter::Flush() {
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::system_clock::now();
-      NotifyOnFileFlushFinish(start_ts,
-                              finish_ts, s);
+      NotifyOnFileFlushFinish(start_ts, finish_ts, s);
     }
 #endif
   }
@@ -292,11 +291,23 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
   auto prev_perf_level = GetPerfLevel();
   IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
+#ifndef ROCKSDB_LITE
+  FileOperationInfo::TimePoint start_ts;
+  if (ShouldNotifyListeners()) {
+    start_ts = std::chrono::system_clock::now();
+  }
+#endif
   if (use_fsync) {
     s = writable_file_->Fsync(IOOptions(), nullptr);
   } else {
     s = writable_file_->Sync(IOOptions(), nullptr);
   }
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    auto finish_ts = std::chrono::system_clock::now();
+    NotifyOnFileSyncFinish(start_ts, finish_ts, s);
+  }
+#endif
   SetPerfLevel(prev_perf_level);
   return s;
 }

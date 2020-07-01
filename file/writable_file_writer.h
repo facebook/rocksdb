@@ -59,6 +59,17 @@ class WritableFileWriter {
     }
     info.status.PermitUncheckedError();
   }
+  void NotifyOnFileSyncFinish(const FileOperationInfo::TimePoint& start_ts,
+                              const FileOperationInfo::TimePoint& finish_ts,
+                              const IOStatus& io_status) {
+    FileOperationInfo info(file_name_, start_ts, finish_ts);
+    info.status = io_status;
+
+    for (auto& listener : listeners_) {
+      listener->onFileSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }

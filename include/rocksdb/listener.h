@@ -463,6 +463,10 @@ class EventListener {
   // operation finishes.
   virtual void onFileFlushFinish(const FileOperationInfo& /* info */) {}
 
+  // A callback function for RocksDB which will be called whenever a file sync
+  // operation finishes.
+  virtual void onFileSyncFinish(const FileOperationInfo& /* info */) {}
+
   // If true, the OnFile*Finish functions will be called. If
   // false, then they won't be called.
   virtual bool ShouldBeNotifiedOnFileIO() { return false; }
