@@ -188,7 +188,7 @@ IOStatus WritableFileWriter::Flush() {
   }
 
   {
-    // TODO: add IOSTATS_TIMER_GUARD(flush_nanos)
+    IOSTATS_TIMER_GUARD(flush_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Flush:0");
     FileOperationInfo::TimePoint start_ts;
     if (ShouldNotifyListeners()) {
