@@ -154,7 +154,6 @@ IOStatus WritableFileWriter::Close() {
       }
 #endif
     }
-
     if (interim.ok()) {
       {
 #ifndef ROCKSDB_LITE
@@ -193,7 +192,6 @@ IOStatus WritableFileWriter::Close() {
     }
 #endif
   }
-
   if (!interim.ok() && s.ok()) {
     s = interim;
   }
