@@ -34,8 +34,9 @@ static std::string RandomString(Random *rnd, int len) {
   test::RandomString(rnd, len, &r);
   return r;
 }
-std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
-                        Random *rnd) {
+
+std::string GenerateInternalKey(int primary_key, int secondary_key,
+                                int padding_size, Random *rnd) {
   char buf[50];
   char *p = &buf[0];
   snprintf(buf, sizeof(buf), "%6d%4d", primary_key, secondary_key);
@@ -62,7 +63,8 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   for (int i = from; i < from + len; i += step) {
     // generating keys that shares the prefix
     for (int j = 0; j < keys_share_prefix; ++j) {
-      keys->emplace_back(GenerateKey(i, j, padding_size, &rnd));
+      // `DataBlockIter` assumes it reads only internal keys.
+      keys->emplace_back(GenerateInternalKey(i, j, padding_size, &rnd));
 
       // 100 bytes values
       values->emplace_back(RandomString(&rnd, 100));
@@ -177,7 +179,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   // simply be set as invalid; whereas the binary search based iterator will
   // return the one that is closest.
   for (int i = 1; i < max_key - 1; i += 2) {
-    auto key = GenerateKey(i, 0, 0, nullptr);
+    // `DataBlockIter` assumes its APIs receive only internal keys.
+    auto key = GenerateInternalKey(i, 0, 0, nullptr);
     regular_iter->Seek(key);
     ASSERT_TRUE(regular_iter->Valid());
   }

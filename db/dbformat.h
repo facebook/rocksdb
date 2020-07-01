@@ -211,11 +211,15 @@ class InternalKeyComparator
   std::string name_;
 
  public:
+  // `InternalKeyComparator`s constructed with the default constructor are not
+  // usable and will segfault on any attempt to use them for comparisons.
   InternalKeyComparator() = default;
 
   // @param named If true, assign a name to this comparator based on the
-  //    underlying comparator's name. Otherwise, use a generic name to save an
-  //    allocation and copy.
+  //    underlying comparator's name. This involves an allocation and copy in
+  //    this constructor to precompute the result of `Name()`. To avoid this
+  //    overhead, set `named` to false. In that case, `Name()` will return a
+  //    generic name that is non-specific to the underlying comparator.
   explicit InternalKeyComparator(const Comparator* c, bool named = true)
       : Comparator(c->timestamp_size()), user_comparator_(c) {
     if (named) {
@@ -239,6 +243,10 @@ class InternalKeyComparator
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  // In this `Compare()` overload, the sequence numbers provided in
+  // `a_global_seqno` and `b_global_seqno` override the sequence numbers in `a`
+  // and `b`, respectively. To disable sequence number override(s), provide the
+  // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
   virtual const Comparator* GetRootComparator() const override {
@@ -717,7 +725,7 @@ inline int InternalKeyComparator::Compare(const Slice& a,
     if (a_footer > b_footer) {
       r = -1;
     } else if (a_footer < b_footer) {
-      r = 1;
+      r = +1;
     }
   }
   return r;
