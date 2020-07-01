@@ -129,12 +129,14 @@ class BackupEngineImpl : public BackupEngine {
   }
 
   Status VerifyBackup(BackupID backup_id,
-                      bool verify_with_checksum = true) override;
+                      bool verify_with_checksum = false) override;
 
   Status Initialize();
 
-  // Whether new naming for backup files is used or not
-  bool UseNewNaming() const { return options_.new_naming_for_backup_files; }
+  // Obtain the naming option for backup table files
+  BackupTableNameOption GetTableNamingOption() const {
+    return options_.share_files_with_checksum_naming;
+  }
 
  private:
   void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
@@ -299,17 +301,19 @@ class BackupEngineImpl : public BackupEngine {
     return GetSharedChecksumDirRel() + "/" + (tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
-  // If UseNewNaming() && !db_session_id.empty(), backup SST filenames consist
-  // of file_number, crc32c, db_session_id.
-  // Otherwise, backup SST filenames consist of file_number, crc32c, file_size
+  // If kChecksumAndDbSessionId is the naming option and db_session_id is not
+  // empty, backup SST filenames consist of file_number, crc32c, db_session_id.
+  // Otherwise, backup SST filenames consist of file_number, crc32c, file_size.
   inline std::string GetSharedFileWithChecksum(
       const std::string& file, const uint32_t checksum_value,
       const uint64_t file_size, const std::string& db_session_id) const {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
-    const std::string suffix = UseNewNaming() && !db_session_id.empty()
-                                   ? db_session_id
-                                   : ROCKSDB_NAMESPACE::ToString(file_size);
+    const std::string suffix =
+        GetTableNamingOption() == kChecksumAndDbSessionId &&
+                !db_session_id.empty()
+            ? db_session_id
+            : ROCKSDB_NAMESPACE::ToString(file_size);
     return file_copy.insert(
         file_copy.find_last_of('.'),
         "_" + ROCKSDB_NAMESPACE::ToString(checksum_value) + "_" + suffix);
@@ -1457,7 +1461,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   if (s.ok()) {
     s = dest_writer->Close();
   }
-  if (s.ok() && UseNewNaming()) {
+  if (s.ok() && GetTableNamingOption() == kChecksumAndDbSessionId) {
     // When copying SST files and using db_session_id in the name,
     // try to get DB identities
     // Note that when CopyOrCreateFile() is called while restoring, we still
@@ -1503,7 +1507,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     if (!s.ok()) {
       return s;
     }
-    if (UseNewNaming()) {
+    if (GetTableNamingOption() == kChecksumAndDbSessionId) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
@@ -1565,7 +1569,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   } else if (shared && (same_path || file_exists)) {
     need_to_copy = false;
     if (shared_checksum) {
-      if (UseNewNaming() && !db_session_id.empty()) {
+      if (GetTableNamingOption() == kChecksumAndDbSessionId &&
+          !db_session_id.empty()) {
         ROCKS_LOG_INFO(options_.info_log,
                        "%s already present, with checksum %u, size %" PRIu64
                        " and DB session identity %s",
@@ -1598,7 +1603,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       }
       // try to get the db identities as they are also members of
       // the class CopyOrCreateResult
-      if (UseNewNaming()) {
+      if (GetTableNamingOption() == kChecksumAndDbSessionId) {
         assert(IsSstFile(fname));
         ROCKS_LOG_INFO(options_.info_log,
                        "%s checksum checksum calculated, try to obtain DB "
@@ -1683,11 +1688,12 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
                                              const std::string& file_path,
                                              std::string* db_id,
                                              std::string* db_session_id) {
-  // Prepare the full_path of file_path under src_env for SstFileDumper
+  // // Prepare the full_path of file_path under src_env for SstFileDumper
   std::string full_path;
   src_env->GetAbsolutePath(file_path, &full_path);
-
-  SstFileDumper sst_reader(Options(), full_path,
+  Options options;
+  options.env = src_env;
+  SstFileDumper sst_reader(options, full_path,
                            2 * 1024 * 1024
                            /* readahead_size */,
                            false /* verify_checksum */, false /* output_hex */,
@@ -2160,7 +2166,7 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   }
 
   Status VerifyBackup(BackupID backup_id,
-                      bool verify_with_checksum = true) override {
+                      bool verify_with_checksum = false) override {
     return backup_engine_->VerifyBackup(backup_id, verify_with_checksum);
   }
 

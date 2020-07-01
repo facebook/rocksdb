@@ -1101,7 +1101,7 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
   // file checksums mismatch
   ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
   // sanity check, use default second argument
-  ASSERT_NOK(backup_engine_->VerifyBackup(1));
+  ASSERT_OK(backup_engine_->VerifyBackup(1));
   CloseDBAndBackupEngine();
 
   // an extra challenge
@@ -1370,11 +1370,12 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   }
 }
 
-//  Verify backup and restore with share_files_with_checksum and
-//  new_naming_for_backup_files on
+//  Verify backup and restore with share_files_with_checksum on and
+//  share_files_with_checksum_naming = kChecksumAndDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
   // Use session id in the name of SST file backup
-  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kChecksumAndDbSessionId);
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   for (int i = 0; i < 5; ++i) {
@@ -1390,13 +1391,15 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
 }
 
 // Verify backup and restore with share_files_with_checksum off and then
-// transition this option and new_naming_for_backup_files to be on
+// transition this option and share_files_with_checksum_naming to be
+// kChecksumAndDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   const int keys_iteration = 5000;
-  // We may set new_naming_for_backup_files to false here
-  // but even if it is true, it should have no effect when
+  // We may set share_files_with_checksum_naming to kChecksumAndFileSize
+  // here but even if we don't, it should have no effect when
   // share_files_with_checksum is false
-  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kChecksumAndDbSessionId);
   // set share_files_with_checksum to false
   OpenDBAndBackupEngine(true, false, kShareNoChecksum);
   for (int i = 0; i < 5; ++i) {
@@ -1412,7 +1415,8 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 
   // set share_files_with_checksum to true and do some more backups
   // and use session id in the name of SST file backup
-  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kChecksumAndDbSessionId);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   for (int i = 5; i < 10; ++i) {
@@ -1426,8 +1430,9 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 
   // For an extra challenge, make sure that GarbageCollect / DeleteBackup
   // is OK even if we open without share_table_files but with
-  // new_naming_for_backup_files on
-  ASSERT_TRUE(backupable_options_->new_naming_for_backup_files);
+  // share_files_with_checksum_naming being kChecksumAndDbSessionId
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kChecksumAndDbSessionId);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(1);
   backup_engine_->GarbageCollect();
@@ -1436,9 +1441,10 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   // Verify second (about to delete)
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 11);
 
-  // Turn off new_naming_for_backup_files and open without share_table_files
+  // Use checksum and file size for backup table file names and open without
+  // share_table_files
   // Again, make sure that GarbageCollect / DeleteBackup is OK
-  backupable_options_->new_naming_for_backup_files = false;
+  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(2);
   backup_engine_->GarbageCollect();
@@ -1451,11 +1457,10 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   }
 }
 
-// Verify backup and restore with share_files_with_checksum on but
-// new_naming_for_backup_files off, then transition new_naming_for_backup_files
-// to be on
+// Verify backup and restore with share_files_with_checksum on and transition
+// from kChecksumAndFileSize to kChecksumAndDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
-  backupable_options_->new_naming_for_backup_files = false;
+  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
   const int keys_iteration = 5000;
   // set share_files_with_checksum to true
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
@@ -1470,8 +1475,8 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
                             keys_iteration * 6);
   }
 
-  // set new_naming_for_backup_files to true and do some more backups
-  backupable_options_->new_naming_for_backup_files = true;
+  backupable_options_->share_files_with_checksum_naming =
+      kChecksumAndDbSessionId;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   for (int i = 5; i < 10; ++i) {
@@ -1493,9 +1498,10 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   // Verify second (about to delete)
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 11);
 
-  // Turn off new_naming_for_backup_files and open without share_table_files
+  // Use checksum and file size for backup table file names and open without
+  // share_table_files
   // Again, make sure that GarbageCollect / DeleteBackup is OK
-  backupable_options_->new_naming_for_backup_files = false;
+  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(2);
   backup_engine_->GarbageCollect();
