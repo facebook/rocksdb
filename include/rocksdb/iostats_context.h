@@ -44,8 +44,6 @@ struct IOStatsContext {
   uint64_t prepare_write_nanos;
   // time spent in Logger::Logv().
   uint64_t logger_nanos;
-  // time spent in flush().
-  uint64_t flush_nanos;
   // CPU time spent in write() and pwrite()
   uint64_t cpu_write_nanos;
   // CPU time spent in read() and pread()
