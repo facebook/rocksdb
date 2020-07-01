@@ -70,8 +70,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Note that this hope test disables fsync for files and directories.
-// If this logic needs to be covered, put the file in other tests.
+// Note that the whole DBTest and its child classes disables fsync on files
+// and directories for speed.
+// If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
  public:
   DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
