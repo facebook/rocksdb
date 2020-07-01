@@ -122,7 +122,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
-        DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+        DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
         dbi->TEST_FlushMemTable();
       }
 
@@ -227,7 +227,7 @@ class ColumnFamilyTestBase : public testing::Test {
     Open({"default"});
   }
 
-  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   int GetProperty(int cf, std::string property) {
     std::string value;
@@ -570,7 +570,7 @@ TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
     Open();
     CreateColumnFamilies({"one", "two", "three"});
     for (size_t i = 0; i < handles_.size(); ++i) {
-      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[i]);
       ASSERT_EQ(i, cfh->GetID());
     }
     if (iter == 1) {
@@ -586,7 +586,7 @@ TEST_P(ColumnFamilyTest, DontReuseColumnFamilyID) {
     CreateColumnFamilies({"three2"});
     // ID 3 that was used for dropped column family "three" should not be
     // reused
-    auto cfh3 = reinterpret_cast<ColumnFamilyHandleImpl*>(handles_[3]);
+    auto cfh3 = static_cast_with_check<ColumnFamilyHandleImpl>(handles_[3]);
     ASSERT_EQ(4U, cfh3->GetID());
     Close();
     Destroy();
@@ -3354,7 +3354,7 @@ TEST_P(ColumnFamilyTest, MultipleCFPathsTest) {
 
   // Re-open and verify the keys.
   Reopen({ColumnFamilyOptions(), cf_opt1, cf_opt2});
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   for (int cf = 1; cf != 3; ++cf) {
     ReadOptions read_options;
     read_options.readahead_size = 0;

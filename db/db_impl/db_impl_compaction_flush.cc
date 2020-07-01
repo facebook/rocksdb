@@ -695,7 +695,7 @@ void DBImpl::NotifyOnFlushCompleted(
 Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
                             const Slice* begin, const Slice* end) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
   if (options.target_path_id >= cfd->ioptions()->cf_paths.size()) {
@@ -885,7 +885,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
   }
 
-  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   assert(cfd);
 
   Status s;
@@ -1359,7 +1360,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 }
 
 int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   return cfh->cfd()->NumberLevels();
 }
 
@@ -1368,7 +1369,7 @@ int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* /*column_family*/) {
 }
 
 int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   InstrumentedMutexLock l(&mutex_);
   return cfh->cfd()
       ->GetSuperVersion()
@@ -1377,7 +1378,7 @@ int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      ColumnFamilyHandle* column_family) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
                  cfh->GetName().c_str());
   Status s;

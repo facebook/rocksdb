@@ -32,6 +32,7 @@
 #include "table/table_builder.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
@@ -146,9 +147,7 @@ class PlainTableDBTest : public testing::Test,
     return options;
   }
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   void Reopen(Options* options = nullptr) {
     ASSERT_OK(TryReopen(options));

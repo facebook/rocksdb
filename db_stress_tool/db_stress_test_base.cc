@@ -1504,7 +1504,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   Slice key = keystr;
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 #ifndef ROCKSDB_LITE
-  auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
+  auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
   const bool ww_snapshot = thread->rand.OneIn(10);
   const Snapshot* snapshot =
       ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()

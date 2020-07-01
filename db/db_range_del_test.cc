@@ -459,7 +459,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
   // probably means universal compaction + subcompaction + range deletion are
   // compatible.
   ASSERT_OK(dbfull()->RunManualCompaction(
-      reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd(),
       1 /* input_level */, 2 /* output_level */, CompactRangeOptions(),
       nullptr /* begin */, nullptr /* end */, true /* exclusive */,
