@@ -139,9 +139,38 @@ IOStatus WritableFileWriter::Close() {
   // In direct I/O mode we write whole pages so
   // we need to let the file know where data ends.
   if (use_direct_io()) {
-    interim = writable_file_->Truncate(filesize_, IOOptions(), nullptr);
+    {
+#ifndef ROCKSDB_LITE
+      FileOperationInfo::TimePoint start_ts;
+      if (ShouldNotifyListeners()) {
+        start_ts == std::chrono::system_clock::now();
+      }
+#endif
+      interim = writable_file_->Truncate(filesize_, IOOptions(), nullptr);
+#ifndef ROCKSDB_LITE
+      if (ShouldNotifyListeners()) {
+        auto finish_ts = std::chrono::system_clock::now();
+        NotifyOnFileTruncateFinish(start_ts, finish_ts, s);
+      }
+#endif
+    }
+
     if (interim.ok()) {
-      interim = writable_file_->Fsync(IOOptions(), nullptr);
+      {
+#ifndef ROCKSDB_LITE
+        FileOperationInfo::TimePoint start_ts;
+        if (ShouldNotifyListeners()) {
+          start_ts == std::chrono::system_clock::now();
+        }
+#endif
+        interim = writable_file_->Fsync(IOOptions(), nullptr);
+#ifndef ROCKSDB_LITE
+        if (ShouldNotifyListeners()) {
+          auto finish_ts = std::chrono::system_clock::now();
+          NotifyOnFileSyncFinish(start_ts, finish_ts, s);
+        }
+#endif
+      }
     }
     if (!interim.ok() && s.ok()) {
       s = interim;
@@ -149,7 +178,22 @@ IOStatus WritableFileWriter::Close() {
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
-  interim = writable_file_->Close(IOOptions(), nullptr);
+  {
+#ifndef ROCKSDB_LITE
+    FileOperationInfo::TimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts == std::chrono::system_clock::now();
+    }
+#endif
+    interim = writable_file_->Close(IOOptions(), nullptr);
+#ifndef ROCKSDB_LITE
+    if (ShouldNotifyListeners()) {
+      auto finish_ts = std::chrono::system_clock::now();
+      NotifyOnFileCloseFinish(start_ts, finish_ts, s);
+    }
+#endif
+  }
+
   if (!interim.ok() && s.ok()) {
     s = interim;
   }
@@ -314,7 +358,20 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
 IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   IOSTATS_TIMER_GUARD(range_sync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
-  return writable_file_->RangeSync(offset, nbytes, IOOptions(), nullptr);
+#ifndef ROCKSDB_LITE
+  FileOperationInfo::TimePoint start_ts;
+  if (ShouldNotifyListeners()) {
+    start_ts = std::chrono::system_clock::now();
+  }
+#endif
+  IOStatus s = writable_file_->RangeSync(offset, nbytes, IOOptions(), nullptr);
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    auto finish_ts = std::chrono::system_clock::now();
+    NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
+  }
+#endif
+  return s;
 }
 
 // This method writes to disk the specified data and makes use of the rate

@@ -467,6 +467,18 @@ class EventListener {
   // operation finishes.
   virtual void onFileSyncFinish(const FileOperationInfo& /* info */) {}
 
+  // A callback function for RocksDB which will be called whenever a file
+  // rangeSync operation finishes.
+  virtual void onFileRangeSyncFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file
+  // truncate operation finishes.
+  virtual void onFileTruncateFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file close
+  // operation finishes.
+  virtual void onFileCloseFinish(const FileOperationInfo& /* info */) {}
+
   // If true, the OnFile*Finish functions will be called. If
   // false, then they won't be called.
   virtual bool ShouldBeNotifiedOnFileIO() { return false; }
