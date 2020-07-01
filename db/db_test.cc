@@ -1421,7 +1421,9 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
     keys[i * 3 + 1] = i * 5 + 1;
     keys[i * 3 + 2] = i * 5 + 2;
   }
-  RandomShuffle(std::begin(keys), std::end(keys));
+  // MemTable entry counting is estimated and can vary greatly depending on
+  // layout. Thus, using deterministic seed for test stability.
+  RandomShuffle(std::begin(keys), std::end(keys), rnd.Next());
 
   for (int i = 0; i < N * 3; i++) {
     ASSERT_OK(Put(Key(keys[i] + 1000), RandomString(&rnd, 1024)));
