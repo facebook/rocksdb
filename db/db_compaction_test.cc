@@ -3223,7 +3223,6 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
       ASSERT_OK(Put(Key(i + 1), value));
     }
     ASSERT_OK(Flush());
-    ASSERT_EQ(i + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   }
   dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
