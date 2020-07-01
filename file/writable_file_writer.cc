@@ -190,16 +190,20 @@ IOStatus WritableFileWriter::Flush() {
   {
     IOSTATS_TIMER_GUARD(flush_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Flush:0");
+#ifndef ROCKSDB_LITE
     FileOperationInfo::TimePoint start_ts;
     if (ShouldNotifyListeners()) {
       start_ts = std::chrono::system_clock::now();
     }
+#endif
     s = writable_file_->Flush(IOOptions(), nullptr);
+#ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::system_clock::now();
       NotifyOnFileFlushFinish(start_ts,
                               finish_ts, s);
     }
+#endif
   }
 
   if (!s.ok()) {
