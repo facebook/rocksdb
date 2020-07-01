@@ -231,8 +231,8 @@ LIB_SOURCES += utilities/env_librados.cc
 LDFLAGS += -lrados
 endif
 
-AM_LINK = $(AM_V_CCLD)$(CXX) $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ -L. $(LDFLAGS) $(COVERAGEFLAGS)
-AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(LDFLAGS) -o $@
+AM_LINK = $(AM_V_CCLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(LDFLAGS) -o $@
 
 # Detect what platform we're building on.
 # Export some common variables that might have been passed as Make variables
@@ -616,7 +616,7 @@ ALL_STATIC_LIBS = $(STATIC_LIBRARY) $(STATIC_TEST_LIBRARY) $(STATIC_TOOLS_LIBRAR
 SHARED_TEST_LIBRARY =  ${LIBNAME}_test$(LIBDEBUG).$(PLATFORM_SHARED_EXT)
 SHARED_TOOLS_LIBRARY = ${LIBNAME}_tools$(LIBDEBUG).$(PLATFORM_SHARED_EXT)
 SHARED_STRESS_LIBRARY = ${LIBNAME}_stress$(LIBDEBUG).$(PLATFORM_SHARED_EXT)
- 
+
 ALL_SHARED_LIBS = $(SHARED1) $(SHARED2) $(SHARED3) $(SHARED4) $(SHARED_TEST_LIBRARY) $(SHARED_TOOLS_LIBRARY) $(SHARED_STRESS_LIBRARY)
 
 ifeq ($(LIB_MODE),shared)
@@ -674,7 +674,7 @@ $(SHARED3): $(SHARED4)
 
 endif   # PLATFORM_SHARED_VERSIONED
 $(SHARED4): $(LIB_OBJECTS)
-	$(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_OBJECTS) $(LDFLAGS) -o $@
+	$(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(LIB_OBJECTS) $(LDFLAGS) -o $@
 endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
@@ -1211,7 +1211,7 @@ filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 ifeq ($(DEBUG_LEVEL),0)
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 else
 db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(TEST_LIBRARY) $(LIBRARY)
