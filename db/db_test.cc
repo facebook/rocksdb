@@ -70,7 +70,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// Note that the whole DBTest and its child classes disables fsync on files
+// Note that whole DBTest and its child classes disable fsync on files
 // and directories for speed.
 // If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
