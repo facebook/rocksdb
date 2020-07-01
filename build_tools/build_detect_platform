@@ -151,7 +151,7 @@ case "$TARGET_OS" in
         else
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
         if test $ROCKSDB_USE_IO_URING; then
             # check for liburing
             $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
@@ -296,24 +296,32 @@ EOF
         # Test whether gflags library is installed
         # http://gflags.github.io/gflags/
         # check if the namespace is gflags
-        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        if $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
           #include <gflags/gflags.h>
+          using namespace GFLAGS_NAMESPACE;
           int main() {}
 EOF
-        if [ "$?" = 0 ]; then
-            COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-        else
-          # check if namespace is google
-          $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        # check if namespace is gflags
+        elif $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+            #include <gflags/gflags.h>
+            using namespace gflags;
+            int main() {}
+EOF
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=gflags"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        # check if namespace is google
+        elif $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
             #include <gflags/gflags.h>
             using namespace google;
             int main() {}
 EOF
-          if [ "$?" = 0 ]; then
-              COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-              PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-          fi
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=google"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         fi
     fi
 
@@ -441,7 +449,7 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
         fi
     fi
-    
+
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
         $CXX $CFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o /dev/null 2>/dev/null  <<EOF
@@ -457,7 +465,7 @@ EOF
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
         fi
     fi
-    
+
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF

@@ -2854,7 +2854,7 @@ TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresent) {
   auto snap = dbfull()->GetSnapshot();
 
   std::string fname = sst_files_dir_ + "test_file";
-  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ROCKSDB_NAMESPACE::SstFileWriter writer(EnvOptions(), options);
   ASSERT_OK(writer.Open(fname));
   std::string key1 = "ab";
   std::string key2 = "ab";
@@ -2904,7 +2904,7 @@ TEST_P(ExternalSSTFileTest,
   ASSERT_OK(Put(key0, value));
 
   std::string fname = sst_files_dir_ + "test_file";
-  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ROCKSDB_NAMESPACE::SstFileWriter writer(EnvOptions(), options);
   ASSERT_OK(writer.Open(fname));
 
   // key0 is a dummy to ensure the turnaround point (key1) comes from Prev

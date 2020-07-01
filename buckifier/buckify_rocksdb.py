@@ -48,8 +48,8 @@ def parse_src_mk(repo_path):
         if '=' in line:
             current_src = line.split('=')[0].strip()
             src_files[current_src] = []
-        elif '.cc' in line:
-            src_path = line.split('.cc')[0].strip() + '.cc'
+        elif '.c' in line:
+            src_path = line.split('\\')[0].strip()
             src_files[current_src].append(src_path)
     return src_files
 
@@ -69,27 +69,11 @@ def get_cc_files(repo_path):
     return cc_files
 
 
-# Get tests from Makefile
-def get_tests(repo_path):
+# Get parallel tests from Makefile
+def get_parallel_tests(repo_path):
     Makefile = repo_path + "/Makefile"
 
-    # Dictionary TEST_NAME => IS_PARALLEL
-    tests = {}
-
-    found_tests = False
-    for line in open(Makefile):
-        line = line.strip()
-        if line.startswith("TESTS ="):
-            found_tests = True
-        elif found_tests:
-            if line.endswith("\\"):
-                # remove the trailing \
-                line = line[:-1]
-                line = line.strip()
-                tests[line] = False
-            else:
-                # we consumed all the tests
-                break
+    s = set({})
 
     found_parallel_tests = False
     for line in open(Makefile):
@@ -101,12 +85,12 @@ def get_tests(repo_path):
                 # remove the trailing \
                 line = line[:-1]
                 line = line.strip()
-                tests[line] = True
+                s.add(line)
             else:
                 # we consumed all the parallel tests
                 break
 
-    return tests
+    return s
 
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
@@ -139,10 +123,10 @@ def generate_targets(repo_path, deps_map):
     src_mk = parse_src_mk(repo_path)
     # get all .cc files
     cc_files = get_cc_files(repo_path)
-    # get tests from Makefile
-    tests = get_tests(repo_path)
+    # get parallel tests from Makefile
+    parallel_tests = get_parallel_tests(repo_path)
 
-    if src_mk is None or cc_files is None or tests is None:
+    if src_mk is None or cc_files is None or parallel_tests is None:
         return False
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
@@ -178,32 +162,35 @@ def generate_targets(repo_path, deps_map):
         + ["test_util/testutil.cc"])
 
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
-    # test for every test we found in the Makefile
+
+    # Dictionary test executable name -> relative source file path
+    test_source_map = {}
+    print(src_mk)
+    test_main_sources = src_mk.get("TEST_MAIN_SOURCES", []) + \
+        src_mk.get("TEST_MAIN_SOURCES_C", [])
+    for test_src in test_main_sources:
+        test = test_src.split('.c')[0].strip().split('/')[-1].strip()
+        test_source_map[test] = test_src
+        print("" + test + " " + test_src)
+
     for target_alias, deps in deps_map.items():
-        for test in sorted(tests):
-            match_src = [src for src in cc_files if ("/%s.c" % test) in src]
-            if len(match_src) == 0:
-                print(ColorString.warning("Cannot find .cc file for %s" % test))
-                continue
-            elif len(match_src) > 1:
-                print(ColorString.warning("Found more than one .cc for %s" % test))
-                print(match_src)
+        for test, test_src in sorted(test_source_map.items()):
+            if len(test) == 0:
+                print(ColorString.warning("Failed to get test name for %s" % test_src))
                 continue
 
-            assert(len(match_src) == 1)
-            is_parallel = tests[test]
             test_target_name = \
                 test if not target_alias else test + "_" + target_alias
             TARGETS.register_test(
                 test_target_name,
-                match_src[0],
-                is_parallel,
+                test_src,
+                test in parallel_tests,
                 json.dumps(deps['extra_deps']),
                 json.dumps(deps['extra_compiler_flags']))
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
-                TARGETS.add_library(test_library, match_src, [":rocksdb_test_lib"])
+                TARGETS.add_library(test_library, [test_src], [":rocksdb_test_lib"])
     TARGETS.flush_tests()
 
     print(ColorString.info("Generated TARGETS Summary:"))
