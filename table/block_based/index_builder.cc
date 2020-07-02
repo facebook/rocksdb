@@ -112,7 +112,6 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
           ? sub_index_builder_->index_block_builder_
           : sub_index_builder_->index_block_builder_without_seq_));
   partition_cut_requested_ = false;
-  seperator_is_key_plus_seq_ = false;
 }
 
 void PartitionedIndexBuilder::RequestPartitionCut() {
@@ -130,15 +129,9 @@ void PartitionedIndexBuilder::AddIndexEntry(
     }
     sub_index_builder_->AddIndexEntry(last_key_in_current_block,
                                       first_key_in_next_block, block_handle);
-    if (!seperator_is_key_plus_seq_ &&
-        sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders and reset
-      // flush_policy to point to Block Builder of sub_index_builder_ that store
-      // internal keys.
+    if (sub_index_builder_->seperator_is_key_plus_seq_) {
+      // then we need to apply it to all sub-index builders
       seperator_is_key_plus_seq_ = true;
-      flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
-          table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-          sub_index_builder_->index_block_builder_));
     }
     sub_index_last_key_ = std::string(*last_key_in_current_block);
     entries_.push_back(
@@ -168,14 +161,8 @@ void PartitionedIndexBuilder::AddIndexEntry(
     sub_index_builder_->AddIndexEntry(last_key_in_current_block,
                                       first_key_in_next_block, block_handle);
     sub_index_last_key_ = std::string(*last_key_in_current_block);
-    if (!seperator_is_key_plus_seq_ &&
-        sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders and reset
-      // flush_policy to point to Block Builder of sub_index_builder_ that store
-      // internal keys.
-      flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
-          table_opt_.metadata_block_size, table_opt_.block_size_deviation,
-          sub_index_builder_->index_block_builder_));
+    if (sub_index_builder_->seperator_is_key_plus_seq_) {
+      // then we need to apply it to all sub-index builders
       seperator_is_key_plus_seq_ = true;
     }
   }

@@ -22,7 +22,6 @@
 
 ### Bug Fixes
 * Fail recovery and report once hitting a physical log record checksum mismatch, while reading MANIFEST. RocksDB should not continue processing the MANIFEST any further.
-* Fix a bug when index_type == kTwoLevelIndexSearch in PartitionedIndexBuilder to update FlushPolicy to point to internal key partitioner when it changes from user-key mode to internal-key mode in index partition.
 
 ## 6.11 (6/12/2020)
 ### Bug Fixes
