@@ -143,7 +143,7 @@ IOStatus WritableFileWriter::Close() {
 #ifndef ROCKSDB_LITE
       FileOperationInfo::TimePoint start_ts;
       if (ShouldNotifyListeners()) {
-        start_ts == std::chrono::system_clock::now();
+        start_ts = std::chrono::system_clock::now();
       }
 #endif
       interim = writable_file_->Truncate(filesize_, IOOptions(), nullptr);
@@ -159,7 +159,7 @@ IOStatus WritableFileWriter::Close() {
 #ifndef ROCKSDB_LITE
         FileOperationInfo::TimePoint start_ts;
         if (ShouldNotifyListeners()) {
-          start_ts == std::chrono::system_clock::now();
+          start_ts = std::chrono::system_clock::now();
         }
 #endif
         interim = writable_file_->Fsync(IOOptions(), nullptr);
@@ -181,7 +181,7 @@ IOStatus WritableFileWriter::Close() {
 #ifndef ROCKSDB_LITE
     FileOperationInfo::TimePoint start_ts;
     if (ShouldNotifyListeners()) {
-      start_ts == std::chrono::system_clock::now();
+      start_ts = std::chrono::system_clock::now();
     }
 #endif
     interim = writable_file_->Close(IOOptions(), nullptr);
