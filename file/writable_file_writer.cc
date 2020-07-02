@@ -230,7 +230,6 @@ IOStatus WritableFileWriter::Flush() {
   }
 
   {
-    TEST_SYNC_POINT("WritableFileWriter::Flush:0");
 #ifndef ROCKSDB_LITE
     FileOperationInfo::TimePoint start_ts;
     if (ShouldNotifyListeners()) {
