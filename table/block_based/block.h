@@ -229,6 +229,25 @@ class Block {
   DataBlockHashIndex data_block_hash_index_;
 };
 
+// A `BlockIter` iterates over the entries in a `Block`'s data buffer. The
+// format of this data buffer is an uncompressed, sorted sequence of key-value
+// pairs (see `Block` API for more details).
+//
+// Notably, the keys may either be in internal key format or user key format.
+// Subclasses are responsible for configuring the key format.
+//
+// `BlockIter` intends to provide final overrides for all of
+// `InternalIteratorBase` functions that can move the iterator. It does
+// this to guarantee `UpdateKey()` is called exactly once after each key
+// movement potentially visible to users. In this step, the key is prepared
+// (e.g., serialized if global seqno is in effect) so it can be returned
+// immediately when the user asks for it via calling `key() const`.
+//
+// For its subclasses, it provides protected variants of the above-mentioned
+// final-overridden methods. They are named with the "Impl" suffix, e.g.,
+// `Seek()` logic would be implemented by subclasses in `SeekImpl()`. These
+// "Impl" functions are responsible for positioning `raw_key_` but not
+// invoking `UpdateKey()`.
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:

@@ -268,6 +268,7 @@ class KeyConvertingIterator : public InternalIterator {
   void operator=(const KeyConvertingIterator&);
 };
 
+// `BlockConstructor` APIs always accept/return user keys.
 class BlockConstructor : public Constructor {
  public:
   explicit BlockConstructor(const Comparator* cmp)
@@ -284,6 +285,9 @@ class BlockConstructor : public Constructor {
     BlockBuilder builder(table_options.block_restart_interval);
 
     for (const auto& kv : kv_map) {
+      // `DataBlockIter` assumes it reads only internal keys. `BlockConstructor`
+      // clients provide user keys, so we need to convert to internal key format
+      // before writing the data block.
       ParsedInternalKey ikey(kv.first, kMaxSequenceNumber, kTypeValue);
       std::string encoded;
       AppendInternalKey(&encoded, ikey);
@@ -298,6 +302,9 @@ class BlockConstructor : public Constructor {
   }
   InternalIterator* NewIterator(
       const SliceTransform* /*prefix_extractor*/) const override {
+    // `DataBlockIter` returns the internal keys it reads.
+    // `KeyConvertingIterator` converts them to user keys before they are
+    // exposed to the `BlockConstructor` clients.
     return new KeyConvertingIterator(
         block_->NewDataIterator(comparator_, kDisableGlobalSequenceNumber));
   }
