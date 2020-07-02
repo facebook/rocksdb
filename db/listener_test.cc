@@ -1081,12 +1081,14 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   Reopen(options);
   ASSERT_GE(listener->file_reads_.load(), listener->file_reads_success_.load());
   ASSERT_GT(listener->file_reads_.load(), 0);
-  ASSERT_GE(listener->file_closes_.load(), listener->file_closes_success_.load());
+  ASSERT_GE(listener->file_closes_.load(),
+            listener->file_closes_success_.load());
   ASSERT_GT(listener->file_closes_.load(), 0);
   ASSERT_GE(listener->file_syncs_.load(), listener->file_syncs_success_.load());
   ASSERT_GT(listener->file_syncs_.load(), 0);
-  // TODO: add the following tests only if (WriteableFile::use_direct_io() == true).
-  // ASSERT_GE(listener->file_truncates_.load(), listener->file_truncates_success_.load());
+  // TODO: add the following tests only if (WriteableFile::use_direct_io() ==
+  // true). ASSERT_GE(listener->file_truncates_.load(),
+  // listener->file_truncates_success_.load());
   // ASSERT_GT(listener->file_truncates_.load(), 0);
 }
 
