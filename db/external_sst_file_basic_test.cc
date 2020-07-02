@@ -20,8 +20,7 @@ class ExternalSSTFileBasicTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileBasicTest()
-      : DBTestBase("/external_sst_file_basic_test", /*env_do_fsync=*/true) {
+  ExternalSSTFileBasicTest() : DBTestBase("/external_sst_file_basic_test") {
     sst_files_dir_ = dbname_ + "/sst_files/";
     fault_injection_test_env_.reset(new FaultInjectionTestEnv(Env::Default()));
     DestroyAndRecreateExternalSSTFilesDir();

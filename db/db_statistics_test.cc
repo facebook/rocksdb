@@ -14,8 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBStatisticsTest : public DBTestBase {
  public:
-  DBStatisticsTest()
-      : DBTestBase("/db_statistics_test", /*env_do_fsync=*/true) {}
+  DBStatisticsTest() : DBTestBase("/db_statistics_test") {}
 };
 
 TEST_F(DBStatisticsTest, CompressionStatsTest) {

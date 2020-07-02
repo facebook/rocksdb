@@ -32,8 +32,7 @@ class DBBlockCacheTest : public DBTestBase {
   const size_t kNumBlocks = 10;
   const size_t kValueSize = 100;
 
-  DBBlockCacheTest()
-      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/true) {}
+  DBBlockCacheTest() : DBTestBase("/db_block_cache_test") {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;
