@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* File I/O listener is extended to cover more I/O operations. Now class `EventListener` in listener.h contains new callback functions: `OnFileFlushFinish()`, `OnFileSyncFinish()`, `OnFileRangeSyncFinish()`, `OnFileTruncateFinish()`, and ``OnFileCloseFinish()``.
+
+### Public API Change
 * Encryption file classes now exposed for inheritance in env_encryption.h
 
 ### Behavior Changes
