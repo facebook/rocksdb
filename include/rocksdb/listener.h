@@ -148,10 +148,22 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
+enum FileOperationType {
+  READ,
+  WRITE,
+  TRUNCATE,
+  CLOSE,
+  FLUSH,
+  SYNC,
+  FSYNC,
+  RANGESYNC
+};
+
 struct FileOperationInfo {
   using TimePoint = std::chrono::time_point<std::chrono::system_clock,
                                             std::chrono::nanoseconds>;
 
+  FileOperationType type;
   const std::string& path;
   uint64_t offset;
   size_t length;

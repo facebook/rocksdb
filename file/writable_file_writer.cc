@@ -345,7 +345,8 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = std::chrono::system_clock::now();
-    NotifyOnFileSyncFinish(start_ts, finish_ts, s);
+    NotifyOnFileSyncFinish(start_ts, finish_ts, s,
+                          use_fsync? FSYNC : SYNC);
   }
 #endif
   SetPerfLevel(prev_perf_level);
