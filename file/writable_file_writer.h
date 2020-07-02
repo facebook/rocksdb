@@ -55,7 +55,7 @@ class WritableFileWriter {
     info.status = io_status;
 
     for (auto& listener : listeners_) {
-      listener->onFileFlushFinish(info);
+      listener->OnFileFlushFinish(info);
     }
     info.status.PermitUncheckedError();
   }
@@ -66,7 +66,7 @@ class WritableFileWriter {
     info.status = io_status;
 
     for (auto& listener : listeners_) {
-      listener->onFileSyncFinish(info);
+      listener->OnFileSyncFinish(info);
     }
     info.status.PermitUncheckedError();
   }
@@ -81,7 +81,7 @@ class WritableFileWriter {
     info.status = io_status;
 
     for (auto& listener : listeners_) {
-      listener->onFileRangeSyncFinish(info);
+      listener->OnFileRangeSyncFinish(info);
     }
     info.status.PermitUncheckedError();
   }
@@ -92,7 +92,7 @@ class WritableFileWriter {
     info.status = io_status;
 
     for (auto& listener : listeners_) {
-      listener->onFileTruncateFinish(info);
+      listener->OnFileTruncateFinish(info);
     }
     info.status.PermitUncheckedError();
   }
@@ -103,7 +103,7 @@ class WritableFileWriter {
     info.status = io_status;
 
     for (auto& listener : listeners_) {
-      listener->onFileCloseFinish(info);
+      listener->OnFileCloseFinish(info);
     }
     info.status.PermitUncheckedError();
   }

@@ -461,23 +461,23 @@ class EventListener {
 
   // A callback function for RocksDB which will be called whenever a file flush
   // operation finishes.
-  virtual void onFileFlushFinish(const FileOperationInfo& /* info */) {}
+  virtual void OnFileFlushFinish(const FileOperationInfo& /* info */) {}
 
   // A callback function for RocksDB which will be called whenever a file sync
   // operation finishes.
-  virtual void onFileSyncFinish(const FileOperationInfo& /* info */) {}
+  virtual void OnFileSyncFinish(const FileOperationInfo& /* info */) {}
 
   // A callback function for RocksDB which will be called whenever a file
   // rangeSync operation finishes.
-  virtual void onFileRangeSyncFinish(const FileOperationInfo& /* info */) {}
+  virtual void OnFileRangeSyncFinish(const FileOperationInfo& /* info */) {}
 
   // A callback function for RocksDB which will be called whenever a file
   // truncate operation finishes.
-  virtual void onFileTruncateFinish(const FileOperationInfo& /* info */) {}
+  virtual void OnFileTruncateFinish(const FileOperationInfo& /* info */) {}
 
   // A callback function for RocksDB which will be called whenever a file close
   // operation finishes.
-  virtual void onFileCloseFinish(const FileOperationInfo& /* info */) {}
+  virtual void OnFileCloseFinish(const FileOperationInfo& /* info */) {}
 
   // If true, the OnFile*Finish functions will be called. If
   // false, then they won't be called.
