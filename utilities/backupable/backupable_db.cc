@@ -1469,7 +1469,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
     // the restored file
     if (!src.empty()) {
       // copying
-      if (IsSstFile(src)) {
+      if (IsSstFile(src) && (db_id != nullptr || db_session_id != nullptr)) {
         // SST file
         // Ignore the returned status
         // In the failed cases, db_id and db_session_id will be empty
@@ -1688,6 +1688,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
                                              const std::string& file_path,
                                              std::string* db_id,
                                              std::string* db_session_id) {
+  assert(db_id != nullptr || db_session_id != nullptr);
   // // Prepare the full_path of file_path under src_env for SstFileDumper
   std::string full_path;
   src_env->GetAbsolutePath(file_path, &full_path);
@@ -1716,10 +1717,15 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
   }
 
   if (table_properties != nullptr) {
-    db_id->assign(table_properties->db_id);
-    db_session_id->assign(table_properties->db_session_id);
-    if (db_session_id->empty()) {
-      return Status::NotFound("DB session identity not found in " + file_path);
+    if (db_id != nullptr) {
+      db_id->assign(table_properties->db_id);
+    }
+    if (db_session_id != nullptr) {
+      db_session_id->assign(table_properties->db_session_id);
+      if (db_session_id->empty()) {
+        return Status::NotFound("DB session identity not found in " +
+                                file_path);
+      }
     }
     return Status::OK();
   } else {
