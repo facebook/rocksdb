@@ -27,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
-  DBBasicTest() : DBTestBase("/db_basic_test") {}
+  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -2352,7 +2352,7 @@ class DBBasicTestMultiGet : public DBTestBase {
   DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
                       bool uncompressed_cache, bool _compression_enabled,
                       bool _fill_cache, uint32_t compression_parallel_threads)
-      : DBTestBase(test_dir) {
+      : DBTestBase(test_dir, /*env_do_fsync=*/true) {
     compression_enabled_ = _compression_enabled;
     fill_cache_ = _fill_cache;
 

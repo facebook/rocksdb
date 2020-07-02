@@ -25,8 +25,8 @@ class DBTestUniversalCompactionBase
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<int, bool>> {
  public:
-  explicit DBTestUniversalCompactionBase(
-      const std::string& path) : DBTestBase(path) {}
+  explicit DBTestUniversalCompactionBase(const std::string& path)
+      : DBTestBase(path, /*env_do_fsync=*/true) {}
   void SetUp() override {
     num_levels_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
@@ -43,7 +43,8 @@ class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
 
 class DBTestUniversalCompaction2 : public DBTestBase {
  public:
-  DBTestUniversalCompaction2() : DBTestBase("/db_universal_compaction_test2") {}
+  DBTestUniversalCompaction2()
+      : DBTestBase("/db_universal_compaction_test2", /*env_do_fsync=*/true) {}
 };
 
 namespace {

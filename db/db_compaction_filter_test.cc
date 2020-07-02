@@ -21,7 +21,8 @@ static std::string NEW_VALUE = "NewValue";
 
 class DBTestCompactionFilter : public DBTestBase {
  public:
-  DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
+  DBTestCompactionFilter()
+      : DBTestBase("/db_compaction_filter_test", /*env_do_fsync=*/true) {}
 };
 
 // Param variant of DBTestBase::ChangeCompactOptions
