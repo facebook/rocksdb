@@ -19,7 +19,8 @@
 namespace ROCKSDB_NAMESPACE {
 class DBTestDynamicLevel : public DBTestBase {
  public:
-  DBTestDynamicLevel() : DBTestBase("/db_dynamic_level_test") {}
+  DBTestDynamicLevel()
+      : DBTestBase("/db_dynamic_level_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {

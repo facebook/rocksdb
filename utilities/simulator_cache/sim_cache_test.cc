@@ -21,7 +21,7 @@ class SimCacheTest : public DBTestBase {
   const size_t kNumBlocks = 5;
   const size_t kValueSize = 1000;
 
-  SimCacheTest() : DBTestBase("/sim_cache_test") {}
+  SimCacheTest() : DBTestBase("/sim_cache_test", /*env_do_fsync=*/true) {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;

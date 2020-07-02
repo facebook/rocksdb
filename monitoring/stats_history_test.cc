@@ -28,7 +28,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class StatsHistoryTest : public DBTestBase {
  public:
-  StatsHistoryTest() : DBTestBase("/stats_history_test") {}
+  StatsHistoryTest()
+      : DBTestBase("/stats_history_test", /*env_do_fsync=*/true) {}
 };
 #ifndef ROCKSDB_LITE
 

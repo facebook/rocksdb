@@ -31,7 +31,7 @@ std::string Timestamp(uint64_t ts) {
 class TimestampCompatibleCompactionTest : public DBTestBase {
  public:
   TimestampCompatibleCompactionTest()
-      : DBTestBase("/ts_compatible_compaction_test") {}
+      : DBTestBase("/ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
 
   std::string Get(const std::string& key, uint64_t ts) {
     ReadOptions read_opts;
