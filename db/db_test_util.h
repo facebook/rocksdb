@@ -872,10 +872,7 @@ class DBTestBase : public testing::Test {
       // requires.
       kSkipMmapReads;
 
-  // `env_do_fsync` decides whether the special Env would do real
-  // fsync for files and directories. Skipping fsync can speed up
-  // tests, but won't cover the exact fsync logic.
-  DBTestBase(const std::string path, bool env_do_fsync);
+  explicit DBTestBase(const std::string path);
 
   ~DBTestBase();
 

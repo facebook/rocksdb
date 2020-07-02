@@ -18,7 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 class DBWALTest : public DBTestBase {
  public:
-  DBWALTest() : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {}
+  DBWALTest() : DBTestBase("/db_wal_test") {}
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
   uint64_t GetAllocatedFileSize(std::string file_name) {
@@ -86,8 +86,7 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
-  DBWALTestWithEnrichedEnv()
-      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
+  DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;

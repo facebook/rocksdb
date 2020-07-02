@@ -27,7 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBOptionsTest : public DBTestBase {
  public:
-  DBOptionsTest() : DBTestBase("/db_options_test", /*env_do_fsync=*/true) {}
+  DBOptionsTest() : DBTestBase("/db_options_test") {}
 
 #ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(

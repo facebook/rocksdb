@@ -48,8 +48,7 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
  public:
-  DBTablePropertiesTest()
-      : DBTestBase("/db_table_properties_test", /*env_do_fsync=*/true) {}
+  DBTablePropertiesTest() : DBTestBase("/db_table_properties_test") {}
   TablePropertiesCollection TestGetPropertiesOfTablesInRange(
       std::vector<Range> ranges, std::size_t* num_properties = nullptr,
       std::size_t* num_files = nullptr);

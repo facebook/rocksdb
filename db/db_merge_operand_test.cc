@@ -21,8 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBMergeOperandTest : public DBTestBase {
  public:
-  DBMergeOperandTest()
-      : DBTestBase("/db_merge_operand_test", /*env_do_fsync=*/true) {}
+  DBMergeOperandTest() : DBTestBase("/db_merge_operand_test") {}
 };
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {

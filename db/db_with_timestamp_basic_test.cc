@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBasicTestWithTimestampBase : public DBTestBase {
  public:
   explicit DBBasicTestWithTimestampBase(const std::string& dbname)
-      : DBTestBase(dbname, /*env_do_fsync=*/true) {}
+      : DBTestBase(dbname) {}
 
  protected:
   static std::string Key1(uint64_t k) {

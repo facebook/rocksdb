@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("/db_test2", /*env_do_fsync=*/true) {}
+  DBTest2() : DBTestBase("/db_test2") {}
 };
 
 #ifndef ROCKSDB_LITE
@@ -92,8 +92,7 @@ class TestReadOnlyWithCompressedCache
       public testing::WithParamInterface<std::tuple<int, bool>> {
  public:
   TestReadOnlyWithCompressedCache()
-      : DBTestBase("/test_readonly_with_compressed_cache",
-                   /*env_do_fsync=*/true) {
+      : DBTestBase("/test_readonly_with_compressed_cache") {
     max_open_files_ = std::get<0>(GetParam());
     use_mmap_ = std::get<1>(GetParam());
   }
@@ -184,7 +183,7 @@ class PrefixFullBloomWithReverseComparator
       public ::testing::WithParamInterface<bool> {
  public:
   PrefixFullBloomWithReverseComparator()
-      : DBTestBase("/prefix_bloom_reverse", /*env_do_fsync=*/true) {}
+      : DBTestBase("/prefix_bloom_reverse") {}
   void SetUp() override { if_cache_filter_ = GetParam(); }
   bool if_cache_filter_;
 };
@@ -324,7 +323,7 @@ class DBTestSharedWriteBufferAcrossCFs
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBTestSharedWriteBufferAcrossCFs()
-      : DBTestBase("/db_test_shared_write_buffer", /*env_do_fsync=*/true) {}
+      : DBTestBase("/db_test_shared_write_buffer") {}
   void SetUp() override {
     use_old_interface_ = std::get<0>(GetParam());
     cost_cache_ = std::get<1>(GetParam());
@@ -1791,8 +1790,7 @@ class PinL0IndexAndFilterBlocksTest
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  PinL0IndexAndFilterBlocksTest()
-      : DBTestBase("/db_pin_l0_index_bloom_test", /*env_do_fsync=*/true) {}
+  PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
   void SetUp() override {
     infinite_max_files_ = std::get<0>(GetParam());
     disallow_preload_ = std::get<1>(GetParam());

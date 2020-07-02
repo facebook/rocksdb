@@ -23,8 +23,7 @@ using BFP = BloomFilterPolicy;
 
 class DBBloomFilterTest : public DBTestBase {
  public:
-  DBBloomFilterTest()
-      : DBTestBase("/db_bloom_filter_test", /*env_do_fsync=*/true) {}
+  DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -37,8 +36,7 @@ class DBBloomFilterTestWithParam : public DBTestBase,
   uint32_t format_version_;
 
  public:
-  DBBloomFilterTestWithParam()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+  DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
 
   ~DBBloomFilterTestWithParam() override {}
 
@@ -1041,7 +1039,7 @@ class DBBloomFilterTestVaryPrefixAndFormatVer
 
  public:
   DBBloomFilterTestVaryPrefixAndFormatVer()
-      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+      : DBTestBase("/db_bloom_filter_tests") {}
 
   ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
 
