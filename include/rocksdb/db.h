@@ -927,6 +927,10 @@ class DB {
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
+
+    //  "rocksdb.latest-sequence-number-at-level<N>" - returns latest sequence
+    //      number of of the specified level "N" at the target column family
+    static const std::string kLatestSequenceNumberAtLevel;
   };
 #endif /* ROCKSDB_LITE */
 

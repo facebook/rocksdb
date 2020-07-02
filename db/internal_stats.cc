@@ -258,6 +258,8 @@ static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
 static const std::string options_statistics = "options-statistics";
+static const std::string latest_sequence_number_at_level_prefix =
+    "latest-sequence-number-at-level";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -347,6 +349,8 @@ const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
 const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
+const std::string DB::Properties::kLatestSequenceNumberAtLevelPrefix =
+    rocksdb_prefix + latest_sequence_number_at_level_prefix;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -486,6 +490,9 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kOptionsStatistics,
          {false, nullptr, nullptr, nullptr,
           &DBImpl::GetPropertyHandleOptionsStatistics}},
+        {DB::Properties::kLatestSequenceNumberAtLevelPrefix,
+         {false, nullptr, &InternalStats::HandleLatestSequenceNumberAtLevel,
+          nullptr, nullptr}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
@@ -953,6 +960,24 @@ bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
   }
   *value = static_cast<uint64_t>(block_cache->GetPinnedUsage());
   return true;
+}
+
+bool InternalStats::HandleLatestSequenceNumberAtLevel(uint64_t *value,
+                                                      Slice suffix, DBImpl *db,
+                                                      Version *version) {
+  uint64_t level;
+  bool ok = ConsumeDecimalNumber(&suffix, &level) && suffix.empty();
+  if (!ok || static_cast<int>(level) >= number_levels_) {
+    return false;
+  } else {
+    const auto* vstorage = cfd_->current()->storage_info();
+    SequenceNumber largest_seqno = 0;
+    for (const auto& file : vstorage->LevelFiles(level)) {
+      largest_seqno = std::max(largest_seqno, file->fd.largest_seqno);
+    }
+    *value = static_cast<uint64_t>(largest_seqno);
+    return true;
+  }
 }
 
 void InternalStats::DumpDBStats(std::string* value) {
