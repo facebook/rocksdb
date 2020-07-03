@@ -6,16 +6,19 @@
 //
 // env_encryption.cc copied to this file then modified.
 
+#pragma once
+
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <openssl/aes.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 
-#include "openssl/aes.h"
-#include "openssl/evp.h"
-#include "openssl/rand.h"
+#include "env.h"
 #include "rocksdb/env_encryption.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
@@ -110,69 +113,28 @@ struct AesCtrKey {
   bool IsValid() const { return valid; }
 };
 
-typedef char EncryptMarker[8];
-static EncryptMarker Marker = "Encrypt";
-
-// long term:  code_version could be used in a switch statement or factory
-// parameter version 0 is 12 byte sha1 description hash, 128 bit (16 byte)
-// nounce (assumed to be packed/byte aligned)
-typedef struct {
-  uint8_t key_description_[EVP_MAX_MD_SIZE];
-  uint8_t nonce_[AES_BLOCK_SIZE / 2];  // block size is 16
-} Prefix0;
-
-class AESBlockAccessCipherStream : public BlockAccessCipherStream {
+class CTREncryptionProviderV2 : public EncryptionProvider {
  public:
-  AESBlockAccessCipherStream(const AesCtrKey& key, uint8_t code_version,
-                             uint8_t nonce[])
-      : key_(key), code_version_(code_version) {
-    memcpy(&nonce_, nonce, AES_BLOCK_SIZE / 2);
-  }
+  CTREncryptionProviderV2() = delete;
 
-  // BlockSize returns the size of each block supported by this cipher stream.
-  size_t BlockSize() override { return AES_BLOCK_SIZE; };
+  CTREncryptionProviderV2(const CTREncryptionProvider&&) = delete;
 
- protected:
-  // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
-  void AllocateScratch(std::string&) override{};
-
-  // Encrypt a block of data at the given block index.
-  // Length of data is equal to BlockSize();
-  Status EncryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
-
-  // Decrypt a block of data at the given block index.
-  // Length of data is equal to BlockSize();
-  Status DecryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
-
-  AesCtrKey key_;
-  uint8_t code_version_;
-  uint8_t nonce_[AES_BLOCK_SIZE / 2];
-};
-
-class CTREncryptionProvider2 : public EncryptionProvider {
- public:
-  CTREncryptionProvider2() = delete;
-
-  CTREncryptionProvider2(const CTREncryptionProvider&&) = delete;
-
-  CTREncryptionProvider2(const Sha1Description& key_desc_in,
+  CTREncryptionProviderV2(const Sha1Description& key_desc_in,
                          const AesCtrKey& key_in)
       : valid_(false), key_desc_(key_desc_in), key_(key_in) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
 
-  CTREncryptionProvider2(const std::string& key_desc_str,
+  CTREncryptionProviderV2(const std::string& key_desc_str,
                          const uint8_t unformatted_key[], int bytes)
       : valid_(false), key_desc_(key_desc_str), key_(unformatted_key, bytes) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
 
-  size_t GetPrefixLength() override {
-    return sizeof(Prefix0) + sizeof(EncryptMarker);
-  }
+  size_t GetPrefixLength() const override;
 
   Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
-                         size_t prefixLength) override;
+                         size_t prefixLength) const override;
 
   Status CreateCipherStream(
       const std::string& /*fname*/, const EnvOptions& /*options*/,
@@ -182,9 +144,7 @@ class CTREncryptionProvider2 : public EncryptionProvider {
   }
 
   virtual BlockAccessCipherStream* CreateCipherStream2(uint8_t code_version,
-                                                       uint8_t nonce[]) {
-    return new AESBlockAccessCipherStream(key_, code_version, nonce);
-  }
+                                                       const uint8_t nonce[]) const;
 
   bool Valid() const { return valid_; };
   const Sha1Description& key_desc() const { return key_desc_; };
@@ -195,25 +155,65 @@ class CTREncryptionProvider2 : public EncryptionProvider {
   Sha1Description key_desc_;
   AesCtrKey key_;
 };
+#if 0
+class EncryptedSequentialFileV2 : public EncryptedSequentialFile {
+ protected:
+  std::shared_ptr<const CTREncryptionProviderV2> provider_;
 
-// EncryptedEnv2 implements an Env wrapper that adds encryption to files stored
+ public:
+  // Default ctor. Given underlying sequential file is supposed to be at
+  // offset == prefixLength.
+  EncryptedSequentialFileV2(std::unique_ptr<SequentialFile>&& f,
+                          std::shared_ptr<const CTREncryptionProviderV2>& p,
+                          std::unique_ptr<BlockAccessCipherStream>&& s)
+
+      : EncryptedSequentialFile(std::move(f), std::move(s), p->GetPrefixLength()),
+      provider_(p) {}
+
+  // encryption code alignment not proven for direct io
+  bool use_direct_io() const override {return false;};
+
+};
+#endif
+
+class EncryptedWritableFileV2 : public EncryptedWritableFile {
+ public:
+  // Default ctor. Prefix is assumed to be written already.
+  EncryptedWritableFileV2(std::unique_ptr<WritableFile>&& f,
+                        std::unique_ptr<BlockAccessCipherStream>&& s,
+                        size_t prefix_length)
+      : EncryptedWritableFile(std::move(f), std::move(s), prefix_length) {}
+
+  Status Append(const Slice& data) override;
+
+  Status PositionedAppend(const Slice& data, uint64_t offset) override;
+
+  // Indicates the upper layers if the current WritableFile implementation
+  // uses direct IO.
+  bool use_direct_io() const override {return false;};
+
+};
+
+
+
+
+// EncryptedEnvV2 implements an Env wrapper that adds encryption to files stored
 // on disk.
-
-class EncryptedEnv2 : public EnvWrapper {
+class EncryptedEnvV2 : public EnvWrapper {
  public:
   using WriteKey =
-      std::pair<Sha1Description, std::shared_ptr<EncryptionProvider>>;
+      std::pair<Sha1Description, std::shared_ptr<const CTREncryptionProviderV2>>;
   using ReadKeys =
-      std::map<Sha1Description, std::shared_ptr<EncryptionProvider>>;
+      std::map<Sha1Description, std::shared_ptr<const CTREncryptionProviderV2>>;
 
   static Env* Default();
   static Env* Default(ReadKeys encrypt_read, WriteKey encrypt_write);
 
-  EncryptedEnv2(Env* base_env);
+  EncryptedEnvV2(Env* base_env);
 
-  EncryptedEnv2(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
+  EncryptedEnvV2(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
 
-  bool IsWriteEncrypted() const { return nullptr != encrypt_write_.second; }
+  bool IsWriteEncrypted() const;
 
   // NewSequentialFile opens a file for sequential reading.
   Status NewSequentialFile(const std::string& fname,
@@ -274,174 +274,8 @@ class EncryptedEnv2 : public EnvWrapper {
 
   // only needed for GetChildrenFileAttributes & GetFileSize
   virtual Status GetEncryptionProvider(
-      const std::string& fname, std::shared_ptr<EncryptionProvider>& provider);
+      const std::string& fname, std::shared_ptr<const CTREncryptionProviderV2>& provider);
 
-  template <class TypeFile>
-  Status ReadSeqEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<EncryptionProvider>& provider,
-      std::unique_ptr<BlockAccessCipherStream>& stream) {
-    Status status;
-
-    provider.reset();  // nullptr for provider implies "no encryption"
-    stream.release();
-
-    // Look for encryption marker
-    EncryptMarker marker;
-    Slice marker_slice;
-    status = f->Read(sizeof(marker), &marker_slice, marker);
-    if (status.ok()) {
-      if (sizeof(marker) == marker_slice.size() &&
-          marker_slice.starts_with(Marker)) {
-        // code_version currently unused
-        uint8_t code_version = (uint8_t)marker_slice[7];
-
-        Slice prefix_slice;
-        Prefix0 prefix_buffer;
-        status = f->Read(sizeof(Prefix0), &prefix_slice, (char*)&prefix_buffer);
-        if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
-          Sha1Description desc(prefix_buffer.key_description_,
-                               sizeof(prefix_buffer.key_description_));
-
-          auto it = encrypt_read_.find(desc);
-          if (encrypt_read_.end() != it) {
-            CTREncryptionProvider2* ptr =
-                (CTREncryptionProvider2*)it->second.get();
-            provider = it->second;
-            stream.reset(new AESBlockAccessCipherStream(
-                ptr->key(), code_version, prefix_buffer.nonce_));
-          } else {
-            status = Status::NotSupported(
-                "No encryption key found to match input file");
-          }
-        }
-      }
-    }
-    return status;
-  }
-
-  template <class TypeFile>
-  Status ReadRandEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<EncryptionProvider>& provider,
-      std::unique_ptr<BlockAccessCipherStream>& stream) {
-    Status status;
-
-    provider.reset();  // nullptr for provider implies "no encryption"
-    stream.release();
-
-    // Look for encryption marker
-    EncryptMarker marker;
-    Slice marker_slice;
-    status = f->Read(0, sizeof(marker), &marker_slice, marker);
-    if (status.ok()) {
-      if (sizeof(marker) == marker_slice.size() &&
-          marker_slice.starts_with(Marker)) {
-        uint8_t code_version = (uint8_t)marker_slice[7];
-
-        if ('0' == code_version) {
-          Slice prefix_slice;
-          Prefix0 prefix_buffer;
-          status = f->Read(sizeof(marker), sizeof(Prefix0), &prefix_slice,
-                           (char*)&prefix_buffer);
-          if (status.ok() && sizeof(Prefix0) == prefix_slice.size()) {
-            Sha1Description desc(prefix_buffer.key_description_,
-                                 sizeof(prefix_buffer.key_description_));
-
-            auto it = encrypt_read_.find(desc);
-            if (encrypt_read_.end() != it) {
-              CTREncryptionProvider2* ptr =
-                  (CTREncryptionProvider2*)it->second.get();
-              provider = it->second;
-              stream.reset(new AESBlockAccessCipherStream(
-                  ptr->key(), code_version, prefix_buffer.nonce_));
-            } else {
-              status = Status::NotSupported(
-                  "No encryption key found to match input file");
-            }
-          }
-        } else {
-          status =
-              Status::NotSupported("Unknown encryption code version required.");
-        }
-      }
-    }
-    return status;
-  }
-
-  template <class TypeFile>
-  Status WriteSeqEncryptionPrefix(
-      TypeFile* f, std::unique_ptr<BlockAccessCipherStream>& stream) {
-    Status status;
-
-    // set up Encryption maker, code version '0'
-    uint8_t code_version = {'0'};
-    Prefix0 prefix;
-    EncryptMarker marker;
-    strncpy(marker, Marker, sizeof(Marker));
-    marker[sizeof(EncryptMarker) - 1] = code_version;
-
-    Slice marker_slice(marker, sizeof(EncryptMarker));
-    status = f->Append(marker_slice);
-
-    if (status.ok()) {
-      // create nonce, then write it and key description
-      Slice prefix_slice((char*)&prefix, sizeof(prefix));
-
-      status = encrypt_write_.second->CreateNewPrefix(
-          std::string(), (char*)&prefix,
-          encrypt_write_.second->GetPrefixLength());
-
-      if (status.ok()) {
-        status = f->Append(prefix_slice);
-      }
-    }
-
-    if (status.ok()) {
-      CTREncryptionProvider2* ptr =
-          (CTREncryptionProvider2*)encrypt_write_.second.get();
-      stream.reset(new AESBlockAccessCipherStream(ptr->key(), code_version,
-                                                  prefix.nonce_));
-    }
-
-    return status;
-  }
-
-  template <class TypeFile>
-  Status WriteRandEncryptionPrefix(
-      TypeFile* f, std::unique_ptr<BlockAccessCipherStream>& stream) {
-    Status status;
-
-    // set up Encryption maker, code version '0'
-    uint8_t code_version = {'0'};
-    Prefix0 prefix;
-    EncryptMarker marker;
-    strncpy(marker, Marker, sizeof(Marker));
-    marker[sizeof(EncryptMarker) - 1] = code_version;
-
-    Slice marker_slice(marker, sizeof(EncryptMarker));
-    status = f->Write(0, marker_slice);
-
-    if (status.ok()) {
-      // create nonce, then write it and key description
-      Slice prefix_slice((char*)&prefix, sizeof(prefix));
-
-      status = encrypt_write_.second->CreateNewPrefix(
-          std::string(), (char*)&prefix,
-          encrypt_write_.second->GetPrefixLength());
-
-      if (status.ok()) {
-        status = f->Write(sizeof(EncryptMarker), prefix_slice);
-      }
-    }
-
-    if (status.ok()) {
-      CTREncryptionProvider2* ptr =
-          (CTREncryptionProvider2*)encrypt_write_.second.get();
-      stream.reset(new AESBlockAccessCipherStream(ptr->key(), code_version,
-                                                  prefix.nonce_));
-    }
-
-    return status;
-  }
 
   bool IsValid() const { return valid_; }
 
@@ -450,21 +284,40 @@ class EncryptedEnv2 : public EnvWrapper {
   //  and unit test only
   void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
 
+  template <class TypeFile>
+      Status ReadSeqEncryptionPrefix(
+          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+          std::unique_ptr<BlockAccessCipherStream>& stream);
+
+  template <class TypeFile>
+      Status ReadRandEncryptionPrefix(
+          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+          std::unique_ptr<BlockAccessCipherStream>& stream);
+
+  template <class TypeFile>
+      Status WriteSeqEncryptionPrefix(
+          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+          std::unique_ptr<BlockAccessCipherStream>& stream);
+
+  template <class TypeFile>
+      Status WriteRandEncryptionPrefix(
+          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+          std::unique_ptr<BlockAccessCipherStream>& stream);
+
  public:
   static UnixLibCrypto crypto_;
 
  protected:
-  std::map<Sha1Description, std::shared_ptr<EncryptionProvider>> encrypt_read_;
-  std::pair<Sha1Description, std::shared_ptr<EncryptionProvider>>
-      encrypt_write_;
+  ReadKeys encrypt_read_;
+  WriteKey encrypt_write_;
 
   bool valid_;
 };
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
-// read from disk.  Prefer EncryptedEnv2::Default().
-Env* NewEncryptedEnv2(Env* base_env, EncryptedEnv2::ReadKeys encrypt_read,
-                      EncryptedEnv2::WriteKey encrypt_write);
+// read from disk.  Prefer EncryptedEnvV2::Default().
+Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
+                      EncryptedEnvV2::WriteKey encrypt_write);
 
 #endif  // ROCKSDB_LITE
 

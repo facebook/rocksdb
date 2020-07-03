@@ -1,9 +1,8 @@
-
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/env_encrypt2.h"
+#include "env/env_encrypt2_impl.h"
 
 #include "rocksdb/options.h"
 #include "rocksdb/sst_file_writer.h"
@@ -228,11 +227,11 @@ class EnvEncrypt2_Provider {};
 
 class CipherStreamWrapper : public BlockAccessCipherStream {
  public:
-  Status TESTEncryptBlock(uint64_t blockIndex, char* data, char* scratch) {
-    return EncryptBlock(blockIndex, data, scratch);
+  Status TESTEncrypt(uint64_t blockIndex, char* data, size_t size) {
+    return Encrypt(blockIndex, data, size);
   }
-  Status TESTDecryptBlock(uint64_t blockIndex, char* data, char* scratch) {
-    return DecryptBlock(blockIndex, data, scratch);
+  Status TESTDecrypt(uint64_t blockIndex, char* data, size_t size) {
+    return Decrypt(blockIndex, data, size);
   }
 };
 
@@ -264,81 +263,112 @@ TEST(EnvEncrypt2_Provider, NistExamples) {
   uint8_t cypher4[] = {0xdf, 0xc9, 0xc5, 0x8d, 0xb6, 0x7a, 0xad, 0xa6,
                        0x13, 0xc2, 0xdd, 0x08, 0x45, 0x79, 0x41, 0xa6};
 
-  CTREncryptionProvider2 provider("NistExampleKey", key, sizeof(key));
-  // only first 8 bytes of init taken in next call
+  CTREncryptionProviderV2 provider("NistExampleKey", key, sizeof(key));
+
   std::unique_ptr<BlockAccessCipherStream> stream(
       provider.CreateCipherStream2(1, init));
 
   uint64_t offset;
   uint8_t block[sizeof(plain1)];
-  uint8_t* patch = (uint8_t*)&offset;  // little endian assumed
 
   //
   // forward ... encryption
   //
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  //  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 0;
   memcpy((void*)block, (void*)plain1, 16);
   CipherStreamWrapper* wrap = (CipherStreamWrapper*)stream.get();
 
-  Status status = wrap->TESTEncryptBlock(offset, (char*)block, nullptr);
+  Status status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher1, block, sizeof(block)));
 
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 16;
   memcpy((void*)block, (void*)plain2, 16);
-  *(patch + 7) = 0x00;
-  *(patch + 6) = 0xff;
 
-  status = wrap->TESTEncryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher2, block, sizeof(block)));
 
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 32;
   memcpy((void*)block, (void*)plain3, 16);
-  *(patch + 7) = 0x01;
-  *(patch + 6) = 0xff;
 
-  status = wrap->TESTEncryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher3, block, sizeof(block)));
 
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 48;
   memcpy((void*)block, (void*)plain4, 16);
-  *(patch + 7) = 0x02;
-  *(patch + 6) = 0xff;
 
-  status = wrap->TESTEncryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher4, block, sizeof(block)));
 
   //
   // backward -- decryption
   //
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 0;
   memcpy((void*)block, (void*)cypher1, 16);
 
-  status = wrap->TESTDecryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain1, block, sizeof(block)));
 
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 16;
   memcpy((void*)block, (void*)cypher2, 16);
-  *(patch + 7) = 0x00;
-  *(patch + 6) = 0xff;
 
-  status = wrap->TESTDecryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain2, block, sizeof(block)));
 
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 32;
   memcpy((void*)block, (void*)cypher3, 16);
-  *(patch + 7) = 0x01;
-  *(patch + 6) = 0xff;
 
-  status = wrap->TESTDecryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain3, block, sizeof(block)));
 
-  memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 48;
   memcpy((void*)block, (void*)cypher4, 16);
-  *(patch + 7) = 0x02;
-  *(patch + 6) = 0xff;
 
-  status = wrap->TESTDecryptBlock(offset, (char*)block, nullptr);
+  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain4, block, sizeof(block)));
+}
+
+TEST(EnvEncrypt2_Provider, NistSingleCall) {
+  uint8_t key[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
+                   0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+                   0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
+                   0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
+  uint8_t init[] = {0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
+                    0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff};
+
+  uint8_t plain1[] = {0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96,
+                      0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
+                      0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c,
+                      0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
+                      0x30, 0xc8, 0x1c, 0x46, 0xa3, 0x5c, 0xe4, 0x11,
+                      0xe5, 0xfb, 0xc1, 0x19, 0x1a, 0x0a, 0x52, 0xef,
+                      0xf6, 0x9f, 0x24, 0x45, 0xdf, 0x4f, 0x9b, 0x17,
+                      0xad, 0x2b, 0x41, 0x7b, 0xe6, 0x6c, 0x37, 0x10};
+
+  uint8_t cypher1[] = {0x60, 0x1e, 0xc3, 0x13, 0x77, 0x57, 0x89, 0xa5,
+                       0xb7, 0xa7, 0xf5, 0x04, 0xbb, 0xf3, 0xd2, 0x28,
+                       0xf4, 0x43, 0xe3, 0xca, 0x4d, 0x62, 0xb5, 0x9a,
+                       0xca, 0x84, 0xe9, 0x90, 0xca, 0xca, 0xf5, 0xc5,
+                       0x2b, 0x09, 0x30, 0xda, 0xa2, 0x3d, 0xe9, 0x4c,
+                       0xe8, 0x70, 0x17, 0xba, 0x2d, 0x84, 0x98, 0x8d,
+                       0xdf, 0xc9, 0xc5, 0x8d, 0xb6, 0x7a, 0xad, 0xa6,
+                       0x13, 0xc2, 0xdd, 0x08, 0x45, 0x79, 0x41, 0xa6};
+
+  AesCtrKey aes_key(key, sizeof(key));
+  uint8_t output[sizeof(plain1)];
+  AESBlockAccessCipherStream stream(aes_key, 0, init);
+  uint64_t offset;
+
+  //
+  // forward ... encryption
+  //
+  memcpy((void*)output, (void*)plain1, sizeof(plain1));
+  //memcpy((void*)&offset, (void*)&init[8], 8);
+  offset = 0;
+
+  Status status = stream.Encrypt(offset, (char*)output, sizeof(plain1));
+  ASSERT_TRUE(status.ok());
+  ASSERT_TRUE(0 == memcmp(cypher1, output, sizeof(output)));
 }
 
 //
@@ -421,24 +451,28 @@ static uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                            0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                            0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
                            0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-std::shared_ptr<EncryptionProvider> encrypt2_provider_ctr(
-    new CTREncryptionProvider2(KeyName, key256, 32));
+std::shared_ptr<const CTREncryptionProviderV2> encrypt2_provider_ctr(
+    new CTREncryptionProviderV2(KeyName, key256, 32));
 
-static EncryptedEnv2::ReadKeys encrypt_readers = {
+static EncryptedEnvV2::ReadKeys encrypt_readers = {
     {KeyDesc, encrypt2_provider_ctr}};
-static EncryptedEnv2::WriteKey encrypt_writer = {KeyDesc,
+static EncryptedEnvV2::WriteKey encrypt_writer = {KeyDesc,
                                                  encrypt2_provider_ctr};
 
 static std::unique_ptr<Env> encrypt2_env(new NormalizingEnvWrapper(
-    EncryptedEnv2::Default(encrypt_readers, encrypt_writer)));
+    EncryptedEnvV2::Default(encrypt_readers, encrypt_writer)));
 
-INSTANTIATE_TEST_CASE_P(EncryptedEnv2, EnvBasicTestWithParam,
+INSTANTIATE_TEST_CASE_P(EncryptedEnvV2, EnvBasicTestWithParam,
                         ::testing::Values(encrypt2_env.get()));
 
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
   std::unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
+
+  // kill warning
+  std::string warn(kEncryptMarker);
+  warn.length();
 
   // Check that the directory is empty.
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/non_existent"));
@@ -678,23 +712,6 @@ class SstWriterBug : public testing::Test {
     }
   }
 };
-
-#if 0
-TEST(SstWriterBug, BugCheck) {
-
-  Options sstOptions;
-
-  sstOptions.env = encrypt2_env.get();
-
-  //  auto* cf = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(theCfHandle);
-  rocksdb::ColumnFamilyHandle * cf = nullptr;
-  // sstOptions.compression = (CompressionType)theCompression;
-  auto* sst_file_writer = new rocksdb::SstFileWriter(EnvOptions(), sstOptions, sstOptions.comparator, cf);
-  std::string path = test::PerThreadDBPath("BugCheck1");
-  Status ss = sst_file_writer->Open(path);
-  ASSERT_OK(ss);
-}
-#endif
 
 }  // namespace ROCKSDB_NAMESPACE
 
