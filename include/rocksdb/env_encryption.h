@@ -138,12 +138,12 @@ class EncryptionProvider {
   // GetPrefixLength returns the length of the prefix that is added to every
   // file and used for storing encryption options. For optimal performance, the
   // prefix length should be a multiple of the page size.
-  virtual size_t GetPrefixLength() = 0;
+  virtual size_t GetPrefixLength() const = 0;
 
   // CreateNewPrefix initialized an allocated block of prefix memory
   // for a new file.
   virtual Status CreateNewPrefix(const std::string& fname, char* prefix,
-                                 size_t prefixLength) = 0;
+                                 size_t prefixLength) const = 0;
 
   // CreateCipherStream creates a block access cipher stream for a file given
   // given name and options.
@@ -173,12 +173,12 @@ class CTREncryptionProvider : public EncryptionProvider {
   // and used for storing encryption options.
   // For optimal performance, the prefix length should be a multiple of
   // the page size.
-  virtual size_t GetPrefixLength() override;
+  virtual size_t GetPrefixLength() const override;
 
   // CreateNewPrefix initialized an allocated block of prefix memory
   // for a new file.
   virtual Status CreateNewPrefix(const std::string& fname, char* prefix,
-                                 size_t prefixLength) override;
+                                 size_t prefixLength) const override;
 
   // CreateCipherStream creates a block access cipher stream for a file given
   // given name and options.
@@ -193,7 +193,7 @@ class CTREncryptionProvider : public EncryptionProvider {
   // Returns the amount of space (starting from the start of the prefix)
   // that has been initialized.
   virtual size_t PopulateSecretPrefixPart(char* prefix, size_t prefixLength,
-                                          size_t blockSize);
+                                          size_t blockSize) const;
 
   // CreateCipherStreamFromPrefix creates a block access cipher stream for a
   // file given
