@@ -2822,7 +2822,7 @@ jlong Java_org_rocksdb_RocksDB_getLatestSequenceNumber(
  * Method:    setPreserveDeletesSequenceNumber
  * Signature: (JJ)Z
  */
-jboolean JNICALL Java_org_rocksdb_RocksDB_setPreserveDeletesSequenceNumber(
+jboolean Java_org_rocksdb_RocksDB_setPreserveDeletesSequenceNumber(
     JNIEnv*, jobject, jlong jdb_handle, jlong jseq_number) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   if (db->SetPreserveDeletesSequenceNumber(
@@ -3311,7 +3311,7 @@ void Java_org_rocksdb_RocksDB_startTrace(
  * Method:    endTrace
  * Signature: (J)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_endTrace(
+void Java_org_rocksdb_RocksDB_endTrace(
     JNIEnv* env, jobject, jlong jdb_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto s = db->EndTrace();
@@ -3380,7 +3380,7 @@ bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
  * Method:    deleteFilesInRanges
  * Signature: (JJLjava/util/List;Z)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_deleteFilesInRanges(
+void Java_org_rocksdb_RocksDB_deleteFilesInRanges(
     JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jcf_handle,
     jobjectArray ranges, jboolean include_end) {
   jsize length = env->GetArrayLength(ranges);
