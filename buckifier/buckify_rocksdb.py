@@ -166,9 +166,17 @@ def generate_targets(repo_path, deps_map):
     # Dictionary test executable name -> relative source file path
     test_source_map = {}
     print(src_mk)
-    test_main_sources = src_mk.get("TEST_MAIN_SOURCES", []) + \
-        src_mk.get("TEST_MAIN_SOURCES_C", [])
-    for test_src in test_main_sources:
+
+    # c_test.c is added through TARGETS.add_c_test(). If there
+    # are more than one .c test file, we need to extend
+    # TARGETS.add_c_test() to include other C tests too.
+    for test_src in src_mk.get("TEST_MAIN_SOURCES_C", []):
+        if test_src != 'db/c_test.c':
+            print("Don't know how to deal with " + test_src)
+            return False
+    TARGETS.add_c_test()
+
+    for test_src in src_mk.get("TEST_MAIN_SOURCES", []):
         test = test_src.split('.c')[0].strip().split('/')[-1].strip()
         test_source_map[test] = test_src
         print("" + test + " " + test_src)
