@@ -71,6 +71,9 @@ public class RocksDB extends RocksObject {
             e);
       }
 
+      final int encodedVersion = version();
+      version = Version.fromEncodedVersion(encodedVersion);
+
       libraryLoaded.set(LibraryState.LOADED);
       return;
     }
@@ -129,6 +132,9 @@ public class RocksDB extends RocksObject {
         throw err;
       }
 
+      final int encodedVersion = version();
+      version = Version.fromEncodedVersion(encodedVersion);
+
       libraryLoaded.set(LibraryState.LOADED);
       return;
     }
@@ -140,6 +146,10 @@ public class RocksDB extends RocksObject {
         //ignore
       }
     }
+  }
+
+  public static Version rocksdbVersion() {
+    return version;
   }
 
   /**
@@ -4531,5 +4541,48 @@ public class RocksDB extends RocksObject {
   private native static void destroyDB(final String path,
       final long optionsHandle) throws RocksDBException;
 
+  private native static int version();
+
+
   protected DBOptionsInterface options_;
+  private static Version version;
+
+  public static class Version {
+    private final byte major;
+    private final byte minor;
+    private final byte patch;
+
+    public Version(final byte major, final byte minor, final byte patch) {
+      this.major = major;
+      this.minor = minor;
+      this.patch = patch;
+    }
+
+    public int getMajor() {
+      return major;
+    }
+
+    public int getMinor() {
+      return minor;
+    }
+
+    public int getPatch() {
+      return patch;
+    }
+
+    @Override
+    public String toString() {
+      return getMajor() + "." + getMinor() + "." + getPatch();
+    }
+
+    private static Version fromEncodedVersion(int encodedVersion) {
+      final byte patch = (byte) (encodedVersion & 0xff);
+      encodedVersion >>= 8;
+      final byte minor = (byte) (encodedVersion & 0xff);
+      encodedVersion >>= 8;
+      final byte major = (byte) (encodedVersion & 0xff);
+
+      return new Version(major, minor, patch);
+    }
+  }
 }

@@ -22,6 +22,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
+#include "rocksdb/version.h"
 #include "rocksjni/portal.h"
 
 #ifdef min
@@ -3415,4 +3416,17 @@ JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_deleteFilesInRanges(
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    version
+ * Signature: ()I
+ */
+jint Java_org_rocksdb_RocksDB_version(
+  JNIEnv*, jclass) {
+ uint32_t encodedVersion = (ROCKSDB_MAJOR & 0xff) << 16;
+ encodedVersion |= (ROCKSDB_MINOR & 0xff) << 8;
+ encodedVersion |= (ROCKSDB_PATCH & 0xff);
+ return static_cast<jint>(encodedVersion);
 }

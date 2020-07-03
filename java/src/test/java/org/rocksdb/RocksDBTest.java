@@ -1683,6 +1683,13 @@ public class RocksDBTest {
     }
   }
 
+  @Test
+  public void rocksdbVersion() {
+    final RocksDB.Version version = RocksDB.rocksdbVersion();
+    assertThat(version).isNotNull();
+    assertThat(version.getMajor()).isGreaterThan(1);
+  }
+
   private static class InMemoryTraceWriter extends AbstractTraceWriter {
     private final List<byte[]> writes = new ArrayList<>();
     private volatile boolean closed = false;
