@@ -71,6 +71,7 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
   friend class BlobDBListener;
   friend class BlobDBListenerGC;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  public:
@@ -168,7 +169,7 @@ class BlobDBImpl : public BlobDB {
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
-  void GetCompactionContextCommon(BlobCompactionContext* context) const;
+  void GetCompactionContextCommon(BlobCompactionContext* context);
 
   void GetCompactionContext(BlobCompactionContext* context);
   void GetCompactionContext(BlobCompactionContext* context,
@@ -231,6 +232,10 @@ class BlobDBImpl : public BlobDB {
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
+
+  Status DecompressSlice(const Slice& compressed_value,
+                         CompressionType compression_type,
+                         PinnableSlice* value_output) const;
 
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_

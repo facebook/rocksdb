@@ -5,11 +5,11 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_db_impl.h"
-
 #include "file/filename.h"
 #include "logging/logging.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
+#include "utilities/blob_db/blob_db_impl.h"
 
 // BlobDBImpl methods to get snapshot of files, e.g. for replication.
 
@@ -98,7 +98,8 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     // Path should be relative to db_name, but begin with slash.
     filemetadata.name = BlobFileName("", bdb_options_.blob_dir, file_number);
     filemetadata.file_number = file_number;
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+    auto cfh =
+        static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily());
     filemetadata.column_family_name = cfh->GetName();
     metadata->emplace_back(filemetadata);
   }

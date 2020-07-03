@@ -51,9 +51,19 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
                          Status::Code::kIOError, Status::SubCode::kNoSpace,
                          false),
          Status::Severity::kHardError},
+        // Errors during MANIFEST write
+        {std::make_tuple(BackgroundErrorReason::kManifestWrite,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         true),
+         Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWrite,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         false),
+         Status::Severity::kHardError},
 };
 
-std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>, Status::Severity>
+std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
+         Status::Severity>
     DefaultErrorSeverityMap = {
         // Errors during BG compaction
         {std::make_tuple(BackgroundErrorReason::kCompaction,
@@ -75,11 +85,11 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>, Status::Severity
         {std::make_tuple(BackgroundErrorReason::kFlush,
                          Status::Code::kCorruption, false),
          Status::Severity::kNoError},
-        {std::make_tuple(BackgroundErrorReason::kFlush,
-                         Status::Code::kIOError, true),
+        {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError,
+                         true),
          Status::Severity::kFatalError},
-        {std::make_tuple(BackgroundErrorReason::kFlush,
-                         Status::Code::kIOError, false),
+        {std::make_tuple(BackgroundErrorReason::kFlush, Status::Code::kIOError,
+                         false),
          Status::Severity::kNoError},
         // Errors during Write
         {std::make_tuple(BackgroundErrorReason::kWriteCallback,
@@ -94,30 +104,36 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>, Status::Severity
         {std::make_tuple(BackgroundErrorReason::kWriteCallback,
                          Status::Code::kIOError, false),
          Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWrite,
+                         Status::Code::kIOError, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWrite,
+                         Status::Code::kIOError, false),
+         Status::Severity::kFatalError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
     DefaultReasonMap = {
         // Errors during BG compaction
         {std::make_tuple(BackgroundErrorReason::kCompaction, true),
-          Status::Severity::kFatalError},
+         Status::Severity::kFatalError},
         {std::make_tuple(BackgroundErrorReason::kCompaction, false),
-          Status::Severity::kNoError},
+         Status::Severity::kNoError},
         // Errors during BG flush
         {std::make_tuple(BackgroundErrorReason::kFlush, true),
-          Status::Severity::kFatalError},
+         Status::Severity::kFatalError},
         {std::make_tuple(BackgroundErrorReason::kFlush, false),
-          Status::Severity::kNoError},
+         Status::Severity::kNoError},
         // Errors during Write
         {std::make_tuple(BackgroundErrorReason::kWriteCallback, true),
-          Status::Severity::kFatalError},
+         Status::Severity::kFatalError},
         {std::make_tuple(BackgroundErrorReason::kWriteCallback, false),
-          Status::Severity::kFatalError},
+         Status::Severity::kFatalError},
         // Errors during Memtable update
         {std::make_tuple(BackgroundErrorReason::kMemTable, true),
-          Status::Severity::kFatalError},
+         Status::Severity::kFatalError},
         {std::make_tuple(BackgroundErrorReason::kMemTable, false),
-          Status::Severity::kFatalError},
+         Status::Severity::kFatalError},
 };
 
 void ErrorHandler::CancelErrorRecovery() {
@@ -246,6 +262,10 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   }
   if (recovery_in_prog_ && recovery_error_.ok()) {
     recovery_error_ = bg_io_err;
+  }
+  if (BackgroundErrorReason::kManifestWrite == reason) {
+    // Always returns ok
+    db_->DisableFileDeletionsWithLock();
   }
   Status new_bg_io_err = bg_io_err;
   Status s;

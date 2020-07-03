@@ -34,6 +34,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
+#include "util/cast_util.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1546,7 +1547,7 @@ ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
   uint32_t column_family_id = 0;
   if (column_family != nullptr) {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     column_family_id = cfh->GetID();
   }
   return column_family_id;

@@ -87,10 +87,10 @@
 #include "table/get_context.h"
 #include "table/merging_iterator.h"
 #include "table/multiget_context.h"
+#include "table/sst_file_dumper.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
-#include "tools/sst_dump_tool_imp.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
 #include "util/cast_util.h"
@@ -313,8 +313,37 @@ Status DBImpl::ResumeImpl() {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
+  bool file_deletion_disabled = !IsFileDeletionsEnabled();
   if (s.ok()) {
-    versions_->SetIOStatusOK();
+    IOStatus io_s = versions_->io_status();
+    if (io_s.IsIOError()) {
+      // If resuming from IOError resulted from MANIFEST write, then assert
+      // that we must have already set the MANIFEST writer to nullptr during
+      // clean-up phase MANIFEST writing. We must have also disabled file
+      // deletions.
+      assert(!versions_->descriptor_log_);
+      assert(file_deletion_disabled);
+      // Since we are trying to recover from MANIFEST write error, we need to
+      // switch to a new MANIFEST anyway. The old MANIFEST can be corrupted.
+      // Therefore, force writing a dummy version edit because we do not know
+      // whether there are flush jobs with non-empty data to flush, triggering
+      // appends to MANIFEST.
+      VersionEdit edit;
+      auto cfh =
+          static_cast_with_check<ColumnFamilyHandleImpl>(default_cf_handle_);
+      assert(cfh);
+      ColumnFamilyData* cfd = cfh->cfd();
+      const MutableCFOptions& cf_opts = *cfd->GetLatestMutableCFOptions();
+      s = versions_->LogAndApply(cfd, cf_opts, &edit, &mutex_,
+                                 directories_.GetDbDir());
+      if (!s.ok()) {
+        io_s = versions_->io_status();
+        if (!io_s.ok()) {
+          s = error_handler_.SetBGError(io_s,
+                                        BackgroundErrorReason::kManifestWrite);
+        }
+      }
+    }
   }
 
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
@@ -365,6 +394,13 @@ Status DBImpl::ResumeImpl() {
   job_context.Clean();
 
   if (s.ok()) {
+    assert(versions_->io_status().ok());
+    // If we reach here, we should re-enable file deletions if it was disabled
+    // during previous error handling.
+    if (file_deletion_disabled) {
+      // Always return ok
+      EnableFileDeletions(/*force=*/true);
+    }
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
   mutex_.Lock();
@@ -910,7 +946,8 @@ Status DBImpl::SetOptions(
   (void)options_map;
   return Status::NotSupported("Not supported in ROCKSDB LITE");
 #else
-  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   if (options_map.empty()) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "SetOptions() on column family [%s], empty input",
@@ -1317,7 +1354,7 @@ InternalIterator* DBImpl::NewInternalIterator(
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cfd = cfh->cfd();
   }
 
@@ -1546,8 +1583,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
-  auto cfh =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(get_impl_options.column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      get_impl_options.column_family);
   auto cfd = cfh->cfd();
 
   if (tracer_) {
@@ -1748,7 +1785,7 @@ std::vector<Status> DBImpl::MultiGet(
   std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
   for (auto cf : column_family) {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(cf);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
     auto cfd = cfh->cfd();
     if (multiget_cf_data.find(cfd->GetID()) == multiget_cf_data.end()) {
       multiget_cf_data.emplace(cfd->GetID(),
@@ -2150,10 +2187,11 @@ void DBImpl::PrepareMultiGetKeys(
         KeyContext* lhs = (*sorted_keys)[index - 1];
         KeyContext* rhs = (*sorted_keys)[index];
         ColumnFamilyHandleImpl* cfh =
-            reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+            static_cast_with_check<ColumnFamilyHandleImpl>(lhs->column_family);
         uint32_t cfd_id1 = cfh->cfd()->GetID();
         const Comparator* comparator = cfh->cfd()->user_comparator();
-        cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(lhs->column_family);
+        cfh =
+            static_cast_with_check<ColumnFamilyHandleImpl>(lhs->column_family);
         uint32_t cfd_id2 = cfh->cfd()->GetID();
 
         assert(cfd_id1 <= cfd_id2);
@@ -2517,7 +2555,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   // this is outside the mutex
   if (s.ok()) {
     NewThreadStatusCfInfo(
-        reinterpret_cast<ColumnFamilyHandleImpl*>(*handle)->cfd());
+        static_cast_with_check<ColumnFamilyHandleImpl>(*handle)->cfd());
   }
   return s;
 }
@@ -2554,7 +2592,7 @@ Status DBImpl::DropColumnFamilies(
 }
 
 Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
@@ -2650,8 +2688,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
   }
-  // We will eventually support deadline for iterators too, but safeguard
-  // for now
   if (read_options.deadline != std::chrono::microseconds::zero()) {
     return NewErrorIterator(
         Status::NotSupported("ReadOptions deadline is not supported"));
@@ -2670,7 +2706,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         "Iterator requested internal keys which are too old and are not"
         " guaranteed to be preserved, try larger iter_start_seqnum opt."));
   }
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
   ReadCallback* read_callback = nullptr;  // No read callback provided.
@@ -2805,7 +2841,7 @@ Status DBImpl::NewIterators(
         "Tailing iterator not supported in RocksDB lite");
 #else
     for (auto cfh : column_families) {
-      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+      auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
       auto iter = new ForwardIterator(this, read_options, cfd, sv,
                                       /* allow_unprepared_value */ true);
@@ -2825,7 +2861,8 @@ Status DBImpl::NewIterators(
                         : versions_->LastSequence();
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd =
-          reinterpret_cast<ColumnFamilyHandleImpl*>(column_families[i])->cfd();
+          static_cast_with_check<ColumnFamilyHandleImpl>(column_families[i])
+              ->cfd();
       iterators->push_back(
           NewIteratorImpl(read_options, cfd, snapshot, read_callback));
     }
@@ -2932,7 +2969,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                         TablePropertiesCollection* props) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
   // Increment the ref count
@@ -2954,7 +2991,7 @@ Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
 Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
                                             const Range* range, std::size_t n,
                                             TablePropertiesCollection* props) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
   // Increment the ref count
@@ -2990,7 +3027,7 @@ FileSystem* DBImpl::GetFileSystem() const {
 
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   return Options(BuildDBOptions(immutable_db_options_, mutable_db_options_),
                  cfh->cfd()->GetLatestCFOptions());
 }
@@ -3004,7 +3041,8 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
                          const Slice& property, std::string* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
-  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   if (property_info == nullptr) {
     return false;
   } else if (property_info->handle_int) {
@@ -3038,7 +3076,8 @@ bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
                             std::map<std::string, std::string>* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
-  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   if (property_info == nullptr) {
     return false;
   } else if (property_info->handle_map) {
@@ -3057,7 +3096,8 @@ bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
   if (property_info == nullptr || property_info->handle_int == nullptr) {
     return false;
   }
-  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   return GetIntPropertyInternal(cfd, *property_info, false, value);
 }
 
@@ -3230,7 +3270,7 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
                                          uint64_t* const count,
                                          uint64_t* const size) {
   ColumnFamilyHandleImpl* cfh =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
@@ -3255,7 +3295,7 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   }
 
   Version* v;
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   v = sv->current;
@@ -3413,7 +3453,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                                    const RangePtr* ranges, size_t n,
                                    bool include_end) {
   Status status;
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   VersionEdit edit;
   std::set<FileMetaData*> deleted_files;
@@ -3503,10 +3543,16 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   versions_->GetLiveFilesMetaData(metadata);
 }
 
+Status DBImpl::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+  InstrumentedMutexLock l(&mutex_);
+  return versions_->GetLiveFilesChecksumInfo(checksum_list);
+}
+
 void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                      ColumnFamilyMetaData* cf_meta) {
   assert(column_family);
-  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* sv = GetAndRefSuperVersion(cfd);
   {
     // Without mutex, Version::GetColumnFamilyMetaData will have data race with
@@ -4405,6 +4451,14 @@ Status DBImpl::IngestExternalFiles(
 #endif  // !NDEBUG
         }
       }
+    } else if (versions_->io_status().IsIOError()) {
+      // Error while writing to MANIFEST.
+      // In fact, versions_->io_status() can also be the result of renaming
+      // CURRENT file. With current code, it's just difficult to tell. So just
+      // be pessimistic and try write to a new MANIFEST.
+      // TODO: distinguish between MANIFEST write and CURRENT renaming
+      const IOStatus& io_s = versions_->io_status();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
     }
 
     // Resume writes to the DB
@@ -4464,7 +4518,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   }
 
   // Import sst files from metadata.
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(*handle);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(*handle);
   auto cfd = cfh->cfd();
   ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
                                    immutable_db_options_, file_options_,

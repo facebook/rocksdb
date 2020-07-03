@@ -14,6 +14,7 @@
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
@@ -463,6 +464,8 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
+  txn_options.lock_timeout = 60000; // 1min
+  txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
   Status s = (*txn)->SetName("xid" + istr);
@@ -1335,10 +1338,34 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
   DestroyDB(checkpoint_dir, tmp_opts);
 
+  if (db_stress_env->FileExists(checkpoint_dir).ok()) {
+    // If the directory might still exist, try to delete the files one by one.
+    // Likely a trash file is still there.
+    Status my_s = test::DestroyDir(db_stress_env, checkpoint_dir);
+    if (!my_s.ok()) {
+      fprintf(stderr, "Fail to destory directory before checkpoint: %s",
+              my_s.ToString().c_str());
+    }
+  }
+
   Checkpoint* checkpoint = nullptr;
   Status s = Checkpoint::Create(db_, &checkpoint);
   if (s.ok()) {
     s = checkpoint->CreateCheckpoint(checkpoint_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "Fail to create checkpoint to %s\n",
+              checkpoint_dir.c_str());
+      std::vector<std::string> files;
+      Status my_s = db_stress_env->GetChildren(checkpoint_dir, &files);
+      if (my_s.ok()) {
+        for (const auto& f : files) {
+          fprintf(stderr, " %s\n", f.c_str());
+        }
+      } else {
+        fprintf(stderr, "Fail to get files under the directory to %s\n",
+                my_s.ToString().c_str());
+      }
+    }
   }
   std::vector<ColumnFamilyHandle*> cf_handles;
   DB* checkpoint_db = nullptr;
@@ -1391,11 +1418,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     checkpoint_db = nullptr;
   }
 
-  DestroyDB(checkpoint_dir, tmp_opts);
-
   if (!s.ok()) {
     fprintf(stderr, "A checkpoint operation failed with: %s\n",
             s.ToString().c_str());
+  } else {
+    DestroyDB(checkpoint_dir, tmp_opts);
   }
   return s;
 }
@@ -1478,7 +1505,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   Slice key = keystr;
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 #ifndef ROCKSDB_LITE
-  auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
+  auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
   const bool ww_snapshot = thread->rand.OneIn(10);
   const Snapshot* snapshot =
       ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()

@@ -193,7 +193,8 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
-Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
+Status ReadProperties(const ReadOptions& read_options,
+                      const Slice& handle_value, RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties, bool verify_checksum,
@@ -210,16 +211,16 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   }
 
   BlockContents block_contents;
-  ReadOptions read_options;
-  read_options.verify_checksums = verify_checksum;
   Status s;
   PersistentCacheOptions cache_options;
+  ReadOptions ro = read_options;
+  ro.verify_checksums = verify_checksum;
 
-  BlockFetcher block_fetcher(
-      file, prefetch_buffer, footer, read_options, handle, &block_contents,
-      ioptions, false /* decompress */, false /*maybe_compressed*/,
-      BlockType::kProperties, UncompressionDict::GetEmptyDict(), cache_options,
-      memory_allocator);
+  BlockFetcher block_fetcher(file, prefetch_buffer, footer, ro, handle,
+                             &block_contents, ioptions, false /* decompress */,
+                             false /*maybe_compressed*/, BlockType::kProperties,
+                             UncompressionDict::GetEmptyDict(), cache_options,
+                             memory_allocator);
   s = block_fetcher.ReadBlockContents();
   // property block is never compressed. Need to add uncompress logic if we are
   // to compress it..
@@ -368,7 +369,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            FilePrefetchBuffer* prefetch_buffer) {
   // -- Read metaindex block
   Footer footer;
-  auto s = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
+  IOOptions opts;
+  auto s = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
                               table_magic_number);
   if (!s.ok()) {
     return s;
@@ -405,11 +407,11 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
 
   TableProperties table_properties;
   if (found_properties_block == true) {
-    s = ReadProperties(meta_iter->value(), file, prefetch_buffer, footer,
-                       ioptions, properties, false /* verify_checksum */,
-                       nullptr /* ret_block_hanel */,
-                       nullptr /* ret_block_contents */,
-                       compression_type_missing, memory_allocator);
+    s = ReadProperties(
+        read_options, meta_iter->value(), file, prefetch_buffer, footer,
+        ioptions, properties, false /* verify_checksum */,
+        nullptr /* ret_block_hanel */, nullptr /* ret_block_contents */,
+        compression_type_missing, memory_allocator);
   } else {
     s = Status::NotFound();
   }
@@ -438,8 +440,9 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      bool /*compression_type_missing*/,
                      MemoryAllocator* memory_allocator) {
   Footer footer;
-  auto s = ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size,
-                              &footer, table_magic_number);
+  IOOptions opts;
+  auto s = ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
+                              file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -480,7 +483,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
                      MemoryAllocator* memory_allocator) {
   Status status;
   Footer footer;
-  status = ReadFooterFromFile(file, prefetch_buffer, file_size, &footer,
+  IOOptions opts;
+  status = ReadFooterFromFile(opts, file, prefetch_buffer, file_size, &footer,
                               table_magic_number);
   if (!status.ok()) {
     return status;

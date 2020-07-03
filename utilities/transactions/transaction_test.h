@@ -437,7 +437,7 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == WRITE_COMMITTED) {
       options.unordered_write = false;
     }
-    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
       db_impl->TEST_FlushMemTable();
@@ -453,7 +453,7 @@ class TransactionTestBase : public ::testing::Test {
       ASSERT_TRUE(s.IsNotSupported());
       return;
     }
-    db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Check that WAL is empty
     VectorLogPtr log_files;
     db_impl->GetSortedWalFiles(log_files);

@@ -47,7 +47,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cfd = cfh->cfd();
   }
   InstrumentedMutexLock l(&mutex_);
@@ -57,7 +57,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
 void DBImpl::TEST_GetFilesMetaData(
     ColumnFamilyHandle* column_family,
     std::vector<std::vector<FileMetaData>>* metadata) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   InstrumentedMutexLock l(&mutex_);
   metadata->resize(NumberLevels());
@@ -88,7 +88,7 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cfd = cfh->cfd();
   }
   int output_level =
@@ -131,7 +131,7 @@ Status DBImpl::TEST_FlushMemTable(bool wait, bool allow_write_stall,
   if (cfh == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
-    auto cfhi = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh);
+    auto cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(cfh);
     cfd = cfhi->cfd();
   }
   return FlushMemTable(cfd, fo, FlushReason::kTest);
@@ -152,7 +152,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
   } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cfd = cfh->cfd();
   }
   return WaitForFlushMemTable(cfd, nullptr, false);
@@ -242,7 +242,7 @@ Status DBImpl::TEST_GetLatestMutableCFOptions(
     ColumnFamilyHandle* column_family, MutableCFOptions* mutable_cf_options) {
   InstrumentedMutexLock l(&mutex_);
 
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   *mutable_cf_options = *cfh->cfd()->GetLatestMutableCFOptions();
   return Status::OK();
 }

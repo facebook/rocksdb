@@ -4,13 +4,14 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl/db_impl_readonly.h"
-#include "db/arena_wrapped_db_iter.h"
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/compacted_db_impl.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/merge_context.h"
 #include "monitoring/perf_context_imp.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -35,7 +36,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   PERF_TIMER_GUARD(get_snapshot_time);
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
@@ -70,7 +71,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
@@ -111,7 +112,7 @@ Status DBImplReadOnly::NewIterators(
           : latest_snapshot;
 
   for (auto cfh : column_families) {
-    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+    auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, read_seq,
@@ -236,7 +237,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
     *dbptr = impl;
     for (auto* h : *handles) {
       impl->NewThreadStatusCfInfo(
-          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
+          static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
     }
   } else {
     for (auto h : *handles) {

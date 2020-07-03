@@ -1123,6 +1123,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   do {
     Options options = CurrentOptions();
+    env_->skip_fsync_ = true;
     DestroyAndReopen(options);
 
     SstFileWriter sst_file_writer(EnvOptions(), options);
@@ -1733,6 +1734,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
 }
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.IncreaseParallelism(20);
   options.level0_slowdown_writes_trigger = 256;
@@ -2852,7 +2854,7 @@ TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresent) {
   auto snap = dbfull()->GetSnapshot();
 
   std::string fname = sst_files_dir_ + "test_file";
-  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ROCKSDB_NAMESPACE::SstFileWriter writer(EnvOptions(), options);
   ASSERT_OK(writer.Open(fname));
   std::string key1 = "ab";
   std::string key2 = "ab";
@@ -2902,7 +2904,7 @@ TEST_P(ExternalSSTFileTest,
   ASSERT_OK(Put(key0, value));
 
   std::string fname = sst_files_dir_ + "test_file";
-  rocksdb::SstFileWriter writer(EnvOptions(), options);
+  ROCKSDB_NAMESPACE::SstFileWriter writer(EnvOptions(), options);
   ASSERT_OK(writer.Open(fname));
 
   // key0 is a dummy to ensure the turnaround point (key1) comes from Prev
