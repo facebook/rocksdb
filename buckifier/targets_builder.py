@@ -25,10 +25,11 @@ def pretty_list(lst, indent=8):
 
 
 class TARGETSBuilder(object):
-    def __init__(self, path):
+    def __init__(self, path, gtest_dir):
         self.path = path
         self.targets_file = open(path, 'w')
-        header = targets_cfg.rocksdb_target_header_template
+        header = targets_cfg.rocksdb_target_header_template.format(
+            gtest_dir=gtest_dir)
         self.targets_file.write(header)
         self.total_lib = 0
         self.total_bin = 0
@@ -38,8 +39,7 @@ class TARGETSBuilder(object):
     def __del__(self):
         self.targets_file.close()
 
-    def add_library(self, name, srcs, deps=None, headers=None,
-                    extra_external_deps=""):
+    def add_library(self, name, srcs, deps=None, headers=None):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
@@ -51,8 +51,7 @@ class TARGETSBuilder(object):
             srcs=pretty_list(srcs),
             headers_attr_prefix=headers_attr_prefix,
             headers=headers,
-            deps=pretty_list(deps),
-            extra_external_deps=extra_external_deps))
+            deps=pretty_list(deps)))
         self.total_lib = self.total_lib + 1
 
     def add_rocksdb_library(self, name, srcs, headers=None):
