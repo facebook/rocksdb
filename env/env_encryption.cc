@@ -855,7 +855,7 @@ Status CTRCipherStream::DecryptBlock(uint64_t blockIndex, char *data, char* scra
 // and used for storing encryption options.
 // For optimal performance, the prefix length should be a multiple of
 // the page size.
-size_t CTREncryptionProvider::GetPrefixLength() {
+size_t CTREncryptionProvider::GetPrefixLength() const {
   return defaultPrefixLength;
 }
 
@@ -872,7 +872,7 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
 // for a new file.
 Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
                                               char* prefix,
-                                              size_t prefixLength) {
+                                              size_t prefixLength) const {
   // Create & seed rnd.
   Random rnd((uint32_t)Env::Default()->NowMicros());
   // Fill entire prefix block with random values.
@@ -909,7 +909,7 @@ Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
 // that has been initialized.
 size_t CTREncryptionProvider::PopulateSecretPrefixPart(char* /*prefix*/,
                                                        size_t /*prefixLength*/,
-                                                       size_t /*blockSize*/) {
+                                                       size_t /*blockSize*/) const {
   // Nothing to do here, put in custom data in override when needed.
   return 0;
 }
