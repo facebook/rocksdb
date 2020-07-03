@@ -22,13 +22,9 @@
 #include "util/coding.h"
 #include "util/random.h"
 
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 static port::RWMutex key_lock;
-
-#ifndef ROCKSDB_LITE
 
 // reuse cipher context between calls to Encrypt & Decrypt
 static void do_nothing(EVP_CIPHER_CTX*){};
@@ -150,7 +146,7 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
           out_len = 0;
           ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
               aes_context.get(), (unsigned char*)data, &out_len,
-              (unsigned char*)data, data_size);
+              (unsigned char*)data, (int)data_size);
 
           if (1 != ret_val || (int)data_size != out_len) {
             status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
@@ -218,7 +214,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
           memcpy(temp_buf + block_offset, data, prefix_size);
           out_len = 0;
           ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), temp_buf, &out_len, temp_buf, block_size);
+              aes_context.get(), temp_buf, &out_len, temp_buf, (int)block_size);
 
           if (1 != ret_val || (int)block_size != out_len) {
             status = Status::InvalidArgument("EVP_EncryptUpdate failed 1: ",
@@ -236,7 +232,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
           out_len = 0;
           ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
               aes_context.get(), (uint8_t*)data + prefix_size, &out_len,
-              (uint8_t*)data + prefix_size, remaining);
+              (uint8_t*)data + prefix_size, (int)remaining);
 
           if (1 != ret_val || (int)remaining != out_len) {
             status = Status::InvalidArgument("EVP_EncryptUpdate failed 2: ",
@@ -927,8 +923,7 @@ Env* EncryptedEnvV2::Default(EncryptedEnvV2::ReadKeys encrypt_read,
   return default_env;
 }
 
-#endif  // ROCKSDB_LITE
-
 }  // namespace ROCKSDB_NAMESPACE
 
+#endif  // ROCKSDB_LITE
 #endif  // ROCKSDB_OPENSSL_AES_CTR
