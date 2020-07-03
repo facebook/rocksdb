@@ -358,7 +358,7 @@ Status DBImpl::Recover(
   assert(db_lock_ == nullptr);
   std::vector<std::string> dbname_children;
   Status dbname_children_s;
-  if (read_only || immutable){
+  if (read_only || immutable_db_options_.best_efforts_recovery) {
     dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
   }
   if (!read_only) {
@@ -448,8 +448,7 @@ Status DBImpl::Recover(
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
     s = versions_->TryRecover(column_families, read_only, &db_id_,
-                              &missing_table_file, dbname_children,
-                              dbname_children_s);
+                              &missing_table_file);
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
