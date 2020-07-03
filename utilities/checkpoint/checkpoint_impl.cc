@@ -26,6 +26,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -367,7 +368,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 Status CheckpointImpl::ExportColumnFamily(
     ColumnFamilyHandle* handle, const std::string& export_dir,
     ExportImportFilesMetaData** metadata) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(handle);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
   const auto cf_name = cfh->GetName();
   const auto db_options = db_->GetDBOptions();
 

@@ -9,6 +9,8 @@
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
+#include "rocksdb/utilities/backupable_db.h"
+
 #include <algorithm>
 #include <limits>
 #include <string>
@@ -22,11 +24,11 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
@@ -2009,7 +2011,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   // The last manifest roll would've already been cleaned up by the full scan
   // that happens when CreateNewBackup invokes EnableFileDeletions. We need to
   // trigger another roll to verify non-full scan purges stale manifests.
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_.get());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
   std::string prev_manifest_path =
       DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
   FillDB(db_.get(), 0, 100);

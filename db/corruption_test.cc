@@ -106,7 +106,7 @@ class CorruptionTest : public testing::Test {
     WriteBatch batch;
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
-        DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+        DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
         dbi->TEST_FlushMemTable();
       }
       //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
@@ -281,7 +281,7 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
 
 TEST_F(CorruptionTest, TableFile) {
   Build(100);
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   dbi->TEST_FlushMemTable();
   dbi->TEST_CompactRange(0, nullptr, nullptr);
   dbi->TEST_CompactRange(1, nullptr, nullptr);
@@ -304,7 +304,7 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   Reopen(&options);
 
   Build(10000);
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   dbi->TEST_FlushMemTable();
   dbi->TEST_CompactRange(0, nullptr, nullptr);
   dbi->TEST_CompactRange(1, nullptr, nullptr);
@@ -351,14 +351,14 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   Reopen(&options);
   // build 2 tables, flush at 5000
   Build(10000, 5000);
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   dbi->TEST_FlushMemTable();
 
   // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
   options.paranoid_checks = false;
   Reopen(&options);
-  dbi = reinterpret_cast<DBImpl*>(db_);
+  dbi = static_cast_with_check<DBImpl>(db_);
   // one full file may be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
   Check(0, 5000);
@@ -398,7 +398,7 @@ TEST_F(CorruptionTest, SequenceNumberRecovery) {
 
 TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   dbi->TEST_FlushMemTable();
   dbi->TEST_CompactRange(0, nullptr, nullptr);
 
@@ -417,7 +417,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
   Options options;
   Reopen(&options);
   Build(10);
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   dbi->TEST_FlushMemTable();
   dbi->TEST_CompactRange(0, nullptr, nullptr);
   dbi->TEST_CompactRange(1, nullptr, nullptr);
@@ -439,7 +439,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
   Reopen(&options);
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
 
   // Fill levels >= 1
   for (int level = 1; level < dbi->NumberLevels(); level++) {
@@ -454,7 +454,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   Reopen(&options);
 
-  dbi = reinterpret_cast<DBImpl*>(db_);
+  dbi = static_cast_with_check<DBImpl>(db_);
   Build(10);
   dbi->TEST_FlushMemTable();
   dbi->TEST_WaitForCompact();
@@ -481,7 +481,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
 TEST_F(CorruptionTest, UnrelatedKeys) {
   Build(10);
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   dbi->TEST_FlushMemTable();
   Corrupt(kTableFile, 100, 1);
   ASSERT_NOK(dbi->VerifyChecksum());
@@ -532,7 +532,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     Reopen(&options);
     Build(10);
     ASSERT_OK(db_->Flush(FlushOptions()));
-    DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+    DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     std::vector<LiveFileMetaData> metadata;
     dbi->GetLiveFilesMetaData(&metadata);
     ASSERT_GT(metadata.size(), size_t(0));

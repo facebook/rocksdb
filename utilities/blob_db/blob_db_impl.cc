@@ -995,7 +995,8 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->GetID();
   Status s;
   BlobInserter blob_inserter(options, this, default_cf_id);
   {
@@ -1050,7 +1051,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
   Status s;
   std::string index_entry;
   uint32_t column_family_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->GetID();
   if (value.size() < bdb_options_.min_blob_size) {
     if (expiration == kNoExpiration) {
       // Put as normal value
@@ -2029,7 +2031,8 @@ void BlobDBImpl::CopyBlobFiles(
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   auto* cfd =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->cfd();
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ManagedSnapshot* own_snapshot = nullptr;
