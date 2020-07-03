@@ -11,12 +11,13 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
-#include <algorithm>
-#include <cctype>
-#include <iostream>
 #include <openssl/aes.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+
+#include <algorithm>
+#include <cctype>
+#include <iostream>
 
 #include "env.h"
 #include "rocksdb/env_encryption.h"
@@ -120,13 +121,13 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
   CTREncryptionProviderV2(const CTREncryptionProvider&&) = delete;
 
   CTREncryptionProviderV2(const Sha1Description& key_desc_in,
-                         const AesCtrKey& key_in)
+                          const AesCtrKey& key_in)
       : valid_(false), key_desc_(key_desc_in), key_(key_in) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
 
   CTREncryptionProviderV2(const std::string& key_desc_str,
-                         const uint8_t unformatted_key[], int bytes)
+                          const uint8_t unformatted_key[], int bytes)
       : valid_(false), key_desc_(key_desc_str), key_(unformatted_key, bytes) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
@@ -143,8 +144,8 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
     return Status::NotSupported("Wrong EncryptionProvider assumed");
   }
 
-  virtual BlockAccessCipherStream* CreateCipherStream2(uint8_t code_version,
-                                                       const uint8_t nonce[]) const;
+  virtual BlockAccessCipherStream* CreateCipherStream2(
+      uint8_t code_version, const uint8_t nonce[]) const;
 
   bool Valid() const { return valid_; };
   const Sha1Description& key_desc() const { return key_desc_; };
@@ -180,8 +181,8 @@ class EncryptedWritableFileV2 : public EncryptedWritableFile {
  public:
   // Default ctor. Prefix is assumed to be written already.
   EncryptedWritableFileV2(std::unique_ptr<WritableFile>&& f,
-                        std::unique_ptr<BlockAccessCipherStream>&& s,
-                        size_t prefix_length)
+                          std::unique_ptr<BlockAccessCipherStream>&& s,
+                          size_t prefix_length)
       : EncryptedWritableFile(std::move(f), std::move(s), prefix_length) {}
 
   Status Append(const Slice& data) override;
@@ -190,19 +191,15 @@ class EncryptedWritableFileV2 : public EncryptedWritableFile {
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
-  bool use_direct_io() const override {return false;};
-
+  bool use_direct_io() const override { return false; };
 };
-
-
-
 
 // EncryptedEnvV2 implements an Env wrapper that adds encryption to files stored
 // on disk.
 class EncryptedEnvV2 : public EnvWrapper {
  public:
-  using WriteKey =
-      std::pair<Sha1Description, std::shared_ptr<const CTREncryptionProviderV2>>;
+  using WriteKey = std::pair<Sha1Description,
+                             std::shared_ptr<const CTREncryptionProviderV2>>;
   using ReadKeys =
       std::map<Sha1Description, std::shared_ptr<const CTREncryptionProviderV2>>;
 
@@ -274,8 +271,8 @@ class EncryptedEnvV2 : public EnvWrapper {
 
   // only needed for GetChildrenFileAttributes & GetFileSize
   virtual Status GetEncryptionProvider(
-      const std::string& fname, std::shared_ptr<const CTREncryptionProviderV2>& provider);
-
+      const std::string& fname,
+      std::shared_ptr<const CTREncryptionProviderV2>& provider);
 
   bool IsValid() const { return valid_; }
 
@@ -285,24 +282,24 @@ class EncryptedEnvV2 : public EnvWrapper {
   void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
 
   template <class TypeFile>
-      Status ReadSeqEncryptionPrefix(
-          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
-          std::unique_ptr<BlockAccessCipherStream>& stream);
+  Status ReadSeqEncryptionPrefix(
+      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+      std::unique_ptr<BlockAccessCipherStream>& stream);
 
   template <class TypeFile>
-      Status ReadRandEncryptionPrefix(
-          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
-          std::unique_ptr<BlockAccessCipherStream>& stream);
+  Status ReadRandEncryptionPrefix(
+      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+      std::unique_ptr<BlockAccessCipherStream>& stream);
 
   template <class TypeFile>
-      Status WriteSeqEncryptionPrefix(
-          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
-          std::unique_ptr<BlockAccessCipherStream>& stream);
+  Status WriteSeqEncryptionPrefix(
+      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+      std::unique_ptr<BlockAccessCipherStream>& stream);
 
   template <class TypeFile>
-      Status WriteRandEncryptionPrefix(
-          TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
-          std::unique_ptr<BlockAccessCipherStream>& stream);
+  Status WriteRandEncryptionPrefix(
+      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+      std::unique_ptr<BlockAccessCipherStream>& stream);
 
  public:
   static UnixLibCrypto crypto_;
@@ -317,7 +314,7 @@ class EncryptedEnvV2 : public EnvWrapper {
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.  Prefer EncryptedEnvV2::Default().
 Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
-                      EncryptedEnvV2::WriteKey encrypt_write);
+                       EncryptedEnvV2::WriteKey encrypt_write);
 
 #endif  // ROCKSDB_LITE
 

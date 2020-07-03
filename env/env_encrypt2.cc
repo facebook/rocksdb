@@ -92,13 +92,13 @@ static void BigEndianAdd128(uint8_t* buf, uint64_t value) {
 
   if (port::kLittleEndian) {
     offset = +1;
-    addend = (uint8_t *)&value;
+    addend = (uint8_t*)&value;
   } else {
     offset = -1;
-    addend = (uint8_t *)&value + 7;
+    addend = (uint8_t*)&value + 7;
   }
 
-  for (int loop=0; loop < 8; ++loop) {
+  for (int loop = 0; loop < 8; ++loop) {
     pre = *sum;
     *sum += *addend;
     post = *sum;
@@ -108,7 +108,7 @@ static void BigEndianAdd128(uint8_t* buf, uint64_t value) {
     if (post < pre) {
       *sum += 1;
     }
-  } // for
+  }  // for
 }
 
 //
@@ -120,7 +120,8 @@ typedef union {
 } AesAlignedBlock;
 
 // "data" is assumed to be aligned at AES_BLOCK_SIZE or greater
-Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char *data, size_t data_size) {
+Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
+                                           size_t data_size) {
   Status status;
 
   if (0 < data_size) {
@@ -131,9 +132,10 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char *data, siz
 
       // make a context once per thread
       if (!aes_context) {
-        aes_context = std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
-            EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_new(),
-            EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_free_ptr());
+        aes_context =
+            std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
+                EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_new(),
+                EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_free_ptr());
       }
 
       ret_val = EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_reset(aes_context.get());
@@ -142,19 +144,19 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char *data, siz
         BigEndianAdd128(iv.bytes, block_index);
 
         ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
-            aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(), nullptr,
-            key_.key, iv.bytes);
+            aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(),
+            nullptr, key_.key, iv.bytes);
         if (1 == ret_val) {
           out_len = 0;
           ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), (unsigned char *)data, &out_len,
-              (unsigned char *)data, data_size);
+              aes_context.get(), (unsigned char*)data, &out_len,
+              (unsigned char*)data, data_size);
 
           if (1 != ret_val || (int)data_size != out_len) {
             status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
                                              (int)data_size == out_len
-                                             ? "bad return value"
-                                             : "output length short");
+                                                 ? "bad return value"
+                                                 : "output length short");
           }
         } else {
           status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
@@ -175,7 +177,8 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char *data, siz
 //  Length of data is given in data_size.
 //  CTR Encrypt and Decrypt are synonyms.  Using Encrypt calls here to reduce
 //   count of symbols loaded from libcrypto.
-Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char *data, size_t data_size) {
+Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
+                                           size_t data_size) {
   // Calculate block index
   size_t block_size = BlockSize();
   uint64_t block_index = file_offset / block_size;
@@ -186,7 +189,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char *data, siz
 
   Status status;
   ALIGN16 AesAlignedBlock iv;
-  int out_len = 0,  ret_val;
+  int out_len = 0, ret_val;
 
   if (EncryptedEnvV2::crypto_.IsValid()) {
     // make a context once per thread
@@ -215,14 +218,13 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char *data, siz
           memcpy(temp_buf + block_offset, data, prefix_size);
           out_len = 0;
           ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), temp_buf, &out_len, temp_buf,
-              block_size);
+              aes_context.get(), temp_buf, &out_len, temp_buf, block_size);
 
           if (1 != ret_val || (int)block_size != out_len) {
             status = Status::InvalidArgument("EVP_EncryptUpdate failed 1: ",
                                              (int)block_size == out_len
-                                             ? "bad return value"
-                                             : "output length short");
+                                                 ? "bad return value"
+                                                 : "output length short");
           } else {
             memcpy(data, temp_buf + block_offset, prefix_size);
           }
@@ -233,14 +235,14 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char *data, siz
         if (status.ok() && remaining) {
           out_len = 0;
           ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), (uint8_t *)data + prefix_size, &out_len,
-              (uint8_t *)data + prefix_size, remaining);
+              aes_context.get(), (uint8_t*)data + prefix_size, &out_len,
+              (uint8_t*)data + prefix_size, remaining);
 
           if (1 != ret_val || (int)remaining != out_len) {
             status = Status::InvalidArgument("EVP_EncryptUpdate failed 2: ",
                                              (int)remaining == out_len
-                                             ? "bad return value"
-                                             : "output length short");
+                                                 ? "bad return value"
+                                                 : "output length short");
           }
         }
       } else {
@@ -257,10 +259,9 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char *data, siz
   return status;
 }
 
-
 Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
-                                               char* prefix,
-                                               size_t prefixLength) const {
+                                                char* prefix,
+                                                size_t prefixLength) const {
   Status s;
   if (EncryptedEnvV2::crypto_.IsValid()) {
     if (sizeof(PrefixVersion0) <= prefixLength) {
@@ -268,9 +269,8 @@ Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
 
       PrefixVersion0* pf = {(PrefixVersion0*)prefix};
       memcpy(pf->key_description_, key_desc_.desc, sizeof(key_desc_.desc));
-      ret_val = EncryptedEnvV2::crypto_.RAND_bytes(
-          (unsigned char*)&pf->nonce_,
-          AES_BLOCK_SIZE);
+      ret_val = EncryptedEnvV2::crypto_.RAND_bytes((unsigned char*)&pf->nonce_,
+                                                   AES_BLOCK_SIZE);
       if (1 != ret_val) {
         s = Status::NotSupported("RAND_bytes failed");
       }
@@ -288,11 +288,10 @@ size_t CTREncryptionProviderV2::GetPrefixLength() const {
   return sizeof(PrefixVersion0) + sizeof(EncryptMarker);
 }
 
-BlockAccessCipherStream* CTREncryptionProviderV2::CreateCipherStream2(uint8_t code_version,
-                                                                      const uint8_t nonce[]) const {
+BlockAccessCipherStream* CTREncryptionProviderV2::CreateCipherStream2(
+    uint8_t code_version, const uint8_t nonce[]) const {
   return new AESBlockAccessCipherStream(key_, code_version, nonce);
 }
-
 
 Status EncryptedWritableFileV2::Append(const Slice& data) {
   AlignedBuffer buf;
@@ -307,17 +306,18 @@ Status EncryptedWritableFileV2::Append(const Slice& data) {
     buf.Alignment(block_size);
     // worst case is one byte only in first and in last block,
     //  so 2*block_size-2 might be needed (simplified to 2*block_size)
-    buf.AllocateNewBuffer(data.size() + 2*block_size);
+    buf.AllocateNewBuffer(data.size() + 2 * block_size);
     memmove(buf.BufferStart() + block_offset, data.data(), data.size());
     buf.Size(data.size() + block_offset);
     {
       PERF_TIMER_GUARD(encrypt_data_nanos);
-      status = stream_->Encrypt(offset-block_offset, buf.BufferStart(), buf.CurrentSize());
+      status = stream_->Encrypt(offset - block_offset, buf.BufferStart(),
+                                buf.CurrentSize());
     }
     if (!status.ok()) {
       return status;
     }
-    dataToAppend = Slice(buf.BufferStart()+block_offset, data.size());
+    dataToAppend = Slice(buf.BufferStart() + block_offset, data.size());
   }
 
   status = file_->Append(dataToAppend);
@@ -325,9 +325,8 @@ Status EncryptedWritableFileV2::Append(const Slice& data) {
   return status;
 }
 
-
 Status EncryptedWritableFileV2::PositionedAppend(const Slice& data,
-                                               uint64_t offset) {
+                                                 uint64_t offset) {
   AlignedBuffer buf;
   Status status;
   Slice dataToAppend(data);
@@ -354,12 +353,10 @@ Status EncryptedWritableFileV2::PositionedAppend(const Slice& data,
   return status;
 }
 
-
-
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
 Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
-                      EncryptedEnvV2::WriteKey encrypt_write) {
+                       EncryptedEnvV2::WriteKey encrypt_write) {
   Env* ret_env{base_env};
   EncryptedEnvV2* new_env{nullptr};
 
@@ -381,10 +378,9 @@ Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
 }
 
 EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
-                             EncryptedEnvV2::ReadKeys encrypt_read,
-                             EncryptedEnvV2::WriteKey encrypt_write)
-    : EnvWrapper(base_env),
-      valid_(false) {
+                               EncryptedEnvV2::ReadKeys encrypt_read,
+                               EncryptedEnvV2::WriteKey encrypt_write)
+    : EnvWrapper(base_env), valid_(false) {
   SetKeys(encrypt_read, encrypt_write);
 
   valid_ = crypto_.IsValid();
@@ -399,9 +395,8 @@ EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
 EncryptedEnvV2::EncryptedEnvV2(Env* base_env)
     : EnvWrapper(base_env), valid_(false) {}
 
-
 void EncryptedEnvV2::SetKeys(EncryptedEnvV2::ReadKeys encrypt_read,
-                            EncryptedEnvV2::WriteKey encrypt_write) {
+                             EncryptedEnvV2::WriteKey encrypt_write) {
   key_lock.WriteLock();
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
@@ -441,7 +436,8 @@ Status EncryptedEnvV2::ReadSeqEncryptionPrefix(
       if (kEncryptCodeVersion0 == code_version) {
         Slice prefix_slice;
         PrefixVersion0 prefix_buffer;
-        status = f->Read(sizeof(PrefixVersion0), &prefix_slice, (char*)&prefix_buffer);
+        status = f->Read(sizeof(PrefixVersion0), &prefix_slice,
+                         (char*)&prefix_buffer);
         if (status.ok() && sizeof(PrefixVersion0) == prefix_slice.size()) {
           Sha1Description desc(prefix_buffer.key_description_,
                                sizeof(prefix_buffer.key_description_));
@@ -536,9 +532,8 @@ Status EncryptedEnvV2::WriteSeqEncryptionPrefix(
     // create nonce, then write it and key description
     Slice prefix_slice((char*)&prefix, sizeof(prefix));
 
-    status = provider->CreateNewPrefix(
-        std::string(), (char*)&prefix,
-        provider->GetPrefixLength());
+    status = provider->CreateNewPrefix(std::string(), (char*)&prefix,
+                                       provider->GetPrefixLength());
 
     if (status.ok()) {
       status = f->Append(prefix_slice);
@@ -573,9 +568,8 @@ Status EncryptedEnvV2::WriteRandEncryptionPrefix(
     // create nonce, then write it and key description
     Slice prefix_slice((char*)&prefix, sizeof(prefix));
 
-    status = provider->CreateNewPrefix(
-        std::string(), (char*)&prefix,
-        provider->GetPrefixLength());
+    status = provider->CreateNewPrefix(std::string(), (char*)&prefix,
+                                       provider->GetPrefixLength());
 
     if (status.ok()) {
       status = f->Write(sizeof(EncryptMarker), prefix_slice);
@@ -591,9 +585,9 @@ Status EncryptedEnvV2::WriteRandEncryptionPrefix(
 }
 
 // NewSequentialFile opens a file for sequential reading.
-Status EncryptedEnvV2::NewSequentialFile(const std::string& fname,
-                                        std::unique_ptr<SequentialFile>* result,
-                                        const EnvOptions& options) {
+Status EncryptedEnvV2::NewSequentialFile(
+    const std::string& fname, std::unique_ptr<SequentialFile>* result,
+    const EnvOptions& options) {
   result->reset();
   if (options.use_mmap_reads || options.use_direct_reads) {
     return Status::InvalidArgument();
@@ -611,7 +605,8 @@ Status EncryptedEnvV2::NewSequentialFile(const std::string& fname,
     if (status.ok()) {
       if (provider) {
         (*result) = std::unique_ptr<SequentialFile>(new EncryptedSequentialFile(
-            std::move(underlying), std::move(stream), provider->GetPrefixLength()));
+            std::move(underlying), std::move(stream),
+            provider->GetPrefixLength()));
 
       } else {
         // normal file, not encrypted
@@ -662,8 +657,8 @@ Status EncryptedEnvV2::NewRandomAccessFile(
 
 // NewWritableFile opens a file for sequential writing.
 Status EncryptedEnvV2::NewWritableFile(const std::string& fname,
-                                      std::unique_ptr<WritableFile>* result,
-                                      const EnvOptions& options) {
+                                       std::unique_ptr<WritableFile>* result,
+                                       const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -708,8 +703,8 @@ Status EncryptedEnvV2::NewWritableFile(const std::string& fname,
 //
 // The returned file will only be accessed by one thread at a time.
 Status EncryptedEnvV2::ReopenWritableFile(const std::string& fname,
-                                         std::unique_ptr<WritableFile>* result,
-                                         const EnvOptions& options) {
+                                          std::unique_ptr<WritableFile>* result,
+                                          const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -748,9 +743,9 @@ Status EncryptedEnvV2::ReopenWritableFile(const std::string& fname,
 
 // Reuse an existing file by renaming it and opening it as writable.
 Status EncryptedEnvV2::ReuseWritableFile(const std::string& fname,
-                                        const std::string& old_fname,
-                                        std::unique_ptr<WritableFile>* result,
-                                        const EnvOptions& options) {
+                                         const std::string& old_fname,
+                                         std::unique_ptr<WritableFile>* result,
+                                         const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -794,16 +789,16 @@ Status EncryptedEnvV2::ReuseWritableFile(const std::string& fname,
 //
 // The returned file will only be accessed by one thread at a time.
 Status EncryptedEnvV2::NewRandomRWFile(const std::string& fname,
-                                      std::unique_ptr<RandomRWFile>* result,
-                                      const EnvOptions& options) {
+                                       std::unique_ptr<RandomRWFile>* result,
+                                       const EnvOptions& options) {
   Status status;
   result->reset();
 
   // Check file exists
   bool isNewFile = !FileExists(fname).ok();
 
-  if (!options.use_mmap_writes && !options.use_mmap_reads
-      && !options.use_direct_writes && !options.use_direct_reads) {
+  if (!options.use_mmap_writes && !options.use_mmap_reads &&
+      !options.use_direct_writes && !options.use_direct_reads) {
     // Open file using underlying Env implementation
     std::unique_ptr<RandomRWFile> underlying;
     status = EnvWrapper::NewRandomRWFile(fname, &underlying, options);
@@ -823,7 +818,8 @@ Status EncryptedEnvV2::NewRandomRWFile(const std::string& fname,
         key_lock.ReadUnlock();
 
         if (provider) {
-          status = WriteRandEncryptionPrefix(underlying.get(), provider, stream);
+          status =
+              WriteRandEncryptionPrefix(underlying.get(), provider, stream);
         }
       }
 
@@ -878,7 +874,7 @@ Status EncryptedEnvV2::GetChildrenFileAttributes(
 
 // Store the size of fname in *file_size.
 Status EncryptedEnvV2::GetFileSize(const std::string& fname,
-                                  uint64_t* file_size) {
+                                   uint64_t* file_size) {
   Status status;
   status = EnvWrapper::GetFileSize(fname, file_size);
 
@@ -896,7 +892,8 @@ Status EncryptedEnvV2::GetFileSize(const std::string& fname,
 }
 
 Status EncryptedEnvV2::GetEncryptionProvider(
-    const std::string& fname, std::shared_ptr<const CTREncryptionProviderV2>& provider) {
+    const std::string& fname,
+    std::shared_ptr<const CTREncryptionProviderV2>& provider) {
   std::unique_ptr<SequentialFile> underlying;
   EnvOptions options;
   Status status;
@@ -907,7 +904,7 @@ Status EncryptedEnvV2::GetEncryptionProvider(
   if (status.ok()) {
     std::unique_ptr<BlockAccessCipherStream> stream;
     status = EncryptedEnvV2::ReadSeqEncryptionPrefix(underlying.get(), provider,
-                                                    stream);
+                                                     stream);
   }
 
   return status;
@@ -924,7 +921,7 @@ Env* EncryptedEnvV2::Default() {
 }
 
 Env* EncryptedEnvV2::Default(EncryptedEnvV2::ReadKeys encrypt_read,
-                            EncryptedEnvV2::WriteKey encrypt_write) {
+                             EncryptedEnvV2::WriteKey encrypt_write) {
   EncryptedEnvV2* default_env = (EncryptedEnvV2*)Default();
   default_env->SetKeys(encrypt_read, encrypt_write);
   return default_env;

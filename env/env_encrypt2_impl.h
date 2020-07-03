@@ -24,7 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 #endif
 #endif
 
-constexpr uint8_t kEncryptCodeVersion0 {'0'};
+constexpr uint8_t kEncryptCodeVersion0{'0'};
 
 typedef char EncryptMarker[8];
 static EncryptMarker kEncryptMarker = "Encrypt";
@@ -34,7 +34,7 @@ static EncryptMarker kEncryptMarker = "Encrypt";
 // nounce (assumed to be packed/byte aligned)
 typedef struct {
   uint8_t key_description_[EVP_MAX_MD_SIZE];  // max md is 64
-  uint8_t nonce_[AES_BLOCK_SIZE];  // block size is 16
+  uint8_t nonce_[AES_BLOCK_SIZE];             // block size is 16
 } PrefixVersion0;
 
 class AESBlockAccessCipherStream : public BlockAccessCipherStream {
@@ -57,13 +57,15 @@ class AESBlockAccessCipherStream : public BlockAccessCipherStream {
   Status Decrypt(uint64_t file_offset, char* data, size_t data_size) override;
 
  protected:
-  void AllocateScratch(std::string&) override {};
+  void AllocateScratch(std::string&) override{};
 
-  Status EncryptBlock(uint64_t, char*, char*) override
-  {return Status::NotSupported("Wrong EncryptionProvider assumed");};
+  Status EncryptBlock(uint64_t, char*, char*) override {
+    return Status::NotSupported("Wrong EncryptionProvider assumed");
+  };
 
-  Status DecryptBlock(uint64_t, char*, char*) override
-  {return Status::NotSupported("Wrong EncryptionProvider assumed");};
+  Status DecryptBlock(uint64_t, char*, char*) override {
+    return Status::NotSupported("Wrong EncryptionProvider assumed");
+  };
 
   AesCtrKey key_;
   uint8_t code_version_;
