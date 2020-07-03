@@ -4543,7 +4543,6 @@ public class RocksDB extends RocksObject {
 
   private native static int version();
 
-
   protected DBOptionsInterface options_;
   private static Version version;
 
