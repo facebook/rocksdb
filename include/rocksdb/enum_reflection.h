@@ -1,6 +1,6 @@
 // created by leipeng at 2019-12-25
+// clang-format off
 #pragma once
-
 #include "rocksdb/preproc.h"
 #include "rocksdb/slice.h"
 #include <type_traits>
@@ -235,3 +235,5 @@ std::string enum_str_all_namevalues() {
   ROCKSDB_BIG_ENUM_IMPL(friend,class,EnumType,IntRep,EnumType::,__VA_ARGS__)
 
 } // ROCKSDB_NAMESPACE
+// clang-format on
+

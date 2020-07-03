@@ -1,5 +1,5 @@
 // created by leipeng at 2019-10-17
-
+// clang-format off
 #pragma once
 
 #define ROCKSDB_PP_EMPTY
@@ -461,3 +461,4 @@
 # define ROCKSDB_FUNC "(unknown)"
 
 #endif
+// clang-format on
