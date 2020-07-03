@@ -61,10 +61,10 @@ class WritableFileWriter {
     }
     info.status.PermitUncheckedError();
   }
-  void NotifyOnFileSyncFinish(const FileOperationInfo::TimePoint& start_ts,
-                              const FileOperationInfo::TimePoint& finish_ts,
-                              const IOStatus& io_status,
-                              FileOperationType type = FileOperationType::kSync) {
+  void NotifyOnFileSyncFinish(
+      const FileOperationInfo::TimePoint& start_ts,
+      const FileOperationInfo::TimePoint& finish_ts, const IOStatus& io_status,
+      FileOperationType type = FileOperationType::kSync) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
     info.type = type;
     info.status = io_status;
