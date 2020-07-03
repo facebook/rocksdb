@@ -79,9 +79,7 @@ AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
   }
 }
 
-
-void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf,
-                                                 uint64_t value) {
+void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf, uint64_t value) {
   uint8_t *sum, *addend, *carry, pre, post;
 
   sum = buf + 15;
@@ -378,10 +376,11 @@ Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
     buf.Size(data.size() + block_offset);
     {
       PERF_TIMER_GUARD(encrypt_data_nanos);
-      status = stream_->Encrypt(offset, buf.BufferStart()+block_offset, data.size());
+      status = stream_->Encrypt(offset, buf.BufferStart() + block_offset,
+                                data.size());
     }
     if (status.ok()) {
-      dataToWrite = Slice(buf.BufferStart()+block_offset, data.size());
+      dataToWrite = Slice(buf.BufferStart() + block_offset, data.size());
     }
   }
 

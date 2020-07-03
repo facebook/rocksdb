@@ -177,16 +177,15 @@ class EncryptedWritableFileV2 : public EncryptedWritableFile {
 // A file abstraction for random reading and writing.
 class EncryptedRandomRWFileV2 : public EncryptedRandomRWFile {
  protected:
-
  public:
   EncryptedRandomRWFileV2(std::unique_ptr<RandomRWFile>&& f,
-                        std::unique_ptr<BlockAccessCipherStream>&& s,
-                        size_t prefixLength)
+                          std::unique_ptr<BlockAccessCipherStream>&& s,
+                          size_t prefixLength)
       : EncryptedRandomRWFile(std::move(f), std::move(s), prefixLength) {}
 
   // Indicates if the class makes use of direct I/OF
   // If false you must pass aligned buffer to Write()
-  bool use_direct_io() const override {return false;};
+  bool use_direct_io() const override { return false; };
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
   // Pass aligned buffer when use_direct_io() returns true.

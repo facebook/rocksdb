@@ -389,7 +389,6 @@ TEST(EnvEncrypt2_Provider, BigEndianAdd) {
                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x00};
   AESBlockAccessCipherStream::BigEndianAdd128(nounce3, 0xff01);
   ASSERT_TRUE(0 == memcmp(nounce3, expect3, sizeof(nounce3)));
-
 }
 
 //
