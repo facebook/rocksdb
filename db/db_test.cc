@@ -3010,6 +3010,11 @@ class ModelDB : public DB {
     return Status::OK();
   }
 
+  Status GetLiveFilesChecksumInfo(
+      FileChecksumList* /*checksum_list*/) override {
+    return Status::OK();
+  }
+
   Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
     return Status::OK();
   }

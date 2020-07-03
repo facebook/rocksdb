@@ -24,6 +24,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// The default DB file checksum function name.
+constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
+// The default BackupEngine file checksum function name.
+constexpr char kBackupFileChecksumFuncName[] = "crc32c";
+
 // BackupTableNameOption describes possible naming schemes for backup
 // table file names when the table files are stored in the shared_checksum
 // directory (i.e., both share_table_files and share_files_with_checksum

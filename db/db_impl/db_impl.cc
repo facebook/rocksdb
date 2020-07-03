@@ -3536,6 +3536,11 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   versions_->GetLiveFilesMetaData(metadata);
 }
 
+Status DBImpl::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
+  InstrumentedMutexLock l(&mutex_);
+  return versions_->GetLiveFilesChecksumInfo(checksum_list);
+}
+
 void DBImpl::GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                      ColumnFamilyMetaData* cf_meta) {
   assert(column_family);

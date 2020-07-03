@@ -678,6 +678,44 @@ class BackupableDBTest : public testing::Test {
     }
   }
 
+  Status CorruptRandomTableFileInDB() {
+    Random rnd(6);
+    std::vector<FileAttributes> children;
+    test_db_env_->GetChildrenFileAttributes(dbname_, &children);
+    if (children.size() <= 2) {  // . and ..
+      return Status::NotFound("");
+    }
+    std::string fname;
+    uint64_t fsize = 0;
+    while (true) {
+      int i = rnd.Next() % children.size();
+      fname = children[i].name;
+      fsize = children[i].size_bytes;
+      // find an sst file
+      if (fsize > 0 && fname.length() > 4 &&
+          fname.rfind(".sst") == fname.length() - 4) {
+        fname = dbname_ + "/" + fname;
+        break;
+      }
+    }
+
+    std::string file_contents;
+    Status s = ReadFileToString(test_db_env_.get(), fname, &file_contents);
+    if (!s.ok()) {
+      return s;
+    }
+    s = test_db_env_->DeleteFile(fname);
+    if (!s.ok()) {
+      return s;
+    }
+    for (uint64_t i = 0; i < fsize; ++i) {
+      std::string tmp;
+      test::RandomString(&rnd, 1, &tmp);
+      file_contents[rnd.Next() % file_contents.size()] = tmp[0];
+    }
+    return WriteStringToFile(test_db_env_.get(), file_contents, fname);
+  }
+
   // files
   std::string dbname_;
   std::string backupdir_;
@@ -1135,6 +1173,155 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
   ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
   ASSERT_NOK(backup_engine_->VerifyBackup(2, true));
   CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some table has been
+// corrupted and the table file checksum is stored in the DB manifest
+TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // file_checksum_gen_factory is null, and thus table checksum is not
+  // verified for creating a new backup; no correction is detected
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable table file checksum in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // table file checksum is enabled so we should be able to detect any
+  // corruption
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+
+  CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some table has been
+// corrupted and the table file checksum is stored in the DB manifest for the
+// case when backup table files will be stored in a shared directory
+TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // cannot detect corruption since DB manifest has no table checksums
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable table checksums in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // corruption is detected
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+
+  CloseDBAndBackupEngine();
+}
+
+TEST_F(BackupableDBTest, TableFileCorruptedDuringBackup) {
+  const int keys_iteration = 50000;
+  std::vector<std::shared_ptr<FileChecksumGenFactory>> fac{
+      nullptr, GetFileChecksumGenCrc32cFactory()};
+  for (auto& f : fac) {
+    options_.file_checksum_gen_factory = f;
+    if (f == nullptr) {
+      // When share_files_with_checksum is on, we calculate checksums of table
+      // files before and after copying. So we can test whether a corruption has
+      // happened during the file is copied to backup directory.
+      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                            kShareWithChecksum);
+    } else {
+      // Default DB table file checksum is on, we calculate checksums of table
+      // files before copying to verify it with the one stored in DB manifest
+      // and also calculate checksum after copying. So we can test whether a
+      // corruption has happened during the file is copied to backup directory
+      // even if we do not place table files in shared_checksum directory.
+      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                            kNoShare);
+    }
+    FillDB(db_.get(), 0, keys_iteration);
+    bool corrupted = false;
+    // corrupt files when copying to the backup directory
+    SyncPoint::GetInstance()->SetCallBack(
+        "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+        [&](void* data) {
+          if (data != nullptr) {
+            Slice* d = reinterpret_cast<Slice*>(data);
+            if (!d->empty()) {
+              d->remove_suffix(1);
+              corrupted = true;
+            }
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    Status s = backup_engine_->CreateNewBackup(db_.get());
+    if (corrupted) {
+      ASSERT_NOK(s);
+    } else {
+      // should not in this path in normal cases
+      ASSERT_OK(s);
+    }
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    CloseDBAndBackupEngine();
+    // delete old files in db
+    ASSERT_OK(DestroyDB(dbname_, options_));
+  }
+}
+
+TEST_P(BackupableDBTestWithParam,
+       TableFileCorruptedDuringBackupWithDefaultDbChecksum) {
+  const int keys_iteration = 100000;
+
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  bool corrupted = false;
+  // corrupt files when copying to the backup directory
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+      [&](void* data) {
+        if (data != nullptr) {
+          Slice* d = reinterpret_cast<Slice*>(data);
+          if (!d->empty()) {
+            d->remove_suffix(1);
+            corrupted = true;
+          }
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = backup_engine_->CreateNewBackup(db_.get());
+  if (corrupted) {
+    ASSERT_NOK(s);
+  } else {
+    // should not in this path in normal cases
+    ASSERT_OK(s);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  CloseDBAndBackupEngine();
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
 }
 
 TEST_F(BackupableDBTest, InterruptCreationTest) {

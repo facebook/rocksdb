@@ -118,7 +118,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
                                                 IOOptions(), nullptr);
         } /* link_file_cb */,
         [&](const std::string& src_dirname, const std::string& fname,
-            uint64_t size_limit_bytes, FileType) {
+            uint64_t size_limit_bytes, FileType,
+            const std::string& /* checksum_func_name */,
+            const std::string& /* checksum_val */) {
           ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
           return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                           full_private_path + fname, size_limit_bytes,
@@ -168,14 +170,16 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     std::function<Status(const std::string& src_dirname,
                          const std::string& src_fname, FileType type)>
         link_file_cb,
-    std::function<Status(const std::string& src_dirname,
-                         const std::string& src_fname,
-                         uint64_t size_limit_bytes, FileType type)>
+    std::function<Status(
+        const std::string& src_dirname, const std::string& src_fname,
+        uint64_t size_limit_bytes, FileType type,
+        const std::string& checksum_func_name, const std::string& checksum_val)>
         copy_file_cb,
     std::function<Status(const std::string& fname, const std::string& contents,
                          FileType type)>
         create_file_cb,
-    uint64_t* sequence_number, uint64_t log_size_for_flush) {
+    uint64_t* sequence_number, uint64_t log_size_for_flush,
+    const bool& get_live_table_checksum) {
   Status s;
   std::vector<std::string> live_files;
   uint64_t manifest_file_size = 0;
@@ -255,6 +259,13 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   size_t wal_size = live_wal_files.size();
 
+  // get table file checksums if get_live_table_checksum is true
+  std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
+  Status checksum_status;
+  if (get_live_table_checksum) {
+    checksum_status = db_->GetLiveFilesChecksumInfo(checksum_list.get());
+  }
+
   // copy/hard link live_files
   std::string manifest_fname, current_fname;
   for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
@@ -292,9 +303,23 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       }
     }
     if ((type != kTableFile) || (!same_fs)) {
+      std::string checksum_name = kUnknownFileChecksumFuncName;
+      std::string checksum_value = kUnknownFileChecksum;
+      // we ignore the checksums either they are not required or we failed to
+      // obtain the checksum lsit for old table files that have no file
+      // checksums
+      if (type == kTableFile && get_live_table_checksum &&
+          checksum_status.ok()) {
+        // find checksum info for table files
+        s = checksum_list->SearchOneFileChecksum(number, &checksum_value,
+                                                 &checksum_name);
+        if (!s.ok()) {
+          return Status::NotFound("Can't find checksum for " + src_fname);
+        }
+      }
       s = copy_file_cb(db_->GetName(), src_fname,
-                       (type == kDescriptorFile) ? manifest_file_size : 0,
-                       type);
+                       (type == kDescriptorFile) ? manifest_file_size : 0, type,
+                       checksum_name, checksum_value);
     }
   }
   if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
@@ -313,7 +338,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         live_wal_files[i]->SizeFileBytes(), kLogFile);
+                         live_wal_files[i]->SizeFileBytes(), kLogFile,
+                         kUnknownFileChecksumFuncName, kUnknownFileChecksum);
         break;
       }
       if (same_fs) {
@@ -327,7 +353,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       }
       if (!same_fs) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(), 0,
-                         kLogFile);
+                         kLogFile, kUnknownFileChecksumFuncName,
+                         kUnknownFileChecksum);
       }
     }
   }

@@ -1354,6 +1354,9 @@ class DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
+  // Return a list of all table checksum info
+  virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
+
   // Obtains the meta data of the specified column family of the DB.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
                                        ColumnFamilyMetaData* /*metadata*/) {}
