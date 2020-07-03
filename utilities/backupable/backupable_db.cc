@@ -1586,7 +1586,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   // b) share_table_files is true and the file exists already.
   if (kDbFileChecksumFuncName == src_checksum_func_name) {
     if (src_checksum_str == kUnknownFileChecksum) {
-      return Status::Aborted("Unkown checksum value for " + fname);
+      return Status::Aborted("Unknown checksum value for " + fname);
     }
     s = CalculateChecksum(src_dir + fname, db_env_, src_env_options, size_limit,
                           &checksum_value);
