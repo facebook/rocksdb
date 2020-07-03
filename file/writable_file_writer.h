@@ -39,7 +39,7 @@ class WritableFileWriter {
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
-    info.type = WRITE;
+    info.type = FileOperationType::kWrite;
     info.offset = offset;
     info.length = length;
     info.status = io_status;
@@ -53,7 +53,7 @@ class WritableFileWriter {
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
-    info.type = FLUSH;
+    info.type = FileOperationType::kFlush;
     info.status = io_status;
 
     for (auto& listener : listeners_) {
@@ -64,7 +64,7 @@ class WritableFileWriter {
   void NotifyOnFileSyncFinish(const FileOperationInfo::TimePoint& start_ts,
                               const FileOperationInfo::TimePoint& finish_ts,
                               const IOStatus& io_status,
-                              FileOperationType type = SYNC) {
+                              FileOperationType type = FileOperationType::kSync) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
     info.type = type;
     info.status = io_status;
@@ -80,7 +80,7 @@ class WritableFileWriter {
       const FileOperationInfo::TimePoint& finish_ts,
       const IOStatus& io_status) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
-    info.type = RANGESYNC;
+    info.type = FileOperationType::kRangeSync;
     info.offset = offset;
     info.length = length;
     info.status = io_status;
@@ -94,7 +94,7 @@ class WritableFileWriter {
                                   const FileOperationInfo::TimePoint& finish_ts,
                                   const IOStatus& io_status) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
-    info.type = TRUNCATE;
+    info.type = FileOperationType::kTruncate;
     info.status = io_status;
 
     for (auto& listener : listeners_) {
@@ -106,7 +106,7 @@ class WritableFileWriter {
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
     FileOperationInfo info(file_name_, start_ts, finish_ts);
-    info.type = CLOSE;
+    info.type = FileOperationType::kClose;
     info.status = io_status;
 
     for (auto& listener : listeners_) {

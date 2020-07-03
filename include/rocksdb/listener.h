@@ -148,15 +148,15 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
-enum FileOperationType {
-  READ,
-  WRITE,
-  TRUNCATE,
-  CLOSE,
-  FLUSH,
-  SYNC,
-  FSYNC,
-  RANGESYNC
+enum class FileOperationType {
+  kRead,
+  kWrite,
+  kTruncate,
+  kClose,
+  kFlush,
+  kSync,
+  kFsync,
+  kRangeSync
 };
 
 struct FileOperationInfo {
