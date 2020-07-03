@@ -79,30 +79,34 @@ AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
   }
 }
 
-// XXXX: carry stops too early ... fixme
-static void BigEndianAdd128(uint8_t* buf, uint64_t value) {
-  uint8_t *sum, *addend, pre, post;
-  int offset;
+
+void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf,
+                                                 uint64_t value) {
+  uint8_t *sum, *addend, *carry, pre, post;
 
   sum = buf + 15;
 
   if (port::kLittleEndian) {
-    offset = +1;
     addend = (uint8_t*)&value;
   } else {
-    offset = -1;
     addend = (uint8_t*)&value + 7;
   }
 
-  for (int loop = 0; loop < 8; ++loop) {
+  // future:  big endian could be written as uint64_t add
+  for (int loop = 0; loop < 8 && value; ++loop) {
     pre = *sum;
     *sum += *addend;
     post = *sum;
     --sum;
-    addend += offset;
+    value >>= 8;
+
+    carry = sum;
     // carry?
-    if (post < pre) {
-      *sum += 1;
+    while (post < pre && buf <= carry) {
+      pre = *carry;
+      *carry += 1;
+      post = *carry;
+      --carry;
     }
   }  // for
 }
@@ -303,20 +307,21 @@ Status EncryptedWritableFileV2::Append(const Slice& data) {
     // worst case is one byte only in first and in last block,
     //  so 2*block_size-2 might be needed (simplified to 2*block_size)
     buf.AllocateNewBuffer(data.size() + 2 * block_size);
-    memmove(buf.BufferStart() + block_offset, data.data(), data.size());
+    memcpy(buf.BufferStart() + block_offset, data.data(), data.size());
     buf.Size(data.size() + block_offset);
     {
       PERF_TIMER_GUARD(encrypt_data_nanos);
       status = stream_->Encrypt(offset - block_offset, buf.BufferStart(),
                                 buf.CurrentSize());
     }
-    if (!status.ok()) {
-      return status;
+    if (status.ok()) {
+      dataToAppend = Slice(buf.BufferStart() + block_offset, data.size());
     }
-    dataToAppend = Slice(buf.BufferStart() + block_offset, data.size());
   }
 
-  status = file_->Append(dataToAppend);
+  if (status.ok()) {
+    status = file_->Append(dataToAppend);
+  }
 
   return status;
 }
@@ -328,24 +333,62 @@ Status EncryptedWritableFileV2::PositionedAppend(const Slice& data,
   Slice dataToAppend(data);
   offset += prefixLength_;
   if (data.size() > 0) {
+    size_t block_size = stream_->BlockSize();
+    uint64_t block_offset = offset % block_size;
+
     // Encrypt in cloned buffer
-    buf.Alignment(GetRequiredBufferAlignment());
-    buf.AllocateNewBuffer(data.size());
-    memmove(buf.BufferStart(), data.data(), data.size());
-    buf.Size(data.size());
+    buf.Alignment(block_size);
+    // worst case is one byte only in first and in last block,
+    //  so 2*block_size-2 might be needed (simplified to 2*block_size)
+    buf.AllocateNewBuffer(data.size() + 2 * block_size);
+    memcpy(buf.BufferStart() + block_offset, data.data(), data.size());
+    buf.Size(data.size() + block_offset);
     {
       PERF_TIMER_GUARD(encrypt_data_nanos);
-      status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
+      status = stream_->Encrypt(offset - block_offset, buf.BufferStart(),
+                                buf.CurrentSize());
     }
-    if (!status.ok()) {
-      return status;
+    if (status.ok()) {
+      dataToAppend = Slice(buf.BufferStart() + block_offset, data.size());
     }
-    dataToAppend = Slice(buf.BufferStart(), buf.CurrentSize());
   }
-  status = file_->PositionedAppend(dataToAppend, offset);
-  if (!status.ok()) {
-    return status;
+
+  if (status.ok()) {
+    status = file_->PositionedAppend(dataToAppend, offset);
   }
+
+  return status;
+}
+
+Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
+  AlignedBuffer buf;
+  Status status;
+  Slice dataToWrite(data);
+  offset += prefixLength_;
+  if (data.size() > 0) {
+    size_t block_size = stream_->BlockSize();
+    uint64_t block_offset = offset % block_size;
+
+    // Encrypt in cloned buffer
+    buf.Alignment(block_size);
+    // worst case is one byte only in first and in last block,
+    //  so 2*block_size-2 might be needed (simplified to 2*block_size)
+    buf.AllocateNewBuffer(data.size() + 2 * block_size);
+    memcpy(buf.BufferStart() + block_offset, data.data(), data.size());
+    buf.Size(data.size() + block_offset);
+    {
+      PERF_TIMER_GUARD(encrypt_data_nanos);
+      status = stream_->Encrypt(offset, buf.BufferStart()+block_offset, data.size());
+    }
+    if (status.ok()) {
+      dataToWrite = Slice(buf.BufferStart()+block_offset, data.size());
+    }
+  }
+
+  if (status.ok()) {
+    status = file_->Write(offset, dataToWrite);
+  }
+
   return status;
 }
 

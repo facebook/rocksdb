@@ -56,6 +56,9 @@ class AESBlockAccessCipherStream : public BlockAccessCipherStream {
   // Length of data is given in data_size.
   Status Decrypt(uint64_t file_offset, char* data, size_t data_size) override;
 
+  // helper routine to combine 128 bit nounce_ with offset
+  static void BigEndianAdd128(uint8_t* buf, uint64_t value);
+
  protected:
   void AllocateScratch(std::string&) override{};
 

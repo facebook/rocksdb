@@ -156,26 +156,6 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
   Sha1Description key_desc_;
   AesCtrKey key_;
 };
-#if 0
-class EncryptedSequentialFileV2 : public EncryptedSequentialFile {
- protected:
-  std::shared_ptr<const CTREncryptionProviderV2> provider_;
-
- public:
-  // Default ctor. Given underlying sequential file is supposed to be at
-  // offset == prefixLength.
-  EncryptedSequentialFileV2(std::unique_ptr<SequentialFile>&& f,
-                          std::shared_ptr<const CTREncryptionProviderV2>& p,
-                          std::unique_ptr<BlockAccessCipherStream>&& s)
-
-      : EncryptedSequentialFile(std::move(f), std::move(s), p->GetPrefixLength()),
-      provider_(p) {}
-
-  // encryption code alignment not proven for direct io
-  bool use_direct_io() const override {return false;};
-
-};
-#endif
 
 class EncryptedWritableFileV2 : public EncryptedWritableFile {
  public:
@@ -192,6 +172,25 @@ class EncryptedWritableFileV2 : public EncryptedWritableFile {
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
   bool use_direct_io() const override { return false; };
+};
+
+// A file abstraction for random reading and writing.
+class EncryptedRandomRWFileV2 : public EncryptedRandomRWFile {
+ protected:
+
+ public:
+  EncryptedRandomRWFileV2(std::unique_ptr<RandomRWFile>&& f,
+                        std::unique_ptr<BlockAccessCipherStream>&& s,
+                        size_t prefixLength)
+      : EncryptedRandomRWFile(std::move(f), std::move(s), prefixLength) {}
+
+  // Indicates if the class makes use of direct I/OF
+  // If false you must pass aligned buffer to Write()
+  bool use_direct_io() const override {return false;};
+
+  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+  // Pass aligned buffer when use_direct_io() returns true.
+  Status Write(uint64_t offset, const Slice& data) override;
 };
 
 // EncryptedEnvV2 implements an Env wrapper that adds encryption to files stored
