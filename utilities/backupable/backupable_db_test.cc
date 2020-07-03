@@ -1185,6 +1185,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(db_->Flush(FlushOptions()));
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // file_checksum_gen_factory is null, and thus table checksum is not
@@ -1199,6 +1200,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(db_->Flush(FlushOptions()));
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // table file checksum is enabled so we should be able to detect any
@@ -1216,6 +1218,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
 
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(db_->Flush(FlushOptions()));
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // cannot detect corruption since DB manifest has no table checksums
@@ -1228,6 +1231,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(db_->Flush(FlushOptions()));
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // corruption is detected
