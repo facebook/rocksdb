@@ -64,8 +64,6 @@ def get_cc_files(repo_path):
             continue
         for filename in fnmatch.filter(filenames, '*.cc'):
             cc_files.append(os.path.join(root, filename))
-        for filename in fnmatch.filter(filenames, '*.c'):
-            cc_files.append(os.path.join(root, filename))
     return cc_files
 
 
@@ -178,10 +176,18 @@ def generate_targets(repo_path, deps_map):
         + ["test_util/testutil.cc"])
 
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
-    # test for every test we found in the Makefile
+
+    # c_test.c is added through TARGETS.add_c_test(). If there
+    # are more than one .c test file, we need to extend
+    # TARGETS.add_c_test() to include other C tests too.
+    TARGETS.add_c_test()
+
+    # test for every .cc test we found in the Makefile
     for target_alias, deps in deps_map.items():
         for test in sorted(tests):
-            match_src = [src for src in cc_files if ("/%s.c" % test) in src]
+            if test == 'c_test':
+                continue
+            match_src = [src for src in cc_files if ("/%s.cc" % test) in src]
             if len(match_src) == 0:
                 print(ColorString.warning("Cannot find .cc file for %s" % test))
                 continue
