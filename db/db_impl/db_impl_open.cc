@@ -357,7 +357,10 @@ Status DBImpl::Recover(
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
   std::vector<std::string> dbname_children;
-  Status dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
+  Status dbname_children_s;
+  if (read_only || immutable){
+    dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
+  }
   if (!read_only) {
     Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
