@@ -55,7 +55,7 @@ class FileSystem;
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which
 // compression method (if any) is used to compress a block.
-enum CompressionType : unsigned char {
+ROCKSDB_ENUM_PLAIN(CompressionType, unsigned char,
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
   kNoCompression = 0x0,
@@ -75,8 +75,8 @@ enum CompressionType : unsigned char {
   kZSTDNotFinalCompression = 0x40,
 
   // kDisableCompressionOption is used to disable some compression options.
-  kDisableCompressionOption = 0xff,
-};
+  kDisableCompressionOption = 0xff
+);
 
 struct Options;
 struct DbPath;
@@ -316,7 +316,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   void Dump(Logger* log) const;
 };
 
-enum class WALRecoveryMode : char {
+ROCKSDB_ENUM_CLASS(WALRecoveryMode, char,
   // Original levelDB recovery
   // We tolerate incomplete record in trailing data on all logs
   // Use case : This is legacy behavior
@@ -336,8 +336,8 @@ enum class WALRecoveryMode : char {
   // possible
   // Use case : Ideal for last ditch effort to recover data or systems that
   // operate with low grade unrelated data
-  kSkipAnyCorruptedRecords = 0x03,
-};
+  kSkipAnyCorruptedRecords = 0x03
+);
 
 struct DbPath {
   std::string path;
@@ -743,7 +743,8 @@ struct DBOptions {
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
-  enum AccessHint { NONE, NORMAL, SEQUENTIAL, WILLNEED };
+  ROCKSDB_ENUM_PLAIN_INCLASS(AccessHint, int,
+      NONE, NORMAL, SEQUENTIAL, WILLNEED);
   AccessHint access_hint_on_compaction_start = NORMAL;
 
   // If true, always create a new file descriptor and new table reader

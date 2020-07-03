@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <climits>
 #include <vector>
+#include "rocksdb/enum_reflection.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -15,10 +16,10 @@ namespace ROCKSDB_NAMESPACE {
 // Algorithm used to make a compaction request stop picking new files
 // into a single compaction run
 //
-enum CompactionStopStyle {
+ROCKSDB_ENUM_PLAIN(CompactionStopStyle, int,
   kCompactionStopStyleSimilarSize,  // pick files of similar size
   kCompactionStopStyleTotalSize     // total size of picked files > next file
-};
+);
 
 class CompactionOptionsUniversal {
  public:

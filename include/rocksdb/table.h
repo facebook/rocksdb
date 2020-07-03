@@ -23,6 +23,7 @@
 #include <unordered_map>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/enum_reflection.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -44,12 +45,12 @@ class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
 
-enum ChecksumType : char {
+ROCKSDB_ENUM_PLAIN(ChecksumType, char,
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
   kxxHash = 0x2,
-  kxxHash64 = 0x3,
-};
+  kxxHash64 = 0x3
+);
 
 // For advanced user only
 struct BlockBasedTableOptions {
@@ -92,7 +93,7 @@ struct BlockBasedTableOptions {
   bool pin_top_level_index_and_filter = true;
 
   // The index type that will be used for this table.
-  enum IndexType : char {
+  ROCKSDB_ENUM_PLAIN_INCLASS(IndexType, char,
     // A space efficient index block that is optimized for
     // binary-search-based index.
     kBinarySearch = 0x00,
@@ -115,16 +116,16 @@ struct BlockBasedTableOptions {
     //    e.g. when prefix changes.
     // Makes the index significantly bigger (2x or more), especially when keys
     // are long.
-    kBinarySearchWithFirstKey = 0x03,
-  };
+    kBinarySearchWithFirstKey = 0x03
+  );
 
   IndexType index_type = kBinarySearch;
 
   // The index type that will be used for the data block.
-  enum DataBlockIndexType : char {
+  ROCKSDB_ENUM_PLAIN_INCLASS(DataBlockIndexType, char,
     kDataBlockBinarySearch = 0,   // traditional block type
-    kDataBlockBinaryAndHash = 1,  // additional hash index
-  };
+    kDataBlockBinaryAndHash = 1  // additional hash index
+  );
 
   DataBlockIndexType data_block_index_type = kDataBlockBinarySearch;
 
@@ -335,15 +336,15 @@ struct BlockBasedTableOptions {
   // of the highest key in the file. If it's shortened and therefore
   // overestimated, iterator is likely to unnecessarily read the last data block
   // from each file on each seek.
-  enum class IndexShorteningMode : char {
+  ROCKSDB_ENUM_CLASS_INCLASS(IndexShorteningMode, char,
     // Use full keys.
     kNoShortening,
     // Shorten index keys between blocks, but use full key for the last index
     // key, which is the upper bound of the whole file.
     kShortenSeparators,
     // Shorten both keys between blocks and key after last block.
-    kShortenSeparatorsAndSuccessor,
-  };
+    kShortenSeparatorsAndSuccessor
+  );
 
   IndexShorteningMode index_shortening =
       IndexShorteningMode::kShortenSeparators;
@@ -365,7 +366,7 @@ extern TableFactory* NewBlockBasedTableFactory(
 
 #ifndef ROCKSDB_LITE
 
-enum EncodingType : char {
+ROCKSDB_ENUM_PLAIN(EncodingType, char,
   // Always write full keys without any special encoding.
   kPlain,
   // Find opportunity to write the same prefix once for multiple rows.
@@ -379,8 +380,8 @@ enum EncodingType : char {
   // reopening the file, the name of the options.prefix_extractor given will be
   // bitwise compared to the prefix extractors stored in the file. An error
   // will be returned if the two don't match.
-  kPrefix,
-};
+  kPrefix
+);
 
 // Table Properties that are specific to plain table properties.
 struct PlainTablePropertyNames {

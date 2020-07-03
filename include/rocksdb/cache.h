@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <memory>
 #include <string>
+#include "rocksdb/enum_reflection.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
@@ -37,10 +38,10 @@ struct ConfigOptions;
 
 extern const bool kDefaultToAdaptiveMutex;
 
-enum CacheMetadataChargePolicy {
+ROCKSDB_ENUM_PLAIN(CacheMetadataChargePolicy, int,
   kDontChargeCacheMetadata,
   kFullChargeCacheMetadata
-};
+);
 const CacheMetadataChargePolicy kDefaultCacheMetadataChargePolicy =
     kFullChargeCacheMetadata;
 

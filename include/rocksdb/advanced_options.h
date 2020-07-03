@@ -22,7 +22,7 @@ class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
 
-enum CompactionStyle : char {
+ROCKSDB_ENUM_PLAIN(CompactionStyle, char,
   // level based compaction style
   kCompactionStyleLevel = 0x0,
   // Universal compaction style
@@ -34,13 +34,13 @@ enum CompactionStyle : char {
   // Disable background compaction. Compaction jobs are submitted
   // via CompactFiles().
   // Not supported in ROCKSDB_LITE
-  kCompactionStyleNone = 0x3,
-};
+  kCompactionStyleNone = 0x3
+);
 
 // In Level-based compaction, it Determines which file from a level to be
 // picked to merge to the next level. We suggest people try
 // kMinOverlappingRatio first when you tune your database.
-enum CompactionPri : char {
+ROCKSDB_ENUM_PLAIN(CompactionPri, char,
   // Slightly prioritize larger files by size compensated by #deletes
   kByCompensatedSize = 0x0,
   // First compact files whose data's latest update time is oldest.
@@ -53,8 +53,8 @@ enum CompactionPri : char {
   // First compact files whose ratio between overlapping size in next level
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
-  kMinOverlappingRatio = 0x3,
-};
+  kMinOverlappingRatio = 0x3
+);
 
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest

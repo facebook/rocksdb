@@ -25,6 +25,7 @@
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/enum_reflection.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -1006,15 +1007,15 @@ class Directory {
   // DirectoryWrapper too.
 };
 
-enum InfoLogLevel : unsigned char {
+ROCKSDB_ENUM_PLAIN(InfoLogLevel, unsigned char,
   DEBUG_LEVEL = 0,
   INFO_LEVEL,
   WARN_LEVEL,
   ERROR_LEVEL,
   FATAL_LEVEL,
   HEADER_LEVEL,
-  NUM_INFO_LOG_LEVELS,
-};
+  NUM_INFO_LOG_LEVELS
+);
 
 // An interface for writing log messages.
 class Logger {
