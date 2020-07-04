@@ -534,69 +534,70 @@ Status DBImpl::Recover(
     // Note that prev_log_number() is no longer used, but we pay
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
-    std::vector<std::string> wal_dir_children;
+    std::vector<std::string> files_in_wal_dir;
     if (!immutable_db_options_.best_efforts_recovery) {
-      s = env_->GetChildren(immutable_db_options_.wal_dir, &wal_dir_children);
-      if (s.IsNotFound()) {
-        return Status::InvalidArgument("wal_dir not found",
-                                       immutable_db_options_.wal_dir);
-      } else if (!s.ok()) {
-        return s;
-      }
+      s = env_->GetChildren(immutable_db_options_.wal_dir, &files_in_wal_dir);
+    }
 
-      std::vector<uint64_t> logs;
-      for (size_t i = 0; i < wal_dir_children.size(); i++) {
-        uint64_t number;
-        FileType type;
-        if (ParseFileName(wal_dir_children[i], &number, &type) &&
-            type == kLogFile) {
-          if (is_new_db) {
-            return Status::Corruption(
-                "While creating a new Db, wal_dir contains "
-                "existing log file: ",
-                wal_dir_children[i]);
-          } else {
-            logs.push_back(number);
-          }
+    if (s.IsNotFound()) {
+      return Status::InvalidArgument("wal_dir not found",
+                                      immutable_db_options_.wal_dir);
+    } else if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<uint64_t> logs;
+    for (size_t i = 0; i < files_in_wal_dir.size(); i++) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(files_in_wal_dir[i], &number, &type) &&
+          type == kLogFile) {
+        if (is_new_db) {
+          return Status::Corruption(
+              "While creating a new Db, wal_dir contains "
+              "existing log file: ",
+              files_in_wal_dir[i]);
+        } else {
+          logs.push_back(number);
         }
       }
+    }
 
-      if (logs.size() > 0) {
-        if (error_if_log_file_exist) {
-          return Status::Corruption(
-              "The db was opened in readonly mode with error_if_log_file_exist"
-              "flag but a log file already exists");
-        } else if (error_if_data_exists_in_logs) {
-          for (auto& log : logs) {
-            std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
-            uint64_t bytes;
-            s = env_->GetFileSize(fname, &bytes);
-            if (s.ok()) {
-              if (bytes > 0) {
-                return Status::Corruption(
-                    "error_if_data_exists_in_logs is set but there are data "
-                    " in log files.");
-              }
+    if (logs.size() > 0) {
+      if (error_if_log_file_exist) {
+        return Status::Corruption(
+            "The db was opened in readonly mode with error_if_log_file_exist"
+            "flag but a log file already exists");
+      } else if (error_if_data_exists_in_logs) {
+        for (auto& log : logs) {
+          std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
+          uint64_t bytes;
+          s = env_->GetFileSize(fname, &bytes);
+          if (s.ok()) {
+            if (bytes > 0) {
+              return Status::Corruption(
+                  "error_if_data_exists_in_logs is set but there are data "
+                  " in log files.");
             }
           }
         }
       }
+    }
 
-      if (!logs.empty()) {
-        // Recover in the order in which the logs were generated
-        std::sort(logs.begin(), logs.end());
-        bool corrupted_log_found = false;
-        s = RecoverLogFiles(logs, &next_sequence, read_only,
-                            &corrupted_log_found);
-        if (corrupted_log_found && recovered_seq != nullptr) {
-          *recovered_seq = next_sequence;
-        }
-        if (!s.ok()) {
-          // Clear memtables if recovery failed
-          for (auto cfd : *versions_->GetColumnFamilySet()) {
-            cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                   kMaxSequenceNumber);
-          }
+    if (!logs.empty()) {
+      // Recover in the order in which the logs were generated
+      std::sort(logs.begin(), logs.end());
+      bool corrupted_log_found = false;
+      s = RecoverLogFiles(logs, &next_sequence, read_only,
+                          &corrupted_log_found);
+      if (corrupted_log_found && recovered_seq != nullptr) {
+        *recovered_seq = next_sequence;
+      }
+      if (!s.ok()) {
+        // Clear memtables if recovery failed
+        for (auto cfd : *versions_->GetColumnFamilySet()) {
+          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                  kMaxSequenceNumber);
         }
       }
     }
