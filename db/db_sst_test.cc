@@ -358,12 +358,11 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
         uint64_t* abs_time_us = static_cast<uint64_t*>(arg);
         uint64_t cur_time = env_->NowMicros();
         if (*abs_time_us > cur_time) {
-          env_->addon_time_.fetch_add(*abs_time_us - cur_time);
+          env_->MockSleepForMicroseconds(*abs_time_us - cur_time);
         }
 
-        // Randomly sleep shortly
-        env_->addon_time_.fetch_add(
-            static_cast<uint64_t>(Random::GetTLSInstance()->Uniform(10)));
+        // Plus an additional short, random amount
+        env_->MockSleepForMicroseconds(Random::GetTLSInstance()->Uniform(10));
 
         // Set wait until time to before (actual) current time to force not
         // to sleep

@@ -126,22 +126,6 @@ class SkipEvenFilter : public CompactionFilter {
   const char* Name() const override { return "DeleteFilter"; }
 };
 
-class DelayFilter : public CompactionFilter {
- public:
-  explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
-              std::string* /*new_value*/,
-              bool* /*value_changed*/) const override {
-    db_test->env_->addon_time_.fetch_add(1000);
-    return true;
-  }
-
-  const char* Name() const override { return "DelayFilter"; }
-
- private:
-  DBTestBase* db_test;
-};
-
 class ConditionalFilter : public CompactionFilter {
  public:
   explicit ConditionalFilter(const std::string* filtered_value)
@@ -246,20 +230,6 @@ class SkipEvenFilterFactory : public CompactionFilterFactory {
   }
 
   const char* Name() const override { return "SkipEvenFilterFactory"; }
-};
-
-class DelayFilterFactory : public CompactionFilterFactory {
- public:
-  explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override {
-    return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
-  }
-
-  const char* Name() const override { return "DelayFilterFactory"; }
-
- private:
-  DBTestBase* db_test;
 };
 
 class ConditionalFilterFactory : public CompactionFilterFactory {

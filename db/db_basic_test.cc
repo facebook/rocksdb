@@ -574,6 +574,7 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, Snapshot) {
+  env_->SetMockSleep();
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   do {
@@ -589,7 +590,7 @@ TEST_F(DBBasicTest, Snapshot) {
     Put(0, "foo", "0v2");
     Put(1, "foo", "1v2");
 
-    env_->addon_time_.fetch_add(1);
+    env_->MockSleepForSeconds(1);
 
     const Snapshot* s2 = db_->GetSnapshot();
     ASSERT_EQ(2U, GetNumSnapshots());

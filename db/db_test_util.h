@@ -530,11 +530,23 @@ class SpecialEnv : public EnvWrapper {
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     if (no_slowdown_ || time_elapse_only_sleep_) {
-      addon_time_.fetch_add(micros);
+      addon_microseconds_.fetch_add(micros);
     }
     if (!no_slowdown_) {
       target()->SleepForMicroseconds(micros);
     }
+  }
+
+  void MockSleepForMicroseconds(int64_t micros) {
+    sleep_counter_.Increment();
+    assert(no_slowdown_);
+    addon_microseconds_.fetch_add(micros);
+  }
+
+  void MockSleepForSeconds(int64_t seconds) {
+    sleep_counter_.Increment();
+    assert(no_slowdown_);
+    addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
@@ -545,9 +557,8 @@ class SpecialEnv : public EnvWrapper {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
-      // FIXME: addon_time_ sometimes used to mean seconds (here) and
-      // sometimes microseconds
-      *unix_time += addon_time_.load();
+      // mock microseconds elapsed to seconds of time
+      *unix_time += addon_microseconds_.load() / 1000000;
     }
     return s;
   }
@@ -559,12 +570,12 @@ class SpecialEnv : public EnvWrapper {
 
   virtual uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
-           addon_time_.load() * 1000;
+           addon_microseconds_.load() * 1000;
   }
 
   virtual uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
-           addon_time_.load();
+           addon_microseconds_.load();
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
@@ -572,9 +583,11 @@ class SpecialEnv : public EnvWrapper {
     return target()->DeleteFile(fname);
   }
 
-  void SetTimeElapseOnlySleep(Options* options) {
-    time_elapse_only_sleep_ = true;
-    no_slowdown_ = true;
+  void SetMockSleep(bool enabled = true) { no_slowdown_ = enabled; }
+
+  void SetTimeElapseOnlySleep(Options* options, bool enabled = true) {
+    time_elapse_only_sleep_ = enabled;
+    no_slowdown_ = enabled;
     // Need to disable stats dumping and persisting which also use
     // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
     // With time_elapse_only_sleep_, this can hang on some platforms.
@@ -659,8 +672,6 @@ class SpecialEnv : public EnvWrapper {
 
   std::function<void()>* table_write_callback_;
 
-  std::atomic<int64_t> addon_time_;
-
   std::atomic<int> now_cpu_count_;
 
   std::atomic<int> delete_count_;
@@ -672,6 +683,9 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
+
+ private:
+  std::atomic<int64_t> addon_microseconds_;
 };
 
 #ifndef ROCKSDB_LITE

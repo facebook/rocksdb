@@ -29,9 +29,9 @@ SpecialEnv::SpecialEnv(Env* base)
       maybe_starting_time_(MaybeCurrentTime(base)),
       rnd_(301),
       sleep_counter_(this),
-      addon_time_(0),
       time_elapse_only_sleep_(false),
-      no_slowdown_(false) {
+      no_slowdown_(false),
+      addon_microseconds_(0) {
   delay_sstable_sync_.store(false, std::memory_order_release);
   drop_writes_.store(false, std::memory_order_release);
   no_space_.store(false, std::memory_order_release);
