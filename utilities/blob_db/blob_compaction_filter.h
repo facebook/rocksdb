@@ -78,7 +78,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
   Statistics* statistics_;
 
   mutable std::shared_ptr<BlobFile> blob_file_;
-  mutable std::shared_ptr<Writer> writer_;
+  mutable std::shared_ptr<BlobLogWriter> writer_;
 
   // It is safe to not using std::atomic since the compaction filter, created
   // from a compaction filter factroy, will not be called from multiple threads.
