@@ -35,9 +35,11 @@ public class BlockBasedTableConfigTest {
   @Test
   public void cacheIndexAndFilterBlocksWithHighPriority() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(true);
     assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).
         isTrue();
+    blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(false);
+    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).
+        isFalse();
   }
 
   @Test
@@ -59,7 +61,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void indexType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(IndexType.values().length).isEqualTo(3);
+    assertThat(IndexType.values().length).isEqualTo(4);
     blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
     assertThat(blockBasedTableConfig.indexType().equals(
         IndexType.kHashSearch));
@@ -83,7 +85,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void checksumType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(ChecksumType.values().length).isEqualTo(3);
+    assertThat(ChecksumType.values().length).isEqualTo(4);
     assertThat(ChecksumType.valueOf("kxxHash")).
         isEqualTo(ChecksumType.kxxHash);
     blockBasedTableConfig.setChecksumType(ChecksumType.kNoChecksum);
@@ -259,6 +261,14 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
+  public void optimizeFiltersForMemory() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setOptimizeFiltersForMemory(true);
+    assertThat(blockBasedTableConfig.optimizeFiltersForMemory()).
+        isTrue();
+  }
+
+  @Test
   public void useDeltaEncoding() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setUseDeltaEncoding(false);
@@ -346,6 +356,14 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setBlockAlign(true);
     assertThat(blockBasedTableConfig.blockAlign()).
         isTrue();
+  }
+
+  @Test
+  public void indexShortening() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setIndexShortening(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
+    assertThat(blockBasedTableConfig.indexShortening()).
+        isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
   }
 
   @Deprecated
