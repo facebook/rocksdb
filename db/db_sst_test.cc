@@ -372,7 +372,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
-  env_->SetTimeElapseOnlySleep(&options);
+  SetTimeElapseOnlySleepOnReopen(&options);
   options.disable_auto_compactions = true;
   options.env = env_;
   options.statistics = CreateDBStatistics();
@@ -440,8 +440,6 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
 
-  env_->no_slowdown_ = true;
-  env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
@@ -455,6 +453,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
   sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
+  SetTimeElapseOnlySleepOnReopen(&options);
 
   ASSERT_OK(TryReopen(options));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();

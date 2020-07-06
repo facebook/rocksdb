@@ -2993,13 +2993,13 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
-  env_->SetTimeElapseOnlySleep(&options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(1048576);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   options.env = env.get();
+  SetTimeElapseOnlySleepOnReopen(&options);
   ReopenWithColumnFamilies(GetCFNames(), options);
 
   // Test the non-batched version of MultiGet with multiple column
@@ -3156,12 +3156,10 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
 }
 
 TEST_F(DBBasicTest, PointLookupDeadline) {
-  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
-  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(&special_env);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(&special_env, fs));
 
-  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
-  // properly for the DB that's opened by the DBTestBase constructor.
-  Close();
   for (int option_config = kDefault; option_config < kEnd; ++option_config) {
     if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
       continue;
@@ -3174,7 +3172,6 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
     options.env = env.get();
     options.disable_auto_compactions = true;
     Cache* block_cache = nullptr;
-    env_->SetTimeElapseOnlySleep(&options);
     // Fileter block reads currently don't cause the request to get
     // aborted on a read timeout, so its possible those block reads
     // may get issued even if the deadline is past

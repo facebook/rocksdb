@@ -895,7 +895,7 @@ class BackgroundErrorListener : public EventListener {
       // can succeed.
       *bg_error = Status::OK();
       env_->drop_writes_.store(false, std::memory_order_release);
-      env_->no_slowdown_ = false;
+      env_->SetMockSleep(false);
     }
     ++counter_;
   }
@@ -921,7 +921,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedFlushTest) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   env_->drop_writes_.store(true, std::memory_order_release);
-  env_->no_slowdown_ = true;
+  env_->SetMockSleep();
 
   ASSERT_OK(Put("key0", "val"));
   ASSERT_OK(Put("key1", "val"));
@@ -955,7 +955,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
 
   env_->drop_writes_.store(true, std::memory_order_release);
-  env_->no_slowdown_ = true;
+  env_->SetMockSleep();
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(1, listener->counter());

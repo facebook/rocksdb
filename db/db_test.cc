@@ -5442,7 +5442,8 @@ class DelayedMergeOperator : public MergeOperator {
 
   bool FullMergeV2(const MergeOperationInput& merge_in,
                    MergeOperationOutput* merge_out) const override {
-    db_test_->env_->MockSleepForMicroseconds(1000 * merge_in.operand_list.size());
+    db_test_->env_->MockSleepForMicroseconds(1000 *
+                                             merge_in.operand_list.size());
     merge_out->new_value = "";
     return true;
   }
@@ -5459,9 +5460,9 @@ TEST_F(DBTest, MergeTestTime) {
   // Enable time profiling
   SetPerfLevel(kEnableTime);
   Options options = CurrentOptions();
-  env_->SetTimeElapseOnlySleep(&options);
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
+  SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
   ASSERT_EQ(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
@@ -5500,12 +5501,12 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
-  env_->SetTimeElapseOnlySleep(&options);
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
-  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
   options.max_subcompactions = max_subcompactions_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
   uint64_t n = 0;
@@ -5520,12 +5521,12 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   cro.exclusive_manual_compaction = exclusive_manual_compaction_;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  ASSERT_EQ(n * 1000000U, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
+  ASSERT_EQ(n * 1000000U,
+            TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 }
 
 TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   Options options = CurrentOptions();
-  env_->SetTimeElapseOnlySleep(&options);
   options.compaction_filter_factory =
       std::make_shared<DelayFilterFactory>(this);
   options.disable_auto_compactions = true;
@@ -5533,6 +5534,7 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.statistics->set_stats_level(kExceptTimeForMutex);
   options.max_subcompactions = max_subcompactions_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
   uint64_t n = 0;
@@ -5554,7 +5556,8 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
 
   Iterator* itr = db_->NewIterator(ReadOptions());
   itr->SeekToFirst();
-  ASSERT_EQ(n * 1000000U, TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME));
+  ASSERT_EQ(n * 1000000U,
+            TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME));
   delete itr;
 }
 #endif  // ROCKSDB_LITE
@@ -6005,7 +6008,6 @@ TEST_F(DBTest, DelayedWriteRate) {
 
   Options options = CurrentOptions();
   env_->SetBackgroundThreads(1, Env::LOW);
-  env_->SetTimeElapseOnlySleep(&options);
   options.env = env_;
   options.write_buffer_size = 100000000;
   options.max_write_buffer_number = 256;
@@ -6017,6 +6019,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   options.memtable_factory.reset(
       new SpecialSkipListFactory(kEntriesPerMemTable));
 
+  SetTimeElapseOnlySleepOnReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Block compactions

@@ -207,7 +207,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
  public:
-  explicit SpecialEnv(Env* base);
+  explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -585,17 +585,6 @@ class SpecialEnv : public EnvWrapper {
 
   void SetMockSleep(bool enabled = true) { no_slowdown_ = enabled; }
 
-  void SetTimeElapseOnlySleep(Options* options, bool enabled = true) {
-    time_elapse_only_sleep_ = enabled;
-    no_slowdown_ = enabled;
-    // Need to disable stats dumping and persisting which also use
-    // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
-    // With time_elapse_only_sleep_, this can hang on some platforms.
-    // TODO: why? investigate/fix
-    options->stats_dump_period_sec = 0;
-    options->stats_persist_period_sec = 0;
-  }
-
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
     if (!skip_fsync_) {
@@ -676,16 +665,19 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int> delete_count_;
 
-  std::atomic<bool> time_elapse_only_sleep_;
-
-  bool no_slowdown_;
-
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
 
- private:
-  std::atomic<int64_t> addon_microseconds_;
+ private:  // accessing these directly is prone to error
+  friend class DBTestBase;
+
+  std::atomic<int64_t> addon_microseconds_{0};
+
+  // Do not modify in the env of a running DB (could cause deadlock)
+  std::atomic<bool> time_elapse_only_sleep_;
+
+  bool no_slowdown_;
 };
 
 #ifndef ROCKSDB_LITE
@@ -1151,6 +1143,15 @@ class DBTestBase : public testing::Test {
                                       Tickers ticker_type) {
     return options.statistics->getAndResetTickerCount(ticker_type);
   }
+
+  // Note: reverting this setting within the same test run is not yet
+  // supported
+  void SetTimeElapseOnlySleepOnReopen(DBOptions* options);
+
+ private:  // Prone to error on direct use
+  void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);
+
+  bool time_elapse_only_sleep_on_reopen_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
