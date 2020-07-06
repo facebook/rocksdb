@@ -296,6 +296,8 @@ public class BlockBasedTableConfigTest {
   @Test
   public void verifyCompression() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    assertThat(blockBasedTableConfig.verifyCompression()).
+        isFalse();
     blockBasedTableConfig.setVerifyCompression(true);
     assertThat(blockBasedTableConfig.verifyCompression()).
         isTrue();

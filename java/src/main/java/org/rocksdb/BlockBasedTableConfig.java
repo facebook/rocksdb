@@ -35,7 +35,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     useDeltaEncoding = true;
     filterPolicy = null;
     wholeKeyFiltering = true;
-    verifyCompression = true;
+    verifyCompression = false;
     readAmpBytesPerBit = 0;
     formatVersion = 2;
     enableIndexCompression = true;
