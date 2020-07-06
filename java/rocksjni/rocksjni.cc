@@ -9,6 +9,7 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <algorithm>
 #include <functional>
 #include <memory>
@@ -22,6 +23,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
+#include "rocksdb/version.h"
 #include "rocksjni/portal.h"
 
 #ifdef min
@@ -2821,7 +2823,7 @@ jlong Java_org_rocksdb_RocksDB_getLatestSequenceNumber(
  * Method:    setPreserveDeletesSequenceNumber
  * Signature: (JJ)Z
  */
-jboolean JNICALL Java_org_rocksdb_RocksDB_setPreserveDeletesSequenceNumber(
+jboolean Java_org_rocksdb_RocksDB_setPreserveDeletesSequenceNumber(
     JNIEnv*, jobject, jlong jdb_handle, jlong jseq_number) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   if (db->SetPreserveDeletesSequenceNumber(
@@ -3310,8 +3312,7 @@ void Java_org_rocksdb_RocksDB_startTrace(
  * Method:    endTrace
  * Signature: (J)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_endTrace(
-    JNIEnv* env, jobject, jlong jdb_handle) {
+void Java_org_rocksdb_RocksDB_endTrace(JNIEnv* env, jobject, jlong jdb_handle) {
   auto* db = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto s = db->EndTrace();
   if (!s.ok()) {
@@ -3379,9 +3380,11 @@ bool get_slice_helper(JNIEnv* env, jobjectArray ranges, jsize index,
  * Method:    deleteFilesInRanges
  * Signature: (JJLjava/util/List;Z)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_deleteFilesInRanges(
-    JNIEnv* env, jobject /*jdb*/, jlong jdb_handle, jlong jcf_handle,
-    jobjectArray ranges, jboolean include_end) {
+void Java_org_rocksdb_RocksDB_deleteFilesInRanges(JNIEnv* env, jobject /*jdb*/,
+                                                  jlong jdb_handle,
+                                                  jlong jcf_handle,
+                                                  jobjectArray ranges,
+                                                  jboolean include_end) {
   jsize length = env->GetArrayLength(ranges);
 
   std::vector<ROCKSDB_NAMESPACE::RangePtr> rangesVector;
@@ -3415,4 +3418,16 @@ JNIEXPORT void JNICALL Java_org_rocksdb_RocksDB_deleteFilesInRanges(
   if (!s.ok()) {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    version
+ * Signature: ()I
+ */
+jint Java_org_rocksdb_RocksDB_version(JNIEnv*, jclass) {
+  uint32_t encodedVersion = (ROCKSDB_MAJOR & 0xff) << 16;
+  encodedVersion |= (ROCKSDB_MINOR & 0xff) << 8;
+  encodedVersion |= (ROCKSDB_PATCH & 0xff);
+  return static_cast<jint>(encodedVersion);
 }
