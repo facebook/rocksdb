@@ -8,6 +8,15 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -26,8 +35,8 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
-#include "tools/sst_dump_tool_imp.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_checksum_helper.h"
@@ -35,16 +44,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
-
-#include <cstdlib>
-#include <ctime>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
-#include <string>
 
 namespace ROCKSDB_NAMESPACE {
 

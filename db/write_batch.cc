@@ -1641,7 +1641,8 @@ class MemTableInserter : public WriteBatch::Handler {
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
       }
-      auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cf_handle)->cfd();
+      auto* cfd =
+          static_cast_with_check<ColumnFamilyHandleImpl>(cf_handle)->cfd();
       if (!cfd->is_delete_range_supported()) {
         return Status::NotSupported(
             std::string("DeleteRange not supported for table type ") +

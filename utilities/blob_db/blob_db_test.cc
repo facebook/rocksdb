@@ -1111,27 +1111,187 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   ASSERT_TRUE(ttl_file->HasTTL());
 }
 
-TEST_F(BlobDBTest, CompactionFilterNotSupported) {
-  class TestCompactionFilter : public CompactionFilter {
-    const char *Name() const override { return "TestCompactionFilter"; }
+TEST_F(BlobDBTest, UserCompactionFilter) {
+  class CustomerFilter : public CompactionFilter {
+   public:
+    bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
+                std::string *new_value, bool *value_changed) const override {
+      *value_changed = false;
+      // changing value size to test value transitions between inlined data
+      // and stored-in-blob data
+      if (value.size() % 4 == 1) {
+        *new_value = value.ToString();
+        // double size by duplicating value
+        *new_value += *new_value;
+        *value_changed = true;
+        return false;
+      } else if (value.size() % 3 == 1) {
+        *new_value = value.ToString();
+        // trancate value size by half
+        *new_value = new_value->substr(0, new_value->size() / 2);
+        *value_changed = true;
+        return false;
+      } else if (value.size() % 2 == 1) {
+        return true;
+      }
+      return false;
+    }
+    bool IgnoreSnapshots() const override { return true; }
+    const char *Name() const override { return "CustomerFilter"; }
   };
-  class TestCompactionFilterFactory : public CompactionFilterFactory {
-    const char *Name() const override { return "TestCompactionFilterFactory"; }
+  class CustomerFilterFactory : public CompactionFilterFactory {
+    const char *Name() const override { return "CustomerFilterFactory"; }
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
         const CompactionFilter::Context & /*context*/) override {
-      return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
+      return std::unique_ptr<CompactionFilter>(new CustomerFilter());
     }
   };
-  for (int i = 0; i < 2; i++) {
+
+  constexpr size_t kNumPuts = 1 << 10;
+  // Generate both inlined and blob value
+  constexpr uint64_t kMinValueSize = 1 << 6;
+  constexpr uint64_t kMaxValueSize = 1 << 8;
+  constexpr uint64_t kMinBlobSize = 1 << 7;
+  static_assert(kMinValueSize < kMinBlobSize, "");
+  static_assert(kMaxValueSize > kMinBlobSize, "");
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = kMinBlobSize;
+  bdb_options.blob_file_size = kMaxValueSize * 10;
+  bdb_options.disable_background_tasks = true;
+  if (Snappy_Supported()) {
+    bdb_options.compression = CompressionType::kSnappyCompression;
+  }
+  // case_num == 0: Test user defined compaction filter
+  // case_num == 1: Test user defined compaction filter factory
+  for (int case_num = 0; case_num < 2; case_num++) {
     Options options;
-    if (i == 0) {
-      options.compaction_filter = new TestCompactionFilter();
+    if (case_num == 0) {
+      options.compaction_filter = new CustomerFilter();
     } else {
-      options.compaction_filter_factory.reset(
-          new TestCompactionFilterFactory());
+      options.compaction_filter_factory.reset(new CustomerFilterFactory());
     }
-    ASSERT_TRUE(TryOpen(BlobDBOptions(), options).IsNotSupported());
+    options.disable_auto_compactions = true;
+    options.env = mock_env_.get();
+    options.statistics = CreateDBStatistics();
+    Open(bdb_options, options);
+
+    std::map<std::string, std::string> data;
+    std::map<std::string, std::string> data_after_compact;
+    Random rnd(301);
+    uint64_t value_size = kMinValueSize;
+    int drop_record = 0;
+    for (size_t i = 0; i < kNumPuts; ++i) {
+      std::ostringstream oss;
+      oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+      const std::string key(oss.str());
+      const std::string value(
+          test::RandomHumanReadableString(&rnd, (int)value_size));
+      const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+      ASSERT_OK(Put(key, value));
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+      data[key] = value;
+      if (value.length() % 4 == 1) {
+        data_after_compact[key] = value + value;
+      } else if (value.length() % 3 == 1) {
+        data_after_compact[key] = value.substr(0, value.size() / 2);
+      } else if (value.length() % 2 == 1) {
+        ++drop_record;
+      } else {
+        data_after_compact[key] = value;
+      }
+
+      if (++value_size > kMaxValueSize) {
+        value_size = kMinValueSize;
+      }
+    }
+    // Verify full data set
+    VerifyDB(data);
+    // Applying compaction filter for records
+    ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    // Verify data after compaction, only value with even length left.
+    VerifyDB(data_after_compact);
+    ASSERT_EQ(drop_record,
+              options.statistics->getTickerCount(COMPACTION_KEY_DROP_USER));
     delete options.compaction_filter;
+    Destroy();
+  }
+}
+
+// Test user comapction filter when there is IO error on blob data.
+TEST_F(BlobDBTest, UserCompactionFilter_BlobIOError) {
+  class CustomerFilter : public CompactionFilter {
+   public:
+    bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
+                std::string *new_value, bool *value_changed) const override {
+      *new_value = value.ToString() + "_new";
+      *value_changed = true;
+      return false;
+    }
+    bool IgnoreSnapshots() const override { return true; }
+    const char *Name() const override { return "CustomerFilter"; }
+  };
+
+  constexpr size_t kNumPuts = 100;
+  constexpr int kValueSize = 100;
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = kValueSize * 10;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = CompressionType::kNoCompression;
+
+  std::vector<std::string> io_failure_cases = {
+      "BlobDBImpl::CreateBlobFileAndWriter",
+      "BlobIndexCompactionFilterBase::WriteBlobToNewFile",
+      "BlobDBImpl::CloseBlobFile"};
+
+  for (size_t case_num = 0; case_num < io_failure_cases.size(); case_num++) {
+    Options options;
+    options.compaction_filter = new CustomerFilter();
+    options.disable_auto_compactions = true;
+    options.env = fault_injection_env_.get();
+    options.statistics = CreateDBStatistics();
+    Open(bdb_options, options);
+
+    std::map<std::string, std::string> data;
+    Random rnd(301);
+    for (size_t i = 0; i < kNumPuts; ++i) {
+      std::ostringstream oss;
+      oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+      const std::string key(oss.str());
+      const std::string value(
+          test::RandomHumanReadableString(&rnd, kValueSize));
+      const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+      ASSERT_OK(Put(key, value));
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+      data[key] = value;
+    }
+
+    // Verify full data set
+    VerifyDB(data);
+
+    SyncPoint::GetInstance()->SetCallBack(
+        io_failure_cases[case_num], [&](void * /*arg*/) {
+          fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto s = blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_TRUE(s.IsIOError());
+
+    // Verify full data set after compaction failure
+    VerifyDB(data);
+
+    // Reactivate file system to allow test to close DB.
+    fault_injection_env_->SetFilesystemActive(true);
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    delete options.compaction_filter;
+    Destroy();
   }
 }
 
@@ -1925,7 +2085,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
       {"BlobDBTest.ShutdownWait:3", "BlobDBImpl::EvictExpiredFiles:3"},
   });
   // Force all tasks to be scheduled immediately.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "TimeQueue::Add:item.end", [&](void *arg) {
         std::chrono::steady_clock::time_point *tp =
             static_cast<std::chrono::steady_clock::time_point *>(arg);
@@ -1933,7 +2093,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
             std::chrono::steady_clock::now() - std::chrono::milliseconds(10000);
       });
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "BlobDBImpl::EvictExpiredFiles:cb", [&](void * /*arg*/) {
         // Sleep 3 ms to increase the chance of data race.
         // We've synced up the code so that EvictExpiredFiles()

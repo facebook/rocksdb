@@ -76,6 +76,28 @@ class TARGETSBuilder(object):
             pretty_list(deps)))
         self.total_bin = self.total_bin + 1
 
+    def add_c_test(self):
+        self.targets_file.write("""
+cpp_binary(
+    name = "c_test_bin",
+    srcs = ["db/c_test.c"],
+    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+    compiler_flags = ROCKSDB_COMPILER_FLAGS,
+    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    deps = [":rocksdb_test_lib"],
+)
+
+custom_unittest(
+    "c_test",
+    command = [
+        native.package_name() + "/buckifier/rocks_test_runner.sh",
+        "$(location :{})".format("c_test_bin"),
+    ],
+    type = "simple",
+)
+""")
+
     def register_test(self,
                       test_name,
                       src,

@@ -347,6 +347,11 @@ class StackableDB : public DB {
     db_->GetLiveFilesMetaData(metadata);
   }
 
+  virtual Status GetLiveFilesChecksumInfo(
+      FileChecksumList* checksum_list) override {
+    return db_->GetLiveFilesChecksumInfo(checksum_list);
+  }
+
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);

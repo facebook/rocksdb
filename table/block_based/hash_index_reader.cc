@@ -13,6 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 Status HashIndexReader::Create(const BlockBasedTable* table,
+                               const ReadOptions& ro,
                                FilePrefetchBuffer* prefetch_buffer,
                                InternalIterator* meta_index_iter,
                                bool use_cache, bool prefetch, bool pin,
@@ -28,7 +29,7 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   CachableEntry<Block> index_block;
   if (prefetch || !use_cache) {
     const Status s =
-        ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
+        ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
                        /*get_context=*/nullptr, lookup_context, &index_block);
     if (!s.ok()) {
       return s;

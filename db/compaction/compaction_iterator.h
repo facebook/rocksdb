@@ -121,7 +121,8 @@ class CompactionIterator {
   void PrepareOutput();
 
   // Invoke compaction filter if needed.
-  void InvokeFilterIfNeeded(bool* need_skip, Slice* skip_until);
+  // Return true on success, false on failures (e.g.: kIOError).
+  bool InvokeFilterIfNeeded(bool* need_skip, Slice* skip_until);
 
   // Given a sequence number, return the sequence number of the
   // earliest snapshot that this sequence number is visible in.

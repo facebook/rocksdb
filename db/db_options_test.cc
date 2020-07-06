@@ -39,7 +39,7 @@ class DBOptionsTest : public DBTestBase {
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : db_options_type_info) {
+    for (const auto& opt : db_options_type_info) {
       if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
@@ -57,7 +57,7 @@ class DBOptionsTest : public DBTestBase {
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : cf_options_type_info) {
+    for (const auto& opt : cf_options_type_info) {
       if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }

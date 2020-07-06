@@ -239,13 +239,8 @@ install:
       CC=gcc-4.8 && CXX=g++-4.8;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      CMAKE_DIST_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
-      TAR_OPT="--strip-components=1 -xj";
-      if [ "aarch64" == "$(uname -m)" ]; then
-        sudo apt-get install -y libuv1 librhash0;
-        sudo apt-get upgrade -y libstdc++6;
-      fi;
-      mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
+      sudo snap install cmake --beta --classic;
+      export PATH=/snap/bin:$PATH;
     fi
   - |
     if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then

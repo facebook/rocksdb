@@ -1159,10 +1159,19 @@ class VersionSet {
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
   // Get the IO Status returned by written Manifest.
-  IOStatus io_status() const { return io_status_; }
+  const IOStatus& io_status() const { return io_status_; }
 
-  // Set the IO Status to OK. Called before Manifest write if needed.
-  void SetIOStatusOK() { io_status_ = IOStatus::OK(); }
+  void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
+    assert(cfd);
+
+    const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+    Version* const version =
+        new Version(cfd, this, file_options_, mutable_cf_options);
+
+    constexpr bool update_stats = false;
+    version->PrepareApply(mutable_cf_options, update_stats);
+    AppendVersion(cfd, version);
+  }
 
  protected:
   using VersionBuilderMap =
@@ -1205,7 +1214,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      log::Writer* log);
+      log::Writer* log, IOStatus& io_s);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 

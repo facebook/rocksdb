@@ -412,12 +412,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 }
 
 Status BlockBasedTableFactory::NewTableReader(
-    const TableReaderOptions& table_reader_options,
+    const ReadOptions& ro, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
     bool prefetch_index_and_filter_in_cache) const {
   return BlockBasedTable::Open(
-      table_reader_options.ioptions, table_reader_options.env_options,
+      ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader, table_reader_options.prefix_extractor,
       prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,

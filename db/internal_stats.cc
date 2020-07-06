@@ -798,7 +798,7 @@ bool InternalStats::HandleCurrentSuperVersionNumber(uint64_t* value,
 
 bool InternalStats::HandleIsFileDeletionsEnabled(uint64_t* value, DBImpl* db,
                                                  Version* /*version*/) {
-  *value = db->IsFileDeletionsEnabled();
+  *value = db->IsFileDeletionsEnabled() ? 1 : 0;
   return true;
 }
 

@@ -96,6 +96,44 @@ class VersionBuilderTest : public testing::Test {
     vstorage_.AddBlobFile(std::move(meta));
   }
 
+  void AddDummyFile(uint64_t table_file_number, uint64_t blob_file_number) {
+    constexpr int level = 0;
+    constexpr char smallest[] = "bar";
+    constexpr char largest[] = "foo";
+    constexpr uint64_t file_size = 100;
+    constexpr uint32_t path_id = 0;
+    constexpr SequenceNumber smallest_seq = 0;
+    constexpr SequenceNumber largest_seq = 0;
+    constexpr uint64_t num_entries = 0;
+    constexpr uint64_t num_deletions = 0;
+    constexpr bool sampled = false;
+
+    Add(level, table_file_number, smallest, largest, file_size, path_id,
+        smallest_seq, largest_seq, num_entries, num_deletions, sampled,
+        smallest_seq, largest_seq, blob_file_number);
+  }
+
+  void AddDummyFileToEdit(VersionEdit* edit, uint64_t table_file_number,
+                          uint64_t blob_file_number) {
+    assert(edit);
+
+    constexpr int level = 0;
+    constexpr uint32_t path_id = 0;
+    constexpr uint64_t file_size = 100;
+    constexpr char smallest[] = "bar";
+    constexpr char largest[] = "foo";
+    constexpr SequenceNumber smallest_seqno = 100;
+    constexpr SequenceNumber largest_seqno = 300;
+    constexpr bool marked_for_compaction = false;
+
+    edit->AddFile(level, table_file_number, path_id, file_size,
+                  GetInternalKey(smallest), GetInternalKey(largest),
+                  smallest_seqno, largest_seqno, marked_for_compaction,
+                  blob_file_number, kUnknownOldestAncesterTime,
+                  kUnknownFileCreationTime, kUnknownFileChecksum,
+                  kUnknownFileChecksumFuncName);
+  }
+
   static std::shared_ptr<BlobFileMetaData> GetBlobFileMetaData(
       const VersionStorageInfo::BlobFiles& blob_files,
       uint64_t blob_file_number) {
@@ -627,6 +665,10 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                    checksum_method, checksum_value);
 
+  // Add dummy table file to ensure the blob file is referenced.
+  constexpr uint64_t table_file_number = 1;
+  AddDummyFileToEdit(&edit, table_file_number, blob_file_number);
+
   ASSERT_OK(builder.Apply(&edit));
 
   constexpr bool force_consistency_checks = false;
@@ -647,9 +689,12 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
-  ASSERT_TRUE(new_meta->GetLinkedSsts().empty());
+  ASSERT_EQ(new_meta->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(), 0);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), 0);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
@@ -715,6 +760,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   // Increase the amount of garbage for a blob file present in the base version.
 
+  constexpr uint64_t table_file_number = 1;
   constexpr uint64_t blob_file_number = 1234;
   constexpr uint64_t total_blob_count = 5678;
   constexpr uint64_t total_blob_bytes = 999999;
@@ -724,12 +770,15 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   constexpr uint64_t garbage_blob_bytes = 456789;
 
   AddBlob(blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
-          checksum_value, BlobFileMetaData::LinkedSsts(), garbage_blob_count,
-          garbage_blob_bytes);
+          checksum_value, BlobFileMetaData::LinkedSsts{table_file_number},
+          garbage_blob_count, garbage_blob_bytes);
 
   const auto meta =
       GetBlobFileMetaData(vstorage_.GetBlobFiles(), blob_file_number);
   ASSERT_NE(meta, nullptr);
+
+  // Add dummy table file to ensure the blob file is referenced.
+  AddDummyFile(table_file_number, blob_file_number);
 
   EnvOptions env_options;
   constexpr TableCache* table_cache = nullptr;
@@ -767,11 +816,14 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
-  ASSERT_TRUE(new_meta->GetLinkedSsts().empty());
+  ASSERT_EQ(new_meta->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(),
             garbage_blob_count + new_garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(),
             garbage_blob_bytes + new_garbage_blob_bytes);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
@@ -794,6 +846,10 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
 
   addition.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
                        checksum_method, checksum_value);
+
+  // Add dummy table file to ensure the blob file is referenced.
+  constexpr uint64_t table_file_number = 1;
+  AddDummyFileToEdit(&addition, table_file_number, blob_file_number);
 
   ASSERT_OK(builder.Apply(&addition));
 
@@ -825,9 +881,12 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   ASSERT_EQ(new_meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(new_meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(new_meta->GetChecksumValue(), checksum_value);
-  ASSERT_TRUE(new_meta->GetLinkedSsts().empty());
+  ASSERT_EQ(new_meta->GetLinkedSsts(),
+            BlobFileMetaData::LinkedSsts{table_file_number});
   ASSERT_EQ(new_meta->GetGarbageBlobCount(), garbage_blob_count);
   ASSERT_EQ(new_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
@@ -857,7 +916,8 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
 
 TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   // Add three blob files to base version.
-  for (uint64_t i = 1; i <= 3; ++i) {
+  for (uint64_t i = 3; i >= 1; --i) {
+    const uint64_t table_file_number = i;
     const uint64_t blob_file_number = i;
     const uint64_t total_blob_count = i * 1000;
     const uint64_t total_blob_bytes = i * 1000000;
@@ -866,8 +926,12 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
 
     AddBlob(blob_file_number, total_blob_count, total_blob_bytes,
             /* checksum_method */ std::string(),
-            /* checksum_value */ std::string(), BlobFileMetaData::LinkedSsts(),
-            garbage_blob_count, garbage_blob_bytes);
+            /* checksum_value */ std::string(),
+            BlobFileMetaData::LinkedSsts{table_file_number}, garbage_blob_count,
+            garbage_blob_bytes);
+
+    // Add dummy table file to ensure the blob file is referenced.
+    AddDummyFile(table_file_number, blob_file_number);
   }
 
   EnvOptions env_options;
@@ -882,13 +946,15 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   // Add some garbage to the second and third blob files. The second blob file
   // remains valid since it does not consist entirely of garbage yet. The third
   // blob file is all garbage after the edit and will not be part of the new
-  // version.
+  // version. The corresponding dummy table file is also removed for
+  // consistency.
   edit.AddBlobFileGarbage(/* blob_file_number */ 2,
                           /* garbage_blob_count */ 200,
                           /* garbage_blob_bytes */ 100000);
   edit.AddBlobFileGarbage(/* blob_file_number */ 3,
                           /* garbage_blob_count */ 2700,
                           /* garbage_blob_bytes */ 2940000);
+  edit.DeleteFile(/* level */ 0, /* file_number */ 3);
 
   // Add a fourth blob file.
   edit.AddBlobFile(/* blob_file_number */ 4, /* total_blob_count */ 4000,
@@ -934,6 +1000,32 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(meta4->GetTotalBlobBytes(), 4000000);
   ASSERT_EQ(meta4->GetGarbageBlobCount(), 0);
   ASSERT_EQ(meta4->GetGarbageBlobBytes(), 0);
+
+  // Delete the first table file, which makes the first blob file obsolete
+  // since it's at the head and unreferenced.
+  VersionBuilder second_builder(env_options, &ioptions_, table_cache,
+                                &new_vstorage, version_set);
+
+  VersionEdit second_edit;
+  second_edit.DeleteFile(/* level */ 0, /* file_number */ 1);
+
+  ASSERT_OK(second_builder.Apply(&second_edit));
+
+  VersionStorageInfo newer_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                    kCompactionStyleLevel, &new_vstorage,
+                                    force_consistency_checks);
+
+  ASSERT_OK(second_builder.SaveTo(&newer_vstorage));
+
+  const auto& newer_blob_files = newer_vstorage.GetBlobFiles();
+  ASSERT_EQ(newer_blob_files.size(), 2);
+
+  const auto newer_meta1 = GetBlobFileMetaData(newer_blob_files, 1);
+
+  ASSERT_EQ(newer_meta1, nullptr);
+
+  UnrefFilesInVersion(&newer_vstorage);
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {

@@ -49,7 +49,7 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
       OptionTypeFlags::kNone, 0}}};
 
 Status PlainTableFactory::NewTableReader(
-    const TableReaderOptions& table_reader_options,
+    const ReadOptions& /*ro*/, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table,
     bool /*prefetch_index_and_filter_in_cache*/) const {

@@ -24,15 +24,6 @@ environment:
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2017
       CMAKE_GENERATOR: Visual Studio 15 Win64
       DEV_ENV: C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE\devenv.com
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
-      CMAKE_GENERATOR: Visual Studio 16
-      CMAKE_PLATEFORM_NAME: x64
-      DEV_ENV: C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\devenv.com
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
-      CMAKE_GENERATOR: Visual Studio 16
-      CMAKE_PLATEFORM_NAME: x64
-      CMAKE_OPT: -DCMAKE_CXX_STANDARD=20
-      DEV_ENV: C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\Common7\IDE\devenv.com
 
 install:
   - md %THIRDPARTY_HOME%

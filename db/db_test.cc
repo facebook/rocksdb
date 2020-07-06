@@ -126,7 +126,7 @@ TEST_F(DBTest, MockEnvTest) {
 
 // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
@@ -174,7 +174,7 @@ TEST_F(DBTest, MemEnvTest) {
   ASSERT_TRUE(!iterator->Valid());
   delete iterator;
 
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
@@ -1421,7 +1421,9 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
     keys[i * 3 + 1] = i * 5 + 1;
     keys[i * 3 + 2] = i * 5 + 2;
   }
-  RandomShuffle(std::begin(keys), std::end(keys));
+  // MemTable entry counting is estimated and can vary greatly depending on
+  // layout. Thus, using deterministic seed for test stability.
+  RandomShuffle(std::begin(keys), std::end(keys), rnd.Next());
 
   for (int i = 0; i < N * 3; i++) {
     ASSERT_OK(Put(Key(keys[i] + 1000), RandomString(&rnd, 1024)));
@@ -1788,6 +1790,7 @@ TEST_F(DBTest, Snapshot) {
 TEST_F(DBTest, HiddenValuesAreRemoved) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
+  env_->skip_fsync_ = true;
   do {
     Options options = CurrentOptions(options_override);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -2343,24 +2346,31 @@ TEST_F(DBTest, GetLiveBlobFiles) {
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
   assert(cfd);
 
-  // Add a live blob file.
-  VersionEdit edit;
+  Version* const version = cfd->current();
+  assert(version);
 
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  // Add a live blob file.
   constexpr uint64_t blob_file_number = 234;
   constexpr uint64_t total_blob_count = 555;
   constexpr uint64_t total_blob_bytes = 66666;
   constexpr char checksum_method[] = "CRC32";
   constexpr char checksum_value[] = "3d87ff57";
 
-  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
-                   checksum_method, checksum_value);
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      blob_file_number, total_blob_count, total_blob_bytes, checksum_method,
+      checksum_value);
 
-  dbfull()->TEST_LockMutex();
-  Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                   &edit, dbfull()->mutex());
-  dbfull()->TEST_UnlockMutex();
+  constexpr uint64_t garbage_blob_count = 0;
+  constexpr uint64_t garbage_blob_bytes = 0;
 
-  ASSERT_OK(s);
+  auto meta = BlobFileMetaData::Create(std::move(shared_meta),
+                                       BlobFileMetaData::LinkedSsts(),
+                                       garbage_blob_count, garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
 
   // Make sure it appears in the results returned by GetLiveFiles.
   uint64_t manifest_size = 0;
@@ -2990,12 +3000,18 @@ class ModelDB : public DB {
 
   Status SyncWAL() override { return Status::OK(); }
 
-#ifndef ROCKSDB_LITE
   Status DisableFileDeletions() override { return Status::OK(); }
 
   Status EnableFileDeletions(bool /*force*/) override { return Status::OK(); }
+#ifndef ROCKSDB_LITE
+
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
                       bool /*flush_memtable*/ = true) override {
+    return Status::OK();
+  }
+
+  Status GetLiveFilesChecksumInfo(
+      FileChecksumList* /*checksum_list*/) override {
     return Status::OK();
   }
 
@@ -3984,6 +4000,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
   Options options;
+  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -5130,6 +5147,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
+  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.write_buffer_size = 100000;  // Small write buffer
@@ -5489,6 +5507,7 @@ TEST_F(DBTest, MergeTestTime) {
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
