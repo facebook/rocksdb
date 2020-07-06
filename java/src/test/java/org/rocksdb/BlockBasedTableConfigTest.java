@@ -38,8 +38,7 @@ public class BlockBasedTableConfigTest {
     assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).
         isTrue();
     blockBasedTableConfig.setCacheIndexAndFilterBlocksWithHighPriority(false);
-    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).
-        isFalse();
+    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocksWithHighPriority()).isFalse();
   }
 
   @Test
@@ -264,8 +263,7 @@ public class BlockBasedTableConfigTest {
   public void optimizeFiltersForMemory() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setOptimizeFiltersForMemory(true);
-    assertThat(blockBasedTableConfig.optimizeFiltersForMemory()).
-        isTrue();
+    assertThat(blockBasedTableConfig.optimizeFiltersForMemory()).isTrue();
   }
 
   @Test
@@ -306,8 +304,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void verifyCompression() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(blockBasedTableConfig.verifyCompression()).
-        isFalse();
+    assertThat(blockBasedTableConfig.verifyCompression()).isFalse();
     blockBasedTableConfig.setVerifyCompression(true);
     assertThat(blockBasedTableConfig.verifyCompression()).
         isTrue();
@@ -362,8 +359,8 @@ public class BlockBasedTableConfigTest {
   public void indexShortening() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setIndexShortening(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
-    assertThat(blockBasedTableConfig.indexShortening()).
-        isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
+    assertThat(blockBasedTableConfig.indexShortening())
+        .isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
   }
 
   @Deprecated

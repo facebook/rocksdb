@@ -509,8 +509,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   @Experimental("Option to generate Bloom filters that minimize memory internal fragmentation")
-  public BlockBasedTableConfig setOptimizeFiltersForMemory(
-      final boolean optimizeFiltersForMemory) {
+  public BlockBasedTableConfig setOptimizeFiltersForMemory(final boolean optimizeFiltersForMemory) {
     this.optimizeFiltersForMemory = optimizeFiltersForMemory;
     return this;
   }
@@ -797,8 +796,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setIndexShortening(
-      final IndexShorteningMode indexShortening) {
+  public BlockBasedTableConfig setIndexShortening(final IndexShorteningMode indexShortening) {
     this.indexShortening = indexShortening;
     return this;
   }
@@ -985,56 +983,35 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     }
 
     return newTableFactoryHandle(cacheIndexAndFilterBlocks,
-        cacheIndexAndFilterBlocksWithHighPriority,
-        pinL0FilterAndIndexBlocksInCache, pinTopLevelIndexAndFilter,
-        indexType.getValue(), dataBlockIndexType.getValue(),
-        dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache,
-        blockCacheHandle, persistentCacheHandle, blockCacheCompressedHandle,
-        blockSize, blockSizeDeviation, blockRestartInterval,
-        indexBlockRestartInterval, metadataBlockSize, partitionFilters,
-        optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle,
-        wholeKeyFiltering, verifyCompression, readAmpBytesPerBit, formatVersion,
-        enableIndexCompression, blockAlign, indexShortening.getValue(),
-        blockCacheSize, blockCacheNumShardBits,
+        cacheIndexAndFilterBlocksWithHighPriority, pinL0FilterAndIndexBlocksInCache,
+        pinTopLevelIndexAndFilter, indexType.getValue(), dataBlockIndexType.getValue(),
+        dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache, blockCacheHandle,
+        persistentCacheHandle, blockCacheCompressedHandle, blockSize, blockSizeDeviation,
+        blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
+        optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
+        verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
+        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
         blockCacheCompressedSize, blockCacheCompressedNumShardBits);
   }
 
-  private native long newTableFactoryHandle(
-      final boolean cacheIndexAndFilterBlocks,
+  private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
       final boolean cacheIndexAndFilterBlocksWithHighPriority,
-      final boolean pinL0FilterAndIndexBlocksInCache,
-      final boolean pinTopLevelIndexAndFilter,
-      final byte indexTypeValue,
-      final byte dataBlockIndexTypeValue,
-      final double dataBlockHashTableUtilRatio,
-      final byte checksumTypeValue,
-      final boolean noBlockCache,
-      final long blockCacheHandle,
-      final long persistentCacheHandle,
-      final long blockCacheCompressedHandle,
-      final long blockSize,
-      final int blockSizeDeviation,
-      final int blockRestartInterval,
-      final int indexBlockRestartInterval,
-      final long metadataBlockSize,
-      final boolean partitionFilters,
-      final boolean optimizeFiltersForMemory,
-      final boolean useDeltaEncoding,
-      final long filterPolicyHandle,
-      final boolean wholeKeyFiltering,
-      final boolean verifyCompression,
-      final int readAmpBytesPerBit,
-      final int formatVersion,
-      final boolean enableIndexCompression,
-      final boolean blockAlign,
-      final byte indexShortening,
+      final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
+      final byte indexTypeValue, final byte dataBlockIndexTypeValue,
+      final double dataBlockHashTableUtilRatio, final byte checksumTypeValue,
+      final boolean noBlockCache, final long blockCacheHandle, final long persistentCacheHandle,
+      final long blockCacheCompressedHandle, final long blockSize, final int blockSizeDeviation,
+      final int blockRestartInterval, final int indexBlockRestartInterval,
+      final long metadataBlockSize, final boolean partitionFilters,
+      final boolean optimizeFiltersForMemory, final boolean useDeltaEncoding,
+      final long filterPolicyHandle, final boolean wholeKeyFiltering,
+      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
+      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
 
-      @Deprecated final long blockCacheSize,
-      @Deprecated final int blockCacheNumShardBits,
+      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
 
       @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits
-  );
+      @Deprecated final int blockCacheCompressedNumShardBits);
 
   //TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
