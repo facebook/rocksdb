@@ -7,6 +7,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
+#include <iostream>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -259,6 +260,17 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
 
 Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                 BackgroundErrorReason reason) {
+  if (reason == BackgroundErrorReason::kCompaction) {
+    std::cout<<"compaction\n";
+  } else if (reason == BackgroundErrorReason::kFlush) {
+    std::cout<<"flush\n";
+  } else if (reason == BackgroundErrorReason::kWriteCallback) {
+    std::cout<<"write call back\n";
+  } else if (reason == BackgroundErrorReason::kMemTable) {
+    std::cout<<"memtable\n";
+  } else {
+    std::cout<<"other\n";
+  }
   db_mutex_->AssertHeld();
   if (bg_io_err.ok()) {
     return Status::OK();
@@ -291,19 +303,28 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     // Second, check if the error is a retryable IO error or not. if it is
     // retryable error and its severity is higher than bg_error_, overwrite
     // the bg_error_ with new error.
-    // In current stage, treat retryable error as HardError. No automatic
-    // recovery.
+    // In current stage, for retryable IO error of compaction, treat it as
+    // soft error. In other cases, treat the retryable IO error as hard
+    // error.
     bool auto_recovery = false;
-    Status bg_err(new_bg_io_err, Status::Severity::kHardError);
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
                                           db_mutex_, &auto_recovery);
-    if (recovery_in_prog_ && recovery_error_.ok()) {
-      recovery_error_ = bg_err;
+    if (BackgroundErrorReason::kCompaction == reason) {
+      Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
+      if (bg_err.severity() > bg_error_.severity()) {
+          bg_error_ = bg_err;
+      }
+      return bg_error_;
+    } else {
+      Status bg_err(new_bg_io_err, Status::Severity::kHardError);
+      if (recovery_in_prog_ && recovery_error_.ok()) {
+        recovery_error_ = bg_err;
+      }
+      if (bg_err.severity() > bg_error_.severity()) {
+        bg_error_ = bg_err;
+      }
+      return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
-    if (bg_err.severity() > bg_error_.severity()) {
-      bg_error_ = bg_err;
-    }
-    return StartRecoverFromRetryableBGIOError(bg_io_err);
   } else {
     s = SetBGError(new_bg_io_err, reason);
   }
@@ -446,8 +467,9 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
 // mutex is released.
 void ErrorHandler::RecoverFromRetryableBGIOError() {
 #ifndef ROCKSDB_LITE
-  InstrumentedMutexLock l(db_mutex_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
+  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart1");
+  InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
     return;
   }
@@ -508,8 +530,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     }
     resume_count--;
   }
-  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
   recovery_in_prog_ = false;
+  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
   return;
 #else
   return;
@@ -518,10 +540,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 
 void ErrorHandler::EndAutoRecovery() {
   db_mutex_->AssertHeld();
-  if (end_recovery_) {
-    return;
+  if (!end_recovery_) {
+    end_recovery_ = true;
   }
-  end_recovery_ = true;
   cv_.SignalAll();
   db_mutex_->Unlock();
   if (recovery_thread_) {
