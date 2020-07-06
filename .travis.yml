@@ -278,7 +278,7 @@ script:
       OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_START=db_iter_test ROCKSDBTESTS_END=options_file_test make -j4 check_some
       ;;
     3)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=options_file_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_START=options_file_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
       ;;
     4)
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_prepared_transaction_test make -j4 check_some
