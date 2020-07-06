@@ -170,9 +170,14 @@ struct FileOperationInfo {
   const TimePoint& start_timestamp;
   const TimePoint& finish_timestamp;
   Status status;
-  FileOperationInfo(const std::string& _path, const TimePoint& start,
-                    const TimePoint& finish)
-      : path(_path), start_timestamp(start), finish_timestamp(finish) {}
+  FileOperationInfo(const FileOperationType _type, const std::string& _path,
+                    const TimePoint& start, const TimePoint& finish,
+                    const Status& _status)
+      : type(_type),
+        path(_path),
+        start_timestamp(start),
+        finish_timestamp(finish),
+        status(_status) {}
 };
 
 struct FlushJobInfo {
