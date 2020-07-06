@@ -1066,7 +1066,6 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   TestFileOperationListener* listener = new TestFileOperationListener();
   options.listeners.emplace_back(listener);
 
-  options.use_direct_io_for_flush_and_compaction = true;
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "aaa"));
   dbfull()->Flush(FlushOptions());
@@ -1087,9 +1086,11 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   ASSERT_GT(listener->file_closes_.load(), 0);
   ASSERT_GE(listener->file_syncs_.load(), listener->file_syncs_success_.load());
   ASSERT_GT(listener->file_syncs_.load(), 0);
-  ASSERT_GE(listener->file_truncates_.load(),
+  if (true == options.use_direct_io_for_flush_and_compaction){
+    ASSERT_GE(listener->file_truncates_.load(),
             listener->file_truncates_success_.load());
-  ASSERT_GT(listener->file_truncates_.load(), 0);
+    ASSERT_GT(listener->file_truncates_.load(), 0);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
