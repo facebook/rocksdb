@@ -143,7 +143,7 @@ class DBIter final : public Iterator {
   bool Valid() const override { return valid_; }
   Slice key() const override {
     assert(valid_);
-    if (start_seqnum_ > 0) {
+    if (start_seqnum_ > 0 || timestamp_lb_) {
       return saved_key_.GetInternalKey();
     } else {
       const Slice ukey_and_ts = saved_key_.GetUserKey();
