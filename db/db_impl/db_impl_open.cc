@@ -9,7 +9,6 @@
 #include "db/db_impl/db_impl.h"
 
 #include <cinttypes>
-#include <iostream>
 
 #include "db/builder.h"
 #include "db/error_handler.h"
