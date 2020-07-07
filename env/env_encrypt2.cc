@@ -431,7 +431,13 @@ EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
 }
 
 EncryptedEnvV2::EncryptedEnvV2(Env* base_env)
-    : EnvWrapper(base_env), valid_(false) {}
+    : EnvWrapper(base_env), valid_(false) {
+  valid_ = crypto_.IsValid();
+
+  if (IsValid()) {
+    crypto_.RAND_poll();
+  }
+}
 
 void EncryptedEnvV2::SetKeys(EncryptedEnvV2::ReadKeys encrypt_read,
                              EncryptedEnvV2::WriteKey encrypt_write) {
