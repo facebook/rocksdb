@@ -89,8 +89,8 @@ public class NativeLibraryLoader {
     } else {
       final File parentDir = new File(tmpDir);
       if (!parentDir.exists()) {
-        throw new RuntimeException("Directory: " + parentDir.getAbsolutePath()
-            + " does not exist!");
+        throw new RuntimeException(
+            "Directory: " + parentDir.getAbsolutePath() + " does not exist!");
       }
       temp = new File(parentDir, jniLibraryFileName);
       if (temp.exists() && !temp.delete()) {
