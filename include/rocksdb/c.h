@@ -171,8 +171,7 @@ rocksdb_backup_engine_restore_db_from_latest_backup(
     rocksdb_backup_engine_t* be, const char* db_dir, const char* wal_dir,
     const rocksdb_restore_options_t* restore_options, char** errptr);
 
-extern ROCKSDB_LIBRARY_API void
-rocksdb_backup_engine_restore_db_from_backup(
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_restore_db_from_backup(
     rocksdb_backup_engine_t* be, const char* db_dir, const char* wal_dir,
     const rocksdb_restore_options_t* restore_options, const uint32_t backup_id,
     char** errptr);
