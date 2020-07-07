@@ -1029,13 +1029,17 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // we encode table properties as varint64. Force time to be 0 to work around
   // it. Should remove the workaround after we propagate the property on
   // compaction.
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
-  mock_env->set_current_time(0);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:oldest_ancester_time",
+      [&](void* arg) {
+        uint64_t* current_time = static_cast<uint64_t*>(arg);
+        *current_time = 0;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
-  options.env = mock_env.get();
   DestroyAndReopen(options);
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {
@@ -1123,8 +1127,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Total SST files = 0
   ASSERT_EQ(total_sst_files_size, 0);
 
-  // Close db before mock_env destruct.
-  Close();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {

@@ -3156,9 +3156,8 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
 }
 
 TEST_F(DBBasicTest, PointLookupDeadline) {
-  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
-  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(&special_env);
-  std::unique_ptr<Env> env(new CompositeEnvWrapper(&special_env, fs));
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
 
   for (int option_config = kDefault; option_config < kEnd; ++option_config) {
     if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
@@ -3195,6 +3194,7 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
+    SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
     if (options.table_factory &&

@@ -39,13 +39,14 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
 
   ASSERT_TRUE(timer.Start());
 
+  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     MutexLock l(&mutex);
     while(count < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv.TimedWait(time_counter);
+      test_cv.TimedWait(real_start_time + time_counter);
     }
   }
 
@@ -89,14 +90,15 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
 
   ASSERT_TRUE(timer.Start());
 
+  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     MutexLock l(&mutex1);
     while (count1 < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv1.TimedWait(time_counter);
-      }
+      test_cv1.TimedWait(real_start_time + time_counter);
+    }
   }
 
   // Wait for execution to finish
@@ -105,7 +107,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
     while(count2 < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv2.TimedWait(time_counter);
+      test_cv2.TimedWait(real_start_time + time_counter);
     }
   }
 
@@ -115,6 +117,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   ASSERT_EQ(5, count2);
 }
 
+// XXX: test is flaky on Linux, broken on MacOS
 TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 5;
@@ -138,13 +141,14 @@ TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
 
   ASSERT_TRUE(timer.Start());
 
+  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     MutexLock l(&mutex);
     while(count < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv.TimedWait(time_counter);
+      test_cv.TimedWait(real_start_time + time_counter);
     }
   }
 
@@ -191,13 +195,14 @@ TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
 
   ASSERT_TRUE(timer.Start());
 
+  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     MutexLock l(&mutex1);
     while(count1 < kIterations1) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv1.TimedWait(time_counter);
+      test_cv1.TimedWait(real_start_time + time_counter);
     }
   }
 
@@ -209,7 +214,7 @@ TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
     while(count2 < kIterations2) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv2.TimedWait(time_counter);
+      test_cv2.TimedWait(real_start_time + time_counter);
     }
   }
 
