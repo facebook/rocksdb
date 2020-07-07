@@ -288,7 +288,7 @@ endif
 
 ifeq ($(LIB_MODE),shared)
 # So that binaries are executable from build location, in addition to install location
-EXEC_LDFLAGS += -Wl,-rpath='$$ORIGIN'
+EXEC_LDFLAGS += -Wl,-rpath -Wl,'$$ORIGIN'
 endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
@@ -1164,9 +1164,15 @@ $(STATIC_TOOLS_LIBRARY): $(BENCH_OBJECTS) $(TOOL_OBJECTS) $(TESTUTIL)
 	$(AM_V_AR)rm -f $@ $(SHARED_TOOLS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
+ifeq ($(DEBUG_LEVEL),0)
 $(STATIC_STRESS_LIBRARY): $(TESTUTIL) $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+else
+$(STATIC_STRESS_LIBRARY): $(TEST_OBJECTS) $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
+	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+endif
 
 $(SHARED_TEST_LIBRARY): $(TEST_OBJECTS) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TEST_LIBRARY)
@@ -1176,9 +1182,15 @@ $(SHARED_TOOLS_LIBRARY): $(TOOL_OBJECTS) $(TESTUTIL) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TOOLS_LIBRARY)
 	$(AM_SHARE)
 
-$(SHARED_STRESS_LIBRARY): $(TESTUTIL) $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED1)
+ifeq ($(DEBUG_LEVEL),0)
+$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
 	$(AM_SHARE)
+else
+$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED_TOOLS_LIBRARY) $(TEST_LIBRARY) $(SHARED1)
+	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
+	$(AM_SHARE)
+endif
 
 librocksdb_env_basic_test.a: $(OBJ_DIR)/env/env_basic_test.o $(LIB_OBJECTS) $(TESTHARNESS)
 	$(AM_V_AR)rm -f $@
@@ -1210,13 +1222,9 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(TESTUTIL) $(LIBRARY
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-ifeq ($(DEBUG_LEVEL),0)
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(TESTUTIL) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
-else
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_OBJECTS) $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
+
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
 	$(AM_LINK)
 
