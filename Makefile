@@ -732,7 +732,7 @@ coverage: clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
 	cd coverage && ./coverage_test.sh
         # Delete intermediate files
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
 
 ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
@@ -797,7 +797,7 @@ $(parallel_tests): $(PARALLEL_TEST)
 
 gen_parallel_tests:
 	$(AM_V_at)mkdir -p t
-	$(AM_V_at)rm -f t/run-*
+	$(AM_V_at)$(FIND) t -type f -name 'run-*' -exec rm -f {} \;
 	$(MAKE) $(parallel_tests)
 
 # Reorder input lines (which are one per test) so that the
@@ -1116,7 +1116,7 @@ clean-rocks:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
 
 clean-rocksjava:
 	rm -rf jl jls
