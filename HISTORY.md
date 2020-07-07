@@ -26,6 +26,9 @@
 ### Bug Fixes
 * Fail recovery and report once hitting a physical log record checksum mismatch, while reading MANIFEST. RocksDB should not continue processing the MANIFEST any further.
 
+### Performance Improvements
+* Eliminate key copies for internal comparisons while accessing ingested block-based tables.
+
 ## 6.11 (6/12/2020)
 ### Bug Fixes
 * Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
