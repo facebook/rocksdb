@@ -14,6 +14,7 @@
 
 #include "cache/lru_cache.h"
 #include "cache/sharded_cache.h"
+#include "env/file_system_tracer.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/port.h"
@@ -1279,7 +1280,7 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
 // This test suite tests the old APIs into the Configure options methods.
 // Once those APIs are officially deprecated, this test suite can be deleted.
 class OptionsOldApiTest : public testing::Test {};
-  
+
 TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
       {"write_buffer_size", "1"},
@@ -1744,7 +1745,7 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
 }
-  
+
 TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
@@ -1919,7 +1920,7 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
                 ->GetHighPriPoolRatio(),
             0.5);
 }
-  
+
 TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
   PlainTableOptions table_opt;
   PlainTableOptions new_opt;
@@ -1950,7 +1951,7 @@ TEST_F(OptionsOldApiTest, GetPlainTableOptionsFromString) {
              "encoding_type=kPrefixXX",
              &new_opt));
 }
-  
+
 TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   Options base_options, new_options;
   base_options.write_buffer_size = 20;
@@ -2067,12 +2068,14 @@ class OptionsParserTest : public testing::Test {
  public:
   OptionsParserTest() {
     env_.reset(new test::StringEnv(Env::Default()));
-    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
+    std::shared_ptr<FileSystem> fs_wrap =
+        std::make_shared<LegacyFileSystemWrapper>(env_.get());
+    fs_.reset(new FileSystemPtr(fs_wrap));
   }
 
  protected:
   std::unique_ptr<test::StringEnv> env_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
+  std::unique_ptr<FileSystemPtr> fs_;
 };
 
 TEST_F(OptionsParserTest, Comment) {
@@ -2508,7 +2511,7 @@ TEST_F(OptionsParserTest, Readahead) {
   uint64_t file_size = 0;
   ASSERT_OK(env_->GetFileSize(kOptionsFileName, &file_size));
   assert(file_size > 0);
-  
+
   RocksDBOptionsParser parser;
 
   env_->num_seq_file_read_ = 0;

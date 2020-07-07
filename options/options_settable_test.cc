@@ -221,7 +221,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
-  };
+      {offsetof(struct DBOptions, io_tracer),
+       sizeof(std::shared_ptr<IOTracer>)}};
 
   char* options_ptr = new char[sizeof(DBOptions)];
 

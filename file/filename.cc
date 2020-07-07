@@ -7,11 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "file/filename.h"
-#include <cinttypes>
 
 #include <ctype.h>
 #include <stdio.h>
+
+#include <cinttypes>
 #include <vector>
+
+#include "env/file_system_tracer.h"
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "rocksdb/env.h"
@@ -373,7 +376,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
   return true;
 }
 
-IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
+IOStatus SetCurrentFile(const FileSystemPtr* fs, const std::string& dbname,
                         uint64_t descriptor_number,
                         FSDirectory* directory_to_fsync) {
   // Remove leading "dbname/" and add newline to manifest file name
@@ -385,7 +388,7 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
   IOStatus s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true);
   if (s.ok()) {
     TEST_KILL_RANDOM("SetCurrentFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
-    s = fs->RenameFile(tmp, CurrentFileName(dbname), IOOptions(), nullptr);
+    s = (*fs)->RenameFile(tmp, CurrentFileName(dbname), IOOptions(), nullptr);
     TEST_KILL_RANDOM("SetCurrentFile:1", rocksdb_kill_odds * REDUCE_ODDS2);
   }
   if (s.ok()) {
@@ -393,7 +396,7 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
       s = directory_to_fsync->Fsync(IOOptions(), nullptr);
     }
   } else {
-    fs->DeleteFile(tmp, IOOptions(), nullptr);
+    (*fs)->DeleteFile(tmp, IOOptions(), nullptr);
   }
   return s;
 }

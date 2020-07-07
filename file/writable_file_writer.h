@@ -112,7 +112,8 @@ class WritableFileWriter {
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
 
-  std::unique_ptr<FSWritableFile> writable_file_;
+  std::unique_ptr<FSWritableFilePtr> writable_file_ptr_;
+  FSWritableFile* writable_file_;
   std::string file_name_;
   Env* env_;
   AlignedBuffer buf_;
@@ -138,11 +139,11 @@ class WritableFileWriter {
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
-      const FileOptions& options, Env* env = nullptr,
-      Statistics* stats = nullptr,
+      const FileOptions& options, std::shared_ptr<IOTracer> io_tracer,
+      Env* env = nullptr, Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
-      : writable_file_(std::move(file)),
+      : writable_file_(file.get()),
         file_name_(_file_name),
         env_(env),
         buf_(),
@@ -159,9 +160,11 @@ class WritableFileWriter {
         listeners_(),
         checksum_generator_(nullptr),
         checksum_finalized_(false) {
+    writable_file_ptr_.reset(new FSWritableFilePtr(std::move(file), io_tracer));
+
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
-    buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
+    buf_.Alignment((*writable_file_ptr_)->GetRequiredBufferAlignment());
     buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
@@ -204,19 +207,19 @@ class WritableFileWriter {
   IOStatus Sync(bool use_fsync);
 
   // Sync only the data that was already Flush()ed. Safe to call concurrently
-  // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
+  // with Append() and Flush(). If !(*writable_file_ptr_)->IsSyncThreadSafe(),
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(bool use_fsync);
 
   uint64_t GetFileSize() const { return filesize_; }
 
   IOStatus InvalidateCache(size_t offset, size_t length) {
-    return writable_file_->InvalidateCache(offset, length);
+    return (*writable_file_ptr_)->InvalidateCache(offset, length);
   }
 
-  FSWritableFile* writable_file() const { return writable_file_.get(); }
+  FSWritableFile* writable_file() const { return writable_file_; }
 
-  bool use_direct_io() { return writable_file_->use_direct_io(); }
+  bool use_direct_io() { return (*writable_file_ptr_)->use_direct_io(); }
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 

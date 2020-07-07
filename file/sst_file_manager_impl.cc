@@ -19,7 +19,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
-SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
+SstFileManagerImpl::SstFileManagerImpl(Env* env,
+                                       std::shared_ptr<FileSystemPtr> fs,
                                        std::shared_ptr<Logger> logger,
                                        int64_t rate_bytes_per_sec,
                                        double max_trash_db_ratio,
@@ -62,7 +63,7 @@ void SstFileManagerImpl::Close() {
 Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
                                      bool compaction) {
   uint64_t file_size;
-  Status s = fs_->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
+  Status s = (*fs_)->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   if (s.ok()) {
     MutexLock l(&mu_);
     OnAddFileImpl(file_path, file_size, compaction);
@@ -188,7 +189,7 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
     uint64_t free_space = 0;
-    fs_->GetFreeSpace(fn, IOOptions(), &free_space, nullptr);
+    (*fs_)->GetFreeSpace(fn, IOOptions(), &free_space, nullptr);
     // needed_headroom is based on current size reserved by compactions,
     // minus any files created by running compactions as they would count
     // against the reserved size. If user didn't specify any compaction
@@ -271,7 +272,7 @@ void SstFileManagerImpl::ClearError() {
     }
 
     uint64_t free_space = 0;
-    Status s = fs_->GetFreeSpace(path_, IOOptions(), &free_space, nullptr);
+    Status s = (*fs_)->GetFreeSpace(path_, IOOptions(), &free_space, nullptr);
     free_space = max_allowed_space_ > 0
                      ? std::min(max_allowed_space_, free_space)
                      : free_space;
@@ -482,29 +483,28 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
                                   double max_trash_db_ratio,
-                                  uint64_t bytes_max_delete_chunk) {
+                                  uint64_t bytes_max_delete_chunk,
+                                  std::shared_ptr<IOTracer> io_tracer) {
   std::shared_ptr<FileSystem> fs;
-
   if (env == Env::Default()) {
     fs = FileSystem::Default();
   } else {
     fs.reset(new LegacyFileSystemWrapper(env));
   }
-
   return NewSstFileManager(env, fs, info_log, trash_dir, rate_bytes_per_sec,
                            delete_existing_trash, status, max_trash_db_ratio,
-                           bytes_max_delete_chunk);
+                           bytes_max_delete_chunk, io_tracer);
 }
 
-SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
-                                  std::shared_ptr<Logger> info_log,
-                                  const std::string& trash_dir,
-                                  int64_t rate_bytes_per_sec,
-                                  bool delete_existing_trash, Status* status,
-                                  double max_trash_db_ratio,
-                                  uint64_t bytes_max_delete_chunk) {
+SstFileManager* NewSstFileManager(
+    Env* env, std::shared_ptr<FileSystem> fs, std::shared_ptr<Logger> info_log,
+    const std::string& trash_dir, int64_t rate_bytes_per_sec,
+    bool delete_existing_trash, Status* status, double max_trash_db_ratio,
+    uint64_t bytes_max_delete_chunk, std::shared_ptr<IOTracer> io_tracer) {
+  std::shared_ptr<FileSystemPtr> fsptr =
+      std::make_shared<FileSystemPtr>(fs, io_tracer);
   SstFileManagerImpl* res =
-      new SstFileManagerImpl(env, fs, info_log, rate_bytes_per_sec,
+      new SstFileManagerImpl(env, fsptr, info_log, rate_bytes_per_sec,
                              max_trash_db_ratio, bytes_max_delete_chunk);
 
   // trash_dir is deprecated and not needed anymore, but if user passed it
@@ -512,7 +512,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
   Status s;
   if (delete_existing_trash && trash_dir != "") {
     std::vector<std::string> files_in_trash;
-    s = fs->GetChildren(trash_dir, IOOptions(), &files_in_trash, nullptr);
+    s = (*fsptr)->GetChildren(trash_dir, IOOptions(), &files_in_trash, nullptr);
     if (s.ok()) {
       for (const std::string& trash_file : files_in_trash) {
         if (trash_file == "." || trash_file == "..") {
@@ -545,7 +545,8 @@ SstFileManager* NewSstFileManager(Env* /*env*/,
                                   int64_t /*rate_bytes_per_sec*/,
                                   bool /*delete_existing_trash*/,
                                   Status* status, double /*max_trash_db_ratio*/,
-                                  uint64_t /*bytes_max_delete_chunk*/) {
+                                  uint64_t /*bytes_max_delete_chunk*/,
+                                  std::shared_ptr<IOTracer> /*io_tracer*/) {
   if (status) {
     *status =
         Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");

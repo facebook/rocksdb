@@ -17,11 +17,12 @@
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
-extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
+extern IOStatus CopyFile(const FileSystemPtr* fs, const std::string& source,
                          const std::string& destination, uint64_t size,
                          bool use_fsync);
 
-extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+extern IOStatus CreateFile(const FileSystemPtr* fs,
+                           const std::string& destination,
                            const std::string& contents, bool use_fsync);
 
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
@@ -32,7 +33,7 @@ extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
 extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
 
 extern IOStatus GenerateOneFileChecksum(
-    FileSystem* fs, const std::string& file_path,
+    const FileSystemPtr* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory, std::string* file_checksum,
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads);

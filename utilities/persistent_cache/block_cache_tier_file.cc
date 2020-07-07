@@ -218,8 +218,9 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
           status.ToString().c_str());
     return false;
   }
-  freader_.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(file), Path(), env_));
+  freader_.reset(
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file), Path(),
+                                 nullptr /* IOTracer */, env_));
 
   return true;
 }

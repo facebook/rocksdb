@@ -75,7 +75,9 @@ TEST_F(RepairTest, CorruptManifest) {
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
 
-  LegacyFileSystemWrapper fs(env_);
+  std::shared_ptr<FileSystem> fs_wrap =
+      std::make_shared<LegacyFileSystemWrapper>(env_);
+  FileSystemPtr fs(fs_wrap);
   CreateFile(&fs, manifest_path, "blah", false /* use_fsync */);
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
@@ -156,7 +158,9 @@ TEST_F(RepairTest, CorruptSst) {
   auto sst_path = GetFirstSstPath();
   ASSERT_FALSE(sst_path.empty());
 
-  LegacyFileSystemWrapper fs(env_);
+  std::shared_ptr<FileSystem> fs_wrap =
+      std::make_shared<LegacyFileSystemWrapper>(env_);
+  FileSystemPtr fs(fs_wrap);
   CreateFile(&fs, sst_path, "blah", false /* use_fsync */);
 
   Close();

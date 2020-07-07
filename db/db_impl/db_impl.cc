@@ -150,16 +150,16 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
-      fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
+      fs_(immutable_db_options_.fs),
       stats_(immutable_db_options_.statistics.get()),
       mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
       file_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
-      file_options_for_compaction_(fs_->OptimizeForCompactionTableWrite(
+      file_options_for_compaction_((*fs_)->OptimizeForCompactionTableWrite(
           file_options_, immutable_db_options_)),
       seq_per_batch_(seq_per_batch),
       batch_per_txn_(batch_per_txn),
@@ -1116,11 +1116,11 @@ Status DBImpl::SetDBOptions(
                     new_options.wal_bytes_per_sync;
       mutable_db_options_ = new_options;
       file_options_for_compaction_ = FileOptions(new_db_options);
-      file_options_for_compaction_ = fs_->OptimizeForCompactionTableWrite(
+      file_options_for_compaction_ = (*fs_)->OptimizeForCompactionTableWrite(
           file_options_for_compaction_, immutable_db_options_);
       versions_->ChangeFileOptions(mutable_db_options_);
       //TODO(xiez): clarify why apply optimize for read to write options
-      file_options_for_compaction_ = fs_->OptimizeForCompactionTableRead(
+      file_options_for_compaction_ = (*fs_)->OptimizeForCompactionTableRead(
           file_options_for_compaction_, immutable_db_options_);
       file_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
@@ -3016,12 +3016,14 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 
 Env* DBImpl::GetEnv() const { return env_; }
 
-FileSystem* DB::GetFileSystem() const {
+FileSystemPtr* DB::GetFileSystemPtr() const {
   static LegacyFileSystemWrapper fs_wrap(GetEnv());
-  return &fs_wrap;
+  static std::shared_ptr<FileSystem> fs(&fs_wrap, [](FileSystem*) {});
+  static FileSystemPtr fsptr(fs);
+  return &fsptr;
 }
 
-FileSystem* DBImpl::GetFileSystem() const {
+FileSystemPtr* DBImpl::GetFileSystemPtr() const {
   return immutable_db_options_.fs.get();
 }
 
@@ -3738,7 +3740,8 @@ Status DBImpl::Close() {
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
+  const std::shared_ptr<FileSystemPtr> fs =
+      std::make_shared<FileSystemPtr>(db_options.env->GetFileSystem());
   return VersionSet::ListColumnFamilies(column_families, name, fs.get());
 }
 
@@ -3901,7 +3904,7 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());
   Status s = PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name,
-                                   GetFileSystem());
+                                   immutable_db_options_.fs.get());
 
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);

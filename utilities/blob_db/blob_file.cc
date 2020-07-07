@@ -75,8 +75,9 @@ std::shared_ptr<BlobLogReader> BlobFile::OpenRandomAccessReader(
   sfile = NewReadaheadRandomAccessFile(std::move(sfile), kReadaheadSize);
 
   std::unique_ptr<RandomAccessFileReader> sfile_reader;
-  sfile_reader.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(sfile), path_name));
+  sfile_reader.reset(
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(sfile),
+                                 path_name, db_options.io_tracer));
 
   std::shared_ptr<BlobLogReader> log_reader = std::make_shared<BlobLogReader>(
       std::move(sfile_reader), db_options.env, db_options.statistics.get());
@@ -211,7 +212,8 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
   }
 
   ra_file_reader_ = std::make_shared<RandomAccessFileReader>(
-      NewLegacyRandomAccessFileWrapper(rfile), PathName());
+      NewLegacyRandomAccessFileWrapper(rfile), PathName(),
+      nullptr /* IOTracer */);
   *reader = ra_file_reader_;
   *fresh_open = true;
   return s;
@@ -250,7 +252,7 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   }
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                 PathName()));
+                                 PathName(), nullptr /* IOTracer */));
 
   // Read file header.
   std::string header_buf;

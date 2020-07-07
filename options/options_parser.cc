@@ -37,7 +37,8 @@ static const std::string option_file_header =
 Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
-                             const std::string& file_name, FileSystem* fs) {
+                             const std::string& file_name,
+                             const FileSystemPtr* fs) {
   ConfigOptions
       config_options;  // Use default for escaped(true) and check (exact)
   config_options.delimiter = "\n  ";
@@ -53,7 +54,8 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
                              const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
-                             const std::string& file_name, FileSystem* fs) {
+                             const std::string& file_name,
+                             const FileSystemPtr* fs) {
   ConfigOptions config_options = config_options_in;
   config_options.delimiter = "\n  ";  // Override the default to nl
 
@@ -64,8 +66,7 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
   }
   std::unique_ptr<FSWritableFile> wf;
 
-  Status s =
-      fs->NewWritableFile(file_name, FileOptions(), &wf, nullptr);
+  Status s = (*fs)->NewWritableFile(file_name, FileOptions(), &wf, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -234,7 +235,8 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
   return Status::OK();
 }
 
-Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
+Status RocksDBOptionsParser::Parse(const std::string& file_name,
+                                   const FileSystemPtr* fs,
                                    bool ignore_unknown_options,
                                    size_t file_readahead_size) {
   ConfigOptions
@@ -248,18 +250,19 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, FileSystem* fs,
 
 Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
                                    const std::string& file_name,
-                                   FileSystem* fs) {
+                                   const FileSystemPtr* fs) {
   Reset();
   ConfigOptions config_options = config_options_in;
 
   std::unique_ptr<FSSequentialFile> seq_file;
-  Status s = fs->NewSequentialFile(file_name, FileOptions(), &seq_file,
-                                   nullptr);
+  Status s =
+      (*fs)->NewSequentialFile(file_name, FileOptions(), &seq_file, nullptr);
   if (!s.ok()) {
     return s;
   }
   SequentialFileReader sf_reader(std::move(seq_file), file_name,
-                                 config_options.file_readahead_size);
+                                 config_options.file_readahead_size,
+                                 nullptr /*IOTracer*/);
 
   OptionSection section = kOptionSectionUnknown;
   std::string title;
@@ -534,7 +537,7 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const ConfigOptions& config_options, const DBOptions& db_opt,
     const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
-    const std::string& file_name, FileSystem* fs) {
+    const std::string& file_name, const FileSystemPtr* fs) {
   RocksDBOptionsParser parser;
   Status s = parser.Parse(config_options, file_name, fs);
   if (!s.ok()) {

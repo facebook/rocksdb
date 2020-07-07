@@ -97,7 +97,7 @@ Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
   }
 
   WritableFileWriter file_writer(NewLegacyWritableFileWrapper(std::move(file)),
-                                 fname, EnvOptions());
+                                 fname, EnvOptions(), nullptr /* IOTracer */);
 
   uint32_t id = GetAndWriteNextID(&file_writer);
   file_system_.files.insert({id, std::move(file_contents)});

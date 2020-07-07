@@ -323,7 +323,7 @@ CompactionJob::CompactionJob(
       env_(db_options.env),
       fs_(db_options.fs.get()),
       file_options_for_read_(
-          fs_->OptimizeForCompactionTableRead(file_options, db_options_)),
+          (*fs_)->OptimizeForCompactionTableRead(file_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
@@ -1552,10 +1552,10 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
-  sub_compact->outfile.reset(
-      new WritableFileWriter(std::move(writable_file), fname, file_options_,
-                             env_, db_options_.statistics.get(), listeners,
-                             db_options_.file_checksum_gen_factory.get()));
+  sub_compact->outfile.reset(new WritableFileWriter(
+      std::move(writable_file), fname, file_options_, db_options_.io_tracer,
+      env_, db_options_.statistics.get(), listeners,
+      db_options_.file_checksum_gen_factory.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

@@ -79,7 +79,6 @@ LIB_SOURCES =                                                   \
   env/file_system.cc                                            \
   env/file_system_tracer.cc                                     \
   env/fs_posix.cc                                               \
-  env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \

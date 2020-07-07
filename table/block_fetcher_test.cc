@@ -251,8 +251,9 @@ class BlockFetcherTest : public testing::Test {
     EnvOptions env_options;
     std::unique_ptr<WritableFile> file;
     ASSERT_OK(env_->NewWritableFile(path, &file, env_options));
-    writer->reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), path, env_options));
+    writer->reset(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               path, env_options, nullptr /* IOTracer */));
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
@@ -260,7 +261,8 @@ class BlockFetcherTest : public testing::Test {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             nullptr /* IOTracer */, env_));
   }
 
   void NewTableReader(const ImmutableCFOptions& ioptions,

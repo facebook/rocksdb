@@ -92,8 +92,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
 
     if (hardlink_files) {
-      status =
-          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
+      status = (*fs_)->LinkFile(path_outside_db, path_inside_db, IOOptions(),
+                                nullptr);
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
         hardlink_files = false;
@@ -117,7 +117,7 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         break;
       }
       const auto s =
-          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
+          (*fs_)->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -172,7 +172,7 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
     // We failed to add files to the database remove all the files we copied.
     for (const auto& f : files_to_import_) {
       const auto s =
-          fs_->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
+          (*fs_)->DeleteFile(f.internal_file_path, IOOptions(), nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -183,7 +183,7 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_import_) {
       const auto s =
-          fs_->DeleteFile(f.external_file_path, IOOptions(), nullptr);
+          (*fs_)->DeleteFile(f.external_file_path, IOOptions(), nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
@@ -201,8 +201,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   file_to_import->external_file_path = external_file;
 
   // Get external file size
-  Status status = fs_->GetFileSize(external_file, IOOptions(),
-                                   &file_to_import->file_size, nullptr);
+  Status status = (*fs_)->GetFileSize(external_file, IOOptions(),
+                                      &file_to_import->file_size, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -212,13 +212,13 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = fs_->NewRandomAccessFile(external_file, env_options_,
-                                    &sst_file, nullptr);
+  status = (*fs_)->NewRandomAccessFile(external_file, env_options_, &sst_file,
+                                       nullptr);
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(
-      new RandomAccessFileReader(std::move(sst_file), external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, db_options_.io_tracer));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),

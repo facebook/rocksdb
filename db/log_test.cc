@@ -759,7 +759,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     if (s.ok()) {
       writer_.reset(new WritableFileWriter(
           NewLegacyWritableFileWrapper(std::move(writable_file)), log_file_,
-          env_options_));
+          env_options_, nullptr /* IOTracer */));
       assert(writer_ != nullptr);
     }
     std::unique_ptr<SequentialFile> seq_file;
@@ -767,8 +767,9 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
       s = env_->NewSequentialFile(log_file_, &seq_file, env_options_);
     }
     if (s.ok()) {
-      reader_.reset(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(seq_file), log_file_));
+      reader_.reset(
+          new SequentialFileReader(NewLegacySequentialFileWrapper(seq_file),
+                                   log_file_, nullptr /* IOTracer */));
       assert(reader_ != nullptr);
       log_reader_.reset(new FragmentBufferedReader(
           nullptr, std::move(reader_), &report_, true /* checksum */,

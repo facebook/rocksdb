@@ -67,7 +67,7 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, Env* env, FileSystem* fs,
+    const std::string& dbname, Env* env, const FileSystemPtr* fs,
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
@@ -140,8 +140,9 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, env, ioptions.statistics,
-          ioptions.listeners, ioptions.file_checksum_gen_factory));
+          std::move(file), fname, file_options, ioptions.io_tracer, env,
+          ioptions.statistics, ioptions.listeners,
+          ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
@@ -269,7 +270,7 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
-    fs->DeleteFile(fname, IOOptions(), nullptr);
+    (*fs)->DeleteFile(fname, IOOptions(), nullptr);
   }
 
   if (meta->fd.GetFileSize() == 0) {

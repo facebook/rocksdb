@@ -352,8 +352,9 @@ class Repairer {
     if (!status.ok()) {
       return status;
     }
+
     std::unique_ptr<SequentialFileReader> lfile_reader(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(lfile), logname));
+        NewLegacySequentialFileWrapper(lfile), logname, db_options_.io_tracer));
 
     // Create the log reader.
     LogReporter reporter;
@@ -426,7 +427,10 @@ class Repairer {
         range_del_iters.emplace_back(range_del_iter);
       }
 
-      LegacyFileSystemWrapper fs(env_);
+      std::shared_ptr<FileSystem> fs_wrap =
+          std::make_shared<LegacyFileSystemWrapper>(env_);
+      FileSystemPtr fs(fs_wrap);
+
       IOStatus io_s;
       status = BuildTable(
           dbname_, env_, &fs, *cfd->ioptions(),

@@ -721,7 +721,10 @@ class VersionSetTestBase {
     }
     env_ = mem_env_ ? mem_env_ : base_env;
 
-    fs_ = std::make_shared<LegacyFileSystemWrapper>(env_);
+    std::shared_ptr<FileSystem> fs_wrap =
+        std::make_shared<LegacyFileSystemWrapper>(env_);
+    fs_ = std::make_shared<FileSystemPtr>(fs_wrap);
+
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
 
     db_options_.env = env_;
@@ -792,8 +795,9 @@ class VersionSetTestBase {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               manifest, env_options_, nullptr /* IOTracer */));
     {
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
@@ -843,7 +847,7 @@ class VersionSetTestBase {
   MockEnv* mem_env_;
   Env* env_;
   std::shared_ptr<Env> env_guard_;
-  std::shared_ptr<FileSystem> fs_;
+  std::shared_ptr<FileSystemPtr> fs_;
   const std::string dbname_;
   EnvOptions env_options_;
   Options options_;
@@ -1679,9 +1683,9 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
     Status s = env_->NewWritableFile(
         manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               manifest_path, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest_path,
+        env_options_, nullptr /* IOTracer */));
     log_writer->reset(new log::Writer(std::move(file_writer), 0, true));
     std::string record;
     ASSERT_TRUE(new_db.EncodeTo(&record));
@@ -1751,9 +1755,9 @@ class VersionSetTestEmptyDb
     Status s = env_->NewWritableFile(
         manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               manifest_path, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest_path,
+        env_options_, nullptr /* IOTracer */));
     {
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
@@ -2061,8 +2065,9 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               manifest, env_options_, nullptr /* IOTracer */));
     log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
@@ -2142,10 +2147,10 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       uint64_t file_num = info.file_number;
       std::string fname = MakeTableFileName(dbname_, file_num);
       std::unique_ptr<FSWritableFile> file;
-      Status s = fs_->NewWritableFile(fname, FileOptions(), &file, nullptr);
+      Status s = (*fs_)->NewWritableFile(fname, FileOptions(), &file, nullptr);
       ASSERT_OK(s);
-      std::unique_ptr<WritableFileWriter> fwriter(
-          new WritableFileWriter(std::move(file), fname, FileOptions(), env_));
+      std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
+          std::move(file), fname, FileOptions(), nullptr /* IOTracer */, env_));
       std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
           int_tbl_prop_collector_factories;
 
@@ -2162,7 +2167,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       ASSERT_OK(builder->Finish());
       fwriter->Flush();
       uint64_t file_size = 0;
-      s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
+      s = (*fs_)->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
       FileMetaData meta;

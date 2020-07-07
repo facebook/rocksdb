@@ -51,8 +51,9 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
-  reader_.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(file), filename));
+  reader_.reset(
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
+                                 filename, nullptr /* IOTracer */));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
   CompressionType compression = kNoCompression;

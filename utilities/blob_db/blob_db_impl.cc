@@ -732,8 +732,9 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   }
 
   std::unique_ptr<WritableFileWriter> fwriter;
-  fwriter.reset(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(wfile)), fpath, env_options_));
+  fwriter.reset(
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wfile)),
+                             fpath, env_options_, db_options_.io_tracer));
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {

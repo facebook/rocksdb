@@ -171,7 +171,8 @@ extern bool ParseFileName(const std::string& filename, uint64_t* number,
 
 // Make the CURRENT file point to the descriptor file with the
 // specified number.
-extern IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
+extern IOStatus SetCurrentFile(const FileSystemPtr* fs,
+                               const std::string& dbname,
                                uint64_t descriptor_number,
                                FSDirectory* directory_to_fsync);
 

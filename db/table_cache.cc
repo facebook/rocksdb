@@ -13,6 +13,7 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
+#include "env/file_system_tracer.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -106,15 +107,15 @@ Status TableCache::GetTableReader(
   FileOptions fopts = file_options;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
   if (s.ok()) {
-    s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
+    s = (*(ioptions_.fs))->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
     s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
     if (s.ok()) {
-      s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
-                                            nullptr);
+      s = (*(ioptions_.fs))
+              ->NewRandomAccessFile(fname, file_options, &file, nullptr);
     }
     RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   }
@@ -126,7 +127,7 @@ Status TableCache::GetTableReader(
     StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
-            std::move(file), fname, ioptions_.env,
+            std::move(file), fname, ioptions_.io_tracer, ioptions_.env,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(

@@ -82,7 +82,7 @@ struct MemTableInfo;
 // Class to maintain directories for all database paths other than main one.
 class Directories {
  public:
-  IOStatus SetDirectories(FileSystem* fs, const std::string& dbname,
+  IOStatus SetDirectories(const FileSystemPtr* fs, const std::string& dbname,
                           const std::string& wal_dir,
                           const std::vector<DbPath>& data_paths);
 
@@ -325,7 +325,7 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family) override;
   virtual const std::string& GetName() const override;
   virtual Env* GetEnv() const override;
-  virtual FileSystem* GetFileSystem() const override;
+  virtual FileSystemPtr* GetFileSystemPtr() const override;
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override;
   using DB::GetDBOptions;
@@ -862,7 +862,7 @@ class DBImpl : public DB {
                      const bool seq_per_batch, const bool batch_per_txn);
 
   static IOStatus CreateAndNewDirectory(
-      FileSystem* fs, const std::string& dirname,
+      const FileSystemPtr* fs, const std::string& dirname,
       std::unique_ptr<FSDirectory>* directory);
 
   // find stats map from stats_history_ with smallest timestamp in
@@ -997,15 +997,16 @@ class DBImpl : public DB {
   bool own_info_log_;
   const DBOptions initial_db_options_;
   Env* const env_;
-  std::shared_ptr<FileSystem> fs_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;
+  std::shared_ptr<FileSystemPtr> fs_;
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
   std::unique_ptr<Tracer> tracer_;
   InstrumentedMutex trace_mutex_;
   BlockCacheTracer block_cache_tracer_;
+  std::shared_ptr<IOTracer> io_tracer_;
 
   // State below is protected by mutex_
   // With two_write_queues enabled, some of the variables that accessed during

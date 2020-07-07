@@ -660,7 +660,9 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   Close();
 
   // Create 3 dummy trash files under the blob_dir
-  LegacyFileSystemWrapper fs(db_options.env);
+  std::shared_ptr<FileSystem> fs_wrap =
+      std::make_shared<LegacyFileSystemWrapper>(db_options.env);
+  FileSystemPtr fs(fs_wrap);
   CreateFile(&fs, blob_dir + "/000666.blob.trash", "", false);
   CreateFile(&fs, blob_dir + "/000888.blob.trash", "", true);
   CreateFile(&fs, blob_dir + "/something_not_match.trash", "", false);

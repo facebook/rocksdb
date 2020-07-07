@@ -36,12 +36,14 @@ static const std::string opt_section_titles[] = {
 Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
-                             const std::string& file_name, FileSystem* fs);
+                             const std::string& file_name,
+                             const FileSystemPtr* fs);
 Status PersistRocksDBOptions(const ConfigOptions& config_options,
                              const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
-                             const std::string& file_name, FileSystem* fs);
+                             const std::string& file_name,
+                             const FileSystemPtr* fs);
 
 class RocksDBOptionsParser {
  public:
@@ -51,11 +53,11 @@ class RocksDBOptionsParser {
 
   // `file_readahead_size` is used for readahead for the option file.
   // If 0 is given, a default value will be used.
-  Status Parse(const std::string& file_name, FileSystem* fs,
+  Status Parse(const std::string& file_name, const FileSystemPtr* fs,
                bool ignore_unknown_options, size_t file_readahead_size);
 
   Status Parse(const ConfigOptions& config_options,
-               const std::string& file_name, FileSystem* fs);
+               const std::string& file_name, const FileSystemPtr* fs);
 
   static std::string TrimAndRemoveComment(const std::string& line,
                                           const bool trim_only = false);
@@ -79,7 +81,7 @@ class RocksDBOptionsParser {
       const ConfigOptions& config_options, const DBOptions& db_opt,
       const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
-      const std::string& file_name, FileSystem* fs);
+      const std::string& file_name, const FileSystemPtr* fs);
   static Status VerifyDBOptions(
       const ConfigOptions& config_options, const DBOptions& base_opt,
       const DBOptions& new_opt,

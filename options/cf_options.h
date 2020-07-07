@@ -61,7 +61,7 @@ struct ImmutableCFOptions {
 
   Env* env;
 
-  FileSystem* fs;
+  FileSystemPtr* fs;
 
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
@@ -121,6 +121,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 
   FileChecksumGenFactory* file_checksum_gen_factory;
+
+  std::shared_ptr<IOTracer> io_tracer;
 };
 
 struct MutableCFOptions {

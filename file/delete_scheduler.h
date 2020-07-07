@@ -23,6 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 class Env;
 class Logger;
 class SstFileManagerImpl;
+class FileSystemPtr;
 
 // DeleteScheduler allows the DB to enforce a rate limit on file deletion,
 // Instead of deleteing files immediately, files are marked as trash
@@ -33,7 +34,7 @@ class SstFileManagerImpl;
 // case DeleteScheduler will delete files immediately.
 class DeleteScheduler {
  public:
-  DeleteScheduler(Env* env, FileSystem* fs, int64_t rate_bytes_per_sec,
+  DeleteScheduler(Env* env, FileSystemPtr* fs, int64_t rate_bytes_per_sec,
                   Logger* info_log, SstFileManagerImpl* sst_file_manager,
                   double max_trash_db_ratio, uint64_t bytes_max_delete_chunk);
 
@@ -100,7 +101,7 @@ class DeleteScheduler {
   void MaybeCreateBackgroundThread();
 
   Env* env_;
-  FileSystem* fs_;
+  FileSystemPtr* fs_;
 
   // total size of trash files
   std::atomic<uint64_t> total_trash_size_;

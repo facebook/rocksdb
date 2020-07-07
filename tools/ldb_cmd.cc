@@ -2217,7 +2217,7 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
     status = env->NewSequentialFile(wal_file, &file, soptions);
     if (status.ok()) {
       wal_file_reader.reset(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(file), wal_file));
+          NewLegacySequentialFileWrapper(file), wal_file, options.io_tracer));
     }
   }
   if (!status.ok()) {

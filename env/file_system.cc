@@ -3,8 +3,10 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "env/composite_env_wrapper.h"
 #include "rocksdb/file_system.h"
+
+#include "env/composite_env_wrapper.h"
+#include "env/file_system_tracer.h"
 #include "options/db_options.h"
 #include "rocksdb/utilities/object_registry.h"
 
@@ -83,11 +85,11 @@ FileOptions FileSystem::OptimizeForCompactionTableRead(
   return optimized_file_options;
 }
 
-IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
+IOStatus WriteStringToFile(const FileSystemPtr* fs, const Slice& data,
                            const std::string& fname, bool should_sync) {
   std::unique_ptr<FSWritableFile> file;
   EnvOptions soptions;
-  IOStatus s = fs->NewWritableFile(fname, soptions, &file, nullptr);
+  IOStatus s = (*fs)->NewWritableFile(fname, soptions, &file, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -96,18 +98,18 @@ IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
     s = file->Sync(IOOptions(), nullptr);
   }
   if (!s.ok()) {
-    fs->DeleteFile(fname, IOOptions(), nullptr);
+    (*fs)->DeleteFile(fname, IOOptions(), nullptr);
   }
   return s;
 }
 
-IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
+IOStatus ReadFileToString(const FileSystemPtr* fs, const std::string& fname,
                           std::string* data) {
   FileOptions soptions;
   data->clear();
   std::unique_ptr<FSSequentialFile> file;
   IOStatus s = status_to_io_status(
-      fs->NewSequentialFile(fname, soptions, &file, nullptr));
+      (*fs)->NewSequentialFile(fname, soptions, &file, nullptr));
   if (!s.ok()) {
     return s;
   }

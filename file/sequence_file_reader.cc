@@ -27,7 +27,7 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
     size_t offset = offset_.fetch_add(n);
-    size_t alignment = file_->GetRequiredBufferAlignment();
+    size_t alignment = (*file_ptr_)->GetRequiredBufferAlignment();
     size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
     size_t offset_advance = offset - aligned_offset;
     size_t size = Roundup(offset + n, alignment) - aligned_offset;
@@ -36,8 +36,9 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     buf.Alignment(alignment);
     buf.AllocateNewBuffer(size);
     Slice tmp;
-    s = file_->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
-                              buf.BufferStart(), nullptr);
+    s = (*file_ptr_)
+            ->PositionedRead(aligned_offset, size, IOOptions(), &tmp,
+                             buf.BufferStart(), nullptr);
     if (s.ok() && offset_advance < tmp.size()) {
       buf.Size(tmp.size());
       r = buf.Read(scratch, offset_advance,
@@ -46,7 +47,7 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
     *result = Slice(scratch, r);
 #endif  // !ROCKSDB_LITE
   } else {
-    s = file_->Read(n, IOOptions(), result, scratch, nullptr);
+    s = (*file_ptr_)->Read(n, IOOptions(), result, scratch, nullptr);
   }
   IOSTATS_ADD(bytes_read, result->size());
   return s;
@@ -59,7 +60,7 @@ Status SequentialFileReader::Skip(uint64_t n) {
     return Status::OK();
   }
 #endif  // !ROCKSDB_LITE
-  return file_->Skip(n);
+  return (*file_ptr_)->Skip(n);
 }
 
 namespace {

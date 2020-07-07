@@ -63,7 +63,7 @@ TableBuilder* NewTableBuilder(
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
 extern Status BuildTable(
-    const std::string& dbname, Env* env, FileSystem* fs,
+    const std::string& dbname, Env* env, const FileSystemPtr* fs,
     const ImmutableCFOptions& options,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,

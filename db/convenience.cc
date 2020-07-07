@@ -45,18 +45,18 @@ Status VerifySstFileChecksum(const Options& options,
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
   ImmutableCFOptions ioptions(options);
-
-  Status s = ioptions.fs->NewRandomAccessFile(file_path,
-                                              FileOptions(env_options),
-                                              &file, nullptr);
+  FileSystem* fs = ioptions.env->GetFileSystem().get();
+  Status s = fs->NewRandomAccessFile(file_path, FileOptions(env_options), &file,
+                                     nullptr);
   if (s.ok()) {
-    s = ioptions.fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
+    s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   } else {
     return s;
   }
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), file_path));
+      new RandomAccessFileReader(std::move(file), file_path,
+                                 ioptions.io_tracer));
   const bool kImmortal = true;
   s = ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,

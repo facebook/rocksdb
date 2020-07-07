@@ -9,6 +9,8 @@
 
 #pragma once
 #include <atomic>
+
+#include "env/file_system_tracer.h"
 #include "file/sequence_file_reader.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -20,7 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 // fname   : the file name.
 // result  : output arg. A WritableFile based on `fname` returned.
 // options : the Env Options.
-extern IOStatus NewWritableFile(FileSystem* fs, const std::string& fname,
+extern IOStatus NewWritableFile(const FileSystemPtr* fs,
+                                const std::string& fname,
                                 std::unique_ptr<FSWritableFile>* result,
                                 const FileOptions& options);
 

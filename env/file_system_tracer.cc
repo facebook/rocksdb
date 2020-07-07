@@ -9,6 +9,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+FileSystemTracingWrapper::~FileSystemTracingWrapper() {}
+
 IOStatus FileSystemTracingWrapper::NewWritableFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
@@ -16,8 +18,8 @@ IOStatus FileSystemTracingWrapper::NewWritableFile(
   timer.Start();
   IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
   uint64_t elapsed = timer.ElapsedNanos();
-  IOTraceRecord io_record(elapsed, TraceType::kIOFileName, __func__, elapsed,
-                          s.ToString(), fname);
+  IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOFileName, __func__,
+                          elapsed, s.ToString(), fname);
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -271,7 +273,7 @@ uint64_t FSWritableFileTracingWrapper::GetFileSize(const IOOptions& options,
   uint64_t file_size = target()->GetFileSize(options, dbg);
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOFileNameAndFileSize,
-                          "GetFileSize", elapsed, "" /* file_name */,
+                          "GetFileSize", elapsed, "OK", "" /* file_name */,
                           file_size);
   io_tracer_->WriteIOOp(io_record);
   return file_size;

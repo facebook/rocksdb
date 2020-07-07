@@ -61,7 +61,7 @@ class ImportColumnFamilyJob {
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
-  FileSystem* fs_;
+  FileSystemPtr* fs_;
   const EnvOptions& env_options_;
   autovector<IngestedFileInfo> files_to_import_;
   VersionEdit edit_;

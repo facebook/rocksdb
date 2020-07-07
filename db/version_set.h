@@ -757,7 +757,6 @@ class Version {
 
  private:
   Env* env_;
-  FileSystem* fs_;
   friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class VersionEditHandler;
@@ -951,7 +950,7 @@ class VersionSet {
       const ColumnFamilyOptions* new_cf_options = nullptr);
 
   static Status GetCurrentManifestPath(const std::string& dbname,
-                                       FileSystem* fs,
+                                       const FileSystemPtr* fs,
                                        std::string* manifest_filename,
                                        uint64_t* manifest_file_number);
 
@@ -976,7 +975,8 @@ class VersionSet {
   // Reads a manifest file and returns a list of column families in
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
-                                   const std::string& dbname, FileSystem* fs);
+                                   const std::string& dbname,
+                                   const FileSystemPtr* fs);
 
 #ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
@@ -1265,7 +1265,7 @@ class VersionSet {
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Env* const env_;
-  FileSystem* const fs_;
+  FileSystemPtr* const fs_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;

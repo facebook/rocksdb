@@ -511,7 +511,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
   ASSERT_OK(options_.env->NewRandomAccessFile(filename, &file, EnvOptions()));
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                 filename));
+                                 filename, options_.io_tracer));
 
   uint64_t file_size;
   ASSERT_OK(options_.env->GetFileSize(filename, &file_size));

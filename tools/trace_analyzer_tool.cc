@@ -1066,7 +1066,8 @@ Status TraceAnalyzer::ReProcessing() {
         size_t kTraceFileReadaheadSize = 2 * 1024 * 1024;
         SequentialFileReader sf_reader(
             std::move(file), whole_key_path,
-            kTraceFileReadaheadSize /* filereadahead_size */);
+            kTraceFileReadaheadSize /* filereadahead_size */,
+            nullptr /*IOTracer*/);
         for (cfs_[cf_id].w_count = 0;
              ReadOneLine(&iss, &sf_reader, &get_key, &has_data, &s);
              ++cfs_[cf_id].w_count) {

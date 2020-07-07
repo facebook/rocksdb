@@ -39,7 +39,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
-      size_t alignment = file_->GetRequiredBufferAlignment();
+      size_t alignment = (*file_ptr_)->GetRequiredBufferAlignment();
       size_t aligned_offset =
           TruncateToPageBoundary(alignment, static_cast<size_t>(offset));
       size_t offset_advance = static_cast<size_t>(offset) - aligned_offset;
@@ -72,10 +72,11 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
-          // the opts.timeout before calling file_->Read
+          // the opts.timeout before calling (*file_ptr_)->Read
           assert(!opts.timeout.count() || allowed == read_size);
-          s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
-                          &tmp, buf.Destination(), nullptr);
+          s = (*file_ptr_)
+                  ->Read(aligned_offset + buf.CurrentSize(), allowed, opts,
+                         &tmp, buf.Destination(), nullptr);
         }
         if (ShouldNotifyListeners()) {
           auto finish_ts = std::chrono::system_clock::now();
@@ -132,10 +133,11 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
-          // the opts.timeout before calling file_->Read
+          // the opts.timeout before calling (*file_ptr_)->Read
           assert(!opts.timeout.count() || allowed == n);
-          s = file_->Read(offset + pos, allowed, opts, &tmp_result,
-                          scratch + pos, nullptr);
+          s = (*file_ptr_)
+                  ->Read(offset + pos, allowed, opts, &tmp_result,
+                         scratch + pos, nullptr);
         }
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
@@ -226,7 +228,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
       // this can reduce std::vecector's internal resize operations.
       aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
-      size_t alignment = file_->GetRequiredBufferAlignment();
+      size_t alignment = (*file_ptr_)->GetRequiredBufferAlignment();
       aligned_reqs.push_back(Align(read_reqs[0], alignment));
       for (size_t i = 1; i < num_reqs; i++) {
         const auto& r = Align(read_reqs[i], alignment);
@@ -264,7 +266,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
-      s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      s = (*file_ptr_)->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
 
 #ifndef ROCKSDB_LITE

@@ -76,9 +76,9 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   EnvOptions env_options;
   env_options.bytes_per_sync = kMb;
   std::unique_ptr<FakeWF> wf(new FakeWF);
-  std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                             "" /* don't care */, env_options));
+  std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(wf)), "" /* don't care */,
+      env_options, nullptr /* IOTracer */));
   Random r(301);
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
@@ -159,9 +159,9 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
                                           false,
 #endif
                                           no_flush));
-    std::unique_ptr<WritableFileWriter> writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                               "" /* don't care */, env_options));
+    std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(wf)), "" /* don't care */,
+        env_options, nullptr /* IOTracer */));
 
     std::string target;
     for (int i = 0; i < 20; i++) {
@@ -213,9 +213,9 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   };
   std::unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
-  std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                             "" /* don't care */, EnvOptions()));
+  std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(wf)), "" /* don't care */,
+      EnvOptions(), nullptr /* IOTracer */));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));
 
@@ -348,7 +348,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
     auto read_holder = std::unique_ptr<SequentialFile>(
         new test::SeqStringSource(str, &seq_read_count_));
     test_read_holder_.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(read_holder), "test", readahead_size_));
+        NewLegacySequentialFileWrapper(read_holder), "test", readahead_size_,
+        nullptr /* IOTracer */));
   }
   size_t GetReadaheadSize() const { return readahead_size_; }
 

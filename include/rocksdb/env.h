@@ -17,12 +17,14 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <cstdarg>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -58,6 +60,7 @@ class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
 class FileSystem;
+class FileSystemPtr;
 
 const size_t kDefaultPageSize = 4 * 1024;
 

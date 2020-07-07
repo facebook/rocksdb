@@ -99,8 +99,9 @@ Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
   }
 
   std::unique_ptr<RandomAccessFileReader> file_reader;
-  file_reader.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(trace_file), trace_filename));
+  file_reader.reset(
+      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(trace_file),
+                                 trace_filename, nullptr /* IOTracer */));
   trace_reader->reset(new FileTraceReader(std::move(file_reader)));
   return s;
 }
@@ -117,7 +118,7 @@ Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
   std::unique_ptr<WritableFileWriter> file_writer;
   file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(trace_file)), trace_filename,
-      env_options));
+      env_options, nullptr /* IOTrace */));
   trace_writer->reset(new FileTraceWriter(std::move(file_writer)));
   return s;
 }

@@ -463,11 +463,10 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   };
 
   std::unique_ptr<FSSequentialFile> file;
-  Status status = fs_->NewSequentialFile(fname,
-                                         fs_->OptimizeForLogRead(file_options_),
-                                         &file, nullptr);
+  Status status = (*fs_)->NewSequentialFile(
+      fname, (*fs_)->OptimizeForLogRead(file_options_), &file, nullptr);
   std::unique_ptr<SequentialFileReader> file_reader(
-      new SequentialFileReader(std::move(file), fname));
+      new SequentialFileReader(std::move(file), fname, db_options_.io_tracer));
 
   if (!status.ok()) {
     return status;

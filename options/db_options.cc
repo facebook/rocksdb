@@ -404,7 +404,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       env(options.env),
-      fs(options.env->GetFileSystem()),
+      fs(std::make_shared<FileSystemPtr>(options.env->GetFileSystem(),
+                                         options.io_tracer)),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
@@ -475,7 +476,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery),
       max_bgerror_resume_count(options.max_bgerror_resume_count),
-      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
+      io_tracer(options.io_tracer) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -488,7 +490,7 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
-                   fs->Name());
+                   (*fs)->Name());
   ROCKS_LOG_HEADER(log, "                               Options.info_log: %p",
                    info_log.get());
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
@@ -634,6 +636,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "           Options.bgerror_resume_retry_interval: %" PRIu64,
                    bgerror_resume_retry_interval);
+  ROCKS_LOG_HEADER(log, "                Options.io_tracer: %p",
+                   io_tracer.get());
 }
 
 MutableDBOptions::MutableDBOptions()

@@ -160,7 +160,7 @@ class CompactionJob {
   const FileOptions file_options_;
 
   Env* env_;
-  FileSystem* fs_;
+  FileSystemPtr* fs_;
   // env_option optimized for compaction table reads
   FileOptions file_options_for_read_;
   VersionSet* versions_;

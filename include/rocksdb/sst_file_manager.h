@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "env/file_system_tracer.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -122,7 +123,8 @@ extern SstFileManager* NewSstFileManager(
     const std::string& trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
     double max_trash_db_ratio = 0.25,
-    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024,
+    std::shared_ptr<IOTracer> io_tracer = nullptr);
 
 // Same as above, but takes a pointer to a legacy Env object, instead of
 // Env and FileSystem objects
@@ -131,6 +133,7 @@ extern SstFileManager* NewSstFileManager(
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
     double max_trash_db_ratio = 0.25,
-    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
+    uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024,
+    std::shared_ptr<IOTracer> io_tracer = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

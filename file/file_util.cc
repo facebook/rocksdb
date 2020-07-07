@@ -17,7 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
-IOStatus CopyFile(FileSystem* fs, const std::string& source,
+IOStatus CopyFile(const FileSystemPtr* fs, const std::string& source,
                   const std::string& destination, uint64_t size,
                   bool use_fsync) {
   const FileOptions soptions;
@@ -27,26 +27,27 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
 
   {
     std::unique_ptr<FSSequentialFile> srcfile;
-    io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
+    io_s = (*fs)->NewSequentialFile(source, soptions, &srcfile, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
     std::unique_ptr<FSWritableFile> destfile;
-    io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
+    io_s = (*fs)->NewWritableFile(destination, soptions, &destfile, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
 
     if (size == 0) {
       // default argument means copy everything
-      io_s = fs->GetFileSize(source, IOOptions(), &size, nullptr);
+      io_s = (*fs)->GetFileSize(source, IOOptions(), &size, nullptr);
       if (!io_s.ok()) {
         return io_s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
-    dest_writer.reset(
-        new WritableFileWriter(std::move(destfile), destination, soptions));
+    src_reader.reset(new SequentialFileReader(std::move(srcfile), source,
+                                              nullptr /* IOTracer */));
+    dest_writer.reset(new WritableFileWriter(std::move(destfile), destination,
+                                             soptions, nullptr /* IOTracer */));
   }
 
   char buffer[4096];
@@ -70,19 +71,19 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
 }
 
 // Utility function to create a file with the provided contents
-IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+IOStatus CreateFile(const FileSystemPtr* fs, const std::string& destination,
                     const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
   IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   std::unique_ptr<FSWritableFile> destfile;
-  io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
+  io_s = (*fs)->NewWritableFile(destination, soptions, &destfile, nullptr);
   if (!io_s.ok()) {
     return io_s;
   }
-  dest_writer.reset(
-      new WritableFileWriter(std::move(destfile), destination, soptions));
+  dest_writer.reset(new WritableFileWriter(std::move(destfile), destination,
+                                           soptions, nullptr /* IOTracer */));
   io_s = dest_writer->Append(Slice(contents));
   if (!io_s.ok()) {
     return io_s;
@@ -122,7 +123,8 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   return same;
 }
 
-IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
+IOStatus GenerateOneFileChecksum(const FileSystemPtr* fs,
+                                 const std::string& file_path,
                                  FileChecksumGenFactory* checksum_factory,
                                  std::string* file_checksum,
                                  std::string* file_checksum_func_name,
@@ -142,15 +144,17 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   std::unique_ptr<RandomAccessFileReader> reader;
   {
     std::unique_ptr<FSRandomAccessFile> r_file;
-    io_s = fs->NewRandomAccessFile(file_path, FileOptions(), &r_file, nullptr);
+    io_s =
+        (*fs)->NewRandomAccessFile(file_path, FileOptions(), &r_file, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
-    io_s = fs->GetFileSize(file_path, IOOptions(), &size, nullptr);
+    io_s = (*fs)->GetFileSize(file_path, IOOptions(), &size, nullptr);
     if (!io_s.ok()) {
       return io_s;
     }
-    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path));
+    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
+                                            nullptr /* IOTracer */));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on

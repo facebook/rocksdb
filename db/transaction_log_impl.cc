@@ -42,27 +42,28 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
 Status TransactionLogIteratorImpl::OpenLogFile(
     const LogFile* log_file,
     std::unique_ptr<SequentialFileReader>* file_reader) {
-  FileSystem* fs = options_->fs.get();
+  const FileSystemPtr* fs = options_->fs.get();
   std::unique_ptr<FSSequentialFile> file;
   std::string fname;
   Status s;
-  EnvOptions optimized_env_options = fs->OptimizeForLogRead(soptions_);
+  EnvOptions optimized_env_options = (*fs)->OptimizeForLogRead(soptions_);
   if (log_file->Type() == kArchivedLogFile) {
     fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-    s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
+    s = (*fs)->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
   } else {
     fname = LogFileName(dir_, log_file->LogNumber());
-    s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
+    s = (*fs)->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-      s = fs->NewSequentialFile(fname, optimized_env_options,
-                                &file, nullptr);
+      s = (*fs)->NewSequentialFile(fname, optimized_env_options, &file,
+                                   nullptr);
     }
   }
   if (s.ok()) {
-    file_reader->reset(new SequentialFileReader(std::move(file), fname));
+    file_reader->reset(
+        new SequentialFileReader(std::move(file), fname, options_->io_tracer));
   }
   return s;
 }

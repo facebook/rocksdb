@@ -53,8 +53,9 @@ void createSST(const Options& opts, const std::string& file_name) {
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       int_tbl_prop_collector_factories;
-  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(file)), file_name, EnvOptions()));
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                             file_name, EnvOptions(), nullptr /* IOTracer */));
   std::string column_family_name;
   int unknown_level = -1;
   tb.reset(opts.table_factory->NewTableBuilder(

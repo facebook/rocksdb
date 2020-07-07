@@ -124,7 +124,8 @@ class BlockBasedTableReaderTest
     FileOptions foptions;
     std::unique_ptr<FSWritableFile> file;
     ASSERT_OK(fs_->NewWritableFile(path, foptions, &file, nullptr));
-    writer->reset(new WritableFileWriter(std::move(file), path, env_options));
+    writer->reset(new WritableFileWriter(std::move(file), path, env_options,
+                                         nullptr /* IOTracer */));
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
@@ -132,7 +133,8 @@ class BlockBasedTableReaderTest
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             nullptr /* IOTracer */, env_));
   }
 
   std::string ToInternalKey(const std::string& key) {

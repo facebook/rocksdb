@@ -11,6 +11,7 @@
 #include <cinttypes>
 #include <unordered_map>
 
+#include "env/file_system_tracer.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -32,13 +33,15 @@ class OptionsUtilTest : public testing::Test {
  public:
   OptionsUtilTest() : rnd_(0xFB) {
     env_.reset(new test::StringEnv(Env::Default()));
-    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
+    std::shared_ptr<FileSystem> fs_wrap =
+        std::make_shared<LegacyFileSystemWrapper>(env_.get());
+    fs_.reset(new FileSystemPtr(fs_wrap));
     dbname_ = test::PerThreadDBPath("options_util_test");
   }
 
  protected:
   std::unique_ptr<test::StringEnv> env_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
+  std::unique_ptr<FileSystemPtr> fs_;
   std::string dbname_;
   Random rnd_;
 };

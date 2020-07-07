@@ -27,7 +27,7 @@ class Logger;
 // All SstFileManager public functions are thread-safe.
 class SstFileManagerImpl : public SstFileManager {
  public:
-  explicit SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
+  explicit SstFileManagerImpl(Env* env, std::shared_ptr<FileSystemPtr> fs,
                               std::shared_ptr<Logger> logger,
                               int64_t rate_bytes_per_sec,
                               double max_trash_db_ratio,
@@ -153,7 +153,7 @@ class SstFileManagerImpl : public SstFileManager {
   }
 
   Env* env_;
-  std::shared_ptr<FileSystem> fs_;
+  std::shared_ptr<FileSystemPtr> fs_;
   std::shared_ptr<Logger> logger_;
   // Mutex to protect tracked_files_, total_files_size_
   port::Mutex mu_;

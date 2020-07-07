@@ -1476,13 +1476,14 @@ Status BackupEngineImpl::CopyOrCreateFile(
     return s;
   }
 
-  std::unique_ptr<WritableFileWriter> dest_writer(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(dst_file)), dst, dst_env_options));
+  std::unique_ptr<WritableFileWriter> dest_writer(
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(dst_file)),
+                             dst, dst_env_options, nullptr /* IOTrace */));
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<char[]> buf;
   if (!src.empty()) {
     src_reader.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(src_file), src));
+        NewLegacySequentialFileWrapper(src_file), src, nullptr /* IOTracer */));
     buf.reset(new char[copy_file_buffer_size_]);
   }
 
@@ -1777,8 +1778,8 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
     return s;
   }
 
-  std::unique_ptr<SequentialFileReader> src_reader(
-      new SequentialFileReader(NewLegacySequentialFileWrapper(src_file), src));
+  std::unique_ptr<SequentialFileReader> src_reader(new SequentialFileReader(
+      NewLegacySequentialFileWrapper(src_file), src, nullptr));
   std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
 
@@ -2080,7 +2081,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   std::unique_ptr<SequentialFileReader> backup_meta_reader(
       new SequentialFileReader(NewLegacySequentialFileWrapper(backup_meta_file),
-                               meta_filename_));
+                               meta_filename_, nullptr));
   std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
   Slice data;
   s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());

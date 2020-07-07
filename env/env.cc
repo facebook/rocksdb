@@ -9,8 +9,11 @@
 
 #include "rocksdb/env.h"
 
+#include <memory>
 #include <thread>
+
 #include "env/composite_env_wrapper.h"
+#include "env/file_system_tracer.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
@@ -27,8 +30,7 @@ Env::Env() : thread_status_updater_(nullptr) {
 }
 
 Env::Env(std::shared_ptr<FileSystem> fs)
-  : thread_status_updater_(nullptr),
-    file_system_(fs) {}
+    : thread_status_updater_(nullptr), file_system_(fs) {}
 
 Env::~Env() {
 }
@@ -369,13 +371,17 @@ void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync) {
-  LegacyFileSystemWrapper lfsw(env);
-  return WriteStringToFile(&lfsw, data, fname, should_sync);
+  std::shared_ptr<FileSystem> fs_wrap =
+      std::make_shared<LegacyFileSystemWrapper>(env);
+  FileSystemPtr fs(fs_wrap);
+  return WriteStringToFile(&fs, data, fname, should_sync);
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
-  LegacyFileSystemWrapper lfsw(env);
-  return ReadFileToString(&lfsw, fname, data);
+  std::shared_ptr<FileSystem> fs_wrap =
+      std::make_shared<LegacyFileSystemWrapper>(env);
+  FileSystemPtr fs(fs_wrap);
+  return ReadFileToString(&fs, fname, data);
 }
 
 EnvWrapper::~EnvWrapper() {

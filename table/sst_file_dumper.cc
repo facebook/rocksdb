@@ -94,7 +94,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   }
 
   file_.reset(new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                         file_path));
+                                         file_path, options_.io_tracer));
 
   FilePrefetchBuffer prefetch_buffer(nullptr, 0, 0, true /* enable */,
                                      false /* track_min_offset */);
@@ -120,8 +120,9 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
       options_.env->NewRandomAccessFile(file_path, &file, soptions_);
-      file_.reset(new RandomAccessFileReader(
-          NewLegacyRandomAccessFileWrapper(file), file_path));
+      file_.reset(
+          new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
+                                     file_path, options_.io_tracer));
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read
@@ -191,7 +192,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
   std::unique_ptr<WritableFileWriter> dest_writer;
   dest_writer.reset(
       new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(out_file)),
-                             testFileName, soptions_));
+                             testFileName, soptions_, ioptions_.io_tracer));
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);

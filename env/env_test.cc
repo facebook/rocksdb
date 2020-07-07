@@ -2187,7 +2187,8 @@ TEST_F(EnvTest, IsDirectory) {
     ASSERT_OK(s);
     std::unique_ptr<WritableFileWriter> fwriter;
     fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
-                                         FileOptions(), Env::Default()));
+                                         FileOptions(), nullptr /* IOTracer */,
+                                         Env::Default()));
     constexpr char buf[] = "test";
     s = fwriter->Append(buf);
     ASSERT_OK(s);

@@ -43,6 +43,7 @@ class Slice;
 struct ImmutableDBOptions;
 struct MutableDBOptions;
 class RateLimiter;
+class FileSystemPtr;
 
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
@@ -1412,12 +1413,12 @@ class FSDirectoryWrapper : public FSDirectory {
 };
 
 // A utility routine: write "data" to the named file.
-extern IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
+extern IOStatus WriteStringToFile(const FileSystemPtr* fs, const Slice& data,
                                   const std::string& fname,
                                   bool should_sync = false);
 
 // A utility routine: read contents of named file into *data
-extern IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
-                                 std::string* data);
+extern IOStatus ReadFileToString(const FileSystemPtr* fs,
+                                 const std::string& fname, std::string* data);
 
 }  // namespace ROCKSDB_NAMESPACE

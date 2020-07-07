@@ -167,7 +167,7 @@ class ExternalSstFileIngestionJob {
   Status SyncIngestedFile(TWritableFile* file);
 
   Env* env_;
-  FileSystem* fs_;
+  FileSystemPtr* fs_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;

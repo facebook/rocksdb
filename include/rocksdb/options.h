@@ -50,6 +50,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+class IOTracer;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -1154,6 +1155,12 @@ struct DBOptions {
   //
   // Default: 1000000 (microseconds).
   uint64_t bgerror_resume_retry_interval = 1000000;
+
+  // IOTracer is to used trace the I/O operations in a trace_file (binary
+  // format) provided by user.
+  //
+  // Default: nullptr
+  std::shared_ptr<IOTracer> io_tracer = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

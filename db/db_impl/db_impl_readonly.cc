@@ -137,7 +137,8 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
   Status s;
   if (!db_options.create_if_missing) {
     // Attempt to read "CURRENT" file
-    const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
+    const std::shared_ptr<FileSystemPtr> fs =
+        std::make_shared<FileSystemPtr>(db_options.env->GetFileSystem());
     std::string manifest_path;
     uint64_t manifest_file_number;
     s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,

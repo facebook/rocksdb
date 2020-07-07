@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -52,7 +53,8 @@ class RandomAccessFileReader {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
-  std::unique_ptr<FSRandomAccessFile> file_;
+  std::unique_ptr<FSRandomAccessFilePtr> file_ptr_;
+  FSRandomAccessFile* file_;
   std::string file_name_;
   Env* env_;
   Statistics* stats_;
@@ -64,11 +66,12 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      Env* _env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
+      std::shared_ptr<IOTracer> _io_tracer, Env* _env = nullptr,
+      Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
-      : file_(std::move(raf)),
+      : file_(raf.get()),
         file_name_(std::move(_file_name)),
         env_(_env),
         stats_(stats),
@@ -76,6 +79,7 @@ class RandomAccessFileReader {
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
         listeners_() {
+    file_ptr_.reset(new FSRandomAccessFilePtr(std::move(raf), _io_tracer));
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
@@ -94,6 +98,7 @@ class RandomAccessFileReader {
 
   RandomAccessFileReader& operator=(RandomAccessFileReader&& o)
       ROCKSDB_NOEXCEPT {
+    file_ptr_ = std::move(o.file_ptr_);
     file_ = std::move(o.file_);
     env_ = std::move(o.env_);
     stats_ = std::move(o.stats_);
@@ -129,14 +134,14 @@ class RandomAccessFileReader {
                    AlignedBuf* aligned_buf) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
-    return file_->Prefetch(offset, n, IOOptions(), nullptr);
+    return (*file_ptr_)->Prefetch(offset, n, IOOptions(), nullptr);
   }
 
-  FSRandomAccessFile* file() { return file_.get(); }
+  FSRandomAccessFile* file() { return file_; }
 
   const std::string& file_name() const { return file_name_; }
 
-  bool use_direct_io() const { return file_->use_direct_io(); }
+  bool use_direct_io() const { return (*file_ptr_)->use_direct_io(); }
 
   Env* env() const { return env_; }
 };

@@ -48,8 +48,9 @@ Status SstFileReader::Open(const std::string& file_path) {
     s = r->options.env->NewRandomAccessFile(file_path, &file, r->soptions);
   }
   if (s.ok()) {
-    file_reader.reset(new RandomAccessFileReader(
-        NewLegacyRandomAccessFileWrapper(file), file_path));
+    file_reader.reset(
+        new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
+                                   file_path, r->options.io_tracer));
   }
   if (s.ok()) {
     TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor.get(),

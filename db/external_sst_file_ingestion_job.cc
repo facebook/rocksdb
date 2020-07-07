@@ -103,15 +103,15 @@ Status ExternalSstFileIngestionJob::Prepare(
         TableFileName(cfd_->ioptions()->cf_paths, f.fd.GetNumber(),
                       f.fd.GetPathId());
     if (ingestion_options_.move_files) {
-      status =
-          fs_->LinkFile(path_outside_db, path_inside_db, IOOptions(), nullptr);
+      status = (*fs_)->LinkFile(path_outside_db, path_inside_db, IOOptions(),
+                                nullptr);
       if (status.ok()) {
         // It is unsafe to assume application had sync the file and file
         // directory before ingest the file. For integrity of RocksDB we need
         // to sync the file.
         std::unique_ptr<FSWritableFile> file_to_sync;
-        status = fs_->ReopenWritableFile(path_inside_db, env_options_,
-                                         &file_to_sync, nullptr);
+        status = (*fs_)->ReopenWritableFile(path_inside_db, env_options_,
+                                            &file_to_sync, nullptr);
         if (status.ok()) {
           TEST_SYNC_POINT(
               "ExternalSstFileIngestionJob::BeforeSyncIngestedFile");
@@ -493,8 +493,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
-  Status status = fs_->GetFileSize(external_file, IOOptions(),
-                                   &file_to_ingest->file_size, nullptr);
+  Status status = (*fs_)->GetFileSize(external_file, IOOptions(),
+                                      &file_to_ingest->file_size, nullptr);
   if (!status.ok()) {
     return status;
   }
@@ -504,13 +504,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   std::unique_ptr<FSRandomAccessFile> sst_file;
   std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
-  status = fs_->NewRandomAccessFile(external_file, env_options_,
-                                    &sst_file, nullptr);
+  status = (*fs_)->NewRandomAccessFile(external_file, env_options_, &sst_file,
+                                       nullptr);
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, db_options_.io_tracer));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),
@@ -787,14 +787,16 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     // If the file system does not support random write, then we should not.
     // Otherwise we should.
     std::unique_ptr<FSRandomRWFile> rwfile;
-    Status status =
-        fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
-                             &rwfile, nullptr);
+    Status status = (*fs_)->NewRandomRWFile(file_to_ingest->internal_file_path,
+                                            env_options_, &rwfile, nullptr);
+    std::unique_ptr<FSRandomRWFilePtr> rwfile_ptr(
+        new FSRandomRWFilePtr(rwfile.get(), db_options_.io_tracer));
     if (status.ok()) {
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
-      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val,
-                             IOOptions(), nullptr);
+      status = (*rwfile_ptr)
+                   ->Write(file_to_ingest->global_seqno_offset, seqno_val,
+                           IOOptions(), nullptr);
       if (status.ok()) {
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
         status = SyncIngestedFile(rwfile.get());

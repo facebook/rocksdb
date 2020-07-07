@@ -299,8 +299,8 @@ class StackableDB : public DB {
 
   virtual Env* GetEnv() const override { return db_->GetEnv(); }
 
-  virtual FileSystem* GetFileSystem() const override {
-    return db_->GetFileSystem();
+  virtual FileSystemPtr* GetFileSystemPtr() const override {
+    return db_->GetFileSystemPtr();
   }
 
   using DB::GetOptions;

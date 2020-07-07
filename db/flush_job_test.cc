@@ -32,7 +32,6 @@ class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(test::PerThreadDBPath("flush_job_test")),
         options_(),
         db_options_(options_),
@@ -41,6 +40,10 @@ class FlushJobTest : public testing::Test {
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
+    std::shared_ptr<FileSystem> fs_wrap =
+        std::make_shared<LegacyFileSystemWrapper>(env_);
+    fs_ = std::make_shared<FileSystemPtr>(fs_wrap);
+
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
@@ -93,8 +96,9 @@ class FlushJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, EnvOptions()));
+    std::unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
+                               manifest, EnvOptions(), nullptr /* IOTracer */));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -114,7 +118,7 @@ class FlushJobTest : public testing::Test {
   }
 
   Env* env_;
-  std::shared_ptr<FileSystem> fs_;
+  std::shared_ptr<FileSystemPtr> fs_;
   std::string dbname_;
   EnvOptions env_options_;
   Options options_;

@@ -91,7 +91,7 @@ class WalManager {
   const ImmutableDBOptions& db_options_;
   const FileOptions file_options_;
   Env* env_;
-  FileSystem* fs_;
+  FileSystemPtr* fs_;
 
   // ------- WalManager state -------
   // cache for ReadFirstRecord() calls

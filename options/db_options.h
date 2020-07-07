@@ -23,7 +23,7 @@ struct ImmutableDBOptions {
   bool error_if_exists;
   bool paranoid_checks;
   Env* env;
-  std::shared_ptr<FileSystem> fs;
+  std::shared_ptr<FileSystemPtr> fs;
   std::shared_ptr<RateLimiter> rate_limiter;
   std::shared_ptr<SstFileManager> sst_file_manager;
   std::shared_ptr<Logger> info_log;
@@ -90,6 +90,7 @@ struct ImmutableDBOptions {
   bool best_efforts_recovery;
   int max_bgerror_resume_count;
   uint64_t bgerror_resume_retry_interval;
+  std::shared_ptr<IOTracer> io_tracer;
 };
 
 struct MutableDBOptions {
