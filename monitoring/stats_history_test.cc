@@ -46,8 +46,8 @@ public:
     SyncPoint::GetInstance()->SetCallBack(
         "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
           uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-          if (time_us < mock_env->RealNowMicros()) {
-            *reinterpret_cast<uint64_t*>(arg) = mock_env->RealNowMicros() + 1000;
+          if (time_us < this->RealNowMicros()) {
+            *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
           }
         });
 #endif  // OS_MACOSX && !NDEBUG
