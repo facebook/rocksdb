@@ -73,13 +73,13 @@ class BlobDBTest : public testing::Test {
   Status TryOpen(BlobDBOptions bdb_options = BlobDBOptions(),
                  Options options = Options()) {
     options.create_if_missing = true;
-    if (options.env == mock_env_) {
+    if (options.env == mock_env_.get()) {
       // Need to disable stats dumping and persisting which also use
       // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
       // With mock_env_, this can hang on some platforms.
       // TODO: why? investigate/fix
-      options->stats_dump_period_sec = 0;
-      options->stats_persist_period_sec = 0;
+      options.stats_dump_period_sec = 0;
+      options.stats_persist_period_sec = 0;
     }
     return BlobDB::Open(options, bdb_options, dbname_, &blob_db_);
   }
