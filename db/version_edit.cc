@@ -9,9 +9,6 @@
 
 #include "db/version_edit.h"
 
-#include <ostream>
-#include <sstream>
-
 #include "db/blob/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
@@ -134,18 +131,19 @@ Status DeletedWal::DecodeFrom(Slice* src) {
   if (!GetVarint32(src, &archived)) {
     return Status::Corruption(class_name, "Error decoding WAL archive status");
   }
-  archived_ = static_cast<bool>(archived);
+  archived_ = archived == 1;
   return Status::OK();
 }
 
 std::ostream& operator<<(std::ostream& os, const DeletedWal& wal) {
   os << "log_number: " << wal.GetLogNumber()
-     << " archived: " << wal.IsArchived();
+     << " is_archived: " << (wal.IsArchived() ? "true" : "false");
   return os;
 }
 
 JSONWriter& operator<<(JSONWriter& jw, const DeletedWal& wal) {
-  jw << "LogNumber" << wal.GetLogNumber() << "IsArchived" << wal.IsArchived();
+  jw << "LogNumber" << wal.GetLogNumber() << "IsArchived"
+     << (wal.IsArchived() ? "true" : "false");
   return jw;
 }
 
@@ -1023,9 +1021,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw << "ArchivedWals";
     jw.StartArray();
     for (const WalNumber log_number : archived_wals_) {
-      jw.StartArrayedObject();
       jw << log_number;
-      jw.EndArrayedObject();
     }
     jw.EndArray();
   }

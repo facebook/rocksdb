@@ -329,6 +329,89 @@ TEST_F(VersionEditTest, WAL) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, AddedWal) {
+  constexpr uint64_t kLogNumber = 10;
+  constexpr uint64_t kBytes = 100;
+
+  VersionEdit edit;
+  edit.AddWal(AddedWal(kLogNumber, kBytes));
+
+  auto wals = edit.GetNewWals();
+  ASSERT_EQ(wals.size(), 1);
+  AddedWal wal = wals[0];
+  ASSERT_EQ(wal.GetLogNumber(), kLogNumber);
+  ASSERT_EQ(wal.GetSizeInBytes(), kBytes);
+
+  ASSERT_EQ(edit.DebugString(true),
+            "VersionEdit {\n"
+            "  ColumnFamily: 0\n"
+            "  AddedWal: log_number: 10 size_in_bytes: 100\n"
+            "}\n");
+  ASSERT_EQ(edit.DebugJSON(4, true),
+            "{"
+            "\"EditNumber\": 4, "
+            "\"ColumnFamily\": 0, "
+            "\"AddedWals\": [{"
+            "\"LogNumber\": 10, "
+            "\"SizeInBytes\": 100"
+            "}]}");
+}
+
+TEST_F(VersionEditTest, DeletedWal) {
+  constexpr uint64_t kLogNumber = 10;
+  constexpr bool kArchived = true;
+
+  VersionEdit edit;
+  edit.DeleteWal(DeletedWal(kLogNumber, kArchived));
+
+  auto wals = edit.GetDeletedWals();
+  ASSERT_EQ(wals.size(), 1);
+  DeletedWal wal = wals[0];
+  ASSERT_EQ(wal.GetLogNumber(), kLogNumber);
+  ASSERT_EQ(wal.IsArchived(), kArchived);
+
+  ASSERT_EQ(edit.DebugString(true),
+            "VersionEdit {\n"
+            "  ColumnFamily: 0\n"
+            "  DeletedWal: log_number: 10 is_archived: true\n"
+            "}\n");
+  ASSERT_EQ(edit.DebugJSON(4, true),
+            "{"
+            "\"EditNumber\": 4, "
+            "\"ColumnFamily\": 0, "
+            "\"DeletedWals\": [{"
+            "\"LogNumber\": 10, "
+            "\"IsArchived\": \"true\""
+            "}]}");
+}
+
+TEST_F(VersionEditTest, ArchivedWal) {
+  constexpr uint64_t kLogNumber0 = 10;
+  constexpr uint64_t kLogNumber1 = 20;
+
+  VersionEdit edit;
+  edit.ArchiveWal(kLogNumber0);
+  edit.ArchiveWal(kLogNumber1);
+
+  auto log_numbers = edit.GetArchivedWals();
+  ASSERT_EQ(log_numbers.size(), 2);
+  ASSERT_EQ(log_numbers[0], kLogNumber0);
+  ASSERT_EQ(log_numbers[1], kLogNumber1);
+
+  ASSERT_EQ(edit.DebugString(true),
+            "VersionEdit {\n"
+            "  ColumnFamily: 0\n"
+            "  ArchivedWal: 10\n"
+            "  ArchivedWal: 20\n"
+            "}\n");
+  ASSERT_EQ(edit.DebugJSON(4, true),
+            "{"
+            "\"EditNumber\": 4, "
+            "\"ColumnFamily\": 0, "
+            "\"ArchivedWals\": [10, 20]"
+            "}");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
