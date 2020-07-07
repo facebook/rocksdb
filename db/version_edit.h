@@ -241,6 +241,57 @@ struct LevelFilesBrief {
   }
 };
 
+using WalNumber = uint64_t;
+
+// Information of a new WAL tracked by VersionEdit.
+class AddedWal {
+ public:
+  AddedWal() = default;
+
+  AddedWal(WalNumber number, uint64_t bytes) : number_(number), bytes_(bytes) {}
+
+  WalNumber GetLogNumber() const { return number_; }
+
+  uint64_t GetSizeInBytes() const { return bytes_; }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* src);
+
+  std::string DebugString() const;
+
+ private:
+  WalNumber number_;
+  uint64_t bytes_;
+};
+
+JSONWriter& operator<<(JSONWriter& jw, const AddedWal& wal);
+
+// Information of a deleted WAL.
+class DeletedWal {
+ public:
+  DeletedWal() = default;
+
+  DeletedWal(WalNumber number, bool archived)
+      : number_(number), archived_(archived) {}
+
+  WalNumber GetLogNumber() const { return number_; }
+
+  bool IsArchived() const { return archived_; }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* src);
+
+  std::string DebugString() const;
+
+ private:
+  WalNumber number_;
+  bool archived_;
+};
+
+JSONWriter& operator<<(JSONWriter& jw, const DeletedWal& wal);
+
 // The state of a DB at any given time is referred to as a Version.
 // Any modification to the Version is considered a Version Edit. A Version is
 // constructed by joining a sequence of Version Edits. Version Edits are written
@@ -413,6 +464,26 @@ class VersionEdit {
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
+  // Add a completed WAL.
+  void AddWal(const AddedWal& wal) { new_wals_.push_back(wal); }
+
+  // Get a list of non-archived WALs in the order of AddWal.
+  std::vector<AddedWal> GetNewWals() { return new_wals_; }
+
+  // Archive a WAL.
+  void ArchiveWal(WalNumber log_number) {
+    archived_wals_.push_back(log_number);
+  }
+
+  // Get the set of archived WALs.
+  std::vector<WalNumber> GetArchivedWals() { return archived_wals_; }
+
+  // Delete an archived or non-archived WAL with the specified log number.
+  void DeleteWal(const DeletedWal& wal) { deleted_wals_.push_back(wal); }
+
+  // Get the set of deleted WALs.
+  std::vector<DeletedWal> GetDeletedWals() { return deleted_wals_; }
+
   // return true on success.
   bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
@@ -469,6 +540,11 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+
+  // WAL related.
+  std::vector<AddedWal> new_wals_;
+  std::vector<WalNumber> archived_wals_;
+  std::vector<DeletedWal> deleted_wals_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -9,6 +9,9 @@
 
 #include "db/version_edit.h"
 
+#include <ostream>
+#include <sstream>
+
 #include "db/blob/blob_index.h"
 #include "db/version_set.h"
 #include "logging/event_logger.h"
@@ -55,6 +58,9 @@ enum Tag : uint32_t {
   kDbId,
   kBlobFileAddition,
   kBlobFileGarbage,
+  kNewWal,
+  kArchivedWal,
+  kDeletedWal,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -79,6 +85,75 @@ enum NewFileCustomTag : uint32_t {
 };
 
 }  // anonymous namespace
+
+void AddedWal::EncodeTo(std::string* dst) const {
+  PutVarint64(dst, number_);
+  PutVarint64(dst, bytes_);
+}
+
+Status AddedWal::DecodeFrom(Slice* src) {
+  constexpr char class_name[] = "AddedWal";
+  if (!GetVarint64(src, &number_)) {
+    return Status::Corruption(class_name, "Error decoding WAL log number");
+  }
+  if (!GetVarint64(src, &bytes_)) {
+    return Status::Corruption(class_name, "Error decoding WAL file size");
+  }
+  return Status::OK();
+}
+
+std::ostream& operator<<(std::ostream& os, const AddedWal& wal) {
+  os << "log_number: " << wal.GetLogNumber()
+     << " size_in_bytes: " << wal.GetSizeInBytes();
+  return os;
+}
+
+JSONWriter& operator<<(JSONWriter& jw, const AddedWal& wal) {
+  jw << "LogNumber" << wal.GetLogNumber() << "SizeInBytes"
+     << wal.GetSizeInBytes();
+  return jw;
+}
+
+std::string AddedWal::DebugString() const {
+  std::ostringstream oss;
+  oss << *this;
+  return oss.str();
+}
+
+void DeletedWal::EncodeTo(std::string* dst) const {
+  PutVarint64(dst, number_);
+  PutVarint32(dst, archived_ ? 1 : 0);
+}
+
+Status DeletedWal::DecodeFrom(Slice* src) {
+  constexpr char class_name[] = "DeletedWal";
+  if (!GetVarint64(src, &number_)) {
+    return Status::Corruption(class_name, "Error decoding WAL log number");
+  }
+  uint32_t archived = 0;
+  if (!GetVarint32(src, &archived)) {
+    return Status::Corruption(class_name, "Error decoding WAL archive status");
+  }
+  archived_ = static_cast<bool>(archived);
+  return Status::OK();
+}
+
+std::ostream& operator<<(std::ostream& os, const DeletedWal& wal) {
+  os << "log_number: " << wal.GetLogNumber()
+     << " archived: " << wal.IsArchived();
+  return os;
+}
+
+JSONWriter& operator<<(JSONWriter& jw, const DeletedWal& wal) {
+  jw << "LogNumber" << wal.GetLogNumber() << "IsArchived" << wal.IsArchived();
+  return jw;
+}
+
+std::string DeletedWal::DebugString() const {
+  std::ostringstream oss;
+  oss << *this;
+  return oss.str();
+}
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
@@ -156,6 +231,9 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
+  new_wals_.clear();
+  archived_wals_.clear();
+  deleted_wals_.clear();
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -302,6 +380,22 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kInAtomicGroup);
     PutVarint32(dst, remaining_entries_);
   }
+
+  for (const AddedWal& wal : new_wals_) {
+    PutVarint32(dst, kNewWal);
+    wal.EncodeTo(dst);
+  }
+
+  for (WalNumber log_number : archived_wals_) {
+    PutVarint32(dst, kArchivedWal);
+    PutVarint64(dst, log_number);
+  }
+
+  for (const DeletedWal& wal : deleted_wals_) {
+    PutVarint32(dst, kDeletedWal);
+    wal.EncodeTo(dst);
+  }
+
   return true;
 }
 
@@ -640,6 +734,35 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kNewWal:
+        AddedWal wal;
+        {
+          Status s = wal.DecodeFrom(&input);
+          if (!s.ok()) return s;
+        }
+        new_wals_.push_back(wal);
+        break;
+
+      case kArchivedWal:
+        WalNumber log_number;
+        if (GetVarint64(&input, &log_number)) {
+          archived_wals_.push_back(log_number);
+        } else {
+          if (!msg) {
+            msg = "archive wal";
+          }
+        }
+        break;
+
+      case kDeletedWal:
+        DeletedWal deleted_wal;
+        {
+          Status s = deleted_wal.DecodeFrom(&input);
+          if (!s.ok()) return s;
+        }
+        deleted_wals_.push_back(deleted_wal);
+        break;
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -762,6 +885,22 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, remaining_entries_);
     r.append(" entries remains");
   }
+
+  for (const AddedWal& wal : new_wals_) {
+    r.append("\n  AddedWal: ");
+    r.append(wal.DebugString());
+  }
+
+  for (const WalNumber log_number : archived_wals_) {
+    r.append("\n  ArchivedWal: ");
+    AppendNumberTo(&r, log_number);
+  }
+
+  for (const DeletedWal& wal : deleted_wals_) {
+    r.append("\n  DeletedWal: ");
+    r.append(wal.DebugString());
+  }
+
   r.append("\n}\n");
   return r;
 }
@@ -868,6 +1007,39 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (is_in_atomic_group_) {
     jw << "AtomicGroup" << remaining_entries_;
+  }
+
+  if (!new_wals_.empty()) {
+    jw << "AddedWals";
+    jw.StartArray();
+    for (const AddedWal& wal : new_wals_) {
+      jw.StartArrayedObject();
+      jw << wal;
+      jw.EndArrayedObject();
+    }
+    jw.EndArray();
+  }
+
+  if (!archived_wals_.empty()) {
+    jw << "ArchivedWals";
+    jw.StartArray();
+    for (const WalNumber log_number : archived_wals_) {
+      jw.StartArrayedObject();
+      jw << log_number;
+      jw.EndArrayedObject();
+    }
+    jw.EndArray();
+  }
+
+  if (!deleted_wals_.empty()) {
+    jw << "DeletedWals";
+    jw.StartArray();
+    for (const DeletedWal& wal : deleted_wals_) {
+      jw.StartArrayedObject();
+      jw << wal;
+      jw.EndArrayedObject();
+    }
+    jw.EndArray();
   }
 
   jw.EndObject();

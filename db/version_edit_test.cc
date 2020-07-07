@@ -309,6 +309,26 @@ TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, WAL) {
+  VersionEdit edit;
+
+  for (uint64_t log_number = 1; log_number <= 20; log_number++) {
+    switch (log_number % 3) {
+      case 0:
+        edit.AddWal(AddedWal(log_number, rand() % 100));
+        break;
+      case 1:
+        edit.ArchiveWal(log_number);
+        break;
+      case 2:
+        edit.DeleteWal(DeletedWal(log_number, rand() % 2 == 0));
+        break;
+    }
+  }
+
+  TestEncodeDecode(edit);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
