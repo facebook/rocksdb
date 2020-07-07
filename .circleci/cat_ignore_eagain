@@ -29,8 +29,9 @@ int main() {
                         perror("write failed");
                         return 42;
                     }
+                } else {
+                    m += p;
                 }
-                m += p;
             }
         } else if (n < 0) {
             if (errno == EAGAIN) {

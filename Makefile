@@ -583,7 +583,11 @@ ifdef ASSERT_STATUS_CHECKED
 		work_queue_test \
 		write_controller_test \
 
+	# Enable building all unit tests, but use check_some to run only tests
+	# known to pass ASC
 	SUBSET := $(TESTS_PASSING_ASC)
+	# Alternate: only build unit tests known to pass ASC, and run them
+	# with make check
 	#TESTS := $(filter $(TESTS_PASSING_ASC),$(TESTS))
 	#PARALLEL_TEST := $(filter $(TESTS_PASSING_ASC),$(PARALLEL_TEST))
 else
