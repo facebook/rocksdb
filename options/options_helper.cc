@@ -939,7 +939,7 @@ Status GetTableFactoryFromMap(
     }
     table_factory->reset(new BlockBasedTableFactory(bbt_opt));
     return s;
-  } else if (factory_name == "PlainTable") {
+  } else if (factory_name == PlainTableFactory::kName) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(config_options, PlainTableOptions(),
                                     opt_map, &pt_opt);
