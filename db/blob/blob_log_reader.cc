@@ -14,17 +14,17 @@
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
 
-Reader::Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
-               Statistics* statistics)
+BlobLogReader::BlobLogReader(
+    std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
+    Statistics* statistics)
     : file_(std::move(file_reader)),
       env_(env),
       statistics_(statistics),
       buffer_(),
       next_byte_(0) {}
 
-Status Reader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
+Status BlobLogReader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
   StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
   Status s = file_->Read(IOOptions(), next_byte_, static_cast<size_t>(size),
                          slice, buf, nullptr);
@@ -39,7 +39,7 @@ Status Reader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
   return s;
 }
 
-Status Reader::ReadHeader(BlobLogHeader* header) {
+Status BlobLogReader::ReadHeader(BlobLogHeader* header) {
   assert(file_.get() != nullptr);
   assert(next_byte_ == 0);
   Status s = ReadSlice(BlobLogHeader::kSize, &buffer_, header_buf_);
@@ -54,8 +54,8 @@ Status Reader::ReadHeader(BlobLogHeader* header) {
   return header->DecodeFrom(buffer_);
 }
 
-Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
-                          uint64_t* blob_offset) {
+Status BlobLogReader::ReadRecord(BlobLogRecord* record, ReadLevel level,
+                                 uint64_t* blob_offset) {
   Status s = ReadSlice(BlobLogRecord::kHeaderSize, &buffer_, header_buf_);
   if (!s.ok()) {
     return s;
@@ -101,6 +101,5 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
   return s;
 }
 
-}  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
