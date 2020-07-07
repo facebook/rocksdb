@@ -597,10 +597,12 @@ void rocksdb_backup_engine_restore_db_from_latest_backup(
 
 void rocksdb_backup_engine_restore_db_from_backup(
     rocksdb_backup_engine_t* be, const char* db_dir, const char* wal_dir,
-    const rocksdb_restore_options_t* restore_options, const uint32_t backup_id, char** errptr) {
-  SaveError(errptr, be->rep->RestoreDBFromLatestBackup(std::string(db_dir),
-                                                       std::string(wal_dir),
-                                                       restore_options->rep));
+    const rocksdb_restore_options_t* restore_options, const uint32_t backup_id,
+    char** errptr) {
+  SaveError(errptr, be->rep->RestoreDBFromBackup(backup_id, 
+                                                 std::string(db_dir),
+                                                 std::string(wal_dir),
+                                                 restore_options->rep));
 }
 
 const rocksdb_backup_engine_info_t* rocksdb_backup_engine_get_backup_info(
