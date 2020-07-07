@@ -34,6 +34,7 @@
 ### Performance Improvements
 * Eliminate key copies for internal comparisons while accessing ingested block-based tables.
 * Reduce key comparisons during random access in all block-based tables.
+* BackupEngine avoids unnecessary repeated checksum computation for backing up a table file to the `shared_checksum` directory if the DB session ID of the table file is available.
 
 ## 6.11 (6/12/2020)
 ### Bug Fixes

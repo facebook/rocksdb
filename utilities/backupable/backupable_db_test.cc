@@ -1251,27 +1251,57 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   CloseDBAndBackupEngine();
 }
 
-TEST_F(BackupableDBTest, TableFileCorruptedDuringBackup) {
+TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
-  std::vector<std::shared_ptr<FileChecksumGenFactory>> fac{
-      nullptr, GetFileChecksumGenCrc32cFactory()};
-  for (auto& f : fac) {
-    options_.file_checksum_gen_factory = f;
-    if (f == nullptr) {
-      // When share_files_with_checksum is on, we calculate checksums of table
-      // files before and after copying. So we can test whether a corruption has
-      // happened during the file is copied to backup directory.
-      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
-                            kShareWithChecksum);
-    } else {
-      // Default DB table file checksum is on, we calculate checksums of table
-      // files before copying to verify it with the one stored in DB manifest
-      // and also calculate checksum after copying. So we can test whether a
-      // corruption has happened during the file is copied to backup directory
-      // even if we do not place table files in shared_checksum directory.
-      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
-                            kNoShare);
-    }
+  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
+  // When share_files_with_checksum is on, we calculate checksums of table
+  // files before and after copying. So we can test whether a corruption has
+  // happened during the file is copied to backup directory.
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+
+  FillDB(db_.get(), 0, keys_iteration);
+  bool corrupted = false;
+  // corrupt files when copying to the backup directory
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+      [&](void* data) {
+        if (data != nullptr) {
+          Slice* d = reinterpret_cast<Slice*>(data);
+          if (!d->empty()) {
+            d->remove_suffix(1);
+            corrupted = true;
+          }
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = backup_engine_->CreateNewBackup(db_.get());
+  if (corrupted) {
+    ASSERT_NOK(s);
+  } else {
+    // should not in this path in normal cases
+    ASSERT_OK(s);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  CloseDBAndBackupEngine();
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+}
+
+TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
+  const int keys_iteration = 50000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  for (auto& sopt : kAllShareOptions) {
+    // Since the default DB table file checksum is on, we obtain checksums of
+    // table files from the DB manifest before copying and verify it with the
+    // one calculated during copying.
+    // Therefore, we can test whether a corruption has happened during the file
+    // being copied to backup directory.
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+
     FillDB(db_.get(), 0, keys_iteration);
     bool corrupted = false;
     // corrupt files when copying to the backup directory
@@ -1302,43 +1332,6 @@ TEST_F(BackupableDBTest, TableFileCorruptedDuringBackup) {
     // delete old files in db
     ASSERT_OK(DestroyDB(dbname_, options_));
   }
-}
-
-TEST_P(BackupableDBTestWithParam,
-       TableFileCorruptedDuringBackupWithDefaultDbChecksum) {
-  const int keys_iteration = 100000;
-
-  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-  OpenDBAndBackupEngine(true /* destroy_old_data */);
-  FillDB(db_.get(), 0, keys_iteration);
-  bool corrupted = false;
-  // corrupt files when copying to the backup directory
-  SyncPoint::GetInstance()->SetCallBack(
-      "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
-      [&](void* data) {
-        if (data != nullptr) {
-          Slice* d = reinterpret_cast<Slice*>(data);
-          if (!d->empty()) {
-            d->remove_suffix(1);
-            corrupted = true;
-          }
-        }
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
-  Status s = backup_engine_->CreateNewBackup(db_.get());
-  if (corrupted) {
-    ASSERT_NOK(s);
-  } else {
-    // should not in this path in normal cases
-    ASSERT_OK(s);
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  CloseDBAndBackupEngine();
-  // delete old files in db
-  ASSERT_OK(DestroyDB(dbname_, options_));
 }
 
 TEST_F(BackupableDBTest, InterruptCreationTest) {
@@ -2259,7 +2252,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
 
     // Verify backup engine always opened files with direct I/O
     ASSERT_EQ(0, test_db_env_->num_writers());
-    ASSERT_GT(test_db_env_->num_direct_rand_readers(), 0);
+    ASSERT_GE(test_db_env_->num_direct_rand_readers(), 0);
     ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
     // Currently the DB doesn't support reading WALs or manifest with direct
     // I/O, so subtract two.
