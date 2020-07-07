@@ -9,6 +9,7 @@
 #include "db/db_impl/db_impl.h"
 
 #include <cinttypes>
+#include <iostream>
 
 #include "db/builder.h"
 #include "db/error_handler.h"
@@ -253,7 +254,7 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   return Status::OK();
 }
 
-Status DBImpl::NewDB(std::string* new_manifest) {
+Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   VersionEdit new_db;
   Status s = SetIdentityFile(env_, dbname_);
   if (!s.ok()) {
@@ -293,8 +294,9 @@ Status DBImpl::NewDB(std::string* new_manifest) {
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(fs_.get(), dbname_, 1, directories_.GetDbDir());
-    if (new_manifest) {
-      *new_manifest = manifest;
+    if (new_filenames) {
+      new_filenames->emplace_back(
+          manifest.substr(manifest.find_last_of("/\\") + 1));
     }
   } else {
     fs_->DeleteFile(manifest, IOOptions(), nullptr);
@@ -359,8 +361,8 @@ Status DBImpl::Recover(
 
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
-  std::vector<std::string> dbname_children;
-  Status dbname_children_s;
+  std::vector<std::string> db_file_names;
+  Status files_status;
   if (!read_only) {
     Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
@@ -384,13 +386,9 @@ Status DBImpl::Recover(
       s = env_->FileExists(current_fname);
     } else {
       s = Status::NotFound();
-      std::vector<std::string> files;
+      files_status = env_->GetChildren(dbname_, &db_file_names);
 
-      // // No need to check return value
-      // env_->GetChildren(dbname_, &files);
-      dbname_children_s = env_->GetChildren(dbname_, &files);
-
-      for (const std::string& file : files) {
+      for (const std::string& file : db_file_names) {
         uint64_t number = 0;
         FileType type = kLogFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
@@ -404,12 +402,9 @@ Status DBImpl::Recover(
     }
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
-        std::string new_manifest;
-        s = NewDB(&new_manifest);
+        s = NewDB(&db_file_names);
         is_new_db = true;
-        dbname_children_s = s;
-        dbname_children.clear();
-        dbname_children.push_back(new_manifest);
+        files_status = s;
         if (!s.ok()) {
           return s;
         }
@@ -458,11 +453,10 @@ Status DBImpl::Recover(
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
     if (read_only) {  // TODO: get rid of this case?
-      dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
-      // TODO: pass dbname_children to TryRecover().
+      files_status = env_->GetChildren(dbname_, &db_file_names);
     }
     s = versions_->TryRecover(column_families, read_only, &db_id_,
-                              &missing_table_file);
+                              &missing_table_file, db_file_names, files_status);
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
@@ -552,9 +546,9 @@ Status DBImpl::Recover(
     std::vector<std::string>* files_in_wal_dir = &filenames;
     if (!immutable_db_options_.best_efforts_recovery) {
       if (immutable_db_options_.wal_dir == dbname_) {
-        dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
-        s = dbname_children_s;
-        files_in_wal_dir = &dbname_children;
+        files_status = env_->GetChildren(dbname_, &db_file_names);
+        s = files_status;
+        files_in_wal_dir = &db_file_names;
       } else {
         s = env_->GetChildren(immutable_db_options_.wal_dir, files_in_wal_dir);
       }
@@ -632,15 +626,15 @@ Status DBImpl::Recover(
     if (s.ok()) {
       if (dbname_ != immutable_db_options_.wal_dir) {
         // GetChildren() on dbname_ was NOT called above.
-        dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
+        files_status = env_->GetChildren(dbname_, &db_file_names);
       }
-      s = dbname_children_s;
+      s = files_status;
     }
     if (s.ok()) {
       uint64_t number = 0;
       uint64_t options_file_number = 0;
       FileType type;
-      for (const auto& fname : dbname_children) {
+      for (const auto& fname : db_file_names) {
         if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
           options_file_number = std::max(number, options_file_number);
         }
