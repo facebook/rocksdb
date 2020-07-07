@@ -852,8 +852,8 @@ class DBImpl : public DB {
   InstrumentedMutex* mutex() const { return &mutex_; }
 
   // Initialize a brand new DB. The DB directory is expected to be empty before
-  // calling it.
-  Status NewDB();
+  // calling it. Optionally return new manifest file name.
+  Status NewDB(std::string* new_manifest = nullptr);
 
   // This is to be used only by internal rocksdb classes.
   static Status Open(const DBOptions& db_options, const std::string& name,

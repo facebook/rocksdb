@@ -253,7 +253,7 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
   return Status::OK();
 }
 
-Status DBImpl::NewDB() {
+Status DBImpl::NewDB(std::string* new_manifest) {
   VersionEdit new_db;
   Status s = SetIdentityFile(env_, dbname_);
   if (!s.ok()) {
@@ -293,6 +293,9 @@ Status DBImpl::NewDB() {
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(fs_.get(), dbname_, 1, directories_.GetDbDir());
+    if (new_manifest) {
+      *new_manifest = manifest;
+    }
   } else {
     fs_->DeleteFile(manifest, IOOptions(), nullptr);
   }
@@ -358,9 +361,6 @@ Status DBImpl::Recover(
   assert(db_lock_ == nullptr);
   std::vector<std::string> dbname_children;
   Status dbname_children_s;
-  if (read_only || immutable_db_options_.best_efforts_recovery) {
-    dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
-  }
   if (!read_only) {
     Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
@@ -384,7 +384,13 @@ Status DBImpl::Recover(
       s = env_->FileExists(current_fname);
     } else {
       s = Status::NotFound();
-      for (const std::string& file : dbname_children) {
+      std::vector<std::string> files;
+
+      // // No need to check return value
+      // env_->GetChildren(dbname_, &files);
+      dbname_children_s = env_->GetChildren(dbname_, &files);
+
+      for (const std::string& file : files) {
         uint64_t number = 0;
         FileType type = kLogFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
@@ -398,8 +404,12 @@ Status DBImpl::Recover(
     }
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
-        s = NewDB();
+        std::string new_manifest;
+        s = NewDB(&new_manifest);
         is_new_db = true;
+        dbname_children_s = s;
+        dbname_children.clear();
+        dbname_children.push_back(new_manifest);
         if (!s.ok()) {
           return s;
         }
@@ -447,6 +457,10 @@ Status DBImpl::Recover(
   if (!immutable_db_options_.best_efforts_recovery) {
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
+    if (read_only) {  // TODO: get rid of this case?
+      dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
+      // TODO: pass dbname_children to TryRecover().
+    }
     s = versions_->TryRecover(column_families, read_only, &db_id_,
                               &missing_table_file);
     if (s.ok()) {
@@ -534,29 +548,35 @@ Status DBImpl::Recover(
     // Note that prev_log_number() is no longer used, but we pay
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
-    std::vector<std::string> files_in_wal_dir;
+    std::vector<std::string> filenames;
+    std::vector<std::string>* files_in_wal_dir = &filenames;
     if (!immutable_db_options_.best_efforts_recovery) {
-      s = env_->GetChildren(immutable_db_options_.wal_dir, &files_in_wal_dir);
+      if (immutable_db_options_.wal_dir == dbname_) {
+        dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
+        s = dbname_children_s;
+        files_in_wal_dir = &dbname_children;
+      } else {
+        s = env_->GetChildren(immutable_db_options_.wal_dir, files_in_wal_dir);
+      }
     }
-
     if (s.IsNotFound()) {
       return Status::InvalidArgument("wal_dir not found",
-                                      immutable_db_options_.wal_dir);
+                                     immutable_db_options_.wal_dir);
     } else if (!s.ok()) {
       return s;
     }
 
     std::vector<uint64_t> logs;
-    for (size_t i = 0; i < files_in_wal_dir.size(); i++) {
+    for (size_t i = 0; i < files_in_wal_dir->size(); i++) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(files_in_wal_dir[i], &number, &type) &&
+      if (ParseFileName(files_in_wal_dir->at(i), &number, &type) &&
           type == kLogFile) {
         if (is_new_db) {
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
-              files_in_wal_dir[i]);
+              files_in_wal_dir->at(i));
         } else {
           logs.push_back(number);
         }
@@ -597,7 +617,7 @@ Status DBImpl::Recover(
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                  kMaxSequenceNumber);
+                                 kMaxSequenceNumber);
         }
       }
     }
@@ -608,7 +628,12 @@ Status DBImpl::Recover(
     // to reflect the most recent OPTIONS file. It does not matter for regular
     // read-write db instance because options_file_number_ will later be
     // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
+    std::vector<std::string> file_names;
     if (s.ok()) {
+      if (dbname_ != immutable_db_options_.wal_dir) {
+        // GetChildren() on dbname_ was NOT called above.
+        dbname_children_s = env_->GetChildren(dbname_, &dbname_children);
+      }
       s = dbname_children_s;
     }
     if (s.ok()) {
@@ -623,7 +648,6 @@ Status DBImpl::Recover(
       versions_->options_file_number_ = options_file_number;
     }
   }
-
   return s;
 }
 
