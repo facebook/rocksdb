@@ -1066,6 +1066,13 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   TestFileOperationListener* listener = new TestFileOperationListener();
   options.listeners.emplace_back(listener);
 
+  options.use_direct_io_for_flush_and_compaction = true;
+  Status s = TryReopen(options);
+  if (s.IsInvalidArgument()) {
+    options.use_direct_io_for_flush_and_compaction = false;
+  } else {
+    ASSERT_OK(s);
+  }
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "aaa"));
   dbfull()->Flush(FlushOptions());
