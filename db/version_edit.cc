@@ -734,16 +734,15 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kNewWal:
+      case kNewWal: {
         AddedWal wal;
-        {
-          Status s = wal.DecodeFrom(&input);
-          if (!s.ok()) return s;
-        }
+        Status s = wal.DecodeFrom(&input);
+        if (!s.ok()) return s;
         new_wals_.push_back(wal);
         break;
+      }
 
-      case kArchivedWal:
+      case kArchivedWal: {
         WalNumber log_number;
         if (GetVarint64(&input, &log_number)) {
           archived_wals_.push_back(log_number);
@@ -753,15 +752,15 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
+      }
 
-      case kDeletedWal:
-        DeletedWal deleted_wal;
-        {
-          Status s = deleted_wal.DecodeFrom(&input);
-          if (!s.ok()) return s;
-        }
-        deleted_wals_.push_back(deleted_wal);
+      case kDeletedWal: {
+        DeletedWal wal;
+        Status s = wal.DecodeFrom(&input);
+        if (!s.ok()) return s;
+        deleted_wals_.push_back(wal);
         break;
+      }
 
       default:
         if (tag & kTagSafeIgnoreMask) {
