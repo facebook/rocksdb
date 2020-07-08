@@ -614,14 +614,16 @@ Status DBImpl::Recover(
     // read-write db instance because options_file_number_ will later be
     // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
     std::vector<std::string>* filenames;
-    if (s.ok() && dbname_ != immutable_db_options_.wal_dir) {
-      // GetChildren() on dbname_ was NOT called above.
-      s = env_->GetChildren(dbname_, &files_in_dbname);
-      filenames = &files_in_dbname;
-    } else {
-      s = Status::OK();
-      filenames = &files_in_wal_dir;
-    }
+    if (s.ok()) {
+      if (dbname_ != immutable_db_options_.wal_dir){
+        // GetChildren() on dbname_ was NOT called above.
+        s = env_->GetChildren(dbname_, &files_in_dbname);
+        filenames = &files_in_dbname;
+      } else {
+        s = Status::OK();
+        filenames = &files_in_wal_dir;
+      }
+    } 
     if (s.ok()) {
       uint64_t number = 0;
       uint64_t options_file_number = 0;
