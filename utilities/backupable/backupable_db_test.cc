@@ -721,11 +721,8 @@ class BackupableDBTest : public testing::Test {
     if (!s.ok()) {
       return s;
     }
-    for (uint64_t i = 0; i < fsize; ++i) {
-      std::string tmp;
-      test::RandomString(&rnd, 1, &tmp);
-      file_contents[rnd.Next() % file_contents.size()] = tmp[0];
-    }
+
+    file_contents[0] = (file_contents[0] + 257) % 256;
     return WriteStringToFile(test_db_env_.get(), file_contents, fname);
   }
 
@@ -2263,13 +2260,14 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
 
     // Verify backup engine always opened files with direct I/O
     ASSERT_EQ(0, test_db_env_->num_writers());
-    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_GT(test_db_env_->num_direct_rand_readers(), 0);
     ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
     // Currently the DB doesn't support reading WALs or manifest with direct
     // I/O, so subtract two.
     ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
               test_db_env_->num_direct_seq_readers());
-    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_EQ(test_db_env_->num_rand_readers(),
+              test_db_env_->num_direct_rand_readers());
   }
   CloseDBAndBackupEngine();
 
