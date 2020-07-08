@@ -1186,12 +1186,16 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine(false, false, kNoShare);
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // file_checksum_gen_factory is null, and thus table checksum is not
   // verified for creating a new backup; no correction is detected
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
+
   // delete old files in db
   ASSERT_OK(DestroyDB(dbname_, options_));
 
@@ -1201,12 +1205,14 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine(false, false, kNoShare);
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // table file checksum is enabled so we should be able to detect any
   // corruption
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
-
   CloseDBAndBackupEngine();
 }
 
@@ -1219,11 +1225,15 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine(false);
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // cannot detect corruption since DB manifest has no table checksums
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
+
   // delete old files in db
   ASSERT_OK(DestroyDB(dbname_, options_));
 
@@ -1232,11 +1242,13 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine(false);
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // corruption is detected
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
-
   CloseDBAndBackupEngine();
 }
 
