@@ -8,7 +8,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #ifndef NDEBUG
 #include "test_util/fault_injection_test_fs.h"
-#endif // NDEBUG
+#endif  // NDEBUG
 #include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -21,7 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 // implemented by scanning the DB to recover the counter.
 class ReadAfterWriteStressTest : public StressTest {
  public:
-  ReadAfterWriteStressTest() : updated_key_(kNumKeys), pre_update_key_(kNumKeys) {}
+  ReadAfterWriteStressTest()
+      : updated_key_(kNumKeys), pre_update_key_(kNumKeys) {}
 
   virtual ~ReadAfterWriteStressTest() {}
 
@@ -125,7 +126,8 @@ class ReadAfterWriteStressTest : public StressTest {
       my_read_opts.auto_prefix_mode = true;
     }
 
-    std::string key_str = ConvertToKey(static_cast<int64_t>(thread->rand.Uniform(kNumKeys)));
+    std::string key_str =
+        ConvertToKey(static_cast<int64_t>(thread->rand.Uniform(kNumKeys)));
     uint32_t scan_cnt = thread->rand.Skewed(10);
     const Snapshot* snapshot = nullptr;
     uint64_t key_cnt_low_bound = updated_key_.load();
@@ -196,8 +198,8 @@ class ReadAfterWriteStressTest : public StressTest {
   // This is to make key updating randomly across the key space while
   // still keeping the order deterministic.
   static constexpr uint64_t kMul1 = 881;
-  static constexpr uint64_t kMul2 = 661;
-  static constexpr uint64_t kNumKeys = 582340;
+  static constexpr uint64_t kMul2 = 8887;
+  static constexpr uint64_t kNumKeys = kMul1 * kMul2 - 1;
 
   // Deterministially skip some key counts. This is to make sure in read
   // path some keys need to go deeper levels to be found.
