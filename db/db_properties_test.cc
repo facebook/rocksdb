@@ -1449,7 +1449,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
                                        &oldest_key_time));
   ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  env_->MockSleepForSeconds(100); // -> 200
+  env_->MockSleepForSeconds(100);  // -> 200
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Flush());
   ASSERT_EQ("2", FilesPerLevel());
@@ -1457,7 +1457,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
                                        &oldest_key_time));
   ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  env_->MockSleepForSeconds(100); // -> 300
+  env_->MockSleepForSeconds(100);  // -> 300
   ASSERT_OK(Put("k3", "v3"));
   ASSERT_OK(Flush());
   ASSERT_EQ("3", FilesPerLevel());
@@ -1465,21 +1465,21 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
                                        &oldest_key_time));
   ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  env_->MockSleepForSeconds(150); // -> 450
+  env_->MockSleepForSeconds(150);  // -> 450
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
   ASSERT_EQ(200, oldest_key_time - mock_start_time);
 
-  env_->MockSleepForSeconds(100); // -> 550
+  env_->MockSleepForSeconds(100);  // -> 550
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
   ASSERT_EQ(300, oldest_key_time - mock_start_time);
 
-  env_->MockSleepForSeconds(100); // -> 650
+  env_->MockSleepForSeconds(100);  // -> 650
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel());
   ASSERT_FALSE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,

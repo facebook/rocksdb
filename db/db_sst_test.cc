@@ -1030,8 +1030,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // it. Should remove the workaround after we propagate the property on
   // compaction.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "FlushJob::WriteLevel0Table:oldest_ancester_time",
-      [&](void* arg) {
+      "FlushJob::WriteLevel0Table:oldest_ancester_time", [&](void* arg) {
         uint64_t* current_time = static_cast<uint64_t*>(arg);
         *current_time = 0;
       });

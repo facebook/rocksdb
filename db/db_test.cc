@@ -6058,8 +6058,8 @@ TEST_F(DBTest, DelayedWriteRate) {
                                      kIncSlowdownRatio * kIncSlowdownRatio);
   }
   // Estimate the total sleep time fall into the rough range.
-  ASSERT_GT(env_->NowMicros(), static_cast<int64_t>(estimated_sleep_time / 2));
-  ASSERT_LT(env_->NowMicros(), static_cast<int64_t>(estimated_sleep_time * 2));
+  ASSERT_GT(env_->NowMicros(), estimated_sleep_time / 2);
+  ASSERT_LT(env_->NowMicros(), estimated_sleep_time * 2);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();

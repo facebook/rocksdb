@@ -620,8 +620,9 @@ void DBTestBase::SetTimeElapseOnlySleepOnReopen(DBOptions* options) {
 
 void DBTestBase::MaybeInstallTimeElapseOnlySleep(const DBOptions& options) {
   if (time_elapse_only_sleep_on_reopen_) {
-    assert (options.env == env_ ||
-            static_cast_with_check<CompositeEnvWrapper>(options.env)->env_target() == env_);
+    assert(options.env == env_ ||
+           static_cast_with_check<CompositeEnvWrapper>(options.env)
+                   ->env_target() == env_);
     assert(options.stats_dump_period_sec == 0);
     assert(options.stats_persist_period_sec == 0);
     // We cannot set these before destroying the last DB because they might

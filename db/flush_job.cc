@@ -377,8 +377,9 @@ Status FlushJob::WriteLevel0Table() {
       // it is not available, use current_time.
       uint64_t oldest_ancester_time = std::min(current_time, oldest_key_time);
 
-      TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:oldest_ancester_time",
-                               &oldest_ancester_time);
+      TEST_SYNC_POINT_CALLBACK(
+          "FlushJob::WriteLevel0Table:oldest_ancester_time",
+          &oldest_ancester_time);
       meta_.oldest_ancester_time = oldest_ancester_time;
 
       meta_.file_creation_time = current_time;

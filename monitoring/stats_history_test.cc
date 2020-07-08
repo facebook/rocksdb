@@ -32,7 +32,7 @@ class StatsHistoryTest : public DBTestBase {
 };
 
 class SafeMockTimeEnv : public MockTimeEnv {
-public:
+ public:
   explicit SafeMockTimeEnv(Env* base) : MockTimeEnv(base) {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -65,8 +65,8 @@ TEST_F(StatsHistoryTest, RunStatsDumpPeriodSec) {
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
   int counter = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DumpStats:1", [&](void* /*arg*/) { counter++; });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::DumpStats:1",
+                                        [&](void* /*arg*/) { counter++; });
   Reopen(options);
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   dbfull()->TEST_WaitForDumpStatsRun([&] { mock_env->set_current_time(5); });
@@ -91,8 +91,8 @@ TEST_F(StatsHistoryTest, StatsPersistScheduling) {
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
   int counter = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::PersistStats:Entry",
+                                        [&](void* /*arg*/) { counter++; });
   Reopen(options);
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
   dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
@@ -114,8 +114,8 @@ TEST_F(StatsHistoryTest, PersistentStatsFreshInstall) {
   mock_env->set_current_time(0);  // in seconds
   options.env = mock_env.get();
   int counter = 0;
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PersistStats:Entry", [&](void* /*arg*/) { counter++; });
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::PersistStats:Entry",
+                                        [&](void* /*arg*/) { counter++; });
   Reopen(options);
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
