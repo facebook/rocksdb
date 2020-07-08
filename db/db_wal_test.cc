@@ -18,7 +18,7 @@
 namespace ROCKSDB_NAMESPACE {
 class DBWALTestBase : public DBTestBase {
  protected:
-  DBWALTestBase(const std::string& dir_name) : DBTestBase(dir_name) {}
+  explicit DBWALTestBase(const std::string& dir_name) : DBTestBase(dir_name) {}
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
@@ -1455,7 +1455,7 @@ TEST_P(DBWALTestWithParams, RecoverFromCorruptedWALWithoutFlush) {
   // Create corrupted WAL
   RecoveryTestHelper::FillData(this, &options);
   RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
-                                 /*len%=*/.1, /*wal=*/wal_file_id, trunc);
+                                 /*len%=*/.1, wal_file_id, trunc);
   // Skip the test if DB won't open.
   if (!TryReopen(options).ok()) {
     ASSERT_TRUE(options.wal_recovery_mode ==
