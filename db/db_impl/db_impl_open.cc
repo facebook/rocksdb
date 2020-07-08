@@ -613,14 +613,13 @@ Status DBImpl::Recover(
     // to reflect the most recent OPTIONS file. It does not matter for regular
     // read-write db instance because options_file_number_ will later be
     // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
-    std::vector<std::string>* filenames;
+    std::vector<std::string>* filenames = nullptr;
     if (s.ok()) {
       if (dbname_ != immutable_db_options_.wal_dir){
         // GetChildren() on dbname_ was NOT called above.
         s = env_->GetChildren(dbname_, &files_in_dbname);
         filenames = &files_in_dbname;
       } else {
-        s = Status::OK();
         filenames = &files_in_wal_dir;
       }
     } 
@@ -628,6 +627,7 @@ Status DBImpl::Recover(
       uint64_t number = 0;
       uint64_t options_file_number = 0;
       FileType type;
+      assert(filenames);
       for (const auto& fname : *filenames) {
         if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
           options_file_number = std::max(number, options_file_number);
