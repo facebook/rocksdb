@@ -479,7 +479,7 @@ Status DestroyDir(Env* env, const std::string& dir) {
         // IsDirectory, etc. might not report NotFound
         if (s.IsNotFound() || env->FileExists(path).IsNotFound()) {
           // Allow files to be deleted externally
-          s = Status();
+          s = Status::OK();
         } else {
           break;
         }
@@ -492,7 +492,7 @@ Status DestroyDir(Env* env, const std::string& dir) {
     // DeleteDir might or might not report NotFound
     if (!s.ok() && (s.IsNotFound() || env->FileExists(dir).IsNotFound())) {
       // Allow to be deleted externally
-      s = Status();
+      s = Status::OK();
     }
   }
   return s;
