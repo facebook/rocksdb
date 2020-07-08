@@ -622,7 +622,7 @@ Status DBImpl::Recover(
       } else {
         filenames = &files_in_wal_dir;
       }
-    } 
+    }
     if (s.ok()) {
       uint64_t number = 0;
       uint64_t options_file_number = 0;
