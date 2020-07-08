@@ -71,7 +71,9 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, const FileDescriptor& fd,
     uint64_t oldest_blob_file_number, const TableProperties& table_properties,
-    TableFileCreationReason reason, const Status& s) {
+    TableFileCreationReason reason, const Status& s,
+    const std::string& file_checksum,
+    const std::string& file_checksum_func_name) {
   if (s.ok() && event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
