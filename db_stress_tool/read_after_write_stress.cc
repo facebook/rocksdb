@@ -2,10 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifdef GFLAGS
 #include "db/arena_wrapped_db_iter.h"
@@ -25,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 // implemented by scanning the DB to recover the counter.
 class ReadAfterWriteStressTest : public StressTest {
  public:
-  ReadAfterWriteStressTest() : update_key_(kNumKeys) {}
+  ReadAfterWriteStressTest() : updated_key_(kNumKeys), pre_update_key_(kNumKeys) {}
 
   virtual ~ReadAfterWriteStressTest() {}
 
@@ -44,17 +40,17 @@ class ReadAfterWriteStressTest : public StressTest {
         ConvertToKey(static_cast<int64_t>(thread->rand.Uniform(kNumKeys)));
     PinnableSlice value;
     const Snapshot* snapshot = nullptr;
-    uint64_t key_cnt_low_bound = update_key_.load();
+    uint64_t key_cnt_low_bound = updated_key_.load();
     uint64_t key_cnt_upper_bound;
     ReadOptions my_read_opts = ro;
     if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
       snapshot = db_->GetSnapshot();
       my_read_opts.snapshot = snapshot;
-      key_cnt_upper_bound = update_key_.load(std::memory_order_acquire);
+      key_cnt_upper_bound = pre_update_key_.load(std::memory_order_acquire);
     }
     Status s = db_->Get(my_read_opts, cfh, key_str, &value);
     if (snapshot == nullptr) {
-      key_cnt_upper_bound = update_key_.load(std::memory_order_acquire);
+      key_cnt_upper_bound = pre_update_key_.load(std::memory_order_acquire);
     }
 
     if (key_cnt_low_bound > kNumKeys) {
@@ -132,16 +128,16 @@ class ReadAfterWriteStressTest : public StressTest {
     std::string key_str = ConvertToKey(static_cast<int64_t>(thread->rand.Uniform(kNumKeys)));
     uint32_t scan_cnt = thread->rand.Skewed(10);
     const Snapshot* snapshot = nullptr;
-    uint64_t key_cnt_low_bound = update_key_.load();
+    uint64_t key_cnt_low_bound = updated_key_.load();
     uint64_t key_cnt_upper_bound;
     if (thread->rand.OneInOpt(FLAGS_acquire_snapshot_one_in)) {
       snapshot = db_->GetSnapshot();
       my_read_opts.snapshot = snapshot;
-      key_cnt_upper_bound = update_key_.load(std::memory_order_acquire);
+      key_cnt_upper_bound = pre_update_key_.load(std::memory_order_acquire);
     }
     Iterator* iter = db_->NewIterator(my_read_opts, cfh);
     if (snapshot == nullptr) {
-      key_cnt_upper_bound = update_key_.load(std::memory_order_acquire);
+      key_cnt_upper_bound = pre_update_key_.load(std::memory_order_acquire);
     }
 
     if (key_cnt_low_bound > kNumKeys) {
@@ -263,7 +259,7 @@ class ReadAfterWriteStressTest : public StressTest {
     std::lock_guard<std::mutex> lock(write_lock_);
     ColumnFamilyHandle* cfh = column_families_[0];
     uint32_t num_entries = thread->rand.Skewed(8);
-    uint64_t my_key_cnt = update_key_.load(std::memory_order_relaxed);
+    uint64_t my_key_cnt = updated_key_.load(std::memory_order_relaxed);
     WriteBatch batch;
     for (uint32_t i = 0; i < num_entries;) {
       if (ShouldInsertCount(my_key_cnt)) {
@@ -276,8 +272,9 @@ class ReadAfterWriteStressTest : public StressTest {
       i++;
     }
 
+    pre_update_key_.store(my_key_cnt, std::memory_order_release);
     Status s = db_->Write(write_opts, &batch);
-    update_key_.store(my_key_cnt, std::memory_order_release);
+    updated_key_.store(my_key_cnt, std::memory_order_release);
     if (!s.ok()) {
       fprintf(stderr, "write error: %s\n", s.ToString().c_str());
       std::terminate();
@@ -316,7 +313,8 @@ class ReadAfterWriteStressTest : public StressTest {
                               std::unique_ptr<MutexLock>&) override {}
 #endif  // ROCKSDB_LITE
  private:
-  std::atomic<int64_t> update_key_;
+  std::atomic<int64_t> updated_key_;
+  std::atomic<int64_t> pre_update_key_;
   std::mutex write_lock_;  // make write sequential.
 };
 
