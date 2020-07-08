@@ -24,9 +24,9 @@ namespace ROCKSDB_NAMESPACE {
 BlobFileBuilder::~BlobFileBuilder() = default;
 
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
-                            std::string* new_value) {
-  assert(new_value);
-  assert(new_value->empty());
+                            std::string* blob_index) {
+  assert(blob_index);
+  assert(blob_index->empty());
 
   constexpr size_t min_blob_size = 128;  // TODO: config option
 
@@ -61,7 +61,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  BlobIndex::EncodeBlob(new_value, blob_file_number, blob_offset,
+  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset,
                         /* FIXME */ value.size(), /* FIXME */ kNoCompression);
 
   return Status::OK();

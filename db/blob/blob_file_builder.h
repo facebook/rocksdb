@@ -48,7 +48,7 @@ class BlobFileBuilder {
 
   ~BlobFileBuilder();
 
-  Status Add(const Slice& key, const Slice& value, std::string* new_value);
+  Status Add(const Slice& key, const Slice& value, std::string* blob_index);
   Status Finish();
 
  private:
