@@ -4745,31 +4745,29 @@ class ManifestPicker {
   // MANIFEST file names(s)
   std::vector<std::string> manifest_files_;
   std::vector<std::string>::const_iterator manifest_file_iter_;
-  std::vector<std::string>& files_in_dbname_;
   Status status_;
+
+  void PopulateManifestFiles(std::vector<std::string>& all_files);
 };
 
 ManifestPicker::ManifestPicker(const std::string& dbname,
                                std::vector<std::string>& files_in_dbname,
                                FileSystem* fs)
-    : dbname_(dbname), fs_(fs), files_in_dbname_(files_in_dbname) {}
+    : dbname_(dbname), fs_(fs) {
+  PopulateManifestFiles(files_in_dbname);
+}
 
 void ManifestPicker::SeekToFirstManifest() {
-  if (files_in_dbname_.empty()) {
-    status_ = fs_->GetChildren(dbname_, IOOptions(), &files_in_dbname_,
+  std::vector<std::string> files_in_dbname;
+  if (manifest_files_.empty()) {
+    status_ = fs_->GetChildren(dbname_, IOOptions(), &files_in_dbname,
                                /*dbg=*/nullptr);
   }
   if (!status_.ok()) {
     return;
   }
-  for (const auto& fname : files_in_dbname_) {
-    uint64_t file_num = 0;
-    FileType file_type;
-    bool parse_ok = ParseFileName(fname, &file_num, &file_type);
-    if (parse_ok && file_type == kDescriptorFile) {
-      manifest_files_.push_back(fname);
-    }
-  }
+  PopulateManifestFiles(files_in_dbname);
+
   std::sort(manifest_files_.begin(), manifest_files_.end(),
             [](const std::string& lhs, const std::string& rhs) {
               uint64_t num1 = 0;
@@ -4817,6 +4815,17 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
     ++manifest_file_iter_;
   }
   return ret;
+}
+
+void ManifestPicker::PopulateManifestFiles(std::vector<std::string>& all_files) {
+  for (const auto& fname : all_files) {
+    uint64_t file_num = 0;
+    FileType file_type;
+    bool parse_ok = ParseFileName(fname, &file_num, &file_type);
+    if (parse_ok && file_type == kDescriptorFile) {
+      manifest_files_.push_back(fname);
+    }
+  }
 }
 }  // namespace
 
