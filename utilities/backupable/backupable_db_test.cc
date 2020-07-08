@@ -594,6 +594,17 @@ class BackupableDBTest : public testing::Test {
     return db;
   }
 
+  void CloseAndReopenDB() {
+    // Close DB
+    db_.reset();
+
+    // Open DB
+    test_db_env_->SetLimitWrittenFiles(1000000);
+    DB* db;
+    ASSERT_OK(DB::Open(options_, dbname_, &db));
+    db_.reset(db);
+  }
+
   void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
                              ShareOption shared_option = kShareNoChecksum) {
     // reset all the defaults
@@ -1186,9 +1197,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
-  CloseDBAndBackupEngine();
-
-  OpenDBAndBackupEngine(false, false, kNoShare);
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // file_checksum_gen_factory is null, and thus table checksum is not
@@ -1205,9 +1214,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
-  CloseDBAndBackupEngine();
-
-  OpenDBAndBackupEngine(false, false, kNoShare);
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // table file checksum is enabled so we should be able to detect any
@@ -1225,9 +1232,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
-  CloseDBAndBackupEngine();
-
-  OpenDBAndBackupEngine(false);
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // cannot detect corruption since DB manifest has no table checksums
@@ -1242,9 +1247,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
-  CloseDBAndBackupEngine();
-
-  OpenDBAndBackupEngine(false);
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // corruption is detected
