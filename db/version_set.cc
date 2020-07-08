@@ -4817,7 +4817,8 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
   return ret;
 }
 
-void ManifestPicker::PopulateManifestFiles(std::vector<std::string>& all_files) {
+void ManifestPicker::PopulateManifestFiles(
+    std::vector<std::string>& all_files) {
   for (const auto& fname : all_files) {
     uint64_t file_num = 0;
     FileType file_type;
