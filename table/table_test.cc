@@ -211,47 +211,6 @@ class Constructor {
   stl_wrappers::KVMap data_;
 };
 
-class BlockConstructor: public Constructor {
- public:
-  explicit BlockConstructor(const Comparator* cmp)
-      : Constructor(cmp),
-        comparator_(cmp),
-        block_(nullptr) { }
-  ~BlockConstructor() override { delete block_; }
-  Status FinishImpl(const Options& /*options*/,
-                    const ImmutableCFOptions& /*ioptions*/,
-                    const MutableCFOptions& /*moptions*/,
-                    const BlockBasedTableOptions& table_options,
-                    const InternalKeyComparator& /*internal_comparator*/,
-                    const stl_wrappers::KVMap& kv_map) override {
-    delete block_;
-    block_ = nullptr;
-    BlockBuilder builder(table_options.block_restart_interval);
-
-    for (const auto& kv : kv_map) {
-      builder.Add(kv.first, kv.second);
-    }
-    // Open the block
-    data_ = builder.Finish().ToString();
-    BlockContents contents;
-    contents.data = data_;
-    block_ = new Block(std::move(contents));
-    return Status::OK();
-  }
-  InternalIterator* NewIterator(
-      const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewDataIterator(comparator_, comparator_,
-                                   kDisableGlobalSequenceNumber);
-  }
-
- private:
-  const Comparator* comparator_;
-  std::string data_;
-  Block* block_;
-
-  BlockConstructor();
-};
-
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator : public InternalIterator {
  public:
@@ -309,7 +268,56 @@ class KeyConvertingIterator : public InternalIterator {
   void operator=(const KeyConvertingIterator&);
 };
 
-class TableConstructor: public Constructor {
+// `BlockConstructor` APIs always accept/return user keys.
+class BlockConstructor : public Constructor {
+ public:
+  explicit BlockConstructor(const Comparator* cmp)
+      : Constructor(cmp), comparator_(cmp), block_(nullptr) {}
+  ~BlockConstructor() override { delete block_; }
+  Status FinishImpl(const Options& /*options*/,
+                    const ImmutableCFOptions& /*ioptions*/,
+                    const MutableCFOptions& /*moptions*/,
+                    const BlockBasedTableOptions& table_options,
+                    const InternalKeyComparator& /*internal_comparator*/,
+                    const stl_wrappers::KVMap& kv_map) override {
+    delete block_;
+    block_ = nullptr;
+    BlockBuilder builder(table_options.block_restart_interval);
+
+    for (const auto& kv : kv_map) {
+      // `DataBlockIter` assumes it reads only internal keys. `BlockConstructor`
+      // clients provide user keys, so we need to convert to internal key format
+      // before writing the data block.
+      ParsedInternalKey ikey(kv.first, kMaxSequenceNumber, kTypeValue);
+      std::string encoded;
+      AppendInternalKey(&encoded, ikey);
+      builder.Add(encoded, kv.second);
+    }
+    // Open the block
+    data_ = builder.Finish().ToString();
+    BlockContents contents;
+    contents.data = data_;
+    block_ = new Block(std::move(contents));
+    return Status::OK();
+  }
+  InternalIterator* NewIterator(
+      const SliceTransform* /*prefix_extractor*/) const override {
+    // `DataBlockIter` returns the internal keys it reads.
+    // `KeyConvertingIterator` converts them to user keys before they are
+    // exposed to the `BlockConstructor` clients.
+    return new KeyConvertingIterator(
+        block_->NewDataIterator(comparator_, kDisableGlobalSequenceNumber));
+  }
+
+ private:
+  const Comparator* comparator_;
+  std::string data_;
+  Block* block_;
+
+  BlockConstructor();
+};
+
+class TableConstructor : public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
                             bool convert_to_internal_key = false,
@@ -4350,8 +4358,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-        BytewiseComparator(), BytewiseComparator(),
-        kDisableGlobalSequenceNumber));
+        BytewiseComparator(), kDisableGlobalSequenceNumber));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -4430,7 +4437,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator, options.comparator,
+      metaindex_block.NewDataIterator(options.comparator,
                                       kDisableGlobalSequenceNumber)};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;

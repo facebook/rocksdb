@@ -391,7 +391,7 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   Block reader(std::move(contents));
 
   const InternalKeyComparator icmp(BytewiseComparator());
-  auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+  auto iter = reader.NewDataIterator(icmp.user_comparator(),
                                      kDisableGlobalSequenceNumber);
   bool may_exist;
   // search in block for the key just inserted
@@ -475,7 +475,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
 
   // random seek existent keys
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+    auto iter = reader.NewDataIterator(icmp.user_comparator(),
                                        kDisableGlobalSequenceNumber);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -513,7 +513,7 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   //     C         true          false
 
   for (int i = 0; i < num_records; i++) {
-    auto iter = reader.NewDataIterator(&icmp, icmp.user_comparator(),
+    auto iter = reader.NewDataIterator(icmp.user_comparator(),
                                        kDisableGlobalSequenceNumber);
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
