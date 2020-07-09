@@ -80,7 +80,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
             << "table_file_creation"
             << "file_number" << fd.GetNumber() << "file_size"
-            << fd.GetFileSize();
+            << fd.GetFileSize() << "file_checksum" << file_checksum
+            << "file_checksum_func_name" << file_checksum_func_name;
 
     // table_properties
     {
@@ -156,6 +157,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   info.table_properties = table_properties;
   info.reason = reason;
   info.status = s;
+  info.file_checksum = file_checksum;
+  info.file_checksum_func_name = file_checksum_func_name;
   for (auto& listener : listeners) {
     listener->OnTableFileCreated(info);
   }

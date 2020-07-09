@@ -227,6 +227,8 @@ class TestFlushListener : public EventListener {
     ASSERT_GT(info.table_properties.raw_value_size, 0U);
     ASSERT_GT(info.table_properties.num_data_blocks, 0U);
     ASSERT_GT(info.table_properties.num_entries, 0U);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
     // Verify the id of the current thread that created this table
@@ -751,6 +753,8 @@ class TableFileCreationListener : public EventListener {
     ASSERT_GT(info.cf_name.size(), 0U);
     ASSERT_GT(info.file_path.size(), 0U);
     ASSERT_GT(info.job_id, 0);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
     if (info.status.ok()) {
       ASSERT_GT(info.table_properties.data_size, 0U);
       ASSERT_GT(info.table_properties.raw_key_size, 0U);

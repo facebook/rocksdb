@@ -58,6 +58,10 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   TableProperties table_properties;
   // The status indicating whether the creation was successful or not.
   Status status;
+  // The checksum of the table file being created
+  std::string file_checksum;
+  // The checksum function name of checksum generator used for this table file
+  std::string file_checksum_func_name;
 };
 
 enum class CompactionReason : int {
