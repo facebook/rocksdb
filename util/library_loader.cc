@@ -84,6 +84,7 @@ UnixLibCrypto::UnixLibCrypto() : LibraryLoader(crypto_lib_name_) {
     encrypt_init_ = (EVP_EncryptInit_ex_t)functions_["EVP_EncryptInit_ex"];
     aes_256_ctr_ = (EVP_aes_256_ctr_t)functions_["EVP_aes_256_ctr"];
     encrypt_update_ = (EVP_EncryptUpdate_t)functions_["EVP_EncryptUpdate"];
+    encrypt_final_ = (EVP_EncryptFinal_ex_t)functions_["EVP_EncryptFinal_ex"];
   }
 }
 

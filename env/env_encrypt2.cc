@@ -79,7 +79,9 @@ AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
   }
 }
 
-void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf, uint64_t value) {
+
+void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf,
+                                                 uint64_t value) {
   uint8_t *sum, *addend, *carry, pre, post;
 
   sum = buf + 15;
@@ -121,7 +123,6 @@ typedef union {
 Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
                                            size_t data_size) {
   Status status;
-
   if (0 < data_size) {
     if (EncryptedEnvV2::crypto_.IsValid()) {
       int ret_val, out_len;
@@ -136,31 +137,35 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
                 EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_free_ptr());
       }
 
-      ret_val = EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_reset(aes_context.get());
+      memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
+      BigEndianAdd128(iv.bytes, block_index);
+
+      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
+          aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(),
+          nullptr, key_.key, iv.bytes);
       if (1 == ret_val) {
-        memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
-        BigEndianAdd128(iv.bytes, block_index);
+        out_len = 0;
+        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
+            aes_context.get(), (unsigned char*)data, &out_len,
+            (unsigned char*)data, (int)data_size);
 
-        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
-            aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(),
-            nullptr, key_.key, iv.bytes);
-        if (1 == ret_val) {
-          out_len = 0;
-          ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), (unsigned char*)data, &out_len,
-              (unsigned char*)data, (int)data_size);
+        if (1 != ret_val || (int)data_size != out_len) {
+          status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
+                                           (int)data_size == out_len
+                                           ? "bad return value"
+                                           : "output length short");
+        }
+        // this is a soft reset of aes_context per man pages
+        uint8_t temp_buf[AES_BLOCK_SIZE];
+        out_len = 0;
+        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptFinal_ex(
+            aes_context.get(), temp_buf, &out_len);
 
-          if (1 != ret_val || (int)data_size != out_len) {
-            status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
-                                             (int)data_size == out_len
-                                                 ? "bad return value"
-                                                 : "output length short");
-          }
-        } else {
-          status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
+        if (1 != ret_val || 0 != out_len) {
+          status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
         }
       } else {
-        status = Status::InvalidArgument("EVP_CIPHER_CTX_reset failed.");
+        status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
       }
     } else {
       status = Status::NotSupported(
@@ -197,57 +202,61 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
           EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_free_ptr());
     }
 
-    ret_val = EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_reset(aes_context.get());
+    memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
+    BigEndianAdd128(iv.bytes, block_index);
+
+    ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
+        aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(), nullptr,
+        key_.key, iv.bytes);
     if (1 == ret_val) {
-      memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
-      BigEndianAdd128(iv.bytes, block_index);
-
-      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
-          aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(), nullptr,
-          key_.key, iv.bytes);
-      if (1 == ret_val) {
-        // handle uneven block start
-        if (0 != block_offset) {
-          prefix_size = block_size - block_offset;
-          if (data_size < prefix_size) {
-            prefix_size = data_size;
-          }
-
-          memcpy(temp_buf + block_offset, data, prefix_size);
-          out_len = 0;
-          ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), temp_buf, &out_len, temp_buf, (int)block_size);
-
-          if (1 != ret_val || (int)block_size != out_len) {
-            status = Status::InvalidArgument("EVP_EncryptUpdate failed 1: ",
-                                             (int)block_size == out_len
-                                                 ? "bad return value"
-                                                 : "output length short");
-          } else {
-            memcpy(data, temp_buf + block_offset, prefix_size);
-          }
+      // handle uneven block start
+      if (0 != block_offset) {
+        prefix_size = block_size - block_offset;
+        if (data_size < prefix_size) {
+          prefix_size = data_size;
         }
 
-        // all remaining data, even block size not required
-        remaining -= prefix_size;
-        if (status.ok() && remaining) {
-          out_len = 0;
-          ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
-              aes_context.get(), (uint8_t*)data + prefix_size, &out_len,
-              (uint8_t*)data + prefix_size, (int)remaining);
+        memcpy(temp_buf + block_offset, data, prefix_size);
+        out_len = 0;
+        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
+            aes_context.get(), temp_buf, &out_len, temp_buf, (int)block_size);
 
-          if (1 != ret_val || (int)remaining != out_len) {
-            status = Status::InvalidArgument("EVP_EncryptUpdate failed 2: ",
-                                             (int)remaining == out_len
-                                                 ? "bad return value"
-                                                 : "output length short");
-          }
+        if (1 != ret_val || (int)block_size != out_len) {
+          status = Status::InvalidArgument("EVP_EncryptUpdate failed 1: ",
+                                           (int)block_size == out_len
+                                           ? "bad return value"
+                                           : "output length short");
+        } else {
+          memcpy(data, temp_buf + block_offset, prefix_size);
         }
-      } else {
-        status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
+      }
+
+      // all remaining data, even block size not required
+      remaining -= prefix_size;
+      if (status.ok() && remaining) {
+        out_len = 0;
+        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
+            aes_context.get(), (uint8_t*)data + prefix_size, &out_len,
+            (uint8_t*)data + prefix_size, (int)remaining);
+
+        if (1 != ret_val || (int)remaining != out_len) {
+          status = Status::InvalidArgument("EVP_EncryptUpdate failed 2: ",
+                                           (int)remaining == out_len
+                                           ? "bad return value"
+                                           : "output length short");
+        }
+      }
+
+      // this is a soft reset of aes_context per man pages
+      out_len = 0;
+      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptFinal_ex(
+          aes_context.get(), temp_buf, &out_len);
+
+      if (1 != ret_val || 0 != out_len) {
+        status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
       }
     } else {
-      status = Status::InvalidArgument("EVP_CIPHER_CTX_reset failed.");
+      status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
     }
   } else {
     status = Status::NotSupported(
@@ -376,11 +385,11 @@ Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
     buf.Size(data.size() + block_offset);
     {
       PERF_TIMER_GUARD(encrypt_data_nanos);
-      status = stream_->Encrypt(offset, buf.BufferStart() + block_offset,
-                                data.size());
+      status = stream_->Encrypt(offset - block_offset, buf.BufferStart(),
+                                buf.CurrentSize());
     }
     if (status.ok()) {
-      dataToWrite = Slice(buf.BufferStart() + block_offset, data.size());
+      dataToWrite = Slice(buf.BufferStart()+block_offset, data.size());
     }
   }
 
@@ -432,8 +441,8 @@ EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
 
 EncryptedEnvV2::EncryptedEnvV2(Env* base_env)
     : EnvWrapper(base_env), valid_(false) {
-  valid_ = crypto_.IsValid();
 
+  valid_ = crypto_.IsValid();
   if (IsValid()) {
     crypto_.RAND_poll();
   }
@@ -445,6 +454,7 @@ void EncryptedEnvV2::SetKeys(EncryptedEnvV2::ReadKeys encrypt_read,
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
   key_lock.WriteUnlock();
+
 }
 
 bool EncryptedEnvV2::IsWriteEncrypted() const {
@@ -870,7 +880,7 @@ Status EncryptedEnvV2::NewRandomRWFile(const std::string& fname,
       // establish encrypt or not, finalize file object
       if (status.ok()) {
         if (provider) {
-          (*result) = std::unique_ptr<RandomRWFile>(new EncryptedRandomRWFile(
+          (*result) = std::unique_ptr<RandomRWFile>(new EncryptedRandomRWFileV2(
               std::move(underlying), std::move(stream),
               provider->GetPrefixLength()));
         } else {

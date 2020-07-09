@@ -92,6 +92,9 @@ class UnixLibCrypto : public LibraryLoader {
   using EVP_EncryptUpdate_t = int (*)(EVP_CIPHER_CTX *ctx, unsigned char *out,
                                       int *outl, const unsigned char *in,
                                       int inl);
+  using EVP_EncryptFinal_ex_t = int (*)(EVP_CIPHER_CTX *ctx, unsigned char *out,
+                                     int *outl);
+
 
   int EVP_CIPHER_CTX_reset(EVP_CIPHER_CTX *ctx) { return cipher_reset_(ctx); }
 
@@ -114,6 +117,9 @@ class UnixLibCrypto : public LibraryLoader {
     return encrypt_update_(ctx, out, outl, in, inl);
   }
 
+  int EVP_EncryptFinal_ex(EVP_CIPHER_CTX *ctx, unsigned char *out, int *outl) {
+    return encrypt_final_(ctx, out, outl);
+  }
   static const char *crypto_lib_name_;
 
  protected:
@@ -135,6 +141,7 @@ class UnixLibCrypto : public LibraryLoader {
       {"EVP_EncryptInit_ex", nullptr},
       {"EVP_aes_256_ctr", nullptr},
       {"EVP_EncryptUpdate", nullptr},
+      {"EVP_EncryptFinal_ex", nullptr},
       {"EVP_CIPHER_CTX_reset", nullptr},
       {"EVP_CIPHER_CTX_cleanup", nullptr},
 
@@ -156,6 +163,7 @@ class UnixLibCrypto : public LibraryLoader {
   EVP_EncryptInit_ex_t encrypt_init_;
   EVP_aes_256_ctr_t aes_256_ctr_;
   EVP_EncryptUpdate_t encrypt_update_;
+  EVP_EncryptFinal_ex_t encrypt_final_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
