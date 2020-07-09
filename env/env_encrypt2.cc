@@ -79,9 +79,7 @@ AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
   }
 }
 
-
-void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf,
-                                                 uint64_t value) {
+void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf, uint64_t value) {
   uint8_t *sum, *addend, *carry, pre, post;
 
   sum = buf + 15;
@@ -141,8 +139,8 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
       BigEndianAdd128(iv.bytes, block_index);
 
       ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
-          aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(),
-          nullptr, key_.key, iv.bytes);
+          aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(), nullptr,
+          key_.key, iv.bytes);
       if (1 == ret_val) {
         out_len = 0;
         ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
@@ -152,8 +150,8 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
         if (1 != ret_val || (int)data_size != out_len) {
           status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
                                            (int)data_size == out_len
-                                           ? "bad return value"
-                                           : "output length short");
+                                               ? "bad return value"
+                                               : "output length short");
         }
         // this is a soft reset of aes_context per man pages
         uint8_t temp_buf[AES_BLOCK_SIZE];
@@ -224,8 +222,8 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
         if (1 != ret_val || (int)block_size != out_len) {
           status = Status::InvalidArgument("EVP_EncryptUpdate failed 1: ",
                                            (int)block_size == out_len
-                                           ? "bad return value"
-                                           : "output length short");
+                                               ? "bad return value"
+                                               : "output length short");
         } else {
           memcpy(data, temp_buf + block_offset, prefix_size);
         }
@@ -242,15 +240,15 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
         if (1 != ret_val || (int)remaining != out_len) {
           status = Status::InvalidArgument("EVP_EncryptUpdate failed 2: ",
                                            (int)remaining == out_len
-                                           ? "bad return value"
-                                           : "output length short");
+                                               ? "bad return value"
+                                               : "output length short");
         }
       }
 
       // this is a soft reset of aes_context per man pages
       out_len = 0;
-      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptFinal_ex(
-          aes_context.get(), temp_buf, &out_len);
+      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptFinal_ex(aes_context.get(),
+                                                            temp_buf, &out_len);
 
       if (1 != ret_val || 0 != out_len) {
         status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
@@ -389,7 +387,7 @@ Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
                                 buf.CurrentSize());
     }
     if (status.ok()) {
-      dataToWrite = Slice(buf.BufferStart()+block_offset, data.size());
+      dataToWrite = Slice(buf.BufferStart() + block_offset, data.size());
     }
   }
 
@@ -441,7 +439,6 @@ EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
 
 EncryptedEnvV2::EncryptedEnvV2(Env* base_env)
     : EnvWrapper(base_env), valid_(false) {
-
   valid_ = crypto_.IsValid();
   if (IsValid()) {
     crypto_.RAND_poll();
@@ -454,7 +451,6 @@ void EncryptedEnvV2::SetKeys(EncryptedEnvV2::ReadKeys encrypt_read,
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
   key_lock.WriteUnlock();
-
 }
 
 bool EncryptedEnvV2::IsWriteEncrypted() const {
