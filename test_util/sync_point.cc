@@ -4,6 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "test_util/sync_point.h"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+
 #include "test_util/sync_point_impl.h"
 
 int rocksdb_kill_odds = 0;
