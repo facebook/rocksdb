@@ -1274,6 +1274,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   const uint64_t start_micros = env_->NowMicros();
 
   FileMetaData meta;
+  std::vector<BlobFileAddition> blob_file_additions;
 
   std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
       new std::list<uint64_t>::iterator(
@@ -1322,8 +1323,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         range_del_iters.emplace_back(range_del_iter);
       }
 
-      std::vector<BlobFileAddition> blob_file_additions;
-
       IOStatus io_s;
       s = BuildTable(
           dbname_, versions_.get(), env_, fs_.get(), *cfd->ioptions(),
@@ -1361,6 +1360,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.marked_for_compaction, meta.oldest_blob_file_number,
                   meta.oldest_ancester_time, meta.file_creation_time,
                   meta.file_checksum, meta.file_checksum_func_name);
+
+    for (auto& blob_file_addition : blob_file_additions) {
+      edit->AddBlobFile(std::move(blob_file_addition));
+    }
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
