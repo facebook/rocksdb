@@ -7,6 +7,7 @@
 
 #include <limits>
 
+#include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/dbformat.h"
@@ -177,9 +178,10 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   const uint64_t blob_file_number = writer_->get_log_number();
 
-  blob_file_additions_.emplace_back(blob_file_number, blob_count_, blob_bytes_,
-                                    /* TODO: checksum_method */ std::string(),
-                                    /* TODO: checksum_value */ std::string());
+  assert(blob_file_additions_);
+  blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
+                                     /* TODO: checksum_method */ std::string(),
+                                     /* TODO: checksum_value */ std::string());
 
   writer_.reset();
   blob_count_ = 0;
