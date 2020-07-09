@@ -22,11 +22,11 @@
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/mutexlock.h"
+#include "utilities/fault_injection_env.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {

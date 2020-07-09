@@ -10,8 +10,8 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/testutil.h"
+#include "utilities/fault_injection_env.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {

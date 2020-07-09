@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "utilities/blob_db/blob_db.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -22,14 +24,13 @@
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {

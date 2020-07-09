@@ -13,9 +13,9 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
+#include "utilities/fault_injection_env.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {

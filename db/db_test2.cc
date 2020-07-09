@@ -16,7 +16,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
-#include "test_util/fault_injection_test_env.h"
+#include "utilities/fault_injection_env.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {

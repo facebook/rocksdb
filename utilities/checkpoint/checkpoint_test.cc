@@ -25,10 +25,10 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CheckpointTest : public testing::Test {

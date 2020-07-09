@@ -24,7 +24,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #ifndef NDEBUG
-#include "test_util/fault_injection_test_fs.h"
+#include "utilities/fault_injection_fs.h"
 #endif
 
 namespace ROCKSDB_NAMESPACE {

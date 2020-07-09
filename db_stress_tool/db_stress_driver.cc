@@ -10,6 +10,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {

@@ -14,10 +14,10 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/convenience.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "util/concurrent_task_limiter_impl.h"
 #include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 

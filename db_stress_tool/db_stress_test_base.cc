@@ -15,6 +15,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/cast_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()

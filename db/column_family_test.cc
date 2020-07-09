@@ -22,12 +22,12 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {

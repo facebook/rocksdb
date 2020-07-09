@@ -14,11 +14,12 @@
 // FileSystem related operations, by specify the "IOStatus Error", a specific
 // error can be returned when file system is not activated.
 
-#include "test_util/fault_injection_test_fs.h"
+#include "utilities/fault_injection_fs.h"
 
 #include <functional>
 #include <utility>
 
+#include "env/composite_env_wrapper.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
 #include "util/random.h"

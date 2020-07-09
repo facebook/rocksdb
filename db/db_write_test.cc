@@ -14,8 +14,8 @@
 #include "db/write_thread.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
+#include "utilities/fault_injection_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
