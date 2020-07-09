@@ -45,11 +45,12 @@ SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path,
                              size_t readahead_size, bool verify_checksum,
                              bool output_hex, bool decode_blob_index,
-                             bool silent)
+                             const EnvOptions& soptions, bool silent)
     : file_name_(file_path),
       read_num_(0),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
+      soptions_(soptions),
       silent_(silent),
       options_(options),
       ioptions_(options_),
