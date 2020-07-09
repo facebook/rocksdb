@@ -300,6 +300,9 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_micros = db_options_.env->NowMicros();
   const uint64_t start_cpu_micros = db_options_.env->NowCPUNanos() / 1000;
   Status s;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
     db_mutex_->Unlock();
@@ -388,9 +391,10 @@ Status FlushJob::WriteLevel0Table() {
 
       IOStatus io_s;
       s = BuildTable(
-          dbname_, db_options_.env, db_options_.fs.get(), *cfd_->ioptions(),
-          mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta_, cfd_->internal_comparator(),
+          dbname_, versions_, db_options_.env, db_options_.fs.get(),
+          *cfd_->ioptions(), mutable_cf_options_, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
@@ -437,6 +441,10 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.marked_for_compaction, meta_.oldest_blob_file_number,
                    meta_.oldest_ancester_time, meta_.file_creation_time,
                    meta_.file_checksum, meta_.file_checksum_func_name);
+
+    for (auto& blob_file_addition : blob_file_additions) {
+      edit_->AddBlobFile(std::move(blob_file_addition));
+    }
   }
 #ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.

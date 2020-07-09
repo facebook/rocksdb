@@ -414,6 +414,10 @@ class VersionEdit {
         std::move(checksum_method), std::move(checksum_value));
   }
 
+  void AddBlobFile(BlobFileAddition blob_file_addition) {
+    blob_file_additions_.emplace_back(std::move(blob_file_addition));
+  }
+
   // Retrieve all the blob files added.
   using BlobFileAdditions = std::vector<BlobFileAddition>;
   const BlobFileAdditions& GetBlobFileAdditions() const {
@@ -427,6 +431,10 @@ class VersionEdit {
                           uint64_t garbage_blob_bytes) {
     blob_file_garbages_.emplace_back(blob_file_number, garbage_blob_count,
                                      garbage_blob_bytes);
+  }
+
+  void AddBlobFileGarbage(BlobFileGarbage blob_file_garbage) {
+    blob_file_garbages_.emplace_back(std::move(blob_file_garbage));
   }
 
   // Retrieve all the blob file garbage added.
