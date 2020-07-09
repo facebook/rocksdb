@@ -437,51 +437,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
                               &cf_opt->compression_per_level, rnd);
 }
 
-Status DestroyDir(Env* env, const std::string& dir) {
-  Status s;
-  if (env->FileExists(dir).IsNotFound()) {
-    return s;
-  }
-  std::vector<std::string> files_in_dir;
-  s = env->GetChildren(dir, &files_in_dir);
-  if (s.ok()) {
-    for (auto& file_in_dir : files_in_dir) {
-      if (file_in_dir == "." || file_in_dir == "..") {
-        continue;
-      }
-      std::string path = dir + "/" + file_in_dir;
-      bool is_dir = false;
-      s = env->IsDirectory(path, &is_dir);
-      if (s.ok()) {
-        if (is_dir) {
-          s = DestroyDir(env, path);
-        } else {
-          s = env->DeleteFile(path);
-        }
-      }
-      if (!s.ok()) {
-        // IsDirectory, etc. might not report NotFound
-        if (s.IsNotFound() || env->FileExists(path).IsNotFound()) {
-          // Allow files to be deleted externally
-          s = Status::OK();
-        } else {
-          break;
-        }
-      }
-    }
-  }
-
-  if (s.ok()) {
-    s = env->DeleteDir(dir);
-    // DeleteDir might or might not report NotFound
-    if (!s.ok() && (s.IsNotFound() || env->FileExists(dir).IsNotFound())) {
-      // Allow to be deleted externally
-      s = Status::OK();
-    }
-  }
-  return s;
-}
-
 bool IsDirectIOSupported(Env* env, const std::string& dir) {
   EnvOptions env_options;
   env_options.use_mmap_writes = false;

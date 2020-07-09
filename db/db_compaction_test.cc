@@ -4975,7 +4975,7 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
 
   // Generate an external SST file containing a single key, i.e. 99
   std::string sst_files_dir = dbname_ + "/sst_files/";
-  test::DestroyDir(env_, sst_files_dir);
+  DestroyDir(env_, sst_files_dir);
   ASSERT_OK(env_->CreateDir(sst_files_dir));
   SstFileWriter sst_writer(EnvOptions(), options);
   const std::string sst_file_path = sst_files_dir + "test.sst";

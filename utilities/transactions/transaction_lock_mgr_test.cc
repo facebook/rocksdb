@@ -6,6 +6,8 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/transactions/transaction_lock_mgr.h"
+
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -36,7 +38,7 @@ class TransactionLockMgrTest : public testing::Test {
 
   void TearDown() override {
     delete db_;
-    EXPECT_OK(test::DestroyDir(env_, db_dir_));
+    EXPECT_OK(DestroyDir(env_, db_dir_));
   }
 
   PessimisticTransaction* NewTxn(

@@ -53,4 +53,7 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
   return IOStatus::OK();
 }
 
+// Test method to delete the input directory and all of its contents.
+// This method is destructive and is meant for use only in tests!!!
+Status DestroyDir(Env* env, const std::string& dir);
 }  // namespace ROCKSDB_NAMESPACE

@@ -28,7 +28,7 @@ class ExternalSSTFileBasicTest
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
   }
 
@@ -161,9 +161,7 @@ class ExternalSSTFileBasicTest
         write_global_seqno, verify_checksums_before_ingest, true_data);
   }
 
-  ~ExternalSSTFileBasicTest() override {
-    test::DestroyDir(env_, sst_files_dir_);
-  }
+  ~ExternalSSTFileBasicTest() override { DestroyDir(env_, sst_files_dir_); }
 
  protected:
   std::string sst_files_dir_;

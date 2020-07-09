@@ -6,6 +6,7 @@
 #include "table/block_based/block_based_table_reader.h"
 
 #include "db/table_properties_collector.h"
+#include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -47,7 +48,7 @@ class BlockBasedTableReaderTest
         static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }
 
-  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   // Creates a table with the specificied key value pairs (kv).
   void CreateTable(const std::string& table_name,

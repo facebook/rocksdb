@@ -5,6 +5,7 @@
 
 #include "file/random_access_file_reader.h"
 
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
@@ -25,9 +26,7 @@ class RandomAccessFileReaderTest : public testing::Test {
     ComputeAndSetAlignment();
   }
 
-  void TearDown() override {
-    EXPECT_OK(test::DestroyDir(env_, test_dir_));
-  }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   void Write(const std::string& fname, const std::string& content) {
     std::unique_ptr<FSWritableFile> f;

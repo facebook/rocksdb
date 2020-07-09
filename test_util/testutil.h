@@ -790,8 +790,6 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);
 
-Status DestroyDir(Env* env, const std::string& dir);
-
 bool IsDirectIOSupported(Env* env, const std::string& dir);
 
 // Return the number of lines where a given pattern was found in a file.
@@ -802,9 +800,6 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 // Tries to set TEST_TMPDIR to a directory supporting direct IO.
 void ResetTmpDirForDirectIO();
 
-// Sets up sync points to mock direct IO instead of actually issuing direct IO
-// to the file system.
-void SetupSyncPointsToMockDirectIO();
 
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt);
 

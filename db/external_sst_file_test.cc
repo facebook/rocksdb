@@ -47,7 +47,7 @@ class ExternSSTFileLinkFailFallbackTest
       : DBTestBase("/external_sst_file_test"),
         test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
     options_ = CurrentOptions();
     options_.disable_auto_compactions = true;
@@ -78,7 +78,7 @@ class ExternalSSTFileTest
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
   }
 
@@ -281,7 +281,7 @@ class ExternalSSTFileTest
     return db_->IngestExternalFile(files, opts);
   }
 
-  ~ExternalSSTFileTest() override { test::DestroyDir(env_, sst_files_dir_); }
+  ~ExternalSSTFileTest() override { DestroyDir(env_, sst_files_dir_); }
 
  protected:
   int last_file_id_ = 0;
