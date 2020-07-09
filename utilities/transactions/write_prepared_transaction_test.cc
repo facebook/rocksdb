@@ -275,7 +275,8 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
       for (size_t k = 0; k < 10; k++) {  // 10 key per batch
         size_t ki = static_cast<size_t>(rnd.Uniform(TOTAL_KEYS));
         Slice key = Slice(keys[ki]);
-        Slice value = Slice(rnd.RandomString(16));
+        std::string tmp = rnd.RandomString(16);
+        Slice value = Slice(tmp);
         rndbatch.Put(key, value);
       }
       SubBatchCounter batch_counter(comparators);
