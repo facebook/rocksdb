@@ -243,8 +243,7 @@ void DataBlockIter::SeekImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan);
+  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -399,11 +398,9 @@ void IndexBlockIter::SeekImpl(const Slice& target) {
     // search simply lands at the right place.
     skip_linear_scan = true;
   } else if (value_delta_encoded_) {
-    ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 &skip_linear_scan);
+    ok = BinarySeek<DecodeKeyV4>(seek_key, &index, &skip_linear_scan);
   } else {
-    ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               &skip_linear_scan);
+    ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
   }
 
   if (!ok) {
@@ -420,8 +417,7 @@ void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan);
+  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
 
   if (!ok) {
     return;
@@ -688,10 +684,8 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
 // compared again later.
 template <class TValue>
 template <typename DecodeKeyFunc>
-bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
-                                   uint32_t right, uint32_t* index,
+bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
                                    bool* skip_linear_scan) {
-  assert(left <= right);
   if (restarts_ == 0) {
     // SST files dedicated to range tombstones are written with index blocks
     // that have no keys while also having `num_restarts_ == 1`. This would
@@ -703,9 +697,17 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
   }
 
   *skip_linear_scan = false;
-  while (left < right) {
-    uint32_t mid = (left + right + 1) / 2;
-    uint32_t region_offset = GetRestartPoint(mid);
+  // Loop invariants:
+  // - Restart key at index `left` is less than or equal to the target key. The
+  //   sentinel index `-1` is considered to have a key that is less than all
+  //   keys.
+  // - Any restart keys after index `right` are strictly greater than the target
+  //   key.
+  int64_t left = -1, right = num_restarts_ - 1;
+  while (left != right) {
+    // The `mid` is computed by rounding up so it lands in (`left`, `right`].
+    int64_t mid = left + (right - left + 1) / 2;
+    uint32_t region_offset = GetRestartPoint(static_cast<uint32_t>(mid));
     uint32_t shared, non_shared;
     const char* key_ptr = DecodeKeyFunc()(
         data_ + region_offset, data_ + restarts_, &shared, &non_shared);
@@ -730,26 +732,13 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
     }
   }
 
-  assert(left == right);
-  *index = left;
-  if (*index == 0) {
-    // Special case as we land at zero as long as restart key at index 1 is >
-    // "target". We need to compare the restart key at index 0 so we can set
-    // `*skip_linear_scan` when the 0th restart key is >= "target".
-    //
-    // GetRestartPoint() is always zero for restart key zero; skip the restart
-    // block access.
-    uint32_t shared, non_shared;
-    const char* key_ptr =
-        DecodeKeyFunc()(data_, data_ + restarts_, &shared, &non_shared);
-    if (key_ptr == nullptr || (shared != 0)) {
-      CorruptionError();
-      return false;
-    }
-    Slice first_key(key_ptr, non_shared);
-    raw_key_.SetKey(first_key, false /* copy */);
-    int cmp = CompareCurrentKey(target);
-    *skip_linear_scan = cmp >= 0;
+  if (left == -1) {
+    // All keys in the block were strictly greater than `target`. So the very
+    // first key in the block is the final seek result.
+    *skip_linear_scan = true;
+    *index = 0;
+  } else {
+    *index = static_cast<uint32_t>(left);
   }
   return true;
 }
