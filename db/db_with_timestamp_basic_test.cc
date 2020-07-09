@@ -13,10 +13,10 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBBasicTestWithTimestampBase : public DBTestBase {

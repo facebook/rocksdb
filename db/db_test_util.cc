@@ -8,9 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+
 #include "db/forward_iterator.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -408,7 +410,7 @@ Options DBTestBase::GetOptions(
         options.use_direct_reads = true;
         options.use_direct_io_for_flush_and_compaction = true;
         options.compaction_readahead_size = 2 * 1024 * 1024;
-        test::SetupSyncPointsToMockDirectIO();
+        SetupSyncPointsToMockDirectIO();
         break;
       }
 #endif  // ROCKSDB_LITE
@@ -1192,7 +1194,7 @@ int DBTestBase::GetSstFileCount(std::string path) {
 void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
                                  bool nowait) {
   for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
-    ASSERT_OK(Put(cf, Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
+    ASSERT_OK(Put(cf, Key(*key_idx), rnd->RandomString((i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
   if (!nowait) {
@@ -1204,7 +1206,7 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
 // this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
   for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
-    ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
+    ASSERT_OK(Put(Key(*key_idx), rnd->RandomString((i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
   if (!nowait) {
@@ -1217,9 +1219,9 @@ const int DBTestBase::kNumKeysByGenerateNewRandomFile = 51;
 
 void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   for (int i = 0; i < kNumKeysByGenerateNewRandomFile; i++) {
-    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 2000)));
+    ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(2000)));
   }
-  ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 200)));
+  ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(200)));
   if (!nowait) {
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();

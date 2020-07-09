@@ -29,12 +29,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-static std::string RandomString(Random *rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-
 std::string GenerateInternalKey(int primary_key, int secondary_key,
                                 int padding_size, Random *rnd) {
   char buf[50];
@@ -42,7 +36,7 @@ std::string GenerateInternalKey(int primary_key, int secondary_key,
   snprintf(buf, sizeof(buf), "%6d%4d", primary_key, secondary_key);
   std::string k(p);
   if (padding_size) {
-    k += RandomString(rnd, padding_size);
+    k += rnd->RandomString(padding_size);
   }
   AppendInternalKeyFooter(&k, 0 /* seqno */, kTypeValue);
 
@@ -67,7 +61,7 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
       keys->emplace_back(GenerateInternalKey(i, j, padding_size, &rnd));
 
       // 100 bytes values
-      values->emplace_back(RandomString(&rnd, 100));
+      values->emplace_back(rnd.RandomString(100));
     }
   }
 }

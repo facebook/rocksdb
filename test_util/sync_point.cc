@@ -4,6 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "test_util/sync_point.h"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+
 #include "test_util/sync_point_impl.h"
 
 int rocksdb_kill_odds = 0;
@@ -64,3 +68,22 @@ void SyncPoint::Process(const std::string& point, void* cb_arg) {
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // NDEBUG
+
+namespace ROCKSDB_NAMESPACE {
+void SetupSyncPointsToMockDirectIO() {
+#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
+    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewWritableFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+#endif
+}
+}  // namespace ROCKSDB_NAMESPACE

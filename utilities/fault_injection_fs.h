@@ -21,15 +21,11 @@
 #include <set>
 #include <string>
 
-#include "db/db_test_util.h"
-#include "db/version_set.h"
-#include "env/mock_env.h"
 #include "file/filename.h"
 #include "include/rocksdb/file_system.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 

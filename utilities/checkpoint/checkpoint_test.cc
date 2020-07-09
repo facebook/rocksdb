@@ -9,6 +9,7 @@
 
 // Syncpoint prevents us building and running tests in release
 #ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/checkpoint.h"
 
 #ifndef OS_WIN
 #include <unistd.h>
@@ -16,17 +17,18 @@
 #include <iostream>
 #include <thread>
 #include <utility>
+
 #include "db/db_impl/db_impl.h"
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CheckpointTest : public testing::Test {
@@ -69,7 +71,7 @@ class CheckpointTest : public testing::Test {
     env_->DeleteDir(snapshot_tmp_name);
     Reopen(options);
     export_path_ = test::PerThreadDBPath("/export");
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
     cfh_reverse_comp_ = nullptr;
     metadata_ = nullptr;
   }
@@ -94,7 +96,7 @@ class CheckpointTest : public testing::Test {
     options.db_paths.emplace_back(dbname_ + "_4", 0);
     EXPECT_OK(DestroyDB(dbname_, options));
     EXPECT_OK(DestroyDB(snapshot_name_, options));
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
   }
 
   // Return the current option configuration.
@@ -347,7 +349,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                              export_path_, &metadata_));
     verify_files_exported(*metadata_, 1);
     ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
     delete metadata_;
     metadata_ = nullptr;
 
@@ -358,7 +360,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                              export_path_, &metadata_));
     verify_files_exported(*metadata_, 2);
     ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
     delete metadata_;
     metadata_ = nullptr;
     delete checkpoint;
@@ -404,7 +406,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
                                            export_path_, &metadata_),
             Status::InvalidArgument("Specified export_dir exists"));
-  test::DestroyDir(env_, export_path_);
+  DestroyDir(env_, export_path_);
 
   // Export with invalid directory specification
   export_path_ = "";

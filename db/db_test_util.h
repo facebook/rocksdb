@@ -45,7 +45,6 @@
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/mutexlock.h"
@@ -875,12 +874,6 @@ class DBTestBase : public testing::Test {
   explicit DBTestBase(const std::string path);
 
   ~DBTestBase();
-
-  static std::string RandomString(Random* rnd, int len) {
-    std::string r;
-    test::RandomString(rnd, len, &r);
-    return r;
-  }
 
   static std::string Key(int i) {
     char buf[100];

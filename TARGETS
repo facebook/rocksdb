@@ -332,6 +332,8 @@ cpp_library(
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
+        "utilities/fault_injection_env.cc",
+        "utilities/fault_injection_fs.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/memory/memory_util.cc",
         "utilities/merge_operators/bytesxor.cc",
@@ -385,8 +387,6 @@ cpp_library(
     srcs = [
         "db/db_test_util.cc",
         "table/mock_table.cc",
-        "test_util/fault_injection_test_env.cc",
-        "test_util/fault_injection_test_fs.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
