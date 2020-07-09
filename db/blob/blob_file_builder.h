@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cinttypes>
 #include <memory>
+#include <string>
 
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -48,7 +49,7 @@ class BlobFileBuilder {
 
   ~BlobFileBuilder();
 
-  Status Add(const Slice& key, const Slice& value, std::string* blob_index);
+  Status Add(const Slice& key, const Slice& value, Slice* blob_index);
   Status Finish();
 
  private:
@@ -67,6 +68,7 @@ class BlobFileBuilder {
   const FileOptions* file_options_;
   uint32_t column_family_id_;
   std::unique_ptr<BlobLogWriter> writer_;
+  std::string blob_index_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
