@@ -86,6 +86,9 @@ class Random {
     return Uniform(1 << Uniform(max_log + 1));
   }
 
+  // Generates a random string of len bytes using human-readable characters
+  std::string HumanReadableString(int len);
+
   // Returns a Random instance for use by the current thread without
   // additional locking
   static Random* GetTLSInstance();

@@ -41,8 +41,6 @@ extern const uint32_t kLatestFormatVersion;
 // references the generated data.
 extern Slice RandomString(Random* rnd, int len, std::string* dst);
 
-extern std::string RandomHumanReadableString(Random* rnd, int len);
-
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
 enum RandomKeyType : char { RANDOM, LARGEST, SMALLEST, MIDDLE };

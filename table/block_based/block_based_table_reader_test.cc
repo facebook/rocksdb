@@ -4,18 +4,19 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/block_based_table_reader.h"
-#include "rocksdb/file_system.h"
-#include "table/block_based/partitioned_index_iterator.h"
 
 #include "db/table_properties_collector.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/partitioned_index_iterator.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -159,7 +160,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
         sprintf(k, "%08u", key);
         std::string v;
         if (block % 2) {
-          v = test::RandomHumanReadableString(&rnd, 256);
+          v = rnd.HumanReadableString(256);
         } else {
           test::RandomString(&rnd, 256, &v);
         }
