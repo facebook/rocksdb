@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "cache/sharded_cache.h"
-
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
@@ -24,6 +23,7 @@
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
+#include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -54,9 +54,6 @@
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
-
-#include "monitoring/perf_context_imp.h"
-#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -76,9 +73,7 @@ typedef BlockBasedTable::IndexReader IndexReader;
 // experiments, for auto readahead. Experiment data is in PR #3282.
 const size_t BlockBasedTable::kMaxAutoReadaheadSize = 256 * 1024;
 
-BlockBasedTable::~BlockBasedTable() {
-  delete rep_;
-}
+BlockBasedTable::~BlockBasedTable() { delete rep_; }
 
 std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
 
@@ -540,12 +535,11 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
     }
     if (global_seqno != largest_seqno) {
       std::array<char, 200> msg_buf;
-      snprintf(
-          msg_buf.data(), msg_buf.max_size(),
-          "An external sst file with version %u has global seqno property "
-          "with value %llu, while largest seqno in the file is %llu",
-          version, static_cast<unsigned long long>(global_seqno),
-          static_cast<unsigned long long>(largest_seqno));
+      snprintf(msg_buf.data(), msg_buf.max_size(),
+               "An external sst file with version %u has global seqno property "
+               "with value %llu, while largest seqno in the file is %llu",
+               version, static_cast<unsigned long long>(global_seqno),
+               static_cast<unsigned long long>(largest_seqno));
       return Status::Corruption(msg_buf.data());
     }
   }
@@ -1381,7 +1375,6 @@ InternalIteratorBase<IndexValue>* BlockBasedTable::NewIndexIterator(
                                          lookup_context);
 }
 
-
 template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
@@ -1403,7 +1396,6 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
       rep->index_key_includes_seq, rep->index_value_is_full,
       block_contents_pinned);
 }
-
 
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
@@ -2075,7 +2067,6 @@ bool BlockBasedTable::PrefixMayMatch(
 
   return may_match;
 }
-
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
