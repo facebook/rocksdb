@@ -1322,14 +1322,16 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         range_del_iters.emplace_back(range_del_iter);
       }
 
+      std::vector<BlobFileAddition> blob_file_additions;
+
       IOStatus io_s;
       s = BuildTable(
           dbname_, versions_.get(), env_, fs_.get(), *cfd->ioptions(),
           mutable_cf_options, file_options_for_compaction_, cfd->table_cache(),
-          iter.get(), std::move(range_del_iters), &meta,
-          nullptr /* blob_file_additions */, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
-          snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+          iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
+          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+          cfd->GetID(), cfd->GetName(), snapshot_seqs,
+          earliest_write_conflict_snapshot, snapshot_checker,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.sample_for_compression,
           mutable_cf_options.compression_opts, paranoid_file_checks,
