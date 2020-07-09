@@ -9,7 +9,6 @@
 
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_log_writer.h"
 #include "db/dbformat.h"
 #include "db/version_set.h"
 #include "file/filename.h"
@@ -20,8 +19,6 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-BlobFileBuilder::~BlobFileBuilder() = default;
 
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
                             Slice* blob_index) {
