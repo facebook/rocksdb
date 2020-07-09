@@ -142,13 +142,7 @@ Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
 
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracker.GetColumnFamilyIterator());
-  if (!cf_it) {
-    result = Status::InvalidArgument(
-        "LockTracker does not support iterating "
-        "over column families");
-    return result;
-  }
-
+  assert(cf_it != nullptr);
   while (cf_it->HasNext()) {
     ColumnFamilyId cf = cf_it->Next();
 

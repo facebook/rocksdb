@@ -99,11 +99,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
   std::vector<std::unique_lock<std::mutex>> lks;
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracked_locks_->GetColumnFamilyIterator());
-  if (!cf_it) {
-    return Status::InvalidArgument(
-        "Lock tracker cannot iterate through column families, "
-        "must use a lock track that supports point lock");
-  }
+  assert(cf_it != nullptr);
   while (cf_it->HasNext()) {
     ColumnFamilyId cf = cf_it->Next();
     std::unique_ptr<LockTracker::KeyIterator> key_it(

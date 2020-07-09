@@ -646,7 +646,7 @@ void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
                                 const LockTracker& tracker, Env* env) {
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracker.GetColumnFamilyIterator());
-  if (!cf_it) return;
+  assert(cf_it != nullptr);
   while (cf_it->HasNext()) {
     ColumnFamilyId cf = cf_it->Next();
     std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(cf);

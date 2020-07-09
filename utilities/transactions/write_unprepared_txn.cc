@@ -670,10 +670,7 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
 
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracked_keys.GetColumnFamilyIterator());
-  if (!cf_it) {
-    return Status::InvalidArgument(
-        "LockTracker cannot iterate over column family");
-  }
+  assert(cf_it != nullptr);
   while (cf_it->HasNext()) {
     ColumnFamilyId cf = cf_it->Next();
     std::unique_ptr<LockTracker::KeyIterator> key_it(
