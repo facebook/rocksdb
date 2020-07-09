@@ -88,6 +88,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   assert(immutable_cf_options_);
   assert(!immutable_cf_options_->cf_paths.empty());
   assert(file_options_);
+  assert(!blob_count_);
+  assert(!blob_bytes_);
 
   const uint64_t blob_file_number = versions_->NewFileNumber();
   const std::string blob_file_path = BlobFileName(
@@ -154,6 +156,9 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 
   *blob_file_number = writer_->get_log_number();
 
+  ++blob_count_;
+  blob_bytes_ += BlobLogRecord::kHeaderSize + key.size() + blob.size();
+
   return Status::OK();
 }
 
@@ -163,13 +168,22 @@ Status BlobFileBuilder::CloseBlobFile() {
   BlobLogFooter footer;
 
   // TODO: populate footer
+  // TODO: sync
 
   const Status s = writer_->AppendFooter(footer);
   if (!s.ok()) {
     return s;
   }
 
+  const uint64_t blob_file_number = writer_->get_log_number();
+
+  blob_file_additions_.emplace_back(blob_file_number, blob_count_, blob_bytes_,
+                                    /* TODO: checksum_method */ std::string(),
+                                    /* TODO: checksum_value */ std::string());
+
   writer_.reset();
+  blob_count_ = 0;
+  blob_bytes_ = 0;
 
   return Status::OK();
 }

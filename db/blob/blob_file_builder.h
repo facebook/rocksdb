@@ -8,7 +8,9 @@
 #include <cinttypes>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_log_writer.h"
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -36,7 +38,9 @@ class BlobFileBuilder {
         immutable_cf_options_(immutable_cf_options),
         mutable_cf_options_(mutable_cf_options),
         file_options_(file_options),
-        column_family_id_(column_family_id) {
+        column_family_id_(column_family_id),
+        blob_count_(0),
+        blob_bytes_(0) {
     assert(versions_);
     assert(env_);
     assert(fs_);
@@ -50,6 +54,11 @@ class BlobFileBuilder {
 
   Status Add(const Slice& key, const Slice& value, Slice* blob_index);
   Status Finish();
+
+  using BlobFileAdditions = std::vector<BlobFileAddition>;
+  const BlobFileAdditions& GetBlobFileAdditions() const {
+    return blob_file_additions_;
+  }
 
  private:
   bool IsBlobFileOpen() const;
@@ -67,6 +76,9 @@ class BlobFileBuilder {
   const FileOptions* file_options_;
   uint32_t column_family_id_;
   std::unique_ptr<BlobLogWriter> writer_;
+  uint64_t blob_count_;
+  uint64_t blob_bytes_;
+  BlobFileAdditions blob_file_additions_;
   std::string blob_index_;
 };
 
