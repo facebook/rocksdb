@@ -185,7 +185,7 @@ class Repairer {
       DBImpl* db_impl = new DBImpl(db_options_, dbname_);
       // Also use this temp DBImpl to get a session id
       db_impl->GetDbSessionId(db_session_id_);
-      status = db_impl->NewDB();
+      status = db_impl->NewDB(/*new_filenames=*/nullptr);
       delete db_impl;
     }
 
