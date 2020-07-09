@@ -167,7 +167,7 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
 
   for (int i = 0; i < 3000; i++) {
     int j = i % 30;
-    std::string value = RandomString(&rnd, 10500);
+    std::string value = rnd.RandomString(10500);
     ASSERT_OK(Put("keykey_" + std::to_string(j), value));
     snapshots.push_back(db_->GetSnapshot());
   }
