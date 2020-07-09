@@ -4733,11 +4733,9 @@ class ManifestPicker {
   explicit ManifestPicker(const std::string& dbname,
                           const std::vector<std::string>& files_in_dbname,
                           FileSystem* fs);
-  void SeekToFirstManifest();
   // REQUIRES Valid() == true
   std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
   bool Valid() const { return manifest_file_iter_ != manifest_files_.end(); }
-  const Status& status() const { return status_; }
 
  private:
   const std::string& dbname_;
@@ -4745,31 +4743,23 @@ class ManifestPicker {
   // MANIFEST file names(s)
   std::vector<std::string> manifest_files_;
   std::vector<std::string>::const_iterator manifest_file_iter_;
-  Status status_;
-
-  void PopulateManifestFiles(const std::vector<std::string>& all_files);
 };
 
 ManifestPicker::ManifestPicker(const std::string& dbname,
                                const std::vector<std::string>& files_in_dbname,
                                FileSystem* fs)
     : dbname_(dbname), fs_(fs) {
-  PopulateManifestFiles(files_in_dbname);
-}
-
-void ManifestPicker::SeekToFirstManifest() {
-  std::vector<std::string> files_in_dbname;
-  if (manifest_files_.empty()) {
-    status_ = fs_->GetChildren(dbname_, IOOptions(), &files_in_dbname,
-                               /*dbg=*/nullptr);
-    if (status_.ok()){
-      PopulateManifestFiles(files_in_dbname);
+  // populate manifest files
+  assert(!files_in_dbname.empty());
+  for (const auto& fname : files_in_dbname) {
+    uint64_t file_num = 0;
+    FileType file_type;
+    bool parse_ok = ParseFileName(fname, &file_num, &file_type);
+    if (parse_ok && file_type == kDescriptorFile) {
+      manifest_files_.push_back(fname);
     }
   }
-  if (!status_.ok()) {
-    return;
-  }
-
+  // seek to first manifest
   std::sort(manifest_files_.begin(), manifest_files_.end(),
             [](const std::string& lhs, const std::string& rhs) {
               uint64_t num1 = 0;
@@ -4792,7 +4782,6 @@ void ManifestPicker::SeekToFirstManifest() {
 
 std::string ManifestPicker::GetNextManifest(uint64_t* number,
                                             std::string* file_name) {
-  assert(status_.ok());
   assert(Valid());
   std::string ret;
   if (manifest_file_iter_ != manifest_files_.end()) {
@@ -4818,27 +4807,19 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
   }
   return ret;
 }
-
-void ManifestPicker::PopulateManifestFiles(
-    const std::vector<std::string>& all_files) {
-  for (const auto& fname : all_files) {
-    uint64_t file_num = 0;
-    FileType file_type;
-    bool parse_ok = ParseFileName(fname, &file_num, &file_type);
-    if (parse_ok && file_type == kDescriptorFile) {
-      manifest_files_.push_back(fname);
-    }
-  }
-}
 }  // namespace
 
 Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file,
     std::vector<std::string>& files_in_dbname) {
+  Status s;
+  if (read_only) {
+    assert(files_in_dbname.empty());
+    s = fs_->GetChildren(dbname_, IOOptions(), &files_in_dbname,
+                         /*dbg=*/nullptr);
+  }
   ManifestPicker manifest_picker(dbname_, files_in_dbname, fs_);
-  manifest_picker.SeekToFirstManifest();
-  Status s = manifest_picker.status();
   if (!s.ok()) {
     return s;
   }
