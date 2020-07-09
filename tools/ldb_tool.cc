@@ -107,7 +107,10 @@ int LDBCommandRunner::RunCommand(
     const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   if (argc <= 2) {
-    if (std::string(argv[1]) == "--version") {
+    if (argc <= 1) {
+      PrintHelp(ldb_options, argv[0], /*to_stderr*/ true);
+      return 1;
+    } else if (std::string(argv[1]) == "--version") {
       printf("ldb from RocksDB %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
              ROCKSDB_PATCH);
       return 0;
