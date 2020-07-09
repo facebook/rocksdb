@@ -42,16 +42,16 @@ void PointLockTracker::Track(const PointLockRequest& r) {
   it->second.exclusive |= r.exclusive;
 }
 
-std::pair<bool, bool> PointLockTracker::Untrack(const PointLockRequest& r) {
+UntrackStatus PointLockTracker::Untrack(const PointLockRequest& r) {
   auto cf_keys = tracked_keys_.find(r.column_family_id);
   if (cf_keys == tracked_keys_.end()) {
-    return {false, false};
+    return UntrackStatus::NOT_TRACKED;
   }
 
   auto& keys = cf_keys->second;
   auto it = keys.find(r.key);
   if (it == keys.end()) {
-    return {false, false};
+    return UntrackStatus::NOT_TRACKED;
   }
 
   bool untracked = false;
@@ -68,16 +68,22 @@ std::pair<bool, bool> PointLockTracker::Untrack(const PointLockRequest& r) {
     }
   }
 
-  bool erased = false;
+  bool removed = false;
   if (info.num_reads == 0 && info.num_writes == 0) {
     keys.erase(it);
     if (keys.empty()) {
       tracked_keys_.erase(cf_keys);
     }
-    erased = true;
+    removed = true;
   }
 
-  return {untracked, erased};
+  if (removed) {
+    return UntrackStatus::REMOVED;
+  }
+  if (untracked) {
+    return UntrackStatus::UNTRACKED;
+  }
+  return UntrackStatus::NOT_TRACKED;
 }
 
 void PointLockTracker::Merge(const LockTracker& tracker) {

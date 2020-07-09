@@ -47,13 +47,12 @@ class PointLockTracker : public LockTracker {
 
   void Track(const PointLockRequest& lock_request) override;
 
-  std::pair<bool, bool> Untrack(const PointLockRequest& lock_request) override;
+  UntrackStatus Untrack(const PointLockRequest& lock_request) override;
 
   void Track(const RangeLockRequest& /*lock_request*/) override {}
 
-  std::pair<bool, bool> Untrack(
-      const RangeLockRequest& /*lock_request*/) override {
-    return {false, false};
+  UntrackStatus Untrack(const RangeLockRequest& /*lock_request*/) override {
+    return UntrackStatus::NOT_TRACKED;
   }
 
   void Merge(const LockTracker& tracker) override;

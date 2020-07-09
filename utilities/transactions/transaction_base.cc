@@ -601,8 +601,8 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
   if (save_points_ != nullptr && !save_points_->empty()) {
     // If there is no GetForUpdate of the key in this save point,
     // then cannot untrack from the global lock tracker.
-    auto ret = save_points_->top().new_locks_->Untrack(r);
-    can_untrack = ret.first;
+    UntrackStatus s = save_points_->top().new_locks_->Untrack(r);
+    can_untrack = (s != UntrackStatus::NOT_TRACKED);
   } else {
     // No save point, so can untrack from the global lock tracker.
     can_untrack = true;
@@ -610,8 +610,8 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
 
   if (can_untrack) {
     // If erased from the global tracker, then can unlock the key.
-    auto ret = tracked_locks_->Untrack(r);
-    bool can_unlock = ret.second;
+    UntrackStatus s = tracked_locks_->Untrack(r);
+    bool can_unlock = (s == UntrackStatus::REMOVED);
     if (can_unlock) {
       UnlockGetForUpdate(column_family, key);
     }
