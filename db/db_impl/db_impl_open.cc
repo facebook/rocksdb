@@ -615,9 +615,11 @@ Status DBImpl::Recover(
     std::vector<std::string>* filenames = nullptr;
     if (s.ok()) {
       if (dbname_ != immutable_db_options_.wal_dir) {
-        // GetChildren() on dbname_ was NOT called above.
-        s = env_->GetChildren(dbname_, &files_in_dbname);
         filenames = &files_in_dbname;
+        if (!immutable_db_options_.best_efforts_recovery) {
+          // GetChildren() on dbname_ was NOT called above.
+          s = env_->GetChildren(dbname_, &files_in_dbname);
+        }
       } else {
         filenames = &files_in_wal_dir;
       }
