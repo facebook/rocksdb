@@ -445,6 +445,16 @@ Status DBImpl::Recover(
         }
       }
     }
+  } else if (immutable_db_options_.best_efforts_recovery) {
+    assert(files_in_dbname.empty());
+    Status s = env_->GetChildren(dbname_, &files_in_dbname);
+    if (s.IsNotFound()) {
+      return Status::InvalidArgument(dbname_,
+                                     "does not exist (open for read only)");
+    } else if (s.IsIOError()) {
+      return s;
+    }
+    assert(s.ok());
   }
   assert(db_id_.empty());
   Status s;
@@ -452,15 +462,9 @@ Status DBImpl::Recover(
   if (!immutable_db_options_.best_efforts_recovery) {
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
-    if (read_only) {
-      assert(files_in_dbname.empty());
-      s = env_->GetChildren(dbname_, &files_in_dbname);
-    }
-    if (!s.ok()) {
-      return s;
-    }
-    s = versions_->TryRecover(column_families, read_only, &db_id_,
-                              &missing_table_file, files_in_dbname);
+    assert(!files_in_dbname.empty());
+    s = versions_->TryRecover(column_families, read_only, files_in_dbname,
+                              &db_id_, &missing_table_file);
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
@@ -618,25 +622,24 @@ Status DBImpl::Recover(
     // to reflect the most recent OPTIONS file. It does not matter for regular
     // read-write db instance because options_file_number_ will later be
     // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
-    std::vector<std::string>* filenames = nullptr;
+    std::vector<std::string> filenames;
     if (s.ok()) {
-      if (NormalizePath(dbname_) !=
-          NormalizePath(immutable_db_options_.wal_dir)) {
-        filenames = &files_in_dbname;
-        if (!immutable_db_options_.best_efforts_recovery) {
-          // GetChildren() on dbname_ was NOT called above.
-          s = env_->GetChildren(dbname_, &files_in_dbname);
-        }
+      const std::string normalized_dbname = NormalizePath(dbname_);
+      const std::string normalized_wal_dir =
+          NormalizePath(immutable_db_options_.wal_dir);
+      if (immutable_db_options_.best_efforts_recovery) {
+        filenames = std::move(files_in_dbname);
+      } else if (normalized_dbname == normalized_wal_dir) {
+        filenames = std::move(files_in_wal_dir);
       } else {
-        filenames = &files_in_wal_dir;
+        s = env_->GetChildren(GetName(), &filenames);
       }
     }
     if (s.ok()) {
       uint64_t number = 0;
       uint64_t options_file_number = 0;
       FileType type;
-      assert(filenames);
-      for (const auto& fname : *filenames) {
+      for (const auto& fname : filenames) {
         if (ParseFileName(fname, &number, &type) && type == kOptionsFile) {
           options_file_number = std::max(number, options_file_number);
         }
