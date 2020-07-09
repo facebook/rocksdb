@@ -16,9 +16,9 @@
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "util/random.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/fault_injection_fs.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 

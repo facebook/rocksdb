@@ -26,8 +26,8 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/mutexlock.h"
-#include "utilities/fault_injection_env.h"
 #include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 

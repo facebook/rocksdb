@@ -636,18 +636,12 @@ LIBRARY=$(SHARED1)
 TEST_LIBRARY=$(SHARED_TEST_LIBRARY)
 TOOLS_LIBRARY=$(SHARED_TOOLS_LIBRARY)
 STRESS_LIBRARY=$(SHARED_STRESS_LIBRARY)
-ifeq ($(DEBUG_LEVEL),0)
-STRESS_LIBRARY_RUNTIME_DEPS=$(SHARED_TOOLS_LIBRARY)
-else
-STRESS_LIBRARY_RUNTIME_DEPS=$(SHARED_TEST_LIBRARY) $(SHARED_TOOLS_LIBRARY)
-endif
 CLOUD_LIBRARY=$(SHARED_CLOUD_LIBRARY)
 else
 LIBRARY=$(STATIC_LIBRARY)
 TEST_LIBRARY=$(STATIC_TEST_LIBRARY)
 TOOLS_LIBRARY=$(STATIC_TOOLS_LIBRARY)
 STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
-STRESS_LIBRARY_RUNTIME_DEPS=
 endif
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -1166,29 +1160,23 @@ $(STATIC_TEST_LIBRARY): $(TEST_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_TEST_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-$(STATIC_TOOLS_LIBRARY): $(BENCH_OBJECTS) $(TOOL_OBJECTS) $(TESTUTIL)
+$(STATIC_TOOLS_LIBRARY): $(BENCH_OBJECTS) $(TOOL_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_TOOLS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-ifeq ($(DEBUG_LEVEL),0)
-$(STATIC_STRESS_LIBRARY): $(TESTUTIL) $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
+$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
-else
-$(STATIC_STRESS_LIBRARY): $(TEST_OBJECTS) $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
-	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
-	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
-endif
 
 $(SHARED_TEST_LIBRARY): $(TEST_OBJECTS) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TEST_LIBRARY)
 	$(AM_SHARE)
 
-$(SHARED_TOOLS_LIBRARY): $(TOOL_OBJECTS) $(TESTUTIL) $(SHARED1)
+$(SHARED_TOOLS_LIBRARY): $(TOOL_OBJECTS) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TOOLS_LIBRARY)
 	$(AM_SHARE)
 
-$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(STRESS_LIBRARY_RUNTIME_DEPS) $(SHARED1)
+$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
 	$(AM_SHARE)
 
@@ -1216,13 +1204,13 @@ cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(LIBRARY)
 persistent_cache_bench: $(OBJ_DIR)/utilities/persistent_cache/persistent_cache_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(TESTUTIL) $(LIBRARY)
+memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 	$(AM_LINK)
 
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(STRESS_LIBRARY_RUNTIME_DEPS) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
@@ -1231,7 +1219,7 @@ write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
 db_sanity_test: $(OBJ_DIR)/tools/db_sanity_test.o $(LIBRARY)
 	$(AM_LINK)
 
-db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(TESTUTIL) $(LIBRARY)
+db_repl_stress: $(OBJ_DIR)/tools/db_repl_stress.o $(LIBRARY)
 	$(AM_LINK)
 
 arena_test: $(OBJ_DIR)/memory/arena_test.o $(TEST_LIBRARY) $(LIBRARY)

@@ -15,8 +15,8 @@
 #include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testutil.h"
-#include "utilities/fault_injection_env.h"
 #include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
