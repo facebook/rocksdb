@@ -1041,15 +1041,32 @@ class RecoveryTestHelper {
   }
 };
 
-class DBWALTestWithParams : public DBWALTestBase,
-                            public ::testing::WithParamInterface<
-                                std::tuple<bool, int, int, WALRecoveryMode>> {
+class DBWALTestWithParams
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, int, int>> {
  public:
   DBWALTestWithParams() : DBWALTestBase("/db_wal_test_with_params") {}
 };
 
 INSTANTIATE_TEST_CASE_P(
     Wal, DBWALTestWithParams,
+    ::testing::Combine(::testing::Bool(), ::testing::Range(0, 4, 1),
+                       ::testing::Range(RecoveryTestHelper::kWALFileOffset,
+                                        RecoveryTestHelper::kWALFileOffset +
+                                            RecoveryTestHelper::kWALFilesCount,
+                                        1)));
+
+class DBWALTestWithParamsVaryingRecoveryMode
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, int, int, WALRecoveryMode>> {
+ public:
+  DBWALTestWithParamsVaryingRecoveryMode()
+      : DBWALTestBase("/db_wal_test_with_params_mode") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Wal, DBWALTestWithParamsVaryingRecoveryMode,
     ::testing::Combine(
         ::testing::Bool(), ::testing::Range(0, 4, 1),
         ::testing::Range(RecoveryTestHelper::kWALFileOffset,
@@ -1066,10 +1083,6 @@ INSTANTIATE_TEST_CASE_P(
 // at the end of any of the logs
 // - We do not expect to open the data store for corruption
 TEST_P(DBWALTestWithParams, kTolerateCorruptedTailRecords) {
-  WALRecoveryMode recovery_mode = std::get<3>(GetParam());
-  if (recovery_mode != WALRecoveryMode::kTolerateCorruptedTailRecords) {
-    return;
-  }
   bool trunc = std::get<0>(GetParam());  // Corruption style
   // Corruption offset position
   int corrupt_offset = std::get<1>(GetParam());
@@ -1082,7 +1095,7 @@ TEST_P(DBWALTestWithParams, kTolerateCorruptedTailRecords) {
   RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
                                  /*len%=*/.1, wal_file_id, trunc);
 
-  options.wal_recovery_mode = recovery_mode;
+  options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   if (trunc) {
     options.create_if_missing = false;
     ASSERT_OK(TryReopen(options));
@@ -1098,11 +1111,6 @@ TEST_P(DBWALTestWithParams, kTolerateCorruptedTailRecords) {
 // We don't expect the data store to be opened if there is any corruption
 // (leading, middle or trailing -- incomplete writes or corruption)
 TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
-  WALRecoveryMode recovery_mode = std::get<3>(GetParam());
-  if (recovery_mode != WALRecoveryMode::kAbsoluteConsistency) {
-    return;
-  }
-
   // Verify clean slate behavior
   Options options = CurrentOptions();
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
@@ -1125,7 +1133,7 @@ TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
                                  /*len%=*/.1, wal_file_id, trunc);
   // verify
-  options.wal_recovery_mode = recovery_mode;
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
   options.create_if_missing = false;
   ASSERT_NOK(TryReopen(options));
 }
@@ -1170,10 +1178,6 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   const int maxkeys =
       RecoveryTestHelper::kWALFilesCount * RecoveryTestHelper::kKeysPerWALFile;
 
-  WALRecoveryMode recovery_mode = std::get<3>(GetParam());
-  if (recovery_mode != WALRecoveryMode::kPointInTimeRecovery) {
-    return;
-  }
   bool trunc = std::get<0>(GetParam());  // Corruption style
   // Corruption offset position
   int corrupt_offset = std::get<1>(GetParam());
@@ -1188,7 +1192,7 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
                                  /*len%=*/.1, wal_file_id, trunc);
 
   // Verify
-  options.wal_recovery_mode = recovery_mode;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
   options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
 
@@ -1219,10 +1223,6 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
 // - We expect to open the data store under all scenarios
 // - We expect to have recovered records past the corruption zone
 TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
-  WALRecoveryMode recovery_mode = std::get<3>(GetParam());
-  if (recovery_mode != WALRecoveryMode::kSkipAnyCorruptedRecords) {
-    return;
-  }
   bool trunc = std::get<0>(GetParam());  // Corruption style
   // Corruption offset position
   int corrupt_offset = std::get<1>(GetParam());
@@ -1237,7 +1237,7 @@ TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
                                  /*len%=*/.1, wal_file_id, trunc);
 
   // Verify behavior
-  options.wal_recovery_mode = recovery_mode;
+  options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
   options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
 
@@ -1425,7 +1425,8 @@ TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
 //   2. Open with avoid_flush_during_recovery = true;
 //   3. Append more data without flushing, which creates new WAL log.
 //   4. Open again. See if it can correctly handle previous corruption.
-TEST_P(DBWALTestWithParams, RecoverFromCorruptedWALWithoutFlush) {
+TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
+       RecoverFromCorruptedWALWithoutFlush) {
   const int kAppendKeys = 100;
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
