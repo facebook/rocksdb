@@ -1227,8 +1227,7 @@ class FileChecksumTestHelper {
   void AddKVtoKVMap(int num_entries) {
     Random rnd(test::RandomSeed());
     for (int i = 0; i < num_entries; i++) {
-      std::string v;
-      test::RandomString(&rnd, 100, &v);
+      std::string v = rnd.RandomString(100);
       kv_map_[test::RandomKey(&rnd, 20)] = v;
     }
   }
@@ -1899,16 +1898,10 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   }
 }
 
-static std::string RandomString(Random* rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-
 void AddInternalKey(TableConstructor* c, const std::string& prefix,
                     std::string value = "v", int /*suffix_len*/ = 800) {
   static Random rnd(1023);
-  InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);
+  InternalKey k(prefix + rnd.RandomString(800), 0, kTypeValue);
   c->Add(k.Encode().ToString(), value);
 }
 
@@ -2481,7 +2474,7 @@ TEST_P(BlockBasedTableTest, IndexSizeStat) {
   std::vector<std::string> keys;
 
   for (int i = 0; i < 100; ++i) {
-    keys.push_back(RandomString(&rnd, 10000));
+    keys.push_back(rnd.RandomString(10000));
   }
 
   // Each time we load one more key to the table. the table index block
@@ -2525,7 +2518,7 @@ TEST_P(BlockBasedTableTest, NumBlockStat) {
   for (int i = 0; i < 10; ++i) {
     // the key/val are slightly smaller than block size, so that each block
     // holds roughly one key/value pair.
-    c.Add(RandomString(&rnd, 900), "val");
+    c.Add(rnd.RandomString(900), "val");
   }
 
   std::vector<std::string> ks;
@@ -3607,9 +3600,8 @@ TEST_P(ParameterizedHarnessTest, RandomizedHarnessTest) {
   for (int num_entries = 0; num_entries < 2000;
        num_entries += (num_entries < 50 ? 1 : 200)) {
     for (int e = 0; e < num_entries; e++) {
-      std::string v;
       Add(test::RandomKey(&rnd, rnd.Skewed(4)),
-          test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+          rnd.RandomString(rnd.Skewed(5)));
     }
     Test(&rnd);
   }
@@ -3621,8 +3613,7 @@ TEST_F(DBHarnessTest, RandomizedLongDB) {
   int num_entries = 100000;
   for (int e = 0; e < num_entries; e++) {
     std::string v;
-    Add(test::RandomKey(&rnd, rnd.Skewed(4)),
-        test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+    Add(test::RandomKey(&rnd, rnd.Skewed(4)), rnd.RandomString(rnd.Skewed(5)));
   }
   Test(&rnd);
 
@@ -3878,8 +3869,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   TableConstructor c(BytewiseComparator());
   static Random rnd(301);
   for (int i = 0; i < kKeysInTable; i++) {
-    InternalKey k(RandomString(&rnd, kKeySize), 0, kTypeValue);
-    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+    InternalKey k(rnd.RandomString(kKeySize), 0, kTypeValue);
+    c.Add(k.Encode().ToString(), rnd.RandomString(kValSize));
   }
 
   std::vector<std::string> keys;
@@ -4541,9 +4532,9 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   static Random rnd(1048);
   for (int i = 0; i < kNumKeys; i++) {
     // padding one "0" to mark existent keys.
-    std::string random_key(RandomString(&rnd, kKeySize - 1) + "1");
+    std::string random_key(rnd.RandomString(kKeySize - 1) + "1");
     InternalKey k(random_key, 0, kTypeValue);
-    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+    c.Add(k.Encode().ToString(), rnd.RandomString(kValSize));
   }
 
   std::vector<std::string> keys;

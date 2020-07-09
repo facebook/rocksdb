@@ -16,10 +16,11 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -2040,7 +2041,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   for (int i = 0; i < 100; ++i) {
     // Make the value compressible. A purely random string doesn't compress
     // and the resultant data block will not be compressed
-    std::string value(RandomString(&rnd, 128) + zero_str);
+    std::string value(rnd.RandomString(128) + zero_str);
     assert(Put(Key(i), value) == Status::OK());
   }
   Flush();
@@ -2430,7 +2431,7 @@ class DBBasicTestMultiGet : public DBTestBase {
       for (int i = 0; i < 100; ++i) {
         // Make the value compressible. A purely random string doesn't compress
         // and the resultant data block will not be compressed
-        values_.emplace_back(RandomString(&rnd, 128) + zero_str);
+        values_.emplace_back(rnd.RandomString(128) + zero_str);
         assert(((num_cfs == 1) ? Put(Key(i), values_[i])
                                : Put(cf, Key(i), values_[i])) == Status::OK());
       }
@@ -2442,7 +2443,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
       for (int i = 0; i < 100; ++i) {
         // block cannot gain space by compression
-        uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
+        uncompressable_values_.emplace_back(rnd.RandomString(256) + '\0');
         std::string tmp_key = "a" + Key(i);
         assert(((num_cfs == 1) ? Put(tmp_key, uncompressable_values_[i])
                                : Put(cf, tmp_key, uncompressable_values_[i])) ==
@@ -3210,7 +3211,7 @@ TEST_F(DBBasicTest, PointLookupDeadline) {
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
       std::string key = "k" + ToString(i);
-      Put(key, RandomString(&rnd, 100));
+      Put(key, rnd.RandomString(100));
     }
     Flush();
 

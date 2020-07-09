@@ -4,18 +4,20 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/block_based_table_reader.h"
-#include "rocksdb/file_system.h"
-#include "table/block_based/partitioned_index_iterator.h"
 
 #include "db/table_properties_collector.h"
+#include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
+#include "table/block_based/partitioned_index_iterator.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,7 +35,7 @@ class BlockBasedTableReaderTest
     std::tie(compression_type_, use_direct_reads_, index_type, no_block_cache) =
         GetParam();
 
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_based_table_reader_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
@@ -46,7 +48,7 @@ class BlockBasedTableReaderTest
         static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }
 
-  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   // Creates a table with the specificied key value pairs (kv).
   void CreateTable(const std::string& table_name,
@@ -159,9 +161,9 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
         sprintf(k, "%08u", key);
         std::string v;
         if (block % 2) {
-          v = test::RandomHumanReadableString(&rnd, 256);
+          v = rnd.HumanReadableString(256);
         } else {
-          test::RandomString(&rnd, 256, &v);
+          v = rnd.RandomString(256);
         }
         kv[std::string(k)] = v;
         key++;
@@ -256,8 +258,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
         // and internal key size is required to be >= 8 bytes,
         // so use %08u as the format string.
         sprintf(k, "%08u", key);
-        std::string v;
-        test::RandomString(&rnd, 256, &v);
+        std::string v = rnd.RandomString(256);
         kv[std::string(k)] = v;
         key++;
       }

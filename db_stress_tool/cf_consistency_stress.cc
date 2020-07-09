@@ -9,6 +9,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "file/file_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CfConsistencyStressTest : public StressTest {
@@ -307,7 +308,7 @@ class CfConsistencyStressTest : public StressTest {
     if (db_stress_env->FileExists(checkpoint_dir).ok()) {
       // If the directory might still exist, try to delete the files one by one.
       // Likely a trash file is still there.
-      Status my_s = test::DestroyDir(db_stress_env, checkpoint_dir);
+      Status my_s = DestroyDir(db_stress_env, checkpoint_dir);
       if (!my_s.ok()) {
         fprintf(stderr, "Fail to destory directory before checkpoint: %s",
                 my_s.ToString().c_str());

@@ -15,6 +15,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/cast_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
@@ -1341,7 +1342,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_stress_env->FileExists(checkpoint_dir).ok()) {
     // If the directory might still exist, try to delete the files one by one.
     // Likely a trash file is still there.
-    Status my_s = test::DestroyDir(db_stress_env, checkpoint_dir);
+    Status my_s = DestroyDir(db_stress_env, checkpoint_dir);
     if (!my_s.ok()) {
       fprintf(stderr, "Fail to destory directory before checkpoint: %s",
               my_s.ToString().c_str());

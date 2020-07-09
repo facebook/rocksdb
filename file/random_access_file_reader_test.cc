@@ -3,19 +3,22 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "file/random_access_file_reader.h"
+
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
-#include "file/random_access_file_reader.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFileReaderTest : public testing::Test {
  public:
   void SetUp() override {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     test_dir_ = test::PerThreadDBPath("random_access_file_reader_test");
@@ -23,9 +26,7 @@ class RandomAccessFileReaderTest : public testing::Test {
     ComputeAndSetAlignment();
   }
 
-  void TearDown() override {
-    EXPECT_OK(test::DestroyDir(env_, test_dir_));
-  }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   void Write(const std::string& fname, const std::string& content) {
     std::unique_ptr<FSWritableFile> f;
@@ -79,8 +80,7 @@ class RandomAccessFileReaderTest : public testing::Test {
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
   Random rand(0);
-  std::string content;
-  test::RandomString(&rand, static_cast<int>(alignment()), &content);
+  std::string content = rand.RandomString(static_cast<int>(alignment()));
   Write(fname, content);
 
   FileOptions opts;
@@ -104,8 +104,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   // Creates a file with 3 pages.
   std::string fname = "multi-read-direct-io";
   Random rand(0);
-  std::string content;
-  test::RandomString(&rand, 3 * static_cast<int>(alignment()), &content);
+  std::string content = rand.RandomString(3 * static_cast<int>(alignment()));
   Write(fname, content);
 
   FileOptions opts;

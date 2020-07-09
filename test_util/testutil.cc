@@ -11,6 +11,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -23,29 +24,13 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const uint32_t kLatestFormatVersion = 5u;
-
-Slice RandomString(Random* rnd, int len, std::string* dst) {
-  dst->resize(len);
-  for (int i = 0; i < len; i++) {
-    (*dst)[i] = static_cast<char>(' ' + rnd->Uniform(95));  // ' ' .. '~'
-  }
-  return Slice(*dst);
-}
-
-extern std::string RandomHumanReadableString(Random* rnd, int len) {
-  std::string ret;
-  ret.resize(len);
-  for (int i = 0; i < len; ++i) {
-    ret[i] = static_cast<char>('a' + rnd->Uniform(26));
-  }
-  return ret;
-}
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
@@ -78,8 +63,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) raw = 1;
-  std::string raw_data;
-  RandomString(rnd, raw, &raw_data);
+  std::string raw_data = rnd->RandomString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
@@ -453,51 +437,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
                               &cf_opt->compression_per_level, rnd);
 }
 
-Status DestroyDir(Env* env, const std::string& dir) {
-  Status s;
-  if (env->FileExists(dir).IsNotFound()) {
-    return s;
-  }
-  std::vector<std::string> files_in_dir;
-  s = env->GetChildren(dir, &files_in_dir);
-  if (s.ok()) {
-    for (auto& file_in_dir : files_in_dir) {
-      if (file_in_dir == "." || file_in_dir == "..") {
-        continue;
-      }
-      std::string path = dir + "/" + file_in_dir;
-      bool is_dir = false;
-      s = env->IsDirectory(path, &is_dir);
-      if (s.ok()) {
-        if (is_dir) {
-          s = DestroyDir(env, path);
-        } else {
-          s = env->DeleteFile(path);
-        }
-      }
-      if (!s.ok()) {
-        // IsDirectory, etc. might not report NotFound
-        if (s.IsNotFound() || env->FileExists(path).IsNotFound()) {
-          // Allow files to be deleted externally
-          s = Status::OK();
-        } else {
-          break;
-        }
-      }
-    }
-  }
-
-  if (s.ok()) {
-    s = env->DeleteDir(dir);
-    // DeleteDir might or might not report NotFound
-    if (!s.ok() && (s.IsNotFound() || env->FileExists(dir).IsNotFound())) {
-      // Allow to be deleted externally
-      s = Status::OK();
-    }
-  }
-  return s;
-}
-
 bool IsDirectIOSupported(Env* env, const std::string& dir) {
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
@@ -531,22 +470,6 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
-void SetupSyncPointsToMockDirectIO() {
-#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
-    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewWritableFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-#endif
-}
 
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
   struct stat sbuf;

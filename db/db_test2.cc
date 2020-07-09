@@ -16,7 +16,8 @@
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
-#include "test_util/fault_injection_test_env.h"
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -166,7 +167,7 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
 
   for (int i = 0; i < 3000; i++) {
     int j = i % 30;
-    std::string value = RandomString(&rnd, 10500);
+    std::string value = rnd.RandomString(10500);
     ASSERT_OK(Put("keykey_" + std::to_string(j), value));
     snapshots.push_back(db_->GetSnapshot());
   }
@@ -1274,7 +1275,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
       std::string seq_datas[10];
       for (int j = 0; j < 10; ++j) {
         seq_datas[j] =
-            RandomString(&rnd, kBlockSizeBytes - kApproxPerBlockOverheadBytes);
+            rnd.RandomString(kBlockSizeBytes - kApproxPerBlockOverheadBytes);
       }
 
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
@@ -1349,7 +1350,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kNumEntriesPerFile; ++j) {
       ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j),
-                    RandomString(&rnd, kNumBytesPerEntry)));
+                    rnd.RandomString(kNumBytesPerEntry)));
     }
     ASSERT_OK(Flush());
     MoveFilesToLevel(1);
@@ -1519,9 +1520,9 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
   // Write 10 random files
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 5; j++) {
-      std::string key = RandomString(&rnd, kKeySize);
+      std::string key = rnd.RandomString(kKeySize);
       // Ensure good compression ratio
-      std::string valueUnit = RandomString(&rnd, kValUnitSize);
+      std::string valueUnit = rnd.RandomString(kValUnitSize);
       std::string value;
       for (int k = 0; k < kValSize; k += kValUnitSize) {
         value += valueUnit;
@@ -1623,8 +1624,8 @@ TEST_F(DBTest2, CompressionOptions) {
       // Write 10 random files
       for (int i = 0; i < 10; i++) {
         for (int j = 0; j < 5; j++) {
-          std::string key = RandomString(&rnd, kKeySize);
-          std::string value = RandomString(&rnd, kValSize);
+          std::string key = rnd.RandomString(kKeySize);
+          std::string value = rnd.RandomString(kValSize);
           key_value_written[key] = value;
           ASSERT_OK(Put(key, value));
         }
@@ -1696,7 +1697,7 @@ TEST_F(DBTest2, CompactionStall) {
   // 4 Files in L0
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+      ASSERT_OK(Put(rnd.RandomString(10), rnd.RandomString(10)));
     }
     ASSERT_OK(Flush());
   }
@@ -1711,7 +1712,7 @@ TEST_F(DBTest2, CompactionStall) {
   // Another 6 L0 files to trigger compaction again
   for (int i = 0; i < 6; i++) {
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+      ASSERT_OK(Put(rnd.RandomString(10), rnd.RandomString(10)));
     }
     ASSERT_OK(Flush());
   }
@@ -2311,7 +2312,7 @@ TEST_F(DBTest2, PersistentCache) {
       std::string str;
       for (int i = 0; i < num_iter; i++) {
         if (i % 4 == 0) {  // high compression ratio
-          str = RandomString(&rnd, 1000);
+          str = rnd.RandomString(1000);
         }
         values.push_back(str);
         ASSERT_OK(Put(1, Key(i), values[i]));
@@ -2409,7 +2410,7 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
     Random rnd(301);
     for (size_t i = 0; i < kNumEntries; i++) {
-      ASSERT_OK(Put(Key(static_cast<int>(i)), RandomString(&rnd, 100)));
+      ASSERT_OK(Put(Key(static_cast<int>(i)), rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());
 
@@ -2516,7 +2517,7 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
 
     Random rnd(301);
     for (int i = 0; i < kNumEntries; i++) {
-      ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());
 
@@ -2739,13 +2740,13 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   Random rnd(301);
   // Generate a file containing 10 keys.
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
 
   // Generate another file containing same keys
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
 
@@ -2818,7 +2819,7 @@ TEST_F(DBTest2, PausingManualCompaction2) {
   for (int i = 0; i < 2; i++) {
     // Generate a file containing 10 keys.
     for (int j = 0; j < 100; j++) {
-      ASSERT_OK(Put(Key(j), RandomString(&rnd, 50)));
+      ASSERT_OK(Put(Key(j), rnd.RandomString(50)));
     }
     ASSERT_OK(Flush());
   }
@@ -2840,7 +2841,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
     for (int i = 0; i < options.num_levels; i++) {
       for (int j = 0; j < options.num_levels - i + 1; j++) {
         for (int k = 0; k < 1000; k++) {
-          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
         Flush();
       }
@@ -2894,7 +2895,7 @@ TEST_F(DBTest2, PausingManualCompaction4) {
     for (int i = 0; i < options.num_levels; i++) {
       for (int j = 0; j < options.num_levels - i + 1; j++) {
         for (int k = 0; k < 1000; k++) {
-          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
         Flush();
       }
@@ -4021,7 +4022,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   Reopen(options);
 
   Random rnd(301);
-  std::string v = RandomString(&rnd, 400);
+  std::string v = rnd.RandomString(400);
 
   // Since v is the size of a block, each key should take a block
   // of 400+ bytes.
@@ -4749,7 +4750,7 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   Reopen(options);
 
   Random rnd(301);
-  std::string large_value = RandomString(&rnd, 500);
+  std::string large_value = rnd.RandomString(500);
 
   ASSERT_OK(Put("a1", large_value));
   ASSERT_OK(Put("x1", large_value));
@@ -5011,7 +5012,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   Reopen(options);
 
   Random rnd(301);
-  std::string large_value = RandomString(&rnd, 500);
+  std::string large_value = rnd.RandomString(500);
 
   ASSERT_OK(Put("a1", large_value));
   ASSERT_OK(Put("x1", large_value));

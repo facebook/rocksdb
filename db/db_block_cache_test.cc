@@ -7,10 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cstdlib>
+
 #include "cache/lru_cache.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "util/compression.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -764,7 +766,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
     std::string str;
     for (int i = 0; i < num_iter; i++) {
       if (i % 4 == 0) {  // high compression ratio
-        str = RandomString(&rnd, 1000);
+        str = rnd.RandomString(1000);
       }
       values.push_back(str);
       ASSERT_OK(Put(1, Key(i), values[i]));
@@ -851,7 +853,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     for (int i = 0; i < kNumFiles; ++i) {
       ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
       for (int j = 0; j < kNumEntriesPerFile; ++j) {
-        std::string value = RandomString(&rnd, kNumBytesPerEntry);
+        std::string value = rnd.RandomString(kNumBytesPerEntry);
         ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
       }
       ASSERT_OK(Flush());

@@ -8,9 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/utilities/option_change_migration.h"
+
 #include <set>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/random.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 class DBOptionChangeMigrationTests
@@ -200,7 +204,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   Random rnd(301);
   for (int num = 0; num < 20; num++) {
     for (int i = 0; i < 50; i++) {
-      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+      ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
     Flush();
     dbfull()->TEST_WaitForCompact();
@@ -274,7 +278,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   Random rnd(301);
   for (int num = 0; num < 20; num++) {
     for (int i = 0; i < 50; i++) {
-      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+      ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
     Flush();
     dbfull()->TEST_WaitForCompact();
@@ -370,7 +374,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   Random rnd(301);
   for (int num = 0; num < 20; num++) {
     for (int i = 0; i < 50; i++) {
-      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+      ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
   }
   Flush();

@@ -751,6 +751,8 @@ set(SOURCES
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
+        utilities/fault_injection_env.cc
+        utilities/fault_injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators/bytesxor.cc
@@ -1172,8 +1174,6 @@ if(WITH_TESTS)
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
-      test_util/fault_injection_test_env.cc
-      test_util/fault_injection_test_fs.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
