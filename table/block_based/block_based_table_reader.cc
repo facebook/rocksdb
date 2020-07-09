@@ -504,8 +504,8 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       // This is not an external sst file, global_seqno is not supported.
       snprintf(
           msg_buf.data(), msg_buf.max_size(),
-          "A non-external sst file have global seqno property with value %s",
-          seqno_pos->second.c_str());
+          "A non-external sst file have global seqno property with value %lu",
+          DecodeFixed64(seqno_pos->second.c_str()));
       return Status::Corruption(msg_buf.data());
     }
     return Status::OK();
@@ -517,9 +517,9 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       std::array<char, 200> msg_buf;
       // This is a v1 external sst file, global_seqno is not supported.
       snprintf(msg_buf.data(), msg_buf.max_size(),
-               "An external sst file with version %u have global seqno "
-               "property with value %s",
-               version, seqno_pos->second.c_str());
+               "An external sst file with version %u has global seqno "
+               "property with value %lu",
+               version, DecodeFixed64(seqno_pos->second.c_str()));
       return Status::Corruption(msg_buf.data());
     }
     return Status::OK();
@@ -542,9 +542,9 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       std::array<char, 200> msg_buf;
       snprintf(
           msg_buf.data(), msg_buf.max_size(),
-          "An external sst file with version %u have global seqno property "
-          "with value %s, while largest seqno in the file is %llu",
-          version, seqno_pos->second.c_str(),
+          "An external sst file with version %u has global seqno property "
+          "with value %llu, while largest seqno in the file is %llu",
+          version, static_cast<unsigned long long>(global_seqno),
           static_cast<unsigned long long>(largest_seqno));
       return Status::Corruption(msg_buf.data());
     }
@@ -554,7 +554,7 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   if (global_seqno > kMaxSequenceNumber) {
     std::array<char, 200> msg_buf;
     snprintf(msg_buf.data(), msg_buf.max_size(),
-             "An external sst file with version %u have global seqno property "
+             "An external sst file with version %u has global seqno property "
              "with value %llu, which is greater than kMaxSequenceNumber",
              version, static_cast<unsigned long long>(global_seqno));
     return Status::Corruption(msg_buf.data());
