@@ -144,6 +144,38 @@ INSTANTIATE_TEST_CASE_P(TestReadOnlyWithCompressedCache,
                         TestReadOnlyWithCompressedCache,
                         ::testing::Combine(::testing::Values(-1, 100),
                                            ::testing::Bool()));
+
+class PartitionedIndexTestListener : public EventListener {
+ public:
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+    ASSERT_GT(info.table_properties.index_partitions, 1);
+    ASSERT_EQ(info.table_properties.index_key_is_user_key, 0);
+  }
+};
+
+TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.listeners.emplace_back(listener);
+  std::vector<const Snapshot*> snapshots;
+  Reopen(options);
+  Random rnd(301);
+
+  for (int i = 0; i < 3000; i++) {
+    int j = i % 30;
+    std::string value = RandomString(&rnd, 10500);
+    ASSERT_OK(Put("keykey_" + std::to_string(j), value));
+    snapshots.push_back(db_->GetSnapshot());
+  }
+  Flush();
+  for (auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 class PrefixFullBloomWithReverseComparator

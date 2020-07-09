@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.11.3 (7/9/2020)
+### Bug Fixes
+* Fix a bug when index_type == kTwoLevelIndexSearch in PartitionedIndexBuilder to update FlushPolicy to point to internal key partitioner when it changes from user-key mode to internal-key mode in index partition.
+
 ## 6.11.1 (6/23/2020)
 ### Bug Fixes
 * Best-efforts recovery ignores CURRENT file completely. If CURRENT file is missing during recovery, best-efforts recovery still proceeds with MANIFEST file(s).
