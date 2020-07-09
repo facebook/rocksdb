@@ -504,8 +504,8 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       // This is not an external sst file, global_seqno is not supported.
       snprintf(
           msg_buf.data(), msg_buf.max_size(),
-          "A non-external sst file have global seqno property with value %lu",
-          DecodeFixed64(seqno_pos->second.c_str()));
+          "A non-external sst file have global seqno property with value %llu",
+          static_cast<unsigned long long>(DecodeFixed64(seqno_pos->second.c_str())));
       return Status::Corruption(msg_buf.data());
     }
     return Status::OK();
@@ -518,8 +518,8 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       // This is a v1 external sst file, global_seqno is not supported.
       snprintf(msg_buf.data(), msg_buf.max_size(),
                "An external sst file with version %u has global seqno "
-               "property with value %lu",
-               version, DecodeFixed64(seqno_pos->second.c_str()));
+               "property with value %llu", version,
+               static_cast<unsigned long long>(DecodeFixed64(seqno_pos->second.c_str())));
       return Status::Corruption(msg_buf.data());
     }
     return Status::OK();
