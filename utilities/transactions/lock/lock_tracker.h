@@ -178,9 +178,8 @@ class LockTracker {
 
   // Gets an iterator for keys with tracked point locks in the column family.
   //
+  // The column family must exist.
   // Returned iterator must not be nullptr.
-  // If there is no such column family or no keys in the column family,
-  // returns an empty non-null iterator.
   // Caller owns the returned pointer.
   virtual KeyIterator* GetKeyIterator(
       ColumnFamilyId /*column_family_id*/) const = 0;

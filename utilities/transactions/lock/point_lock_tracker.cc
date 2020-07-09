@@ -24,18 +24,6 @@ class TrackedKeysColumnFamilyIterator
   TrackedKeys::const_iterator it_;
 };
 
-class EmptyKeysIterator : public LockTracker::KeyIterator {
- public:
-  bool HasNext() const override { return false; }
-
-  const std::string& Next() override { return kEmptyStr_; }
-
- private:
-  static const std::string kEmptyStr_;
-};
-
-const std::string EmptyKeysIterator::kEmptyStr_ = "";
-
 class TrackedKeysIterator : public LockTracker::KeyIterator {
  public:
   TrackedKeysIterator(const TrackedKeys& keys, ColumnFamilyId id)
@@ -268,9 +256,7 @@ LockTracker::ColumnFamilyIterator* PointLockTracker::GetColumnFamilyIterator()
 
 LockTracker::KeyIterator* PointLockTracker::GetKeyIterator(
     ColumnFamilyId column_family_id) const {
-  if (tracked_keys_.find(column_family_id) == tracked_keys_.end()) {
-    return new EmptyKeysIterator();
-  }
+  assert(tracked_keys_.find(column_family_id) != tracked_keys_.end());
   return new TrackedKeysIterator(tracked_keys_, column_family_id);
 }
 
