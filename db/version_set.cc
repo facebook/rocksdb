@@ -4731,24 +4731,21 @@ namespace {
 class ManifestPicker {
  public:
   explicit ManifestPicker(const std::string& dbname,
-                          const std::vector<std::string>& files_in_dbname,
-                          FileSystem* fs);
+                          const std::vector<std::string>& files_in_dbname);
   // REQUIRES Valid() == true
   std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
   bool Valid() const { return manifest_file_iter_ != manifest_files_.end(); }
 
  private:
   const std::string& dbname_;
-  FileSystem* const fs_;
   // MANIFEST file names(s)
   std::vector<std::string> manifest_files_;
   std::vector<std::string>::const_iterator manifest_file_iter_;
 };
 
 ManifestPicker::ManifestPicker(const std::string& dbname,
-                               const std::vector<std::string>& files_in_dbname,
-                               FileSystem* fs)
-    : dbname_(dbname), fs_(fs) {
+                               const std::vector<std::string>& files_in_dbname)
+    : dbname_(dbname) {
   // populate manifest files
   assert(!files_in_dbname.empty());
   for (const auto& fname : files_in_dbname) {
@@ -4812,17 +4809,9 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
 Status VersionSet::TryRecover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id, bool* has_missing_table_file,
-    std::vector<std::string>& files_in_dbname) {
+    const std::vector<std::string>& files_in_dbname) {
   Status s;
-  if (read_only) {
-    assert(files_in_dbname.empty());
-    s = fs_->GetChildren(dbname_, IOOptions(), &files_in_dbname,
-                         /*dbg=*/nullptr);
-  }
-  ManifestPicker manifest_picker(dbname_, files_in_dbname, fs_);
-  if (!s.ok()) {
-    return s;
-  }
+  ManifestPicker manifest_picker(dbname_, files_in_dbname);
   if (!manifest_picker.Valid()) {
     return Status::Corruption("Cannot locate MANIFEST file in " + dbname_);
   }

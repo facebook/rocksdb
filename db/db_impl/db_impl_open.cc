@@ -452,6 +452,13 @@ Status DBImpl::Recover(
   if (!immutable_db_options_.best_efforts_recovery) {
     s = versions_->Recover(column_families, read_only, &db_id_);
   } else {
+    if (read_only) {
+      assert(files_in_dbname.empty());
+      s = env_->GetChildren(dbname_, &files_in_dbname);
+    }
+    if (!s.ok()) {
+      return s;
+    }
     s = versions_->TryRecover(column_families, read_only, &db_id_,
                               &missing_table_file, files_in_dbname);
     if (s.ok()) {
@@ -551,16 +558,15 @@ Status DBImpl::Recover(
     }
 
     std::vector<uint64_t> logs;
-    for (size_t i = 0; i < files_in_wal_dir.size(); i++) {
+    for (const auto& log_file : files_in_wal_dir) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(files_in_wal_dir[i], &number, &type) &&
-          type == kLogFile) {
+      if (ParseFileName(log_file, &number, &type) && type == kLogFile) {
         if (is_new_db) {
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
-              files_in_wal_dir[i]);
+              log_file);
         } else {
           logs.push_back(number);
         }
@@ -614,7 +620,8 @@ Status DBImpl::Recover(
     // updated to versions_->NewFileNumber() in RenameTempFileToOptionsFile.
     std::vector<std::string>* filenames = nullptr;
     if (s.ok()) {
-      if (dbname_ != immutable_db_options_.wal_dir) {
+      if (NormalizePath(dbname_) !=
+          NormalizePath(immutable_db_options_.wal_dir)) {
         filenames = &files_in_dbname;
         if (!immutable_db_options_.best_efforts_recovery) {
           // GetChildren() on dbname_ was NOT called above.
