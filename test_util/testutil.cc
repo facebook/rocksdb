@@ -11,6 +11,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -23,20 +24,13 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const uint32_t kLatestFormatVersion = 5u;
-
-Slice RandomString(Random* rnd, int len, std::string* dst) {
-  dst->resize(len);
-  for (int i = 0; i < len; i++) {
-    (*dst)[i] = static_cast<char>(' ' + rnd->Uniform(95));  // ' ' .. '~'
-  }
-  return Slice(*dst);
-}
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
@@ -69,8 +63,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) raw = 1;
-  std::string raw_data;
-  RandomString(rnd, raw, &raw_data);
+  std::string raw_data = rnd->RandomString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();

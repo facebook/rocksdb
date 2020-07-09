@@ -15,10 +15,13 @@
 // error can be returned when file system is not activated.
 
 #include "test_util/fault_injection_test_fs.h"
+
 #include <functional>
 #include <utility>
+
 #include "port/lang.h"
 #include "port/stack_trace.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -501,8 +504,7 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
               // The randomly generated string could be identical to the
               // original one, so retry
               do {
-                str = DBTestBase::RandomString(&ctx->rand,
-                                    static_cast<int>(len));
+                str = ctx->rand.RandomString(static_cast<int>(len));
               } while (str == std::string(scratch + offset, len));
               memcpy(scratch + offset, str.data(), len);
               break;

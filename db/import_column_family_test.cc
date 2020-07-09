@@ -1,11 +1,13 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -450,7 +452,7 @@ TEST_F(ImportColumnFamilyTest, LevelFilesOverlappingAtEndpoints) {
   snapshots.reserve(kFileBytes / kValueBytes * kNumFiles);
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
-      auto value = RandomString(&rnd, kValueBytes);
+      auto value = rnd.RandomString(kValueBytes);
       ASSERT_OK(Put(1, "key", value));
       snapshots.push_back(db_->GetSnapshot());
     }

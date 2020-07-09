@@ -3,12 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "file/random_access_file_reader.h"
+
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/file_system.h"
-#include "file/random_access_file_reader.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -79,8 +81,7 @@ class RandomAccessFileReaderTest : public testing::Test {
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
   Random rand(0);
-  std::string content;
-  test::RandomString(&rand, static_cast<int>(alignment()), &content);
+  std::string content = rand.RandomString(static_cast<int>(alignment()));
   Write(fname, content);
 
   FileOptions opts;
@@ -104,8 +105,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   // Creates a file with 3 pages.
   std::string fname = "multi-read-direct-io";
   Random rand(0);
-  std::string content;
-  test::RandomString(&rand, 3 * static_cast<int>(alignment()), &content);
+  std::string content = rand.RandomString(3 * static_cast<int>(alignment()));
   Write(fname, content);
 
   FileOptions opts;

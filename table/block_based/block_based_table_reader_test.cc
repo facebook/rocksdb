@@ -162,7 +162,7 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
         if (block % 2) {
           v = rnd.HumanReadableString(256);
         } else {
-          test::RandomString(&rnd, 256, &v);
+          v = rnd.RandomString(256);
         }
         kv[std::string(k)] = v;
         key++;
@@ -257,8 +257,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
         // and internal key size is required to be >= 8 bytes,
         // so use %08u as the format string.
         sprintf(k, "%08u", key);
-        std::string v;
-        test::RandomString(&rnd, 256, &v);
+        std::string v = rnd.RandomString(256);
         kv[std::string(k)] = v;
         key++;
       }

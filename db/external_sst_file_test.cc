@@ -16,6 +16,7 @@
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/fault_injection_test_env.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1751,10 +1752,8 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
     for (int i = 0; i < 500; i++) {
       std::vector<std::pair<std::string, std::string>> random_data;
       for (int j = 0; j < 100; j++) {
-        std::string k;
-        std::string v;
-        test::RandomString(&rnd, rnd.Next() % 20, &k);
-        test::RandomString(&rnd, rnd.Next() % 50, &v);
+        std::string k = rnd.RandomString(rnd.Next() % 20);
+        std::string v = rnd.RandomString(rnd.Next() % 50);
         random_data.emplace_back(k, v);
       }
 
@@ -2388,8 +2387,7 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
   Random rnd(301);
   std::vector<std::pair<std::string, std::string>> random_data;
   for (int i = 0; i < kNumEntries; i++) {
-    std::string val;
-    test::RandomString(&rnd, kNumBytesPerEntry, &val);
+    std::string val = rnd.RandomString(kNumBytesPerEntry);
     random_data.emplace_back(Key(i), std::move(val));
   }
   ASSERT_OK(GenerateAndAddExternalFile(options, std::move(random_data)));
@@ -2844,7 +2842,7 @@ TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresent) {
   DestroyAndReopen(options);
   constexpr size_t kValueSize = 8;
   Random rnd(301);
-  std::string value(RandomString(&rnd, kValueSize));
+  std::string value = rnd.RandomString(kValueSize);
 
   // Write some key to make global seqno larger than zero
   for (int i = 0; i < 10; i++) {
@@ -2888,7 +2886,7 @@ TEST_P(ExternalSSTFileTest,
   Options options = CurrentOptions();
 
   Random rnd(301);
-  std::string value(RandomString(&rnd, kValueSize));
+  std::string value = rnd.RandomString(kValueSize);
 
   std::string key0 = "aa";
   std::string key1 = "ab";

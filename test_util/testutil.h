@@ -26,9 +26,9 @@
 #include "table/internal_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "util/mutexlock.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Random;
 class SequentialFile;
 class SequentialFileReader;
 
@@ -36,10 +36,6 @@ namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
 extern const uint32_t kLatestFormatVersion;
-
-// Store in *dst a random string of length "len" and return a Slice that
-// references the generated data.
-extern Slice RandomString(Random* rnd, int len, std::string* dst);
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).

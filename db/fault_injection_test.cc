@@ -27,6 +27,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -249,7 +250,8 @@ class FaultInjectionTest
   // Return the value to associate with the specified key
   Slice Value(int k, std::string* storage) const {
     Random r(k);
-    return test::RandomString(&r, kValueSize, storage);
+    *storage = r.RandomString(kValueSize);
+    return Slice(*storage);
   }
 
   void CloseDB() {

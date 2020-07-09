@@ -166,8 +166,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     std::string target;
     for (int i = 0; i < 20; i++) {
       uint32_t num = r.Skewed(16) * 100 + r.Uniform(100);
-      std::string random_string;
-      test::RandomString(&r, num, &random_string);
+      std::string random_string = r.RandomString(num);
       writer->Append(Slice(random_string.c_str(), num));
       target.append(random_string.c_str(), num);
 

@@ -446,8 +446,7 @@ class FileManager : public EnvWrapper {
     }
 
     for (uint64_t i = 0; i < bytes_to_corrupt; ++i) {
-      std::string tmp;
-      test::RandomString(&rnd_, 1, &tmp);
+      std::string tmp = rnd_.RandomString(1);
       file_contents[rnd_.Next() % file_contents.size()] = tmp[0];
     }
     return WriteToFile(fname, file_contents);
@@ -722,8 +721,7 @@ class BackupableDBTest : public testing::Test {
       return s;
     }
     for (uint64_t i = 0; i < fsize; ++i) {
-      std::string tmp;
-      test::RandomString(&rnd, 1, &tmp);
+      std::string tmp = rnd.RandomString(1);
       file_contents[rnd.Next() % file_contents.size()] = tmp[0];
     }
     return WriteStringToFile(test_db_env_.get(), file_contents, fname);
