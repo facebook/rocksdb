@@ -364,8 +364,9 @@ class BackupEngineImpl : public BackupEngine {
                            uint64_t size_limit, uint32_t* checksum_value);
 
   // Obtain db_id and db_session_id from the table properties of file_path
-  Status GetFileDbIdentities(Env* src_env, const std::string& file_path,
-                             std::string* db_id, std::string* db_session_id);
+  Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
+                             const std::string& file_path, std::string* db_id,
+                             std::string* db_session_id);
 
   struct CopyOrCreateResult {
     uint64_t size;
@@ -1546,7 +1547,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
         // SST file
         // Ignore the returned status
         // In the failed cases, db_id and db_session_id will be empty
-        GetFileDbIdentities(src_env, src, db_id, db_session_id);
+        GetFileDbIdentities(src_env, src_env_options, src, db_id,
+                            db_session_id);
       }
     }
   }
@@ -1620,7 +1622,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
-      GetFileDbIdentities(db_env_, src_dir + fname, &db_id, &db_session_id);
+      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, &db_id,
+                          &db_session_id);
     }
     if (size_bytes == port::kMaxUint64) {
       return Status::NotFound("File missing: " + src_dir + fname);
@@ -1721,7 +1724,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
                        "%s checksum checksum calculated, try to obtain DB "
                        "session identity",
                        fname.c_str());
-        GetFileDbIdentities(db_env_, src_dir + fname, &db_id, &db_session_id);
+        GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, &db_id,
+                            &db_session_id);
       }
     }
   }
@@ -1798,20 +1802,20 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
 }
 
 Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
+                                             const EnvOptions& src_env_options,
                                              const std::string& file_path,
                                              std::string* db_id,
                                              std::string* db_session_id) {
   assert(db_id != nullptr || db_session_id != nullptr);
-  // // Prepare the full_path of file_path under src_env for SstFileDumper
-  std::string full_path;
-  src_env->GetAbsolutePath(file_path, &full_path);
+
   Options options;
   options.env = src_env;
-  SstFileDumper sst_reader(options, full_path,
+  SstFileDumper sst_reader(options, file_path,
                            2 * 1024 * 1024
                            /* readahead_size */,
                            false /* verify_checksum */, false /* output_hex */,
-                           false /* decode_blob_index */, true /* silent */);
+                           false /* decode_blob_index */, src_env_options,
+                           true /* silent */);
 
   const TableProperties* table_properties = nullptr;
   std::shared_ptr<const TableProperties> tp;
@@ -1826,6 +1830,8 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
       table_properties = tp.get();
     }
   } else {
+    ROCKS_LOG_INFO(options_.info_log, "Failed to read %s: %s",
+                   file_path.c_str(), s.ToString().c_str());
     return s;
   }
 
@@ -1836,13 +1842,16 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     if (db_session_id != nullptr) {
       db_session_id->assign(table_properties->db_session_id);
       if (db_session_id->empty()) {
-        return Status::NotFound("DB session identity not found in " +
-                                file_path);
+        s = Status::NotFound("DB session identity not found in " + file_path);
+        ROCKS_LOG_INFO(options_.info_log, "%s", s.ToString().c_str());
+        return s;
       }
     }
     return Status::OK();
   } else {
-    return Status::Corruption("Table properties missing in " + file_path);
+    s = Status::Corruption("Table properties missing in " + file_path);
+    ROCKS_LOG_INFO(options_.info_log, "%s", s.ToString().c_str());
+    return s;
   }
 }
 

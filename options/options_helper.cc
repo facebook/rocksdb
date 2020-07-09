@@ -930,7 +930,7 @@ Status GetTableFactoryFromMap(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<TableFactory>* table_factory) {
   Status s;
-  if (factory_name == BlockBasedTableFactory().Name()) {
+  if (factory_name == BlockBasedTableFactory::kName) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(
         config_options, BlockBasedTableOptions(), opt_map, &bbt_opt);
@@ -939,7 +939,7 @@ Status GetTableFactoryFromMap(
     }
     table_factory->reset(new BlockBasedTableFactory(bbt_opt));
     return s;
-  } else if (factory_name == PlainTableFactory().Name()) {
+  } else if (factory_name == PlainTableFactory::kName) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(config_options, PlainTableOptions(),
                                     opt_map, &pt_opt);

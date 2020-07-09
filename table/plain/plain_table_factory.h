@@ -159,7 +159,7 @@ class PlainTableFactory : public TableFactory {
       const PlainTableOptions& _table_options = PlainTableOptions())
       : table_options_(_table_options) {}
 
-  const char* Name() const override { return "PlainTable"; }
+  const char* Name() const override { return kName.c_str(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions& ro,
                         const TableReaderOptions& table_reader_options,
@@ -190,6 +190,8 @@ class PlainTableFactory : public TableFactory {
                          std::string* /*opt_string*/) const override {
     return Status::OK();
   }
+
+  static const std::string kName;
 
  private:
   PlainTableOptions table_options_;

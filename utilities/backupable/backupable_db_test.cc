@@ -446,8 +446,7 @@ class FileManager : public EnvWrapper {
     }
 
     for (uint64_t i = 0; i < bytes_to_corrupt; ++i) {
-      std::string tmp;
-      test::RandomString(&rnd_, 1, &tmp);
+      std::string tmp = rnd_.RandomString(1);
       file_contents[rnd_.Next() % file_contents.size()] = tmp[0];
     }
     return WriteToFile(fname, file_contents);
@@ -594,6 +593,17 @@ class BackupableDBTest : public testing::Test {
     return db;
   }
 
+  void CloseAndReopenDB() {
+    // Close DB
+    db_.reset();
+
+    // Open DB
+    test_db_env_->SetLimitWrittenFiles(1000000);
+    DB* db;
+    ASSERT_OK(DB::Open(options_, dbname_, &db));
+    db_.reset(db);
+  }
+
   void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
                              ShareOption shared_option = kShareNoChecksum) {
     // reset all the defaults
@@ -710,11 +720,8 @@ class BackupableDBTest : public testing::Test {
     if (!s.ok()) {
       return s;
     }
-    for (uint64_t i = 0; i < fsize; ++i) {
-      std::string tmp;
-      test::RandomString(&rnd, 1, &tmp);
-      file_contents[rnd.Next() % file_contents.size()] = tmp[0];
-    }
+
+    file_contents[0] = (file_contents[0] + 257) % 256;
     return WriteStringToFile(test_db_env_.get(), file_contents, fname);
   }
 
@@ -1186,12 +1193,14 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // file_checksum_gen_factory is null, and thus table checksum is not
   // verified for creating a new backup; no correction is detected
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
+
   // delete old files in db
   ASSERT_OK(DestroyDB(dbname_, options_));
 
@@ -1201,12 +1210,12 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // table file checksum is enabled so we should be able to detect any
   // corruption
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
-
   CloseDBAndBackupEngine();
 }
 
@@ -1219,11 +1228,13 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // cannot detect corruption since DB manifest has no table checksums
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
+
   // delete old files in db
   ASSERT_OK(DestroyDB(dbname_, options_));
 
@@ -1232,11 +1243,11 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
   // corruption is detected
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
-
   CloseDBAndBackupEngine();
 }
 
@@ -2248,13 +2259,14 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
 
     // Verify backup engine always opened files with direct I/O
     ASSERT_EQ(0, test_db_env_->num_writers());
-    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_GT(test_db_env_->num_direct_rand_readers(), 0);
     ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
     // Currently the DB doesn't support reading WALs or manifest with direct
     // I/O, so subtract two.
     ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
               test_db_env_->num_direct_seq_readers());
-    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_EQ(test_db_env_->num_rand_readers(),
+              test_db_env_->num_direct_rand_readers());
   }
   CloseDBAndBackupEngine();
 

@@ -4,7 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_fetcher.h"
+
 #include "db/table_properties_collector.h"
+#include "env/composite_env_wrapper.h"
+#include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -14,7 +17,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -71,14 +73,14 @@ class BlockFetcherTest : public testing::Test {
 
  protected:
   void SetUp() override {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_fetcher_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
   }
 
-  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
   void AssertSameBlock(const std::string& block1, const std::string& block2) {
     ASSERT_EQ(block1, block2);

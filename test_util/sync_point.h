@@ -124,6 +124,9 @@ class SyncPoint {
   Data*  impl_;
 };
 
+// Sets up sync points to mock direct IO instead of actually issuing direct IO
+// to the file system.
+void SetupSyncPointsToMockDirectIO();
 }  // namespace ROCKSDB_NAMESPACE
 
 // Use TEST_SYNC_POINT to specify sync points inside code base.

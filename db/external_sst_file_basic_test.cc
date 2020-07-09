@@ -10,8 +10,9 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,7 +28,7 @@ class ExternalSSTFileBasicTest
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
   }
 
@@ -160,9 +161,7 @@ class ExternalSSTFileBasicTest
         write_global_seqno, verify_checksums_before_ingest, true_data);
   }
 
-  ~ExternalSSTFileBasicTest() override {
-    test::DestroyDir(env_, sst_files_dir_);
-  }
+  ~ExternalSSTFileBasicTest() override { DestroyDir(env_, sst_files_dir_); }
 
  protected:
   std::string sst_files_dir_;
@@ -1147,7 +1146,7 @@ TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   std::string file_name = sst_files_dir_ + "verify_checksum_readahead_test.sst";
   ASSERT_OK(sst_file_writer->Open(file_name));
   Random rnd(301);
-  std::string value = DBTestBase::RandomString(&rnd, 4000);
+  std::string value = rnd.RandomString(4000);
   for (int i = 0; i < 5000; i++) {
     ASSERT_OK(sst_file_writer->Put(DBTestBase::Key(i), value));
   }

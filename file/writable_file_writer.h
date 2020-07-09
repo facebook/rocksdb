@@ -38,13 +38,72 @@ class WritableFileWriter {
                                const FileOperationInfo::TimePoint& start_ts,
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+    FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
+                           finish_ts, io_status);
     info.offset = offset;
     info.length = length;
-    info.status = io_status;
 
     for (auto& listener : listeners_) {
       listener->OnFileWriteFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileFlushFinish(const FileOperationInfo::TimePoint& start_ts,
+                               const FileOperationInfo::TimePoint& finish_ts,
+                               const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileFlushFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileSyncFinish(
+      const FileOperationInfo::TimePoint& start_ts,
+      const FileOperationInfo::TimePoint& finish_ts, const IOStatus& io_status,
+      FileOperationType type = FileOperationType::kSync) {
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileRangeSyncFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::TimePoint& start_ts,
+      const FileOperationInfo::TimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
+                           finish_ts, io_status);
+    info.offset = offset;
+    info.length = length;
+
+    for (auto& listener : listeners_) {
+      listener->OnFileRangeSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileTruncateFinish(const FileOperationInfo::TimePoint& start_ts,
+                                  const FileOperationInfo::TimePoint& finish_ts,
+                                  const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileTruncateFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileCloseFinish(const FileOperationInfo::TimePoint& start_ts,
+                               const FileOperationInfo::TimePoint& finish_ts,
+                               const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileCloseFinish(info);
     }
     info.status.PermitUncheckedError();
   }

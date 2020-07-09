@@ -44,7 +44,7 @@ class OptionsUtilTest : public testing::Test {
 };
 
 bool IsBlockBasedTableFactory(TableFactory* tf) {
-  return tf->Name() == BlockBasedTableFactory().Name();
+  return tf->Name() == BlockBasedTableFactory::kName;
 }
 
 TEST_F(OptionsUtilTest, SaveAndLoad) {

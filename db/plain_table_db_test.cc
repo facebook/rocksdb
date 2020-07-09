@@ -35,6 +35,7 @@
 #include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -44,10 +45,10 @@ namespace ROCKSDB_NAMESPACE {
 class PlainTableKeyDecoderTest : public testing::Test {};
 
 TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
-  std::string tmp;
   Random rnd(301);
   const uint32_t kLength = 2222;
-  Slice contents = test::RandomString(&rnd, kLength, &tmp);
+  std::string tmp = rnd.RandomString(kLength);
+  Slice contents(tmp);
   test::StringSource* string_source =
       new test::StringSource(contents, 0, false);
 
@@ -1267,12 +1268,6 @@ static std::string Key(int i) {
   return std::string(buf);
 }
 
-static std::string RandomString(Random* rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-
 TEST_P(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
   options.write_buffer_size = 120 << 10;  // 120KB
@@ -1287,7 +1282,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
     std::vector<std::string> values;
     // Write 120KB (10 values, each 12K)
     for (int i = 0; i < 10; i++) {
-      values.push_back(RandomString(&rnd, 12 << 10));
+      values.push_back(rnd.RandomString(12 << 10));
       ASSERT_OK(Put(Key(i), values[i]));
     }
     ASSERT_OK(Put(Key(999), ""));
@@ -1298,7 +1293,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
   //generate one more file in level-0, and should trigger level-0 compaction
   std::vector<std::string> values;
   for (int i = 0; i < 12; i++) {
-    values.push_back(RandomString(&rnd, 10000));
+    values.push_back(rnd.RandomString(10000));
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Put(Key(999), ""));

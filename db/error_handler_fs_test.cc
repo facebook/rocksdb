@@ -13,11 +13,12 @@
 #include "rocksdb/io_status.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_manager.h"
-#include "test_util/fault_injection_test_env.h"
-#include "test_util/fault_injection_test_fs.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -744,7 +745,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -757,7 +758,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     int write_error = 0;
 
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -820,7 +821,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -835,7 +836,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -871,7 +872,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -912,7 +913,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     for (auto i = 1; i < 4; ++i) {
       for (auto j = 0; j < 100; ++j) {
-        batch.Put(handles_[i], Key(j), RandomString(&rnd, 1024));
+        batch.Put(handles_[i], Key(j), rnd.RandomString(1024));
       }
     }
 
@@ -927,7 +928,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     // Write to one CF
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(handles_[2], Key(i), RandomString(&rnd, 1024));
+      batch.Put(handles_[2], Key(i), rnd.RandomString(1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -1016,7 +1017,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     WriteBatch batch;
 
     for (auto j = 0; j <= 100; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1031,7 +1032,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1129,7 +1130,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     WriteBatch batch;
 
     for (auto j = 0; j <= 100; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1144,7 +1145,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;

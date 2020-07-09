@@ -977,6 +977,14 @@ class TestFileOperationListener : public EventListener {
     file_reads_success_.store(0);
     file_writes_.store(0);
     file_writes_success_.store(0);
+    file_flushes_.store(0);
+    file_flushes_success_.store(0);
+    file_closes_.store(0);
+    file_closes_success_.store(0);
+    file_syncs_.store(0);
+    file_syncs_success_.store(0);
+    file_truncates_.store(0);
+    file_truncates_success_.store(0);
   }
 
   void OnFileReadFinish(const FileOperationInfo& info) override {
@@ -995,12 +1003,52 @@ class TestFileOperationListener : public EventListener {
     ReportDuration(info);
   }
 
+  void OnFileFlushFinish(const FileOperationInfo& info) override {
+    ++file_flushes_;
+    if (info.status.ok()) {
+      ++file_flushes_success_;
+    }
+    ReportDuration(info);
+  }
+
+  void OnFileCloseFinish(const FileOperationInfo& info) override {
+    ++file_closes_;
+    if (info.status.ok()) {
+      ++file_closes_success_;
+    }
+    ReportDuration(info);
+  }
+
+  void OnFileSyncFinish(const FileOperationInfo& info) override {
+    ++file_syncs_;
+    if (info.status.ok()) {
+      ++file_syncs_success_;
+    }
+    ReportDuration(info);
+  }
+
+  void OnFileTruncateFinish(const FileOperationInfo& info) override {
+    ++file_truncates_;
+    if (info.status.ok()) {
+      ++file_truncates_success_;
+    }
+    ReportDuration(info);
+  }
+
   bool ShouldBeNotifiedOnFileIO() override { return true; }
 
   std::atomic<size_t> file_reads_;
   std::atomic<size_t> file_reads_success_;
   std::atomic<size_t> file_writes_;
   std::atomic<size_t> file_writes_success_;
+  std::atomic<size_t> file_flushes_;
+  std::atomic<size_t> file_flushes_success_;
+  std::atomic<size_t> file_closes_;
+  std::atomic<size_t> file_closes_success_;
+  std::atomic<size_t> file_syncs_;
+  std::atomic<size_t> file_syncs_success_;
+  std::atomic<size_t> file_truncates_;
+  std::atomic<size_t> file_truncates_success_;
 
  private:
   void ReportDuration(const FileOperationInfo& info) const {
@@ -1018,6 +1066,13 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   TestFileOperationListener* listener = new TestFileOperationListener();
   options.listeners.emplace_back(listener);
 
+  options.use_direct_io_for_flush_and_compaction = true;
+  Status s = TryReopen(options);
+  if (s.IsInvalidArgument()) {
+    options.use_direct_io_for_flush_and_compaction = false;
+  } else {
+    ASSERT_OK(s);
+  }
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "aaa"));
   dbfull()->Flush(FlushOptions());
@@ -1025,11 +1080,24 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   ASSERT_GE(listener->file_writes_.load(),
             listener->file_writes_success_.load());
   ASSERT_GT(listener->file_writes_.load(), 0);
+  ASSERT_GE(listener->file_flushes_.load(),
+            listener->file_flushes_success_.load());
+  ASSERT_GT(listener->file_flushes_.load(), 0);
   Close();
 
   Reopen(options);
   ASSERT_GE(listener->file_reads_.load(), listener->file_reads_success_.load());
   ASSERT_GT(listener->file_reads_.load(), 0);
+  ASSERT_GE(listener->file_closes_.load(),
+            listener->file_closes_success_.load());
+  ASSERT_GT(listener->file_closes_.load(), 0);
+  ASSERT_GE(listener->file_syncs_.load(), listener->file_syncs_success_.load());
+  ASSERT_GT(listener->file_syncs_.load(), 0);
+  if (true == options.use_direct_io_for_flush_and_compaction) {
+    ASSERT_GE(listener->file_truncates_.load(),
+              listener->file_truncates_success_.load());
+    ASSERT_GT(listener->file_truncates_.load(), 0);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
