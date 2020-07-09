@@ -178,7 +178,10 @@ Status BlobFileBuilder::CloseBlobFile() {
 Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   assert(IsBlobFileOpen());
 
-  // TODO: size check
+  constexpr uint64_t file_size_limit = 1 << 30;
+  if (writer_->file()->GetFileSize() < file_size_limit) {
+    return Status::OK();
+  }
 
   return CloseBlobFile();
 }
