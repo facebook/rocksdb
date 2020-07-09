@@ -4730,7 +4730,7 @@ namespace {
 class ManifestPicker {
  public:
   explicit ManifestPicker(const std::string& dbname,
-                          std::vector<std::string>& files_in_dbname,
+                          const std::vector<std::string>& files_in_dbname,
                           FileSystem* fs);
   void SeekToFirstManifest();
   // REQUIRES Valid() == true
@@ -4746,11 +4746,11 @@ class ManifestPicker {
   std::vector<std::string>::const_iterator manifest_file_iter_;
   Status status_;
 
-  void PopulateManifestFiles(std::vector<std::string>& all_files);
+  void PopulateManifestFiles(const std::vector<std::string>& all_files);
 };
 
 ManifestPicker::ManifestPicker(const std::string& dbname,
-                               std::vector<std::string>& files_in_dbname,
+                               const std::vector<std::string>& files_in_dbname,
                                FileSystem* fs)
     : dbname_(dbname), fs_(fs) {
   PopulateManifestFiles(files_in_dbname);
@@ -4761,11 +4761,13 @@ void ManifestPicker::SeekToFirstManifest() {
   if (manifest_files_.empty()) {
     status_ = fs_->GetChildren(dbname_, IOOptions(), &files_in_dbname,
                                /*dbg=*/nullptr);
+    if (status_.ok()){
+      PopulateManifestFiles(files_in_dbname);
+    }
   }
   if (!status_.ok()) {
     return;
   }
-  PopulateManifestFiles(files_in_dbname);
 
   std::sort(manifest_files_.begin(), manifest_files_.end(),
             [](const std::string& lhs, const std::string& rhs) {
@@ -4817,7 +4819,7 @@ std::string ManifestPicker::GetNextManifest(uint64_t* number,
 }
 
 void ManifestPicker::PopulateManifestFiles(
-    std::vector<std::string>& all_files) {
+    const std::vector<std::string>& all_files) {
   for (const auto& fname : all_files) {
     uint64_t file_num = 0;
     FileType file_type;
