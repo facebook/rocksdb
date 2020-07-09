@@ -30,6 +30,7 @@
 
 ### Performance Improvements
 * Eliminate key copies for internal comparisons while accessing ingested block-based tables.
+* Reduce key comparisons during random access in all block-based tables.
 
 ## 6.11 (6/12/2020)
 ### Bug Fixes
