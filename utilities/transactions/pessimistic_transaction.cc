@@ -520,7 +520,7 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
       }
       PointLockRequest r;
       r.column_family_id = cfh_id;
-      r.key = std::move(key);
+      r.key = key;
       r.seq = kMaxSequenceNumber;
       r.read_only = false;
       r.exclusive = true;
