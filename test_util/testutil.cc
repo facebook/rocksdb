@@ -515,22 +515,6 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
-void SetupSyncPointsToMockDirectIO() {
-#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
-    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewWritableFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-#endif
-}
 
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
   struct stat sbuf;

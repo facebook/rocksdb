@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class RandomAccessFileReaderTest : public testing::Test {
  public:
   void SetUp() override {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     test_dir_ = test::PerThreadDBPath("random_access_file_reader_test");

@@ -410,7 +410,7 @@ Options DBTestBase::GetOptions(
         options.use_direct_reads = true;
         options.use_direct_io_for_flush_and_compaction = true;
         options.compaction_readahead_size = 2 * 1024 * 1024;
-        test::SetupSyncPointsToMockDirectIO();
+        SetupSyncPointsToMockDirectIO();
         break;
       }
 #endif  // ROCKSDB_LITE

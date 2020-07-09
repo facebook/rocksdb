@@ -47,7 +47,7 @@ int db_stress_tool(int argc, char** argv) {
 
 #ifndef NDEBUG
   if (FLAGS_mock_direct_io) {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
   }
 #endif
   if (FLAGS_statistics) {

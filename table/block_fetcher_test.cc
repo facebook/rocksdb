@@ -71,7 +71,7 @@ class BlockFetcherTest : public testing::Test {
 
  protected:
   void SetUp() override {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_fetcher_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();

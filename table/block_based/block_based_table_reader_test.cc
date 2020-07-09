@@ -34,7 +34,7 @@ class BlockBasedTableReaderTest
     std::tie(compression_type_, use_direct_reads_, index_type, no_block_cache) =
         GetParam();
 
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_based_table_reader_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
