@@ -29,7 +29,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
 
   constexpr size_t min_blob_size = 128;  // TODO: config option
 
-  if (value.size() < min_blob_size) {  // TODO: check value type?
+  if (value.size() < min_blob_size) {
     return Status::OK();
   }
 
@@ -177,6 +177,7 @@ Status BlobFileBuilder::CloseBlobFile() {
 Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   assert(IsBlobFileOpen());
 
+  // TODO: make this configurable
   constexpr uint64_t file_size_limit = 1 << 30;
   if (writer_->file()->GetFileSize() < file_size_limit) {
     return Status::OK();
