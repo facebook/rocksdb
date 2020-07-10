@@ -47,88 +47,11 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
-// db session ids are of 36 bytes
-const size_t kSizeOfSessionId = 36;
-
 inline bool IsSstFile(const std::string& fname) {
   return fname.length() > 4 && fname.rfind(".sst") == fname.length() - 4;
 }
 inline uint32_t ChecksumStrToInt32(const std::string& checksum_str) {
   return EndianSwapValue(DecodeFixed32(checksum_str.c_str()));
-}
-inline std::string GetLocalName(const std::string& file) {
-  std::string file_copy = file;
-  size_t last_slash = file_copy.find_last_of('/');
-  assert(last_slash != std::string::npos && last_slash < file_copy.size() - 1);
-  return file_copy.erase(0, last_slash + 1);
-}
-inline std::string RenameWithChecksum(const std::string& file,
-                                      const uint32_t& checksum_value) {
-  std::string file_copy = file;
-  return file_copy.insert(file_copy.find_last_of('_'),
-                          "_" + ROCKSDB_NAMESPACE::ToString(checksum_value));
-}
-inline std::string RenameWithoutChecksum(const std::string& file) {
-  std::string file_copy = file;
-  size_t last_underscore = file_copy.find_last_of('_');
-  assert(last_underscore != std::string::npos);
-  size_t second_to_last_underscore =
-      file_copy.find_last_of('_', last_underscore - 1);
-  assert(second_to_last_underscore != std::string::npos);
-  return file_copy.erase(second_to_last_underscore,
-                         last_underscore - second_to_last_underscore);
-}
-inline std::string GetFileAlias(const std::string& file,
-                                const std::string& size_str = "") {
-  std::string file_copy = file;
-  if (!IsSstFile(file_copy) ||
-      GetLocalName(file_copy).find_last_of('_') == std::string::npos) {
-    return file_copy;
-  }
-  size_t last_underscore = file_copy.find_last_of('_');
-  size_t last_dot = file_copy.find_last_of('.');
-  assert(last_dot != std::string::npos && last_underscore < last_dot);
-  std::string size_or_session =
-      file_copy.substr(last_underscore + 1, last_dot - last_underscore - 1);
-  if (size_str.empty()) {
-    // file sizes are of at most 20 bytes
-    if (size_or_session.size() < kSizeOfSessionId) {
-      return file_copy;
-    } else {
-      assert(size_or_session.size() == kSizeOfSessionId);
-      return RenameWithoutChecksum(file_copy);
-    }
-  } else {
-    if (size_or_session == size_str) {
-      return file_copy;
-    } else {
-      return RenameWithoutChecksum(file_copy);
-    }
-  }
-}
-inline std::string GetFilename(const std::string& file,
-                               const uint32_t& checksum,
-                               const std::string& sid = "") {
-  std::string file_copy = file;
-  if (sid.empty()) {
-    if (!IsSstFile(file_copy) ||
-        GetLocalName(file_copy).find_last_of('_') == std::string::npos) {
-      return file_copy;
-    }
-    size_t last_underscore = file_copy.find_last_of('_');
-    size_t last_dot = file_copy.find_last_of('.');
-    assert(last_dot != std::string::npos && last_underscore < last_dot);
-    std::string size_or_session =
-        file_copy.substr(last_underscore + 1, last_dot - last_underscore - 1);
-    if (size_or_session.size() < kSizeOfSessionId) {
-      return file_copy;
-    } else {
-      assert(size_or_session.size() == kSizeOfSessionId);
-      return RenameWithChecksum(file_copy, checksum);
-    }
-  } else {
-    return RenameWithChecksum(file, checksum);
-  }
 }
 }  // namespace
 
@@ -235,12 +158,10 @@ class BackupEngineImpl : public BackupEngine {
       std::unordered_map<std::string, uint64_t>* result);
 
   struct FileInfo {
-    FileInfo(const std::string& fname, const std::string& alias, uint64_t sz,
-             uint32_t checksum, const std::string& id = "",
-             const std::string& sid = "")
+    FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum,
+             const std::string& id = "", const std::string& sid = "")
         : refs(0),
           filename(fname),
-          file_alias(alias),
           size(sz),
           checksum_value(checksum),
           db_id(id),
@@ -251,19 +172,6 @@ class BackupEngineImpl : public BackupEngine {
 
     int refs;
     const std::string filename;
-    // Different from the filename above that is the actual name in the file
-    // system, file_alias is used for deduplication of table files.
-    // The mapping between filename and file_alias of table files is:
-    // <number>.sst                      --> <number>.sst
-    // <number>_<checksum>_<size>.sst    --> <number>_<checksum>_<size>.sst
-    // <number>_<checksum>_<session>.sst --> <number>_<session>.sst
-    // For any other file types, file_alias is the same as the filename.
-    //
-    // Note: filename and file_alias are relative, e.g.,
-    // private/1/<local_name>
-    // shared/<local_name>
-    // shared_checksum/<local_name>
-    const std::string file_alias;
     const uint64_t size;
     const uint32_t checksum_value;
     // DB identities
@@ -280,14 +188,13 @@ class BackupEngineImpl : public BackupEngine {
     BackupMeta(
         const std::string& meta_filename, const std::string& meta_tmp_filename,
         std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos,
-        std::unordered_map<std::string, std::string>* alias_filename, Env* env)
+        Env* env)
         : timestamp_(0),
           sequence_number_(0),
           size_(0),
           meta_filename_(meta_filename),
           meta_tmp_filename_(meta_tmp_filename),
           file_infos_(file_infos),
-          alias_filename_(alias_filename),
           env_(env) {}
 
     BackupMeta(const BackupMeta&) = delete;
@@ -370,7 +277,6 @@ class BackupEngineImpl : public BackupEngine {
     // files with relative paths (without "/" prefix!!)
     std::vector<std::shared_ptr<FileInfo>> files_;
     std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos_;
-    std::unordered_map<std::string, std::string>* alias_filename_;
     Env* env_;
 
     static const size_t max_backup_meta_file_size_ = 10 * 1024 * 1024;  // 10MB
@@ -411,67 +317,25 @@ class BackupEngineImpl : public BackupEngine {
     return GetTableNamingOption() == kChecksumAndDbSessionId && !sid.empty();
   }
   inline std::string GetSharedFileWithChecksum(
-      const std::string& file, const uint32_t checksum_value,
+      const std::string& file, bool has_checksum, const uint32_t checksum_value,
       const uint64_t file_size, const std::string& db_session_id) const {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
     if (UseSessionId(db_session_id)) {
-      return file_copy.insert(file_copy.find_last_of('.'), "_" + db_session_id);
+      if (has_checksum) {
+        return file_copy.insert(
+            file_copy.find_last_of('.'),
+            "_" + ToString(checksum_value) + "_" + db_session_id);
+      } else {
+        return file_copy.insert(file_copy.find_last_of('.'),
+                                "_" + db_session_id);
+      }
     } else {
       return file_copy.insert(file_copy.find_last_of('.'),
                               "_" +
                                   ROCKSDB_NAMESPACE::ToString(checksum_value) +
                                   "_" + ROCKSDB_NAMESPACE::ToString(file_size));
     }
-  }
-  inline Status FileExistsWithAlias(const std::string& file) const {
-    std::vector<std::string> children;
-    Status s = backup_env_->GetChildren(
-        GetAbsolutePath(GetSharedChecksumDirRel()), &children);
-    if (!s.ok()) {
-      return s;
-    }
-
-    std::string file_copy = GetLocalName(file);
-    for (const auto& child : children) {
-      if ((!child.empty() && child.front() == '.') ||
-          child.find('-') == std::string::npos) {
-        // ignore filenames starting with '.'
-        // also note that filenames with db session id contain '-' while
-        // filenames with file size do not
-        continue;
-      }
-      std::string filename = RenameWithoutChecksum(child);
-      if (filename == file_copy) {
-        return Status::OK();
-      }
-    }
-    return Status::NotFound();
-  }
-  inline Status DeleteFileWithAlias(const std::string& file) const {
-    std::vector<std::string> children;
-    Status s = backup_env_->GetChildren(
-        GetAbsolutePath(GetSharedChecksumDirRel()), &children);
-    if (!s.ok()) {
-      return s;
-    }
-
-    std::string file_copy = GetLocalName(file);
-    for (const auto& child : children) {
-      if ((!child.empty() && child.front() == '.') ||
-          child.find('-') == std::string::npos) {
-        // ignore filenames starting with '.'
-        // also note that filenames with db session id contain '-' while
-        // filenames with file size do not
-        continue;
-      }
-      std::string filename = RenameWithoutChecksum(child);
-      if (filename == file_copy) {
-        return backup_env_->DeleteFile(
-            GetAbsolutePath(GetSharedFileWithChecksumRel(child)));
-      }
-    }
-    return Status::NotFound();
   }
   inline std::string GetFileFromChecksumFile(const std::string& file) const {
     assert(file.size() == 0 || file[0] != '/');
@@ -718,7 +582,6 @@ class BackupEngineImpl : public BackupEngine {
       corrupt_backups_;
   std::unordered_map<std::string,
                      std::shared_ptr<FileInfo>> backuped_file_infos_;
-  std::unordered_map<std::string, std::string> backuped_alias_filename_;
   std::atomic<bool> stop_backup_;
 
   // options data
@@ -865,11 +728,10 @@ Status BackupEngineImpl::Initialize() {
     // The loading performed later will check whether there are corrupt backups
     // and move the corrupt backups to corrupt_backups_
     backups_.insert(std::make_pair(
-        backup_id,
-        std::unique_ptr<BackupMeta>(new BackupMeta(
-            GetBackupMetaFile(backup_id, false /* tmp */),
-            GetBackupMetaFile(backup_id, true /* tmp */), &backuped_file_infos_,
-            &backuped_alias_filename_, backup_env_))));
+        backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
+                       GetBackupMetaFile(backup_id, false /* tmp */),
+                       GetBackupMetaFile(backup_id, true /* tmp */),
+                       &backuped_file_infos_, backup_env_))));
   }
 
   latest_backup_id_ = 0;
@@ -1069,11 +931,10 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   }
 
   auto ret = backups_.insert(std::make_pair(
-      new_backup_id,
-      std::unique_ptr<BackupMeta>(new BackupMeta(
-          GetBackupMetaFile(new_backup_id, false /* tmp */),
-          GetBackupMetaFile(new_backup_id, true /* tmp */),
-          &backuped_file_infos_, &backuped_alias_filename_, backup_env_))));
+      new_backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
+                         GetBackupMetaFile(new_backup_id, false /* tmp */),
+                         GetBackupMetaFile(new_backup_id, true /* tmp */),
+                         &backuped_file_infos_, backup_env_))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
@@ -1192,19 +1053,11 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     auto result = item.result.get();
     item_status = result.status;
     if (item_status.ok() && item.shared && item.needed_to_copy) {
-      if (UseSessionId(result.db_session_id)) {
-        item_status = item.backup_env->RenameFile(
-            item.dst_path_tmp,
-            RenameWithChecksum(item.dst_path, result.checksum_value));
-      } else {
-        item_status =
-            item.backup_env->RenameFile(item.dst_path_tmp, item.dst_path);
-      }
+      item_status =
+          item.backup_env->RenameFile(item.dst_path_tmp, item.dst_path);
     }
     if (item_status.ok()) {
       item_status = new_backup.get()->AddFile(std::make_shared<FileInfo>(
-          GetFilename(item.dst_relative, result.checksum_value,
-                      result.db_session_id),
           item.dst_relative, result.size, result.checksum_value, result.db_id,
           result.db_session_id));
     }
@@ -1358,14 +1211,13 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
   // After removing meta file, best effort deletion even with errors.
   // (Don't delete other files if we can't delete the meta file right
   // now.)
-  // Each pair is {filename, file_alias}
-  std::vector<std::pair<std::string, std::string>> to_delete;
+  std::vector<std::string> to_delete;
   for (auto& itr : backuped_file_infos_) {
     if (itr.second->refs == 0) {
       Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
       ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
                      s.ToString().c_str());
-      to_delete.push_back({itr.first, itr.second->file_alias});
+      to_delete.push_back(itr.first);
       if (!s.ok()) {
         // Trying again later might work
         might_need_garbage_collect_ = true;
@@ -1373,8 +1225,7 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
     }
   }
   for (auto& td : to_delete) {
-    backuped_file_infos_.erase(td.first);
-    backuped_alias_filename_.erase(td.second);
+    backuped_file_infos_.erase(td);
   }
 
   // take care of private dirs -- GarbageCollect() will take care of them
@@ -1479,14 +1330,15 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     std::string dst;
     // 1. extract the filename
     size_t slash = file.find_last_of('/');
-    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>
-    // shared_checksum/<file_crc32c_session>, or private/<number>/<file>
+    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
+    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
+    // or private/<number>/<file>
     assert(slash != std::string::npos);
     dst = file.substr(slash + 1);
 
     // if the file was in shared_checksum, extract the real file name
-    // in this case the file is <number>_<checksum>_<size>.<type>
-    // or <number>_<checksum>_<session>.<type> if new naming is used
+    // in this case the file is <number>_<checksum>_<size>.<type>,
+    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
     if (file.substr(0, slash) == GetSharedChecksumDirRel()) {
       dst = GetFileFromChecksumFile(dst);
     }
@@ -1761,13 +1613,18 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     if (size_bytes == port::kMaxUint64) {
       return Status::NotFound("File missing: " + src_dir + fname);
     }
-    // If the naming scheme is kChecksumAndDbSessionId and db_session_id is
-    // not empty, dst_relative will be of the form:
+    // dst_relative depends on the following conditions:
+    // 1) the naming scheme is kChecksumAndDbSessionId,
+    // 2) db_session_id is not empty,
+    // 3) checksum is available in the DB manifest.
+    // If 1,2,3) are satisfied, then dst_relative will be of the form:
+    // shared_checksum/<file_number>_<checksum>_<db_session_id>.sst
+    // If 1,2) are satisfied, then dst_relative will be of the form:
     // shared_checksum/<file_number>_<db_session_id>.sst
     // Otherwise, dst_relative is of the form
     // shared_checksum/<file_number>_<checksum>_<size>.sst
-    dst_relative = GetSharedFileWithChecksum(dst_relative, checksum_value,
-                                             size_bytes, db_session_id);
+    dst_relative = GetSharedFileWithChecksum(
+        dst_relative, has_checksum, checksum_value, size_bytes, db_session_id);
     dst_relative_tmp = GetSharedFileWithChecksumRel(dst_relative, true);
     dst_relative = GetSharedFileWithChecksumRel(dst_relative, false);
   } else if (shared) {
@@ -1803,12 +1660,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   if (shared && !same_path) {
     // Should be in shared directory but not a live path, check existence in
     // shared directory
-    Status exist;
-    if (UseSessionId(db_session_id)) {
-      exist = FileExistsWithAlias(final_dest_path);
-    } else {
-      exist = backup_env_->FileExists(final_dest_path);
-    }
+    Status exist = backup_env_->FileExists(final_dest_path);
     if (exist.ok()) {
       file_exists = true;
     } else if (exist.IsNotFound()) {
@@ -1824,8 +1676,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   } else if (shared && (same_path || file_exists)) {
     need_to_copy = false;
     if (shared_checksum) {
-      if (backuped_alias_filename_.find(dst_relative) ==
-              backuped_alias_filename_.end() &&
+      if (backuped_file_infos_.find(dst_relative) ==
+              backuped_file_infos_.end() &&
           !same_path) {
         // file exists but not referenced
         ROCKS_LOG_INFO(
@@ -1834,11 +1686,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
             "overwrite the file.",
             fname.c_str());
         need_to_copy = true;
-        if (UseSessionId(db_session_id)) {
-          DeleteFileWithAlias(final_dest_path);
-        } else {
-          backup_env_->DeleteFile(final_dest_path);
-        }
+        backup_env_->DeleteFile(final_dest_path);
       } else {
         // file exists and referenced
         if (!has_checksum) {
@@ -1862,8 +1710,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
               fname.c_str(), checksum_value, size_bytes);
         }
       }
-    } else if (backuped_alias_filename_.find(dst_relative) ==
-                   backuped_alias_filename_.end() &&
+    } else if (backuped_file_infos_.find(dst_relative) ==
+                   backuped_file_infos_.end() &&
                !same_path) {
       // file already exists, but it's not referenced by any backup. overwrite
       // the file
@@ -1873,11 +1721,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
           "overwrite the file.",
           fname.c_str());
       need_to_copy = true;
-      if (UseSessionId(db_session_id)) {
-        DeleteFileWithAlias(final_dest_path);
-      } else {
-        backup_env_->DeleteFile(final_dest_path);
-      }
+      backup_env_->DeleteFile(final_dest_path);
     } else {
       // the file is present and referenced by a backup
       ROCKS_LOG_INFO(options_.info_log,
@@ -2108,9 +1952,6 @@ Status BackupEngineImpl::GarbageCollect() {
         ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
                        rel_fname.c_str(), s.ToString().c_str());
         backuped_file_infos_.erase(rel_fname);
-        if (child_itr != backuped_file_infos_.end()) {
-          backuped_alias_filename_.erase(child_itr->second->file_alias);
-        }
         if (!s.ok()) {
           // Trying again later might work
           might_need_garbage_collect_ = true;
@@ -2183,11 +2024,6 @@ Status BackupEngineImpl::BackupMeta::AddFile(
   if (itr == file_infos_->end()) {
     auto ret = file_infos_->insert({file_info->filename, file_info});
     if (ret.second) {
-      auto alias_itr =
-          alias_filename_->insert({file_info->file_alias, file_info->filename});
-      if (!alias_itr.second) {
-        return Status::Corruption("In memory alias insertion error");
-      }
       itr = ret.first;
       itr->second->refs = 1;
     } else {
@@ -2325,9 +2161,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                 " in " + meta_filename_);
     }
 
-    files.emplace_back(new FileInfo(filename,
-                                    GetFileAlias(filename, ToString(size)),
-                                    size, checksum_value));
+    files.emplace_back(new FileInfo(filename, size, checksum_value));
   }
 
   if (s.ok() && data.size() > 0) {
