@@ -86,6 +86,40 @@ class VersionBuilder::Rep {
     std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
+  // WalState keeps track of the WAL operations in VersionEdits without
+  // considering their relationships.
+  // For example, if you Add and Delete the same WAL, both operations will
+  // be tracked separately.
+  // See VersionBuilder::Apply and VersionBuilder::SaveTo for usage.
+  class WalState {
+   public:
+    // A new WAL is added.
+    void Add(const WalMetadata& wal) { new_wals_.push_back(wal); }
+
+    // A WAL (either archived or not) is deleted.
+    // The WAL may be a pre-existing WAL that is not added in this WalState.
+    void Delete(WalNumber number) { deleted_wals_.insert(number); }
+
+    // Archive a WAL.
+    // The WAL may be a pre-existing WAL that is not added in this WalState.
+    void Archive(WalNumber number) { archived_wals_.insert(number); }
+
+    bool IsDeleted(WalNumber number) const {
+      return deleted_wals_.count(number) > 0;
+    }
+
+    bool IsArchived(WalNumber number) const {
+      return archived_wals_.count(number) > 0;
+    }
+
+    const std::vector<WalMetadata>& GetNewWals() const { return new_wals_; }
+
+   private:
+    std::vector<WalMetadata> new_wals_;
+    std::unordered_set<WalNumber> deleted_wals_;
+    std::unordered_set<WalNumber> archived_wals_;
+  };
+
   class BlobFileMetaDataDelta {
    public:
     bool IsEmpty() const {
@@ -173,6 +207,7 @@ class VersionBuilder::Rep {
   VersionSet* version_set_;
   int num_levels_;
   LevelState* levels_;
+  WalState wals_;
   // Store sizes of levels larger than num_levels_. We do this instead of
   // storing them in levels_ to avoid regression in case there are no files
   // on invalid levels. The version is not consistent if in the end the files
@@ -616,6 +651,21 @@ class VersionBuilder::Rep {
       }
     }
 
+    // Add WAL.
+    for (const WalMetadata& wal : edit->GetNewWals()) {
+      wals_.Add(wal);
+    }
+
+    // Archive WAL.
+    for (const WalNumber number : edit->GetArchivedWals()) {
+      wals_.Archive(number);
+    }
+
+    // Delete WAL.
+    for (const WalNumber number : edit->GetDeletedWals()) {
+      wals_.Delete(number);
+    }
+
     // Note: we process the blob file related changes first because the
     // table file addition/deletion logic depends on the blob files
     // already being there.
@@ -744,6 +794,45 @@ class VersionBuilder::Rep {
     vstorage->AddBlobFile(meta);
   }
 
+  // Merges the WAL state in the base version with the edits saved in WalState,
+  // and saves the result to vstorage.
+  // REQUIRES: log number is never reused.
+  void SaveWalsTo(VersionStorageInfo* vstorage) const {
+    assert(base_vstorage_);
+    assert(vstorage);
+
+    {
+      // Alive WALs in base version.
+      const auto& base_wals = base_vstorage_->GetWals().GetAliveWals();
+      for (auto it = base_wals.begin(); it != base_wals.end(); it++) {
+        const WalMetadata& wal = it->second;
+        if (!wals_.IsDeleted(wal.GetLogNumber())) {
+          vstorage->AddWal(wal, wals_.IsArchived(wal.GetLogNumber()));
+        }
+      }
+    }
+
+    {
+      // Archived WALs in base version.
+      const auto& base_wals = base_vstorage_->GetWals().GetArchivedWals();
+      for (auto it = base_wals.begin(); it != base_wals.end(); it++) {
+        const WalMetadata& wal = it->second;
+        if (!wals_.IsDeleted(wal.GetLogNumber())) {
+          vstorage->AddWal(wal, true);
+        }
+      }
+    }
+
+    {
+      // New WALs in version edits tracked by WalState.
+      for (const WalMetadata& wal : wals_.GetNewWals()) {
+        if (!wals_.IsDeleted(wal.GetLogNumber())) {
+          vstorage->AddWal(wal, wals_.IsArchived(wal.GetLogNumber()));
+        }
+      }
+    }
+  }
+
   // Merge the blob file metadata from the base version with the changes (edits)
   // applied, and save the result into *vstorage.
   void SaveBlobFilesTo(VersionStorageInfo* vstorage) const {
@@ -865,6 +954,8 @@ class VersionBuilder::Rep {
     }
 
     SaveBlobFilesTo(vstorage);
+
+    SaveWalsTo(vstorage);
 
     s = CheckConsistency(vstorage);
     return s;

@@ -83,13 +83,13 @@ enum NewFileCustomTag : uint32_t {
 
 }  // anonymous namespace
 
-void AddedWal::EncodeTo(std::string* dst) const {
+void WalMetadata::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
   PutVarint64(dst, bytes_);
 }
 
-Status AddedWal::DecodeFrom(Slice* src) {
-  constexpr char class_name[] = "AddedWal";
+Status WalMetadata::DecodeFrom(Slice* src) {
+  constexpr char class_name[] = "WalMetadata";
   if (!GetVarint64(src, &number_)) {
     return Status::Corruption(class_name, "Error decoding WAL log number");
   }
@@ -99,55 +99,19 @@ Status AddedWal::DecodeFrom(Slice* src) {
   return Status::OK();
 }
 
-std::ostream& operator<<(std::ostream& os, const AddedWal& wal) {
+std::ostream& operator<<(std::ostream& os, const WalMetadata& wal) {
   os << "log_number: " << wal.GetLogNumber()
      << " size_in_bytes: " << wal.GetSizeInBytes();
   return os;
 }
 
-JSONWriter& operator<<(JSONWriter& jw, const AddedWal& wal) {
+JSONWriter& operator<<(JSONWriter& jw, const WalMetadata& wal) {
   jw << "LogNumber" << wal.GetLogNumber() << "SizeInBytes"
      << wal.GetSizeInBytes();
   return jw;
 }
 
-std::string AddedWal::DebugString() const {
-  std::ostringstream oss;
-  oss << *this;
-  return oss.str();
-}
-
-void DeletedWal::EncodeTo(std::string* dst) const {
-  PutVarint64(dst, number_);
-  PutVarint32(dst, archived_ ? 1 : 0);
-}
-
-Status DeletedWal::DecodeFrom(Slice* src) {
-  constexpr char class_name[] = "DeletedWal";
-  if (!GetVarint64(src, &number_)) {
-    return Status::Corruption(class_name, "Error decoding WAL log number");
-  }
-  uint32_t archived = 0;
-  if (!GetVarint32(src, &archived)) {
-    return Status::Corruption(class_name, "Error decoding WAL archive status");
-  }
-  archived_ = archived == 1;
-  return Status::OK();
-}
-
-std::ostream& operator<<(std::ostream& os, const DeletedWal& wal) {
-  os << "log_number: " << wal.GetLogNumber()
-     << " is_archived: " << (wal.IsArchived() ? "true" : "false");
-  return os;
-}
-
-JSONWriter& operator<<(JSONWriter& jw, const DeletedWal& wal) {
-  jw << "LogNumber" << wal.GetLogNumber() << "IsArchived"
-     << (wal.IsArchived() ? "true" : "false");
-  return jw;
-}
-
-std::string DeletedWal::DebugString() const {
+std::string WalMetadata::DebugString() const {
   std::ostringstream oss;
   oss << *this;
   return oss.str();
@@ -379,7 +343,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, remaining_entries_);
   }
 
-  for (const AddedWal& wal : new_wals_) {
+  for (const WalMetadata& wal : new_wals_) {
     PutVarint32(dst, kNewWal);
     wal.EncodeTo(dst);
   }
@@ -389,9 +353,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, log_number);
   }
 
-  for (const DeletedWal& wal : deleted_wals_) {
+  for (WalNumber log_number : deleted_wals_) {
     PutVarint32(dst, kDeletedWal);
-    wal.EncodeTo(dst);
+    PutVarint64(dst, log_number);
   }
 
   return true;
@@ -733,7 +697,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kNewWal: {
-        AddedWal wal;
+        WalMetadata wal;
         Status s = wal.DecodeFrom(&input);
         if (!s.ok()) return s;
         new_wals_.push_back(wal);
@@ -753,10 +717,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       }
 
       case kDeletedWal: {
-        DeletedWal wal;
-        Status s = wal.DecodeFrom(&input);
-        if (!s.ok()) return s;
-        deleted_wals_.push_back(wal);
+        WalNumber log_number;
+        if (GetVarint64(&input, &log_number)) {
+          deleted_wals_.push_back(log_number);
+        } else {
+          if (!msg) {
+            msg = "delete wal";
+          }
+        }
         break;
       }
 
@@ -883,8 +851,8 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(" entries remains");
   }
 
-  for (const AddedWal& wal : new_wals_) {
-    r.append("\n  AddedWal: ");
+  for (const WalMetadata& wal : new_wals_) {
+    r.append("\n  WalMetadata: ");
     r.append(wal.DebugString());
   }
 
@@ -893,9 +861,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, log_number);
   }
 
-  for (const DeletedWal& wal : deleted_wals_) {
+  for (const WalNumber log_number : deleted_wals_) {
     r.append("\n  DeletedWal: ");
-    r.append(wal.DebugString());
+    AppendNumberTo(&r, log_number);
   }
 
   r.append("\n}\n");
@@ -1007,9 +975,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
 
   if (!new_wals_.empty()) {
-    jw << "AddedWals";
+    jw << "WalMetadata";
     jw.StartArray();
-    for (const AddedWal& wal : new_wals_) {
+    for (const WalMetadata& wal : new_wals_) {
       jw.StartArrayedObject();
       jw << wal;
       jw.EndArrayedObject();
@@ -1029,10 +997,8 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   if (!deleted_wals_.empty()) {
     jw << "DeletedWals";
     jw.StartArray();
-    for (const DeletedWal& wal : deleted_wals_) {
-      jw.StartArrayedObject();
-      jw << wal;
-      jw.EndArrayedObject();
+    for (const WalNumber log_number : archived_wals_) {
+      jw << log_number;
     }
     jw.EndArray();
   }

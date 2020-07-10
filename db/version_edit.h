@@ -244,11 +244,12 @@ struct LevelFilesBrief {
 using WalNumber = uint64_t;
 
 // Information of a new WAL tracked by VersionEdit.
-class AddedWal {
+class WalMetadata {
  public:
-  AddedWal() = default;
+  WalMetadata() = default;
 
-  AddedWal(WalNumber number, uint64_t bytes) : number_(number), bytes_(bytes) {}
+  WalMetadata(WalNumber number, uint64_t bytes)
+      : number_(number), bytes_(bytes) {}
 
   WalNumber GetLogNumber() const { return number_; }
 
@@ -265,7 +266,7 @@ class AddedWal {
   uint64_t bytes_;
 };
 
-JSONWriter& operator<<(JSONWriter& jw, const AddedWal& wal);
+JSONWriter& operator<<(JSONWriter& jw, const WalMetadata& wal);
 
 // Information of a deleted WAL.
 class DeletedWal {
@@ -428,7 +429,8 @@ class VersionEdit {
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
-           blob_file_additions_.size() + blob_file_garbages_.size();
+           blob_file_additions_.size() + blob_file_garbages_.size() +
+           new_wals_.size() + archived_wals_.size() + deleted_wals_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -465,10 +467,10 @@ class VersionEdit {
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
   // Add a completed WAL.
-  void AddWal(const AddedWal& wal) { new_wals_.push_back(wal); }
+  void AddWal(const WalMetadata& wal) { new_wals_.push_back(wal); }
 
   // Get a list of non-archived WALs in the order of AddWal.
-  std::vector<AddedWal> GetNewWals() { return new_wals_; }
+  std::vector<WalMetadata> GetNewWals() { return new_wals_; }
 
   // Archive a WAL.
   void ArchiveWal(WalNumber log_number) {
@@ -478,11 +480,11 @@ class VersionEdit {
   // Get the set of archived WALs.
   std::vector<WalNumber> GetArchivedWals() { return archived_wals_; }
 
-  // Delete an archived or non-archived WAL with the specified log number.
-  void DeleteWal(const DeletedWal& wal) { deleted_wals_.push_back(wal); }
+  // Delete a WAL (either archived or not) with the specified log number.
+  void DeleteWal(WalNumber log_number) { deleted_wals_.push_back(log_number); }
 
   // Get the set of deleted WALs.
-  std::vector<DeletedWal> GetDeletedWals() { return deleted_wals_; }
+  std::vector<WalNumber> GetDeletedWals() { return deleted_wals_; }
 
   // return true on success.
   bool EncodeTo(std::string* dst) const;
@@ -542,9 +544,9 @@ class VersionEdit {
   uint32_t remaining_entries_ = 0;
 
   // WAL related.
-  std::vector<AddedWal> new_wals_;
+  std::vector<WalMetadata> new_wals_;
   std::vector<WalNumber> archived_wals_;
-  std::vector<DeletedWal> deleted_wals_;
+  std::vector<WalNumber> deleted_wals_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

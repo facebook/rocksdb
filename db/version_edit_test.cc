@@ -315,13 +315,13 @@ TEST_F(VersionEditTest, WAL) {
   for (uint64_t log_number = 1; log_number <= 20; log_number++) {
     switch (log_number % 3) {
       case 0:
-        edit.AddWal(AddedWal(log_number, rand() % 100));
+        edit.AddWal(WalMetadata(log_number, rand() % 100));
         break;
       case 1:
         edit.ArchiveWal(log_number);
         break;
       case 2:
-        edit.DeleteWal(DeletedWal(log_number, rand() % 2 == 0));
+        edit.DeleteWal(log_number);
         break;
     }
   }
@@ -329,63 +329,62 @@ TEST_F(VersionEditTest, WAL) {
   TestEncodeDecode(edit);
 }
 
-TEST_F(VersionEditTest, AddedWal) {
+TEST_F(VersionEditTest, AddWal) {
   constexpr uint64_t kLogNumber = 10;
   constexpr uint64_t kBytes = 100;
 
   VersionEdit edit;
-  edit.AddWal(AddedWal(kLogNumber, kBytes));
+  edit.AddWal(WalMetadata(kLogNumber, kBytes));
 
   auto wals = edit.GetNewWals();
   ASSERT_EQ(wals.size(), 1);
-  AddedWal wal = wals[0];
+  WalMetadata wal = wals[0];
   ASSERT_EQ(wal.GetLogNumber(), kLogNumber);
   ASSERT_EQ(wal.GetSizeInBytes(), kBytes);
 
   ASSERT_EQ(edit.DebugString(true),
             "VersionEdit {\n"
             "  ColumnFamily: 0\n"
-            "  AddedWal: log_number: 10 size_in_bytes: 100\n"
+            "  WalMetadata: log_number: 10 size_in_bytes: 100\n"
             "}\n");
   ASSERT_EQ(edit.DebugJSON(4, true),
             "{"
             "\"EditNumber\": 4, "
             "\"ColumnFamily\": 0, "
-            "\"AddedWals\": [{"
+            "\"WalMetadata\": [{"
             "\"LogNumber\": 10, "
             "\"SizeInBytes\": 100"
             "}]}");
 }
 
-TEST_F(VersionEditTest, DeletedWal) {
-  constexpr uint64_t kLogNumber = 10;
-  constexpr bool kArchived = true;
+TEST_F(VersionEditTest, DeleteWal) {
+  constexpr uint64_t kLogNumber0 = 10;
+  constexpr uint64_t kLogNumber1 = 20;
 
   VersionEdit edit;
-  edit.DeleteWal(DeletedWal(kLogNumber, kArchived));
+  edit.DeleteWal(kLogNumber0);
+  edit.DeleteWal(kLogNumber1);
 
   auto wals = edit.GetDeletedWals();
-  ASSERT_EQ(wals.size(), 1);
-  DeletedWal wal = wals[0];
-  ASSERT_EQ(wal.GetLogNumber(), kLogNumber);
-  ASSERT_EQ(wal.IsArchived(), kArchived);
+  ASSERT_EQ(wals.size(), 2);
+  ASSERT_EQ(wals[0], kLogNumber0);
+  ASSERT_EQ(wals[1], kLogNumber1);
 
   ASSERT_EQ(edit.DebugString(true),
             "VersionEdit {\n"
             "  ColumnFamily: 0\n"
-            "  DeletedWal: log_number: 10 is_archived: true\n"
+            "  DeletedWal: 10\n"
+            "  DeletedWal: 20\n"
             "}\n");
   ASSERT_EQ(edit.DebugJSON(4, true),
             "{"
             "\"EditNumber\": 4, "
             "\"ColumnFamily\": 0, "
-            "\"DeletedWals\": [{"
-            "\"LogNumber\": 10, "
-            "\"IsArchived\": \"true\""
-            "}]}");
+            "\"DeletedWals\": [10, 20]"
+            "}");
 }
 
-TEST_F(VersionEditTest, ArchivedWal) {
+TEST_F(VersionEditTest, ArchiveWal) {
   constexpr uint64_t kLogNumber0 = 10;
   constexpr uint64_t kLogNumber1 = 20;
 

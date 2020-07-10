@@ -102,6 +102,30 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
                                       const std::vector<FileMetaData*>& files,
                                       Arena* arena);
 
+// The sets of both non-archived and archived WALs.
+class WalSet {
+ public:
+  void Add(const WalMetadata& wal, bool archived) {
+    if (archived) {
+      archived_wals_[wal.GetLogNumber()] = wal;
+    } else {
+      alive_wals_[wal.GetLogNumber()] = wal;
+    }
+  }
+
+  const std::unordered_map<WalNumber, WalMetadata>& GetAliveWals() const {
+    return alive_wals_;
+  }
+
+  const std::unordered_map<WalNumber, WalMetadata>& GetArchivedWals() const {
+    return archived_wals_;
+  }
+
+ private:
+  std::unordered_map<WalNumber, WalMetadata> alive_wals_;
+  std::unordered_map<WalNumber, WalMetadata> archived_wals_;
+};
+
 // Information of the storage associated with each Version, including number of
 // levels of LSM tree, files information at each level, files marked for
 // compaction, blob files, etc.
@@ -116,6 +140,12 @@ class VersionStorageInfo {
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
   ~VersionStorageInfo();
+
+  void AddWal(const WalMetadata& wal, bool archived) {
+    wals_.Add(wal, archived);
+  }
+
+  const WalSet& GetWals() const { return wals_; }
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
@@ -520,6 +550,8 @@ class VersionStorageInfo {
 
   // Map of blob files in version by number.
   BlobFiles blob_files_;
+
+  WalSet wals_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
   // be empty. -1 if it is not level-compaction so it's not applicable.
