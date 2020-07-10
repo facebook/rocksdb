@@ -562,15 +562,15 @@ Status DBImpl::Recover(
     }
 
     std::vector<uint64_t> logs;
-    for (const auto& log_file : files_in_wal_dir) {
+    for (const auto& file : files_in_wal_dir) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(log_file, &number, &type) && type == kLogFile) {
+      if (ParseFileName(file, &number, &type) && type == kLogFile) {
         if (is_new_db) {
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
-              log_file);
+              file);
         } else {
           logs.push_back(number);
         }
