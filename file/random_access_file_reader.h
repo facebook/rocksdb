@@ -39,10 +39,10 @@ class RandomAccessFileReader {
                               const FileOperationInfo::TimePoint& start_ts,
                               const FileOperationInfo::TimePoint& finish_ts,
                               const Status& status) const {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+    FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
+                           finish_ts, status);
     info.offset = offset;
     info.length = length;
-    info.status = status;
 
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);

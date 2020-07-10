@@ -3407,22 +3407,23 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
 }
 
 uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
-  // Estimate the live data size by adding up the size of the last level for all
-  // key ranges. Note: Estimate depends on the ordering of files in level 0
-  // because files in level 0 can be overlapping.
+  // Estimate the live data size by adding up the size of a maximal set of
+  // sst files with no range overlap in same or higher level. The less
+  // compacted, the more optimistic (smaller) this estimate is. Also,
+  // for multiple sorted runs within a level, file order will matter.
   uint64_t size = 0;
 
   auto ikey_lt = [this](InternalKey* x, InternalKey* y) {
     return internal_comparator_->Compare(*x, *y) < 0;
   };
-  // (Ordered) map of largest keys in non-overlapping files
+  // (Ordered) map of largest keys in files being included in size estimate
   std::map<InternalKey*, FileMetaData*, decltype(ikey_lt)> ranges(ikey_lt);
 
   for (int l = num_levels_ - 1; l >= 0; l--) {
     bool found_end = false;
     for (auto file : files_[l]) {
-      // Find the first file where the largest key is larger than the smallest
-      // key of the current file. If this file does not overlap with the
+      // Find the first file already included with largest key is larger than
+      // the smallest key of `file`. If that file does not overlap with the
       // current file, none of the files in the map does. If there is
       // no potential overlap, we can safely insert the rest of this level
       // (if the level is not 0) into the map without checking again because

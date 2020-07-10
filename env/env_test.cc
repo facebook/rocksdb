@@ -35,14 +35,15 @@
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "test_util/fault_injection_test_env.h"
-#include "test_util/fault_injection_test_fs.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -287,7 +288,7 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
 
     Random rnd(301);
-    test::RandomString(&rnd, kFileBytes, &expected_data);
+    expected_data = rnd.RandomString(kFileBytes);
     ASSERT_OK(wfile->Append(expected_data));
   }
 
@@ -1264,9 +1265,8 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   std::string fname = test::PerThreadDBPath(env_, "testfile");
 
   const size_t kTotalSize = 81920;
-  std::string expected_data;
   Random rnd(301);
-  test::RandomString(&rnd, kTotalSize, &expected_data);
+  std::string expected_data = rnd.RandomString(kTotalSize);
 
   // Create file.
   {
@@ -1949,7 +1949,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   std::string buf;
   for (int i = 0; i < 10000; i++) {
     // Genrate random data
-    test::RandomString(&rnd, 10, &buf);
+    buf = rnd.RandomString(10);
 
     // Pick random offset for write
     size_t write_off = rnd.Next() % 1000;

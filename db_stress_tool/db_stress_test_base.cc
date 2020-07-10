@@ -15,6 +15,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/cast_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
@@ -464,7 +465,7 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
-  txn_options.lock_timeout = 60000; // 1min
+  txn_options.lock_timeout = 60000;  // 1min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
@@ -1341,7 +1342,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_stress_env->FileExists(checkpoint_dir).ok()) {
     // If the directory might still exist, try to delete the files one by one.
     // Likely a trash file is still there.
-    Status my_s = test::DestroyDir(db_stress_env, checkpoint_dir);
+    Status my_s = DestroyDir(db_stress_env, checkpoint_dir);
     if (!my_s.ok()) {
       fprintf(stderr, "Fail to destory directory before checkpoint: %s",
               my_s.ToString().c_str());

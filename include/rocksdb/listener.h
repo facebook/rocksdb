@@ -149,19 +149,36 @@ struct TableFileDeletionInfo {
   Status status;
 };
 
+enum class FileOperationType {
+  kRead,
+  kWrite,
+  kTruncate,
+  kClose,
+  kFlush,
+  kSync,
+  kFsync,
+  kRangeSync
+};
+
 struct FileOperationInfo {
   using TimePoint = std::chrono::time_point<std::chrono::system_clock,
                                             std::chrono::nanoseconds>;
 
+  FileOperationType type;
   const std::string& path;
   uint64_t offset;
   size_t length;
   const TimePoint& start_timestamp;
   const TimePoint& finish_timestamp;
   Status status;
-  FileOperationInfo(const std::string& _path, const TimePoint& start,
-                    const TimePoint& finish)
-      : path(_path), start_timestamp(start), finish_timestamp(finish) {}
+  FileOperationInfo(const FileOperationType _type, const std::string& _path,
+                    const TimePoint& start, const TimePoint& finish,
+                    const Status& _status)
+      : type(_type),
+        path(_path),
+        start_timestamp(start),
+        finish_timestamp(finish),
+        status(_status) {}
 };
 
 struct FlushJobInfo {
@@ -460,7 +477,27 @@ class EventListener {
   // operation finishes.
   virtual void OnFileWriteFinish(const FileOperationInfo& /* info */) {}
 
-  // If true, the OnFileReadFinish and OnFileWriteFinish will be called. If
+  // A callback function for RocksDB which will be called whenever a file flush
+  // operation finishes.
+  virtual void OnFileFlushFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file sync
+  // operation finishes.
+  virtual void OnFileSyncFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file
+  // rangeSync operation finishes.
+  virtual void OnFileRangeSyncFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file
+  // truncate operation finishes.
+  virtual void OnFileTruncateFinish(const FileOperationInfo& /* info */) {}
+
+  // A callback function for RocksDB which will be called whenever a file close
+  // operation finishes.
+  virtual void OnFileCloseFinish(const FileOperationInfo& /* info */) {}
+
+  // If true, the OnFile*Finish functions will be called. If
   // false, then they won't be called.
   virtual bool ShouldBeNotifiedOnFileIO() { return false; }
 

@@ -70,7 +70,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
         new BlockBasedTable::PartitionedIndexIteratorState(table(),
                                                            &partition_map_),
         index_block.GetValue()->NewIndexIterator(
-            internal_comparator(), internal_comparator()->user_comparator(),
+            internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full()));
@@ -82,7 +82,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
         index_block.GetValue()->NewIndexIterator(
-            internal_comparator(), internal_comparator()->user_comparator(),
+            internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full()));
@@ -126,7 +126,7 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
   index_block.GetValue()->NewIndexIterator(
-      internal_comparator(), internal_comparator()->user_comparator(),
+      internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full());
   // Index partitions are assumed to be consecuitive. Prefetch them all.

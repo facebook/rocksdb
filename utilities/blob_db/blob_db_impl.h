@@ -268,7 +268,7 @@ class BlobDBImpl : public BlobDB {
                                  const ExpirationRange& expiration_range,
                                  const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
-                                 std::shared_ptr<Writer>* writer);
+                                 std::shared_ptr<BlobLogWriter>* writer);
 
   // Get the open non-TTL blob log file, or create a new one if no such file
   // exists.
@@ -373,10 +373,10 @@ class BlobDBImpl : public BlobDB {
   // creates a sequential (append) writer for this blobfile
   Status CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile);
 
-  // returns a Writer object for the file. If writer is not
+  // returns a BlobLogWriter object for the file. If writer is not
   // already present, creates one. Needs Write Mutex to be held
   Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
-                                   std::shared_ptr<Writer>* writer);
+                                   std::shared_ptr<BlobLogWriter>* writer);
 
   // checks if there is no snapshot which is referencing the
   // blobs

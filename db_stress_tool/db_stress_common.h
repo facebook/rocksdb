@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -58,9 +59,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
-#ifndef NDEBUG
-#include "test_util/fault_injection_test_fs.h"
-#endif
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -69,9 +68,6 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
-#include "test_util/testutil.h"
-#include "test_util/fault_injection_test_env.h"
-
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -248,6 +244,9 @@ const int kValueMaxLen = 100;
 // wrapped posix or hdfs environment
 extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
 #ifndef NDEBUG
+namespace ROCKSDB_NAMESPACE {
+class FaultInjectionTestFS;
+}  // namespace ROCKSDB_NAMESPACE
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 #endif
 

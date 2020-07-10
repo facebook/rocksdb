@@ -21,29 +21,27 @@ namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriter;
 
-namespace blob_db {
-
 /**
- * Writer is the blob log stream writer. It provides an append-only
+ * BlobLogWriter is the blob log stream writer. It provides an append-only
  * abstraction for writing blob data.
  *
  *
  * Look at blob_db_format.h to see the details of the record formats.
  */
 
-class Writer {
+class BlobLogWriter {
  public:
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
-  // "*dest" must remain live while this Writer is in use.
-  Writer(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
-         Statistics* statistics, uint64_t log_number, uint64_t bpsync,
-         bool use_fsync, uint64_t boffset = 0);
+  // "*dest" must remain live while this BlobLogWriter is in use.
+  BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
+                Statistics* statistics, uint64_t log_number, uint64_t bpsync,
+                bool use_fsync, uint64_t boffset = 0);
   // No copying allowed
-  Writer(const Writer&) = delete;
-  Writer& operator=(const Writer&) = delete;
+  BlobLogWriter(const BlobLogWriter&) = delete;
+  BlobLogWriter& operator=(const BlobLogWriter&) = delete;
 
-  ~Writer() = default;
+  ~BlobLogWriter() = default;
 
   static void ConstructBlobHeader(std::string* buf, const Slice& key,
                                   const Slice& val, uint64_t expiration);
@@ -89,6 +87,5 @@ class Writer {
   ElemType last_elem_type_;
 };
 
-}  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -7,6 +7,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -124,7 +125,7 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
     std::vector<std::string> values;
     // Write 12K (4 values, each 3K)
     for (int j = 0; j < kNumPerFile; j++) {
-      values.push_back(RandomString(&rnd, 3 << 10));
+      values.push_back(rnd.RandomString(3 << 10));
       ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
       if (j == 0 && i > 0) {
         dbfull()->TEST_WaitForFlushMemTable();
@@ -172,7 +173,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
     std::vector<std::string> values;
     // Write 1MB (256 values, each 4K)
     for (int j = 0; j < kNumPerFile; j++) {
-      values.push_back(RandomString(&rnd, kBytesPerVal));
+      values.push_back(rnd.RandomString(kBytesPerVal));
       ASSERT_OK(Put(GetNumericStr(kNumPerFile * i + j), values[j]));
     }
     // extra entry to trigger SpecialSkipListFactory's flush
@@ -378,7 +379,7 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
       std::vector<std::string> values;
       // Write 100KB (100 values, each 1K)
       for (int k = 0; k < kNumPerFile; k++) {
-        values.push_back(RandomString(&rnd, 990));
+        values.push_back(rnd.RandomString(990));
         ASSERT_OK(Put(Key(j * kNumPerFile + k), values[k]));
       }
       // put extra key to trigger flush
@@ -438,7 +439,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       std::vector<std::string> values;
       // Write 100KB (100 values, each 1K)
       for (int k = 0; k < kNumPerFile; k++) {
-        values.push_back(RandomString(&rnd, 990));
+        values.push_back(rnd.RandomString(990));
         ASSERT_OK(Put(Key(j * kNumPerFile + k), values[k]));
       }
       // put extra key to trigger flush
@@ -990,7 +991,7 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
                      Key(2 * kNumFilesPerLevel));
 
     Random rnd(301);
-    std::string value = RandomString(&rnd, kValueBytes);
+    std::string value = rnd.RandomString(kValueBytes);
     for (int j = 0; j < kNumFilesPerLevel; ++j) {
       // give files overlapping key-ranges to prevent trivial move
       ASSERT_OK(Put(Key(j), value));
@@ -1063,7 +1064,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
   //   [key000000#3,1, key000004#72057594037927935,15]
   //   [key000001#5,1, key000002#6,1]
   Random rnd(301);
-  std::string value = RandomString(&rnd, kValueBytes);
+  std::string value = rnd.RandomString(kValueBytes);
   for (int j = 0; j < kNumFilesPerLevel; ++j) {
     // Give files overlapping key-ranges to prevent a trivial move when we
     // compact from L0 to L1.
@@ -1198,7 +1199,7 @@ TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {
   const Snapshot* snapshot = nullptr;
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
-      auto value = RandomString(&rnd, kValueBytes);
+      auto value = rnd.RandomString(kValueBytes);
       ASSERT_OK(db_->Merge(WriteOptions(), "key", value));
     }
     if (i == kNumFiles - 1) {
@@ -1282,7 +1283,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
   const Snapshot* snapshots[] = {nullptr, nullptr};
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
-      auto value = RandomString(&rnd, kValueBytes);
+      auto value = rnd.RandomString(kValueBytes);
       std::string key;
       if (i < kNumFiles / 2) {
         key = Key(0);
@@ -1328,7 +1329,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
   // Now overwrite a few keys that are in L1 files that definitely don't have
   // overlapping boundary keys.
   for (int i = kMaxKey; i > kMaxKey - kKeysOverwritten; --i) {
-    auto value = RandomString(&rnd, kValueBytes);
+    auto value = rnd.RandomString(kValueBytes);
     ASSERT_OK(db_->Merge(WriteOptions(), Key(i), value));
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -1375,7 +1376,7 @@ TEST_F(DBRangeDelTest, DeletedMergeOperandReappearsIterPrev) {
   const Snapshot* snapshot = nullptr;
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
-      auto value = RandomString(&rnd, kValueBytes);
+      auto value = rnd.RandomString(kValueBytes);
       ASSERT_OK(db_->Merge(WriteOptions(), Key(j % kNumKeys), value));
       if (i == 0 && j == kNumKeys) {
         // Take snapshot to prevent covered merge operands from being dropped or
@@ -1515,7 +1516,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
     for (int i = 0; i < kFileBytes / kValueBytes; ++i) {
       std::string key(1, first_char);
       key.append(Key(i));
-      std::string value = RandomString(&rnd, kValueBytes);
+      std::string value = rnd.RandomString(kValueBytes);
       ASSERT_OK(Put(key, value));
     }
     db_->Flush(FlushOptions());
@@ -1597,7 +1598,7 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
     std::vector<std::string> values;
     // Write 12K (4 values, each 3K)
     for (int j = 0; j < kNumPerFile; j++) {
-      values.push_back(RandomString(&rnd, 3 << 10));
+      values.push_back(rnd.RandomString(3 << 10));
       ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
     }
   }
@@ -1636,7 +1637,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
     std::vector<std::string> values;
     // Write 12K (4 values, each 3K)
     for (int j = 0; j < kNumPerFile; j++) {
-      values.push_back(RandomString(&rnd, 3 << 10));
+      values.push_back(rnd.RandomString(3 << 10));
       ASSERT_OK(Put(Key(i * kNumPerFile + j), values[j]));
     }
   }

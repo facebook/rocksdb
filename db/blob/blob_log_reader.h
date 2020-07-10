@@ -22,15 +22,14 @@ namespace ROCKSDB_NAMESPACE {
 class SequentialFileReader;
 class Logger;
 
-namespace blob_db {
-
 /**
- * Reader is a general purpose log stream reader implementation. The actual job
- * of reading from the device is implemented by the SequentialFile interface.
+ * BlobLogReader is a general purpose log stream reader implementation. The
+ * actual job of reading from the device is implemented by the SequentialFile
+ * interface.
  *
  * Please see Writer for details on the file and record layout.
  */
-class Reader {
+class BlobLogReader {
  public:
   enum ReadLevel {
     kReadHeader,
@@ -39,14 +38,14 @@ class Reader {
   };
 
   // Create a reader that will return log records from "*file".
-  // "*file" must remain live while this Reader is in use.
-  Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
-         Statistics* statistics);
+  // "*file" must remain live while this BlobLogReader is in use.
+  BlobLogReader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
+                Statistics* statistics);
   // No copying allowed
-  Reader(const Reader&) = delete;
-  Reader& operator=(const Reader&) = delete;
+  BlobLogReader(const BlobLogReader&) = delete;
+  BlobLogReader& operator=(const BlobLogReader&) = delete;
 
-  ~Reader() = default;
+  ~BlobLogReader() = default;
 
   Status ReadHeader(BlobLogHeader* header);
 
@@ -77,6 +76,5 @@ class Reader {
   uint64_t next_byte_;
 };
 
-}  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
