@@ -74,4 +74,21 @@ extern Status NewJemallocNodumpAllocator(
     JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator);
 
+// PersistentMemoryAllocator is an interface that a client can implement to
+// supply custom persistent memory allocation, deallocation, initialization and
+// finlization functions. All methods should be thread-safe.
+class PersistentMemoryAllocator : public MemoryAllocator {
+ public:
+  virtual ~PersistentMemoryAllocator() = default;
+
+  // Initialize the persistent memory allocator. Typically setting up
+  // memory-mapped files in DAX-enabled file systems and/or recover existing
+  // heap(s).
+  virtual int Init() = 0;
+
+  // Finilization of persistent memory allocator. Typically finish writing back
+  // or flushing to NVM, and close the file.
+  virtual int Finalize() = 0;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
