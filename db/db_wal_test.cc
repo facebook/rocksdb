@@ -1585,7 +1585,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   ASSERT_EQ(1, log_files_after.size());
   ASSERT_LT(log_files_after[0]->SizeFileBytes(), 1 * kKB);
   // The preallocated space should be truncated.
-  ASSERT_LT(GetAllocatedFileSize(dbname_ + file_before->PathName()),
+  ASSERT_LE(GetAllocatedFileSize(dbname_ + file_before->PathName()),
             preallocated_size);
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
