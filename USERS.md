@@ -106,3 +106,6 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 ## Nebula Graph
 
 [Nebula Graph](https://github.com/vesoft-inc/nebula) is a distributed, scalable, lightning-fast, open source graph database capable of hosting super large scale graphs with dozens of billions of vertices (nodes) and trillions of edges, with milliseconds of latency.
+
+## YugabyteDB
+[YugabyteDB](https://www.yugabyte.com/) is an open source, high performance, distributed SQL database that uses RocksDB as its storage layer. For more information, please see https://github.com/yugabyte/yugabyte-db/.

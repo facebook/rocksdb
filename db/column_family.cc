@@ -34,6 +34,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
+#include "util/cast_util.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -346,7 +347,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   bool is_block_based_table =
-      (result.table_factory->Name() == BlockBasedTableFactory().Name());
+      (result.table_factory->Name() == BlockBasedTableFactory::kName);
 
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
@@ -1299,7 +1300,7 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0 && cf_options.ttl != kDefaultTtl) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory::kName) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
     }
@@ -1307,7 +1308,7 @@ Status ColumnFamilyData::ValidateOptions(
 
   if (cf_options.periodic_compaction_seconds > 0 &&
       cf_options.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory::kName) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
           "Block-Based Table format. ");
@@ -1546,7 +1547,7 @@ ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
   uint32_t column_family_id = 0;
   if (column_family != nullptr) {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     column_family_id = cfh->GetID();
   }
   return column_family_id;

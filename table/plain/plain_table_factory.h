@@ -35,7 +35,7 @@ class TableBuilder;
 // 1. Data compression is not supported.
 // 2. Data is not checksumed.
 // it is not recommended to use this format on other type of file systems.
-// 
+//
 // PlainTable requires fixed length key, configured as a constructor
 // parameter of the factory class. Output file format:
 // +-------------+-----------------+
@@ -159,8 +159,10 @@ class PlainTableFactory : public TableFactory {
       const PlainTableOptions& _table_options = PlainTableOptions())
       : table_options_(_table_options) {}
 
-  const char* Name() const override { return "PlainTable"; }
-  Status NewTableReader(const TableReaderOptions& table_reader_options,
+  const char* Name() const override { return kName.c_str(); }
+  using TableFactory::NewTableReader;
+  Status NewTableReader(const ReadOptions& ro,
+                        const TableReaderOptions& table_reader_options,
                         std::unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size, std::unique_ptr<TableReader>* table,
                         bool prefetch_index_and_filter_in_cache) const override;
@@ -184,10 +186,12 @@ class PlainTableFactory : public TableFactory {
 
   void* GetOptions() override { return &table_options_; }
 
-  Status GetOptionString(std::string* /*opt_string*/,
-                         const std::string& /*delimiter*/) const override {
+  Status GetOptionString(const ConfigOptions& /*config_options*/,
+                         std::string* /*opt_string*/) const override {
     return Status::OK();
   }
+
+  static const std::string kName;
 
  private:
   PlainTableOptions table_options_;

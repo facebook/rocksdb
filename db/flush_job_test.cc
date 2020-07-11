@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/flush_job.h"
+
 #include <algorithm>
 #include <array>
 #include <map>
@@ -11,7 +13,6 @@
 #include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
-#include "db/flush_job.h"
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
@@ -19,6 +20,7 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -282,7 +284,6 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   assert(memtable_ids.size() == num_mems);
   uint64_t smallest_memtable_id = memtable_ids.front();
   uint64_t flush_memtable_id = smallest_memtable_id + num_mems_to_flush - 1;
-
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      &flush_memtable_id, env_options_, versions_.get(), &mutex_,
@@ -448,7 +449,7 @@ TEST_F(FlushJobTest, Snapshots) {
     std::string key(ToString(i));
     int insertions = rnd.Uniform(max_inserts_per_keys);
     for (int j = 0; j < insertions; ++j) {
-      std::string value(test::RandomHumanReadableString(&rnd, 10));
+      std::string value(rnd.HumanReadableString(10));
       auto seqno = ++current_seqno;
       new_mem->Add(SequenceNumber(seqno), kTypeValue, key, value);
       // a key is visible only if:

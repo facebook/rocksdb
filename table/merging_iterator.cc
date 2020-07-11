@@ -195,6 +195,7 @@ class MergingIterator : public InternalIterator {
     if (is_valid) {
       result->key = key();
       result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      result->value_prepared = current_->IsValuePrepared();
     }
     return is_valid;
   }
@@ -238,6 +239,17 @@ class MergingIterator : public InternalIterator {
   Slice value() const override {
     assert(Valid());
     return current_->value();
+  }
+
+  bool PrepareValue() override {
+    assert(Valid());
+    if (current_->PrepareValue()) {
+      return true;
+    }
+
+    considerStatus(current_->status());
+    assert(!status_.ok());
+    return false;
   }
 
   // Here we simply relay MayBeOutOfLowerBound/MayBeOutOfUpperBound result

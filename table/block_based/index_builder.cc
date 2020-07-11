@@ -104,6 +104,15 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
       table_opt_.index_shortening, /* include_first_key */ false);
+
+  // Set sub_index_builder_->seperator_is_key_plus_seq_ to true if
+  // seperator_is_key_plus_seq_ is true (internal-key mode) (set to false by
+  // default on Creation) so that flush policy can point to
+  // sub_index_builder_->index_block_builder_
+  if (seperator_is_key_plus_seq_) {
+    sub_index_builder_->seperator_is_key_plus_seq_ = true;
+  }
+
   flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
       // Note: this is sub-optimal since sub_index_builder_ could later reset
@@ -129,9 +138,15 @@ void PartitionedIndexBuilder::AddIndexEntry(
     }
     sub_index_builder_->AddIndexEntry(last_key_in_current_block,
                                       first_key_in_next_block, block_handle);
-    if (sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders
+    if (!seperator_is_key_plus_seq_ &&
+        sub_index_builder_->seperator_is_key_plus_seq_) {
+      // then we need to apply it to all sub-index builders and reset
+      // flush_policy to point to Block Builder of sub_index_builder_ that store
+      // internal keys.
       seperator_is_key_plus_seq_ = true;
+      flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
+          table_opt_.metadata_block_size, table_opt_.block_size_deviation,
+          sub_index_builder_->index_block_builder_));
     }
     sub_index_last_key_ = std::string(*last_key_in_current_block);
     entries_.push_back(
@@ -161,9 +176,15 @@ void PartitionedIndexBuilder::AddIndexEntry(
     sub_index_builder_->AddIndexEntry(last_key_in_current_block,
                                       first_key_in_next_block, block_handle);
     sub_index_last_key_ = std::string(*last_key_in_current_block);
-    if (sub_index_builder_->seperator_is_key_plus_seq_) {
-      // then we need to apply it to all sub-index builders
+    if (!seperator_is_key_plus_seq_ &&
+        sub_index_builder_->seperator_is_key_plus_seq_) {
+      // then we need to apply it to all sub-index builders and reset
+      // flush_policy to point to Block Builder of sub_index_builder_ that store
+      // internal keys.
       seperator_is_key_plus_seq_ = true;
+      flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
+          table_opt_.metadata_block_size, table_opt_.block_size_deviation,
+          sub_index_builder_->index_block_builder_));
     }
   }
 }

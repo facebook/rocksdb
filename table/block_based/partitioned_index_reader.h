@@ -17,7 +17,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
   // `PartitionIndexReader`.
   // On success, index_reader will be populated; otherwise it will remain
   // unmodified.
-  static Status Create(const BlockBasedTable* table,
+  static Status Create(const BlockBasedTable* table, const ReadOptions& ro,
                        FilePrefetchBuffer* prefetch_buffer, bool use_cache,
                        bool prefetch, bool pin,
                        BlockCacheLookupContext* lookup_context,
@@ -29,7 +29,7 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
       IndexBlockIter* iter, GetContext* get_context,
       BlockCacheLookupContext* lookup_context) override;
 
-  void CacheDependencies(bool pin) override;
+  void CacheDependencies(const ReadOptions& ro, bool pin) override;
   size_t ApproximateMemoryUsage() const override {
     size_t usage = ApproximateIndexBlockMemoryUsage();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE

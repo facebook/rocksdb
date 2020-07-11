@@ -8,6 +8,15 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -26,8 +35,8 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
-#include "tools/sst_dump_tool_imp.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_checksum_helper.h"
@@ -35,16 +44,6 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
-
-#include <cstdlib>
-#include <ctime>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
-#include <string>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -64,6 +63,8 @@ const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
+const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
+    "disable_consistency_checks";
 const std::string LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS =
     "ignore_unknown_options";
 const std::string LDBCommand::ARG_FROM = "from";
@@ -95,7 +96,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
-    int argc, char** argv, const Options& options,
+    int argc, char const* const* argv, const Options& options,
     const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   std::vector<std::string> args;
@@ -330,7 +331,6 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       is_db_ttl_(false),
       timestamp_(false),
       try_load_options_(false),
-      ignore_unknown_options_(false),
       create_if_missing_(false),
       option_map_(options),
       flags_(flags),
@@ -363,13 +363,17 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
-  ignore_unknown_options_ = IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
+  force_consistency_checks_ =
+      !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
+  config_options_.ignore_unknown_options =
+      IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
 
 void LDBCommand::OpenDB() {
   if (!create_if_missing_ && try_load_options_) {
-    Status s = LoadLatestOptions(db_path_, options_.env, &options_,
-                                 &column_families_, ignore_unknown_options_);
+    config_options_.env = options_.env;
+    Status s = LoadLatestOptions(config_options_, db_path_, &options_,
+                                 &column_families_);
     if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
       std::string msg = s.ToString();
@@ -526,6 +530,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FILE_SIZE,
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
+                                  ARG_DISABLE_CONSISTENCY_CHECKS,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -621,6 +626,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     }
   }
 
+  cf_opts->force_consistency_checks = force_consistency_checks_;
   if (use_table_options) {
     cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
@@ -1295,6 +1301,10 @@ CreateColumnFamilyCommand::CreateColumnFamilyCommand(
 }
 
 void CreateColumnFamilyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   ColumnFamilyHandle* new_cf_handle = nullptr;
   Status st = db_->CreateColumnFamily(options_, new_cf_name_, &new_cf_handle);
   if (st.ok()) {
@@ -1328,6 +1338,10 @@ DropColumnFamilyCommand::DropColumnFamilyCommand(
 }
 
 void DropColumnFamilyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   auto iter = cf_handles_.find(cf_name_to_drop_);
   if (iter == cf_handles_.end()) {
     exec_state_ = LDBCommandExecuteResult::Failed(
@@ -1747,7 +1761,7 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(iter);
       rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2024,6 +2038,10 @@ Options ChangeCompactionStyleCommand::PrepareOptionsForOpenDB() {
 }
 
 void ChangeCompactionStyleCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   // print db stats before we have made any change
   std::string property;
   std::string files_per_level;
@@ -2438,6 +2456,7 @@ void BatchPutCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(BatchPutCommand::Name());
   ret.append(" <key> <value> [<key> <value>] [..]");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2574,7 +2593,7 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(it);
       int rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2724,7 +2743,8 @@ PutCommand::PutCommand(const std::vector<std::string>& params,
 void PutCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(PutCommand::Name());
-  ret.append(" <key> <value> ");
+  ret.append(" <key> <value>");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2838,7 +2858,7 @@ CheckConsistencyCommand::CheckConsistencyCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
 
 void CheckConsistencyCommand::Help(std::string& ret) {
   ret.append("  ");
@@ -2847,19 +2867,13 @@ void CheckConsistencyCommand::Help(std::string& ret) {
 }
 
 void CheckConsistencyCommand::DoCommand() {
-  Options opt = PrepareOptionsForOpenDB();
-  opt.paranoid_checks = true;
-  if (!exec_state_.IsNotStarted()) {
-    return;
-  }
-  DB* db;
-  Status st = DB::OpenForReadOnly(opt, db_path_, &db, false);
-  delete db;
-  if (st.ok()) {
+  options_.paranoid_checks = true;
+  options_.num_levels = 64;
+  OpenDB();
+  if (exec_state_.IsSucceed() || exec_state_.IsNotStarted()) {
     fprintf(stdout, "OK\n");
-  } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
   }
+  CloseDB();
 }
 
 // ----------------------------------------------------------------------------
@@ -3080,7 +3094,8 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   // no verification
   // TODO: add support for decoding blob indexes in ldb as well
   ROCKSDB_NAMESPACE::SstFileDumper dumper(
-      options, filename, /* verify_checksum */ false, output_hex,
+      options, filename, 2 * 1024 * 1024 /* readahead_size */,
+      /* verify_checksum */ false, output_hex,
       /* decode_blob_index */ false);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
@@ -3415,7 +3430,7 @@ void ListFileRangeDeletesCommand::DoCommand() {
     return;
   }
 
-  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
   std::string out_str;
 

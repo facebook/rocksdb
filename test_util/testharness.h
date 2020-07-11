@@ -42,6 +42,5 @@ int RandomSeed();
 #define EXPECT_OK(s) \
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
-
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

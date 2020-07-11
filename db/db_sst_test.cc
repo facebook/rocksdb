@@ -12,6 +12,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_manager.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -163,7 +164,7 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
   for (int i = 0; i < 2; ++i) {
     // Create 1MB sst file
     for (int j = 0; j < 100; ++j) {
-      ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+      ASSERT_OK(Put(Key(i * 50 + j), rnd.RandomString(10 * 1024)));
     }
     ASSERT_OK(Flush());
   }
@@ -211,7 +212,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   for (int i = 0; i < 2; ++i) {
     // Create 1MB sst file
     for (int j = 0; j < 100; ++j) {
-      ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+      ASSERT_OK(Put(Key(i * 50 + j), rnd.RandomString(10 * 1024)));
     }
     ASSERT_OK(Flush());
   }
@@ -242,7 +243,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   // write_buffer_size. The flush will be blocked with block_first_time
   // pending_file is protecting all the files created after
   for (int j = 0; j < 256; ++j) {
-    ASSERT_OK(Put(Key(j), RandomString(&rnd, 10 * 1024)));
+    ASSERT_OK(Put(Key(j), rnd.RandomString(10 * 1024)));
   }
   blocking_thread.WaitUntilSleeping();
 
@@ -356,38 +357,27 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
       "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
         // Turn timed wait into a simulated sleep
         uint64_t* abs_time_us = static_cast<uint64_t*>(arg);
-        int64_t cur_time = 0;
-        env_->GetCurrentTime(&cur_time);
-        if (*abs_time_us > static_cast<uint64_t>(cur_time)) {
-          env_->addon_time_.fetch_add(*abs_time_us -
-                                      static_cast<uint64_t>(cur_time));
+        uint64_t cur_time = env_->NowMicros();
+        if (*abs_time_us > cur_time) {
+          env_->addon_time_.fetch_add(*abs_time_us - cur_time);
         }
 
         // Randomly sleep shortly
         env_->addon_time_.fetch_add(
             static_cast<uint64_t>(Random::GetTLSInstance()->Uniform(10)));
 
-        // Set wait until time to before current to force not to sleep.
-        int64_t real_cur_time = 0;
-        Env::Default()->GetCurrentTime(&real_cur_time);
-        *abs_time_us = static_cast<uint64_t>(real_cur_time);
+        // Set wait until time to before (actual) current time to force not
+        // to sleep
+        *abs_time_us = Env::Default()->NowMicros();
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  env_->no_slowdown_ = true;
-  env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
+  env_->SetTimeElapseOnlySleep(&options);
   options.disable_auto_compactions = true;
-  // Need to disable stats dumping and persisting which also use
-  // RepeatableThread, one of whose member variables is of type
-  // InstrumentedCondVar. The callback for
-  // InstrumentedCondVar::TimedWaitInternal can be triggered by stats dumping
-  // and persisting threads and cause time_spent_deleting measurement to become
-  // incorrect.
-  options.stats_dump_period_sec = 0;
-  options.stats_persist_period_sec = 0;
   options.env = env_;
+  options.statistics = CreateDBStatistics();
 
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
@@ -437,6 +427,9 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   }
   ASSERT_GT(time_spent_deleting, expected_penlty * 0.9);
   ASSERT_LT(time_spent_deleting, expected_penlty * 1.1);
+  ASSERT_EQ(4, options.statistics->getAndResetTickerCount(FILES_MARKED_TRASH));
+  ASSERT_EQ(
+      0, options.statistics->getAndResetTickerCount(FILES_DELETED_IMMEDIATELY));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -766,7 +759,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {
 
   // Generate a file containing 100 keys.
   for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
 
@@ -807,7 +800,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
 
   // Generate a file containing 10 keys.
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
   uint64_t total_file_size = 0;
@@ -817,7 +810,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
 
   // Generate another file to trigger compaction.
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
   dbfull()->TEST_WaitForCompact(true);
@@ -828,6 +821,12 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
   ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_EQ(0,
+            dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                FILES_MARKED_TRASH));
+  ASSERT_EQ(4,
+            dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                FILES_DELETED_IMMEDIATELY));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -848,7 +847,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 
   // Generate a file containing 10 keys.
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
   uint64_t total_file_size = 0;
@@ -858,7 +857,7 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 
   // Generate another file to trigger compaction.
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
 
@@ -955,7 +954,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
     // It is easy to detect if the test is stuck in a loop. No need for
     // complex termination logic.
     while (true) {
-      auto s = Put(RandomString(&rnd, 10), RandomString(&rnd, 50));
+      auto s = Put(rnd.RandomString(10), rnd.RandomString(50));
       if (!s.ok()) {
         break;
       }

@@ -4,18 +4,20 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <fstream>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <fstream>
+
 #include "db/db_test_util.h"
 #include "db/write_batch_internal.h"
 #include "db/write_thread.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -246,7 +248,7 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   mock_env->SetFilesystemActive(false, Status::IOError("Not active"));
   Status s;
   for (int i = 0; i < 4 * 512; ++i) {
-    s = Put(Key(i), RandomString(&rnd, 1024));
+    s = Put(Key(i), rnd.RandomString(1024));
     if (!s.ok()) {
       break;
     }

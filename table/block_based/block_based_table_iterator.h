@@ -25,11 +25,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0)
+      size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
+        allow_unprepared_value_(allow_unprepared_value),
         index_iter_(std::move(index_iter)),
         pinned_iters_mgr_(nullptr),
         block_iter_points_to_real_block_(false),
@@ -69,17 +71,20 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       return block_iter_.user_key();
     }
   }
-  Slice value() const override {
+  bool PrepareValue() override {
     assert(Valid());
 
-    // Load current block if not loaded.
-    if (is_at_first_key_from_index_ &&
-        !const_cast<BlockBasedTableIterator*>(this)
-             ->MaterializeCurrentBlock()) {
-      // Oops, index is not consistent with block contents, but we have
-      // no good way to report error at this point. Let's return empty value.
-      return Slice();
+    if (!is_at_first_key_from_index_) {
+      return true;
     }
+
+    return const_cast<BlockBasedTableIterator*>(this)
+        ->MaterializeCurrentBlock();
+  }
+  Slice value() const override {
+    // PrepareValue() must have been called.
+    assert(!is_at_first_key_from_index_);
+    assert(Valid());
 
     return block_iter_.value();
   }
@@ -113,10 +118,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
             (block_iter_points_to_real_block_ && block_iter_.IsKeyPinned()));
   }
   bool IsValuePinned() const override {
-    // Load current block if not loaded.
-    if (is_at_first_key_from_index_) {
-      const_cast<BlockBasedTableIterator*>(this)->MaterializeCurrentBlock();
-    }
+    assert(!is_at_first_key_from_index_);
+    assert(Valid());
+
     // BlockIter::IsValuePinned() is always true. No need to check
     return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
            block_iter_points_to_real_block_;
@@ -150,6 +154,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const ReadOptions read_options_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;
+  const bool allow_unprepared_value_;
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   DataBlockIter block_iter_;
@@ -162,7 +167,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // Whether current data block being fully within iterate upper bound.
   bool data_block_within_upper_bound_ = false;
   // True if we're standing at the first key of a block, and we haven't loaded
-  // that block yet. A call to value() will trigger loading the block.
+  // that block yet. A call to PrepareValue() will trigger loading the block.
   bool is_at_first_key_from_index_ = false;
   bool check_filter_;
   // TODO(Zhongyi): pick a better name

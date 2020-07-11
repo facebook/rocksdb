@@ -126,7 +126,7 @@ static void* XXH_memcpy(void* dest, const void* src, size_t size) { return memcp
 #include "xxhash.h"
 
 /* BEGIN RocksDB customizations */
-#include "util/util.h" /* for FALLTHROUGH_INTENDED, inserted as appropriate */
+#include "port/lang.h" /* for FALLTHROUGH_INTENDED, inserted as appropriate */
 /* END RocksDB customizations */
 
 /* *************************************

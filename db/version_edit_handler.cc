@@ -27,12 +27,17 @@ VersionEditHandler::VersionEditHandler(
   assert(version_set_ != nullptr);
 }
 
-Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
+void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
+                                 std::string* db_id) {
   Slice record;
   std::string scratch;
+  assert(log_read_status);
+  assert(log_read_status->ok());
+
   size_t recovered_edits = 0;
   Status s = Initialize();
-  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+  while (s.ok() && reader.ReadRecord(&record, &scratch) &&
+         log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
@@ -70,13 +75,15 @@ Status VersionEditHandler::Iterate(log::Reader& reader, std::string* db_id) {
       }
     }
   }
+  if (!log_read_status->ok()) {
+    s = *log_read_status;
+  }
 
   CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
     status_ = s;
   }
-  return s;
 }
 
 Status VersionEditHandler::Initialize() {
@@ -377,6 +384,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
                                               ColumnFamilyData* cfd,
                                               bool force_create_version) {
   assert(cfd->initialized());
+  Status s;
   if (force_create_version) {
     auto builder_iter = builders_.find(cfd->GetID());
     assert(builder_iter != builders_.end());
@@ -384,13 +392,18 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
                           *cfd->GetLatestMutableCFOptions(),
                           version_set_->current_version_number_++);
-    builder->SaveTo(v->storage_info());
-    // Install new version
-    v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
-                    !(version_set_->db_options_->skip_stats_update_on_db_open));
-    version_set_->AppendVersion(cfd, v);
+    s = builder->SaveTo(v->storage_info());
+    if (s.ok()) {
+      // Install new version
+      v->PrepareApply(
+          *cfd->GetLatestMutableCFOptions(),
+          !(version_set_->db_options_->skip_stats_update_on_db_open));
+      version_set_->AppendVersion(cfd, v);
+    } else {
+      delete v;
+    }
   }
-  return Status::OK();
+  return s;
 }
 
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
@@ -398,18 +411,19 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool is_initial_load) {
   assert(cfd != nullptr);
   assert(!cfd->IsDropped());
-  Status s;
   auto builder_iter = builders_.find(cfd->GetID());
   assert(builder_iter != builders_.end());
   assert(builder_iter->second != nullptr);
   VersionBuilder* builder = builder_iter->second->version_builder();
   assert(builder);
-  s = builder->LoadTableHandlers(
+  Status s = builder->LoadTableHandlers(
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-  if (s.IsPathNotFound() && no_error_if_table_files_missing_) {
+      cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+      MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
+  if ((s.IsPathNotFound() || s.IsCorruption()) &&
+      no_error_if_table_files_missing_) {
     s = Status::OK();
   }
   if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
@@ -540,9 +554,11 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     const std::string fpath =
         MakeTableFileName(cfd->ioptions()->cf_paths[0].path, file_num);
     s = version_set_->VerifyFileMetadata(fpath, meta);
-    if (s.IsPathNotFound() || s.IsNotFound()) {
+    if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
       missing_files.insert(file_num);
       s = Status::OK();
+    } else if (!s.ok()) {
+      break;
     }
   }
   bool missing_info = !version_edit_params_.has_log_number_ ||
@@ -550,24 +566,29 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
                       !version_edit_params_.has_last_sequence_;
 
   // Create version before apply edit
-  if (!missing_info && ((!missing_files.empty() && !prev_has_missing_files) ||
-                        (missing_files.empty() && force_create_version))) {
+  if (s.ok() && !missing_info &&
+      ((!missing_files.empty() && !prev_has_missing_files) ||
+       (missing_files.empty() && force_create_version))) {
     auto builder_iter = builders_.find(cfd->GetID());
     assert(builder_iter != builders_.end());
     auto* builder = builder_iter->second->version_builder();
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cfd->GetLatestMutableCFOptions(),
                                 version_set_->current_version_number_++);
-    builder->SaveTo(version->storage_info());
-    version->PrepareApply(
-        *cfd->GetLatestMutableCFOptions(),
-        !version_set_->db_options_->skip_stats_update_on_db_open);
-    auto v_iter = versions_.find(cfd->GetID());
-    if (v_iter != versions_.end()) {
-      delete v_iter->second;
-      v_iter->second = version;
+    s = builder->SaveTo(version->storage_info());
+    if (s.ok()) {
+      version->PrepareApply(
+          *cfd->GetLatestMutableCFOptions(),
+          !version_set_->db_options_->skip_stats_update_on_db_open);
+      auto v_iter = versions_.find(cfd->GetID());
+      if (v_iter != versions_.end()) {
+        delete v_iter->second;
+        v_iter->second = version;
+      } else {
+        versions_.emplace(cfd->GetID(), version);
+      }
     } else {
-      versions_.emplace(cfd->GetID(), version);
+      delete version;
     }
   }
   return s;

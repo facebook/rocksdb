@@ -31,16 +31,18 @@
 namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
+class FilterPolicy;
 class FlushBlockPolicyFactory;
 class PersistentCache;
 class RandomAccessFile;
 struct TableReaderOptions;
 struct TableBuilderOptions;
 class TableBuilder;
+class TableFactory;
 class TableReader;
 class WritableFileWriter;
+struct ConfigOptions;
 struct EnvOptions;
-struct Options;
 
 enum ChecksumType : char {
   kNoChecksum = 0x0,
@@ -113,11 +115,6 @@ struct BlockBasedTableOptions {
     //    e.g. when prefix changes.
     // Makes the index significantly bigger (2x or more), especially when keys
     // are long.
-    //
-    // IO errors are not handled correctly in this mode right now: if an error
-    // happens when lazily reading a block in value(), value() returns empty
-    // slice, and you need to call Valid()/status() afterwards.
-    // TODO(kolmike): Fix it.
     kBinarySearchWithFirstKey = 0x03,
   };
 
@@ -202,6 +199,40 @@ struct BlockBasedTableOptions {
   // Use partitioned full filters for each SST file. This option is
   // incompatible with block-based filters.
   bool partition_filters = false;
+
+  // EXPERIMENTAL Option to generate Bloom filters that minimize memory
+  // internal fragmentation.
+  //
+  // When false, malloc_usable_size is not available, or format_version < 5,
+  // filters are generated without regard to internal fragmentation when
+  // loaded into memory (historical behavior). When true (and
+  // malloc_usable_size is available and format_version >= 5), then Bloom
+  // filters are generated to "round up" and "round down" their sizes to
+  // minimize internal fragmentation when loaded into memory, assuming the
+  // reading DB has the same memory allocation characteristics as the
+  // generating DB. This option does not break forward or backward
+  // compatibility.
+  //
+  // While individual filters will vary in bits/key and false positive rate
+  // when setting is true, the implementation attempts to maintain a weighted
+  // average FP rate for filters consistent with this option set to false.
+  //
+  // With Jemalloc for example, this setting is expected to save about 10% of
+  // the memory footprint and block cache charge of filters, while increasing
+  // disk usage of filters by about 1-2% due to encoding efficiency losses
+  // with variance in bits/key.
+  //
+  // NOTE: Because some memory counted by block cache might be unmapped pages
+  // within internal fragmentation, this option can increase observed RSS
+  // memory usage. With cache_index_and_filter_blocks=true, this option makes
+  // the block cache better at using space it is allowed.
+  //
+  // NOTE: Do not set to true if you do not trust malloc_usable_size. With
+  // this option, RocksDB might access an allocated memory object beyond its
+  // original size if malloc_usable_size says it is safe to do so. While this
+  // can be considered bad practice, it should not produce undefined behavior
+  // unless malloc_usable_size is buggy or broken.
+  bool optimize_filters_for_memory = false;
 
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.
@@ -525,7 +556,19 @@ class TableFactory {
       const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
-      bool prefetch_index_and_filter_in_cache = true) const = 0;
+      bool prefetch_index_and_filter_in_cache = true) const {
+    ReadOptions ro;
+    return NewTableReader(ro, table_reader_options, std::move(file), file_size,
+                          table_reader, prefetch_index_and_filter_in_cache);
+  }
+
+  // Overload of the above function that allows the caller to pass in a
+  // ReadOptions
+  virtual Status NewTableReader(
+      const ReadOptions& ro, const TableReaderOptions& table_reader_options,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache) const = 0;
 
   // Return a table builder to write to a file for this table type.
   //
@@ -560,8 +603,8 @@ class TableFactory {
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
 
-  virtual Status GetOptionString(std::string* /*opt_string*/,
-                                 const std::string& /*delimiter*/) const {
+  virtual Status GetOptionString(const ConfigOptions& /*config_options*/,
+                                 std::string* /*opt_string*/) const {
     return Status::NotSupported(
         "The table factory doesn't implement GetOptionString().");
   }

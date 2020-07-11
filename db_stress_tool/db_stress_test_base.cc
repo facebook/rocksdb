@@ -10,9 +10,12 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
+#include "util/cast_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
@@ -195,11 +198,18 @@ void StressTest::InitDb() {
   BuildOptionsTable();
 }
 
-void StressTest::InitReadonlyDb(SharedState* shared) {
-  uint64_t now = db_stress_env->NowMicros();
-  fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
-          db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
-  PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
+void StressTest::FinishInitDb(SharedState* shared) {
+  if (FLAGS_read_only) {
+    uint64_t now = db_stress_env->NowMicros();
+    fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
+            db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
+    PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
+  }
+  if (FLAGS_enable_compaction_filter) {
+    reinterpret_cast<DbStressCompactionFilterFactory*>(
+        options_.compaction_filter_factory.get())
+        ->SetSharedState(shared);
+  }
 }
 
 bool StressTest::VerifySecondaries() {
@@ -455,6 +465,8 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
+  txn_options.lock_timeout = 60000;  // 1min
+  txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
   Status s = (*txn)->SetName("xid" + istr);
@@ -502,6 +514,12 @@ void StressTest::OperateDb(ThreadState* thread) {
   const int delRangeBound = delBound + static_cast<int>(FLAGS_delrangepercent);
   const uint64_t ops_per_open = FLAGS_ops_per_thread / (FLAGS_reopen + 1);
 
+#ifndef NDEBUG
+  if (FLAGS_read_fault_one_in) {
+    fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
+                                            FLAGS_read_fault_one_in);
+  }
+#endif // NDEBUG
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
     if (thread->shared->HasVerificationFailedYet() ||
@@ -1321,10 +1339,34 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
 
   DestroyDB(checkpoint_dir, tmp_opts);
 
+  if (db_stress_env->FileExists(checkpoint_dir).ok()) {
+    // If the directory might still exist, try to delete the files one by one.
+    // Likely a trash file is still there.
+    Status my_s = DestroyDir(db_stress_env, checkpoint_dir);
+    if (!my_s.ok()) {
+      fprintf(stderr, "Fail to destory directory before checkpoint: %s",
+              my_s.ToString().c_str());
+    }
+  }
+
   Checkpoint* checkpoint = nullptr;
   Status s = Checkpoint::Create(db_, &checkpoint);
   if (s.ok()) {
     s = checkpoint->CreateCheckpoint(checkpoint_dir);
+    if (!s.ok()) {
+      fprintf(stderr, "Fail to create checkpoint to %s\n",
+              checkpoint_dir.c_str());
+      std::vector<std::string> files;
+      Status my_s = db_stress_env->GetChildren(checkpoint_dir, &files);
+      if (my_s.ok()) {
+        for (const auto& f : files) {
+          fprintf(stderr, " %s\n", f.c_str());
+        }
+      } else {
+        fprintf(stderr, "Fail to get files under the directory to %s\n",
+                my_s.ToString().c_str());
+      }
+    }
   }
   std::vector<ColumnFamilyHandle*> cf_handles;
   DB* checkpoint_db = nullptr;
@@ -1377,11 +1419,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     checkpoint_db = nullptr;
   }
 
-  DestroyDB(checkpoint_dir, tmp_opts);
-
   if (!s.ok()) {
     fprintf(stderr, "A checkpoint operation failed with: %s\n",
             s.ToString().c_str());
+  } else {
+    DestroyDB(checkpoint_dir, tmp_opts);
   }
   return s;
 }
@@ -1464,7 +1506,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   Slice key = keystr;
   ColumnFamilyHandle* column_family = column_families_[rand_column_family];
 #ifndef ROCKSDB_LITE
-  auto db_impl = reinterpret_cast<DBImpl*>(db_->GetRootDB());
+  auto db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
   const bool ww_snapshot = thread->rand.OneIn(10);
   const Snapshot* snapshot =
       ww_snapshot ? db_impl->GetSnapshotForWriteConflictBoundary()
@@ -1703,9 +1745,9 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
   fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
-  if (!rocksdb_kill_prefix_blacklist.empty()) {
+  if (!rocksdb_kill_exclude_prefixes.empty()) {
     fprintf(stdout, "Skipping kill points prefixes:\n");
-    for (auto& p : rocksdb_kill_prefix_blacklist) {
+    for (auto& p : rocksdb_kill_exclude_prefixes) {
       fprintf(stdout, "  %s\n", p.c_str());
     }
   }
@@ -1721,6 +1763,10 @@ void StressTest::PrintEnv() const {
           FLAGS_max_write_batch_group_size_bytes);
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
+  fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
+  fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
+  fprintf(stdout, "Best efforts recovery     : %d\n",
+          static_cast<int>(FLAGS_best_efforts_recovery));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -1744,6 +1790,8 @@ void StressTest::Open() {
         static_cast<int32_t>(FLAGS_index_block_restart_interval);
     block_based_options.filter_policy = filter_policy_;
     block_based_options.partition_filters = FLAGS_partition_filters;
+    block_based_options.optimize_filters_for_memory =
+        FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
     options_.table_factory.reset(
@@ -1795,6 +1843,8 @@ void StressTest::Open() {
     options_.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options_.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    options_.compression_opts.parallel_threads =
+        FLAGS_compression_parallel_threads;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options_.inplace_update_support = FLAGS_in_place_update;
@@ -1818,6 +1868,7 @@ void StressTest::Open() {
     options_.avoid_unnecessary_blocking_io =
         FLAGS_avoid_unnecessary_blocking_io;
     options_.write_dbid_to_manifest = FLAGS_write_dbid_to_manifest;
+    options_.avoid_flush_during_recovery = FLAGS_avoid_flush_during_recovery;
     options_.max_write_batch_group_size_bytes =
         FLAGS_max_write_batch_group_size_bytes;
     options_.level_compaction_dynamic_level_bytes =
@@ -1901,6 +1952,12 @@ void StressTest::Open() {
   } else {
     options_.merge_operator = MergeOperators::CreatePutOperator();
   }
+  if (FLAGS_enable_compaction_filter) {
+    options_.compaction_filter_factory =
+        std::make_shared<DbStressCompactionFilterFactory>();
+  }
+
+  options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 

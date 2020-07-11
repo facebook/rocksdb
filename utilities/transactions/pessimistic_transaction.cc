@@ -48,9 +48,8 @@ PessimisticTransaction::PessimisticTransaction(
       deadlock_detect_(false),
       deadlock_detect_depth_(0),
       skip_concurrency_control_(false) {
-  txn_db_impl_ =
-      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
-  db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
+  txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
+  db_impl_ = static_cast_with_check<DBImpl>(db_);
   if (init) {
     Initialize(txn_options);
   }
@@ -88,6 +87,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   }
   use_only_the_last_commit_time_batch_for_recovery_ =
       txn_options.use_only_the_last_commit_time_batch_for_recovery;
+  skip_prepare_ = txn_options.skip_prepare;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
@@ -191,11 +191,11 @@ Status PessimisticTransaction::Prepare() {
                                                       AWAITING_PREPARE);
   } else if (txn_state_ == STARTED) {
     // expiration and lock stealing is not possible
+    txn_state_.store(AWAITING_PREPARE);
     can_prepare = true;
   }
 
   if (can_prepare) {
-    txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
     assert(log_number_ == 0 ||
@@ -284,10 +284,11 @@ Status PessimisticTransaction::Commit() {
     commit_prepared = true;
   } else if (txn_state_ == STARTED) {
     // expiration and lock stealing is not a concern
-    commit_without_prepare = true;
-    // TODO(myabandeh): what if the user mistakenly forgets prepare? We should
-    // add an option so that the user explictly express the intention of
-    // skipping the prepare phase.
+    if (skip_prepare_) {
+      commit_without_prepare = true;
+    } else {
+      return Status::TxnNotPrepared();
+    }
   }
 
   if (commit_without_prepare) {

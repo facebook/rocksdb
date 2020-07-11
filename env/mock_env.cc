@@ -701,8 +701,7 @@ Status MockEnv::LockFile(const std::string& fname, FileLock** flock) {
 }
 
 Status MockEnv::UnlockFile(FileLock* flock) {
-  std::string fn =
-      static_cast_with_check<MockEnvFileLock, FileLock>(flock)->FileName();
+  std::string fn = static_cast_with_check<MockEnvFileLock>(flock)->FileName();
   {
     MutexLock lock(&mutex_);
     if (file_map_.find(fn) != file_map_.end()) {

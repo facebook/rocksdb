@@ -10,13 +10,13 @@
 #include <memory>
 #include <unordered_set>
 
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_reader.h"
+#include "db/blob/blob_log_writer.h"
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
@@ -27,6 +27,7 @@ class BlobFile {
   friend class BlobDBImpl;
   friend struct BlobFileComparator;
   friend struct BlobFileComparatorTTL;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  private:
@@ -85,7 +86,7 @@ class BlobFile {
   SequenceNumber obsolete_sequence_{0};
 
   // Sequential/Append writer for blobs
-  std::shared_ptr<Writer> log_writer_;
+  std::shared_ptr<BlobLogWriter> log_writer_;
 
   // random access file reader for GET calls
   std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
@@ -207,7 +208,7 @@ class BlobFile {
 
   CompressionType GetCompressionType() const { return compression_; }
 
-  std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
+  std::shared_ptr<BlobLogWriter> GetWriter() const { return log_writer_; }
 
   // Read blob file header and footer. Return corruption if file header is
   // malform or incomplete. If footer is malform or incomplete, set
@@ -219,7 +220,7 @@ class BlobFile {
                    bool* fresh_open);
 
  private:
-  std::shared_ptr<Reader> OpenRandomAccessReader(
+  std::shared_ptr<BlobLogReader> OpenRandomAccessReader(
       Env* env, const DBOptions& db_options,
       const EnvOptions& env_options) const;
 

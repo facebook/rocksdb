@@ -50,7 +50,8 @@ class TableReader {
   virtual InternalIterator* NewIterator(
       const ReadOptions&, const SliceTransform* prefix_extractor, Arena* arena,
       bool skip_filters, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0) = 0;
+      size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false) = 0;
 
   virtual FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& /*read_options*/) {
@@ -63,12 +64,19 @@ class TableReader {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
+  // TODO(peterd): Since this function is only used for approximate size
+  // from beginning of file, reduce code duplication by removing this
+  // function and letting ApproximateSize take optional start and end, so
+  // that absolute start and end can be specified and optimized without
+  // key / index work.
   virtual uint64_t ApproximateOffsetOf(const Slice& key,
                                        TableReaderCaller caller) = 0;
 
   // Given start and end keys, return the approximate data size in the file
   // between the keys. The returned value is in terms of file bytes, and so
-  // includes effects like compression of the underlying data.
+  // includes effects like compression of the underlying data and applicable
+  // portions of metadata including filters and indexes. Nullptr for start or
+  // end (or both) indicates absolute start or end of the table.
   virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
                                    TableReaderCaller caller) = 0;
 

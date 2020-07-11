@@ -150,11 +150,11 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
 #endif
 
 bool IsSyncFileRangeSupported(int fd) {
-  // The approach taken in this function is to build a blacklist of cases where
-  // we know `sync_file_range` definitely will not work properly despite passing
-  // the compile-time check (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or
-  // if any of the checks fail in unexpected ways, we allow `sync_file_range` to
-  // be used. This way should minimize risk of impacting existing use cases.
+  // This function tracks and checks for cases where we know `sync_file_range`
+  // definitely will not work properly despite passing the compile-time check
+  // (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or if any of the checks
+  // fail in unexpected ways, we allow `sync_file_range` to be used. This way
+  // should minimize risk of impacting existing use cases.
   struct statfs buf;
   int ret = fstatfs(fd, &buf);
   assert(ret == 0);
@@ -176,7 +176,7 @@ bool IsSyncFileRangeSupported(int fd) {
     // ("Function not implemented").
     return false;
   }
-  // None of the cases on the blacklist matched, so allow `sync_file_range` use.
+  // None of the known cases matched, so allow `sync_file_range` use.
   return true;
 }
 
@@ -189,19 +189,19 @@ bool IsSyncFileRangeSupported(int fd) {
 /*
  * DirectIOHelper
  */
-#ifndef NDEBUG
 namespace {
 
 bool IsSectorAligned(const size_t off, size_t sector_size) {
-  return off % sector_size == 0;
+  assert((sector_size & (sector_size - 1)) == 0);
+  return (off & (sector_size - 1)) == 0;
 }
 
+#ifndef NDEBUG
 bool IsSectorAligned(const void* ptr, size_t sector_size) {
   return uintptr_t(ptr) % sector_size == 0;
 }
-
-}  // namespace
 #endif
+}  // namespace
 
 /*
  * PosixSequentialFile
@@ -276,7 +276,7 @@ IOStatus PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
     ptr += r;
     offset += r;
     left -= r;
-    if (r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+    if (!IsSectorAligned(r, GetRequiredBufferAlignment())) {
       // Bytes reads don't fill sectors. Should only happen at the end
       // of the file.
       break;
@@ -416,7 +416,7 @@ Status LogicalBlockSizeCache::RefAndCacheLogicalBlockSize(
       v.size = dir_size->second;
     }
   }
-  return Status::OK();
+  return s;
 }
 
 void LogicalBlockSizeCache::UnrefAndTryRemoveCachedLogicalBlockSize(
@@ -608,6 +608,14 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                                           size_t num_reqs,
                                           const IOOptions& options,
                                           IODebugContext* dbg) {
+  if (use_direct_io()) {
+    for (size_t i = 0; i < num_reqs; i++) {
+      assert(IsSectorAligned(reqs[i].offset, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].len, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].scratch, GetRequiredBufferAlignment()));
+    }
+  }
+
 #if defined(ROCKSDB_IOURING_PRESENT)
   struct io_uring* iu = nullptr;
   if (thread_local_io_urings_) {
@@ -703,13 +711,22 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
           // comment
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
-          Slice tmp_slice;
-          req->status =
-              Read(req->offset + req_wrap->finished_len,
-                   req->len - req_wrap->finished_len, options, &tmp_slice,
-                   req->scratch + req_wrap->finished_len, dbg);
-          req->result =
-              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          if (use_direct_io() &&
+              !IsSectorAligned(req_wrap->finished_len,
+                               GetRequiredBufferAlignment())) {
+            // Bytes reads don't fill sectors. Should only happen at the end
+            // of the file.
+            req->result = Slice(req->scratch, req_wrap->finished_len);
+            req->status = IOStatus::OK();
+          } else {
+            Slice tmp_slice;
+            req->status =
+                Read(req->offset + req_wrap->finished_len,
+                     req->len - req_wrap->finished_len, options, &tmp_slice,
+                     req->scratch + req_wrap->finished_len, dbg);
+            req->result =
+                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          }
         } else if (bytes_read < req_wrap->iov.iov_len) {
           assert(bytes_read > 0);
           assert(bytes_read + req_wrap->finished_len < req->len);
