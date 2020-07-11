@@ -621,7 +621,6 @@ Status CompactionJob::Run() {
       break;
     }
   }
-
   if (io_status_.ok()) {
     io_status_ = io_s;
   }

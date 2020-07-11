@@ -7,7 +7,6 @@
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
-#include <iostream>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -260,17 +259,6 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
 
 Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                 BackgroundErrorReason reason) {
-  if (reason == BackgroundErrorReason::kCompaction) {
-    std::cout<<"compaction\n";
-  } else if (reason == BackgroundErrorReason::kFlush) {
-    std::cout<<"flush\n";
-  } else if (reason == BackgroundErrorReason::kWriteCallback) {
-    std::cout<<"write call back\n";
-  } else if (reason == BackgroundErrorReason::kMemTable) {
-    std::cout<<"memtable\n";
-  } else {
-    std::cout<<"other\n";
-  }
   db_mutex_->AssertHeld();
   if (bg_io_err.ok()) {
     return Status::OK();
@@ -312,7 +300,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     if (BackgroundErrorReason::kCompaction == reason) {
       Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
       if (bg_err.severity() > bg_error_.severity()) {
-          bg_error_ = bg_err;
+        bg_error_ = bg_err;
       }
       return bg_error_;
     } else {

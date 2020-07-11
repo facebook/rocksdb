@@ -192,6 +192,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeError) {
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
   Status s;
 
   listener->EnableAutoRecovery(false);
@@ -298,6 +299,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
   Status s;
   std::string old_manifest;
   std::string new_manifest;
@@ -467,6 +469,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
   Status s;
   std::string old_manifest;
   std::string new_manifest;
@@ -585,6 +588,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
   options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
   Status s;
   DestroyAndReopen(options);
 
@@ -602,7 +606,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0",
+      "CompactionJob::OpenCompactionOutputFile",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -611,7 +615,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   ASSERT_EQ(s, Status::OK());
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
 
   fault_fs->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -745,7 +749,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -758,7 +762,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     int write_error = 0;
 
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -808,6 +812,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
   options.writable_file_max_buffer_size = 32768;
   options.listeners.emplace_back(listener);
   options.paranoid_checks = true;
+  options.max_bgerror_resume_count = 0;
   Status s;
   Random rnd(301);
 
@@ -821,7 +826,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -836,7 +841,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -872,7 +877,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -913,7 +918,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     for (auto i = 1; i < 4; ++i) {
       for (auto j = 0; j < 100; ++j) {
-        batch.Put(handles_[i], Key(j), RandomString(&rnd, 1024));
+        batch.Put(handles_[i], Key(j), rnd.RandomString(1024));
       }
     }
 
@@ -928,7 +933,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     // Write to one CF
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(handles_[2], Key(i), RandomString(&rnd, 1024));
+      batch.Put(handles_[2], Key(i), rnd.RandomString(1024));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -1017,7 +1022,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     WriteBatch batch;
 
     for (auto j = 0; j <= 100; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1032,7 +1037,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1130,7 +1135,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     WriteBatch batch;
 
     for (auto j = 0; j <= 100; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1145,7 +1150,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      batch.Put(Key(j), RandomString(&rnd, 1024));
+      batch.Put(Key(j), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1694,6 +1699,70 @@ TEST_F(DBErrorHandlingFSTest,
   Close();
 }
 
+TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
+  // In this test, in the first round of compaction, the FS is set to error.
+  // So the first compaction fails due to retryable IO error and it is mapped
+  // to soft error. Then, compaction is rescheduled, in the second round of
+  // compaction, the FS is set to active and compaction is successful, so
+  // the test will hit the CompactionJob::FinishCompactionOutputFile1 sync
+  // point.
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(listener);
+  Status s;
+  std::atomic<bool> fail_first(false);
+  std::atomic<bool> fail_second(true);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  Put(Key(0), "va;");
+  Put(Key(2), "va;");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
+  listener->EnableAutoRecovery(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"},
+       {"CompactionJob::FinishCompactionOutputFile1",
+        "CompactionWriteRetryableErrorAutoRecover0"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start",
+      [&](void*) { fault_fs->SetFilesystemActive(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void*) { fail_first.store(true); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::OpenCompactionOutputFile", [&](void*) {
+        if (fail_first.load() && fail_second.load()) {
+          fault_fs->SetFilesystemActive(false, error_msg);
+          fail_second.store(false);
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(Key(1), "val");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+
+  TEST_SYNC_POINT("CompactionWriteRetryableErrorAutoRecover0");
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
@@ -1721,7 +1790,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1736,7 +1805,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
         {{"RecoverFromRetryableBGIOError:BeforeResume0", "WALWriteError1:0"},
@@ -1778,7 +1847,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1825,7 +1894,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
@@ -1840,7 +1909,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
         {{"RecoverFromRetryableBGIOError:BeforeWait0", "WALWriteError2:0"},
@@ -1882,7 +1951,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), RandomString(&rnd, 1024));
+      batch.Put(Key(i), rnd.RandomString(1024));
     }
 
     WriteOptions wopts;
