@@ -767,7 +767,13 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         return true;
       }
-      default:
+      default: {
+        std::string msg("Unrecognized value type: " +
+                        std::to_string(static_cast<int>(type)) + ". ");
+        msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) + ". ");
+        msg.append("seq: " + std::to_string(seq) + ".");
+        *(s->status) = Status::Corruption(msg.c_str());
+      }
         assert(false);
         return true;
     }
