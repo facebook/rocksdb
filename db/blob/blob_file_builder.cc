@@ -16,8 +16,11 @@
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "table/block_based/block_based_table_builder.h"
+#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -41,14 +44,26 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  // TODO: compress if needed
+  constexpr CompressionType compression_type =
+      kSnappyCompression;  // TODO: config option
+
+  Slice blob = value;
+  std::string compressed_blob;
+
+  {
+    const Status s =
+        CompressBlobIfNeeded(&blob, compression_type, &compressed_blob);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 
   uint64_t blob_file_number = 0;
   uint64_t blob_offset = 0;
 
   {
     const Status s =
-        WriteBlobToFile(key, value, &blob_file_number, &blob_offset);
+        WriteBlobToFile(key, blob, &blob_file_number, &blob_offset);
     if (!s.ok()) {
       return s;
     }
@@ -62,7 +77,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   BlobIndex::EncodeBlob(&blob_index_, blob_file_number, blob_offset,
-                        /* FIXME */ value.size(), /* FIXME */ kNoCompression);
+                        blob.size(), compression_type);
   *blob_index = blob_index_;
 
   return Status::OK();
@@ -135,6 +150,33 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   writer_ = std::move(blob_log_writer);
 
   assert(IsBlobFileOpen());
+
+  return Status::OK();
+}
+
+Status BlobFileBuilder::CompressBlobIfNeeded(
+    Slice* blob, CompressionType compression_type,
+    std::string* compressed_blob) const {
+  assert(blob);
+  assert(compressed_blob);
+
+  if (compression_type == kNoCompression) {
+    return Status::OK();
+  }
+
+  CompressionOptions opts;
+  CompressionContext context(compression_type);
+  constexpr uint64_t sample_for_compression = 0;
+
+  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
+                       compression_type, sample_for_compression);
+
+  // FIXME
+  CompressionType type = kNoCompression;
+  CompressBlock(*blob, info, &type, 2, false, compressed_blob, nullptr,
+                nullptr);
+
+  *blob = Slice(*compressed_blob);
 
   return Status::OK();
 }
