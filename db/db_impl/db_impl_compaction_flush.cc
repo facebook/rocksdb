@@ -125,10 +125,27 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number <= current_log_number - 1" is equivalent to
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, io_s);
-    if (!io_s.ok()) {
+
+    if (io_s.ok()) {
+      // Update MANIFEST.
+      VersionEdit edit;
+      for (log::Writer* log : logs_to_sync) {
+        WalMetadata meta(log->file()->GetFileSize());
+        edit.AddWal(log->get_log_number(), meta);
+        ColumnFamilyData* default_cf =
+            versions_->GetColumnFamilySet()->GetDefault();
+        const MutableCFOptions* cf_options =
+            default_cf->GetLatestMutableCFOptions();
+        Status s = versions_->LogAndApply(default_cf, *cf_options, &edit,
+                                          &mutex_, nullptr, false);
+        if (!s.ok()) {
+          io_s = IOStatus::IOError("Failed to log WAL information to MANIFEST");
+          break;
+        }
+      }
+    } else {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
-      return io_s;
     }
   }
   return io_s;

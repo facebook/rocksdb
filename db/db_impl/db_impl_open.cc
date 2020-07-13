@@ -1425,6 +1425,16 @@ Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);
+
+    // Update MANIFEST.
+    VersionEdit edit;
+    edit.AddWal(log_file_num);
+    ColumnFamilyData* default_cf =
+        versions_->GetColumnFamilySet()->GetDefault();
+    const MutableCFOptions* cf_options =
+        default_cf->GetLatestMutableCFOptions();
+    s = versions_->LogAndApply(default_cf, *cf_options, &edit, &mutex_, nullptr,
+                               false);
   }
   return s;
 }
