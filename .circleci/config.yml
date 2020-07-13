@@ -185,6 +185,24 @@ jobs:
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,env_basic_test,env_test,db_merge_operand_test -Concurrency 16
 
+  build-linux-java:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout
+      - run: pyenv global 3.5.2
+      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+      - run:
+          name: "Build RocksDBJava"
+          command: |
+            export JAVA_HOME=/usr/lib/jvm/jdk1.8.0
+            export PATH=$JAVA_HOME/bin:$PATH
+            echo "JAVA_HOME=${JAVA_HOME}"
+            which java && java -version
+            which javac && javac -version
+            SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 rocksdbjava jtest
+
 workflows:
   build-linux:
     jobs:
@@ -229,3 +247,6 @@ workflows:
     jobs:
       - build-windows:
           extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+  build-java:
+    jobs:
+      - build-linux-java
