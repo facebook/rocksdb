@@ -1643,7 +1643,9 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   ReOpenNoDelete();
 
   // commit old txn
+  assert(db != nullptr);  // Make clang analyze happy.
   txn = db->GetTransactionByName("a");
+  assert(txn != nullptr);
   s = txn->Commit();
   ASSERT_OK(s);
 
