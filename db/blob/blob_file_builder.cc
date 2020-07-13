@@ -167,8 +167,8 @@ Status BlobFileBuilder::CloseBlobFile() {
   assert(IsBlobFileOpen());
 
   BlobLogFooter footer;
+  footer.blob_count = blob_count_;
 
-  // TODO: populate footer
   // TODO: sync
 
   const Status s = writer_->AppendFooter(footer);
