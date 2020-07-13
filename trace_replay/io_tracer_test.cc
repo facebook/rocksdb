@@ -50,6 +50,7 @@ class IOTracerTest : public testing::Test {
     assert(writer);
     for (uint32_t i = 0; i < nrecords; i++) {
       IOTraceRecord record;
+      record.trace_type = TraceType::kIOLenAndOffset;
       record.file_operation = GetFileOperation(i);
       record.io_status = IOStatus::OK().ToString();
       record.file_name = kDummyFile + std::to_string(i);
@@ -57,16 +58,6 @@ class IOTracerTest : public testing::Test {
       record.offset = i + 20;
       ASSERT_OK(writer->WriteIOOp(record));
     }
-  }
-
-  IOTraceRecord GenerateAccessRecord(int i) {
-    IOTraceRecord record;
-    record.file_operation = GetFileOperation(i);
-    record.io_status = IOStatus::OK().ToString();
-    record.file_name = kDummyFile + std::to_string(i);
-    record.len = i;
-    record.offset = i + 20;
-    return record;
   }
 
   void VerifyIOOp(IOTraceReader* reader, uint32_t nrecords) {
@@ -78,7 +69,6 @@ class IOTracerTest : public testing::Test {
       ASSERT_EQ(record.io_status, IOStatus::OK().ToString());
       ASSERT_EQ(record.len, i);
       ASSERT_EQ(record.offset, i + 20);
-      ASSERT_EQ(record.file_name, kDummyFile + std::to_string(i));
     }
   }
 
@@ -89,8 +79,10 @@ class IOTracerTest : public testing::Test {
 };
 
 TEST_F(IOTracerTest, AtomicWrite) {
-  IOTraceRecord record = GenerateAccessRecord(0);
+  std::string file_name = kDummyFile + std::to_string(0);
   {
+    IOTraceRecord record(0, TraceType::kIOFileName, GetFileOperation(0), 0,
+                         IOStatus::OK().ToString(), file_name);
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
@@ -110,14 +102,20 @@ TEST_F(IOTracerTest, AtomicWrite) {
     ASSERT_OK(reader.ReadHeader(&header));
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
-    VerifyIOOp(&reader, 1);
-    ASSERT_NOK(reader.ReadIOOp(&record));
+    // Read record and verify data.
+    IOTraceRecord access_record;
+    ASSERT_OK(reader.ReadIOOp(&access_record));
+    ASSERT_EQ(access_record.file_operation, GetFileOperation(0));
+    ASSERT_EQ(access_record.io_status, IOStatus::OK().ToString());
+    ASSERT_EQ(access_record.file_name, file_name);
+    ASSERT_NOK(reader.ReadIOOp(&access_record));
   }
 }
 
 TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
-  IOTraceRecord record = GenerateAccessRecord(0);
   {
+    IOTraceRecord record(0, TraceType::kIOGeneral, GetFileOperation(0), 0,
+                         IOStatus::OK().ToString());
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
@@ -139,8 +137,10 @@ TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
 }
 
 TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
-  IOTraceRecord record = GenerateAccessRecord(0);
   {
+    IOTraceRecord record(0, TraceType::kIOFileNameAndFileSize,
+                         GetFileOperation(2), 0 /*latency*/,
+                         IOStatus::OK().ToString(), "", 10 /*file_size*/);
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
@@ -164,8 +164,14 @@ TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_OK(reader.ReadHeader(&header));
     ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
     ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
-    VerifyIOOp(&reader, 1);
-    ASSERT_NOK(reader.ReadIOOp(&record));
+
+    IOTraceRecord access_record;
+    ASSERT_OK(reader.ReadIOOp(&access_record));
+    ASSERT_EQ(access_record.file_operation, GetFileOperation(2));
+    ASSERT_EQ(access_record.io_status, IOStatus::OK().ToString());
+    ASSERT_EQ(access_record.file_size, 10);
+    // No more record.
+    ASSERT_NOK(reader.ReadIOOp(&access_record));
   }
 }
 
