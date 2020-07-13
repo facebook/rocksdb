@@ -717,6 +717,12 @@ struct AdvancedColumnFamilyOptions {
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
 
+  // UNDER CONSTRUCTION -- DO NOT USE
+  bool enable_blob_files = false;
+  uint64_t min_blob_size = 0;
+  uint64_t blob_file_size = 1 << 18;
+  CompressionType blob_compression = kNoCompression;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

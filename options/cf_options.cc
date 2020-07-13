@@ -631,6 +631,22 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, sample_for_compression)}},
+        {"enable_blob_files",
+         {offset_of(&ColumnFamilyOptions::enable_blob_files),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"min_blob_size",
+         {offset_of(&ColumnFamilyOptions::min_blob_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"blob_file_size",
+         {offset_of(&ColumnFamilyOptions::blob_file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"blob_compression",
+         {offset_of(&ColumnFamilyOptions::blob_compression),
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -764,7 +780,11 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()),
-      sst_partitioner_factory(cf_options.sst_partitioner_factory) {}
+      sst_partitioner_factory(cf_options.sst_partitioner_factory),
+      enable_blob_files(cf_options.enable_blob_files),
+      min_blob_size(cf_options.min_blob_size),
+      blob_file_size(cf_options.blob_file_size),
+      blob_compression(cf_options.blob_compression) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
