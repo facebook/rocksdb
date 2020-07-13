@@ -1644,6 +1644,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 
   // commit old txn
   txn = db->GetTransactionByName("a");
+  assert(txn != nullptr);
   s = txn->Commit();
   ASSERT_OK(s);
 
