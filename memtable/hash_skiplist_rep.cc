@@ -30,12 +30,12 @@ class HashSkipListRep : public MemTableRep {
 
   void Insert(KeyHandle handle) override;
 
-  bool Contains(const char* key) const override;
+  bool Contains(const Slice& internal_key) const override;
 
   size_t ApproximateMemoryUsage() override;
 
   void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry)) override;
+           bool (*callback_func)(void* arg, const KeyValuePair*)) override;
 
   ~HashSkipListRep() override;
 
@@ -267,19 +267,20 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
 
 void HashSkipListRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
-  assert(!Contains(key));
-  auto transformed = transform_->Transform(UserKey(key));
+  Slice internal_key = GetLengthPrefixedSlice(key);
+  assert(!Contains(internal_key));
+  auto transformed = transform_->Transform(ExtractUserKey(internal_key));
   auto bucket = GetInitializedBucket(transformed);
   bucket->Insert(key);
 }
 
-bool HashSkipListRep::Contains(const char* key) const {
-  auto transformed = transform_->Transform(UserKey(key));
+bool HashSkipListRep::Contains(const Slice& internal_key) const {
+  auto transformed = transform_->Transform(ExtractUserKey(internal_key));
   auto bucket = GetBucket(transformed);
   if (bucket == nullptr) {
     return false;
   }
-  return bucket->Contains(key);
+  return ContainsForwardToLegacy(*bucket, internal_key);
 }
 
 size_t HashSkipListRep::ApproximateMemoryUsage() {
@@ -287,13 +288,14 @@ size_t HashSkipListRep::ApproximateMemoryUsage() {
 }
 
 void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
-                          bool (*callback_func)(void* arg, const char* entry)) {
+                          bool (*callback_func)(void*, const KeyValuePair*)) {
   auto transformed = transform_->Transform(k.user_key());
   auto bucket = GetBucket(transformed);
   if (bucket != nullptr) {
+    EncodedKeyValuePair pair;
     Bucket::Iterator iter(bucket);
     for (iter.Seek(k.memtable_key().data());
-         iter.Valid() && callback_func(callback_args, iter.key());
+         iter.Valid() && callback_func(callback_args, pair.SetKey(iter.key()));
          iter.Next()) {
     }
   }

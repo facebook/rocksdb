@@ -39,10 +39,10 @@ class MockMemTableRep : public MemTableRep {
     last_hint_out_ = *hint;
   }
 
-  bool Contains(const char* key) const override { return rep_->Contains(key); }
+  bool Contains(const Slice& key) const override { return rep_->Contains(key); }
 
   void Get(const LookupKey& k, void* callback_args,
-           bool (*callback_func)(void* arg, const char* entry)) override {
+           bool (*callback_func)(void* arg, const KeyValuePair*)) override {
     rep_->Get(k, callback_args, callback_func);
   }
 
@@ -67,6 +67,7 @@ class MockMemTableRep : public MemTableRep {
 
 class MockMemTableRepFactory : public MemTableRepFactory {
  public:
+  using MemTableRepFactory::CreateMemTableRep;
   MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
                                  Allocator* allocator,
                                  const SliceTransform* transform,

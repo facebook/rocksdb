@@ -45,13 +45,18 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class Allocator;
+class InternalKeyComparator;
 class LookupKey;
 class SliceTransform;
 class Logger;
 
+struct ImmutableCFOptions;
+struct MutableCFOptions;
+
 typedef void* KeyHandle;
 
 extern Slice GetLengthPrefixedSlice(const char* data);
+extern const char* EncodeKey(std::string* scratch, const Slice& target);
 
 class MemTableRep {
  public:
@@ -75,10 +80,33 @@ class MemTableRep {
     virtual int operator()(const char* prefix_len_key,
                            const Slice& key) const = 0;
 
+    virtual const InternalKeyComparator* icomparator() const = 0;
+
     virtual ~KeyComparator() {}
   };
 
+  static size_t EncodeKeyValueSize(const Slice& key, const Slice& value);
+  KeyHandle EncodeKeyValue(const Slice& key, const Slice& value);
+
   explicit MemTableRep(Allocator* allocator) : allocator_(allocator) {}
+
+  // InsertKey(handler) key value impl
+  virtual bool InsertKeyValue(const Slice& internal_key, const Slice& value);
+
+
+  // InsertKeyWithHint(handler, hint) key value impl
+  virtual bool InsertKeyValueWithHint(const Slice& internal_key,
+                                      const Slice& value,
+                                      void** hint);
+
+  // InsertKeyConcurrently(handler) key value impl
+  virtual bool InsertKeyValueConcurrently(const Slice& internal_key,
+                                          const Slice& value);
+
+  // InsertKeyWithHintConcurrently(handler, hint) key value impl
+  virtual bool InsertKeyValueWithHintConcurrently(const Slice& internal_key,
+                                                  const Slice& value,
+                                                  void** hint);
 
   // Allocate a buf of len size for storing key. The idea is that a
   // specific memtable representation knows its underlying data structure
@@ -158,7 +186,7 @@ class MemTableRep {
   }
 
   // Returns true iff an entry that compares equal to key is in the collection.
-  virtual bool Contains(const char* key) const = 0;
+  virtual bool Contains(const Slice& internal_key) const = 0;
 
   // Notify this table rep that it will no longer be added to. By default,
   // does nothing.  After MarkReadOnly() is called, this table rep will
@@ -174,6 +202,41 @@ class MemTableRep {
   // of time. Otherwise, RocksDB may be blocked.
   virtual void MarkFlushed() {}
 
+  class KeyValuePair {
+   public:
+    virtual Slice GetKey() const = 0;
+    virtual Slice GetValue() const = 0;
+    virtual std::pair<Slice, Slice> GetKeyValue() const = 0;
+    virtual ~KeyValuePair() {}
+  };
+
+  class EncodedKeyValuePair : public KeyValuePair {
+   public:
+    virtual Slice GetKey() const override;
+    virtual Slice GetValue() const override;
+    virtual std::pair<Slice, Slice> GetKeyValue() const override;
+
+    KeyValuePair* SetKey(const char* key) { key_ = key; return this; }
+
+   private:
+    const char* key_ = nullptr;
+  };
+
+  template<class Legacy>
+  static bool ContainsForwardToLegacy(const Legacy& legacy, const Slice& key) {
+    size_t keylen = key.size();
+    if (keylen < 128) {
+      char keybuf[128];
+      keybuf[0] = (char)keylen;
+      memcpy(keybuf+1, key.data(), keylen);
+      return legacy.Contains(keybuf);
+    }
+    else {
+      std::string memtable_key;
+      return legacy.Contains(EncodeKey(&memtable_key, key));
+    }
+  }
+
   // Look up key from the mem table, since the first key in the mem table whose
   // user_key matches the one given k, call the function callback_func(), with
   // callback_args directly forwarded as the first parameter, and the mem table
@@ -187,7 +250,7 @@ class MemTableRep {
   // Get() function with a default value of dynamically construct an iterator,
   // seek and call the call back function.
   virtual void Get(const LookupKey& k, void* callback_args,
-                   bool (*callback_func)(void* arg, const char* entry));
+                   bool (*callback_func)(void* arg, const KeyValuePair*)) = 0;
 
   virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
                                          const Slice& /*end_key*/) {
@@ -201,7 +264,7 @@ class MemTableRep {
   virtual ~MemTableRep() {}
 
   // Iteration over the contents of a skip collection
-  class Iterator {
+  class Iterator : public KeyValuePair {
    public:
     // Initialize an iterator over the specified collection.
     // The returned iterator is not valid.
@@ -214,6 +277,18 @@ class MemTableRep {
     // Returns the key at the current position.
     // REQUIRES: Valid()
     virtual const char* key() const = 0;
+
+    // Returns the key at the current position.
+    // REQUIRES: Valid()
+    virtual Slice GetKey() const override;
+
+    // Returns the value at the current position.
+    // REQUIRES: Valid()
+    virtual Slice GetValue() const override;
+
+    // Returns the key & value at the current position.
+    // REQUIRES: Valid()
+    virtual std::pair<Slice, Slice> GetKeyValue() const override;
 
     // Advances to the next position.
     // REQUIRES: Valid()
@@ -237,6 +312,9 @@ class MemTableRep {
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
     virtual void SeekToLast() = 0;
+
+    // If true, this means that the Slice returned by GetKey() is always valid
+    virtual bool IsKeyPinned() const { return true;  }
   };
 
   // Return an iterator over the keys in this representation.
@@ -287,6 +365,11 @@ class MemTableRepFactory {
       uint32_t /* column_family_id */) {
     return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
   }
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& key_cmp, Allocator* allocator,
+      const ImmutableCFOptions& ioptions,
+      const MutableCFOptions& /* mutable_cf_options */,
+      uint32_t /* column_family_id */);
 
   virtual const char* Name() const = 0;
 
