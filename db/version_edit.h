@@ -13,9 +13,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
+#include "db/wal_version_edit.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
@@ -374,10 +376,19 @@ class VersionEdit {
     return blob_file_garbages_;
   }
 
+  // Add a WAL (either just created or closed).
+  void AddWal(WalNumber number, const WalMetadata& metadata) {
+    wal_additions_.emplace_back(number, metadata);
+  }
+
+  // Retrieve all the added WALs.
+  const WalAdditions& GetWalAdditions() const { return wal_additions_; }
+
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
-           blob_file_additions_.size() + blob_file_garbages_.size();
+           blob_file_additions_.size() + blob_file_garbages_.size() +
+           wal_additions_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -456,6 +467,8 @@ class VersionEdit {
 
   BlobFileAdditions blob_file_additions_;
   BlobFileGarbages blob_file_garbages_;
+
+  WalAdditions wal_additions_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

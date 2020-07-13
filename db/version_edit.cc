@@ -55,6 +55,7 @@ enum Tag : uint32_t {
   kDbId,
   kBlobFileAddition,
   kBlobFileGarbage,
+  kWalAddition,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -150,6 +151,7 @@ void VersionEdit::Clear() {
   new_files_.clear();
   blob_file_additions_.clear();
   blob_file_garbages_.clear();
+  wal_additions_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -282,6 +284,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   for (const auto& blob_file_garbage : blob_file_garbages_) {
     PutVarint32(dst, kBlobFileGarbage);
     blob_file_garbage.EncodeTo(dst);
+  }
+
+  for (const auto& wal_addition : wal_additions_) {
+    PutVarint32(dst, kWalAddition);
+    wal_addition.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -608,6 +615,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kWalAddition: {
+        WalAddition wal_addition;
+        const Status s = wal_addition.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_additions_.emplace_back(wal_addition);
+        break;
+      }
+
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
           if (!msg) {
@@ -748,6 +766,11 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(blob_file_garbage.DebugString());
   }
 
+  for (const auto& wal_addition : wal_additions_) {
+    r.append("\n  WalAddition: ");
+    r.append(wal_addition.DebugString());
+  }
+
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
   if (is_column_family_add_) {
@@ -852,6 +875,20 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     for (const auto& blob_file_garbage : blob_file_garbages_) {
       jw.StartArrayedObject();
       jw << blob_file_garbage;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!wal_additions_.empty()) {
+    jw << "WalAdditions";
+
+    jw.StartArray();
+
+    for (const auto& wal_addition : wal_additions_) {
+      jw.StartArrayedObject();
+      jw << wal_addition;
       jw.EndArrayedObject();
     }
 

@@ -309,6 +309,44 @@ TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, AddWalEncodeDecode) {
+  VersionEdit edit;
+  for (uint64_t log_number = 1; log_number <= 20; log_number++) {
+    edit.AddWal(log_number, WalMetadata(rand() % 100));
+  }
+  TestEncodeDecode(edit);
+}
+
+TEST_F(VersionEditTest, AddWalDebug) {
+  constexpr uint64_t kLogNumber = 10;
+  constexpr uint64_t kBytes = 100;
+
+  VersionEdit edit;
+  edit.AddWal(kLogNumber, WalMetadata(kBytes));
+
+  const WalAdditions& wals = edit.GetWalAdditions();
+
+  ASSERT_EQ(wals.size(), 1);
+  const WalAddition& wal = wals[0];
+  ASSERT_EQ(wal.GetLogNumber(), kLogNumber);
+  ASSERT_EQ(wal.GetMetadata().GetSizeInBytes(), kBytes);
+
+  ASSERT_EQ(edit.DebugString(true),
+            "VersionEdit {\n"
+            "  WalAddition: log_number: 10 size_in_bytes: 100\n"
+            "  ColumnFamily: 0\n"
+            "}\n");
+  ASSERT_EQ(edit.DebugJSON(4, true),
+            "{"
+            "\"EditNumber\": 4, "
+            "\"WalAdditions\": [{"
+            "\"LogNumber\": 10, "
+            "\"SizeInBytes\": 100"
+            "}], "
+            "\"ColumnFamily\": 0"
+            "}");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
