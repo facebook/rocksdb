@@ -9,7 +9,9 @@
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
 # Default to python3. Some distros like CentOS 8 do not have `python`.
-PYTHON?=$(shell which python3 || which python || echo python3)
+ifeq ($(origin PYTHON), undefined)
+	PYTHON := $(shell which python3 || which python || echo python3)
+endif
 export PYTHON
 
 CLEAN_FILES = # deliberately empty, so we can append below.
