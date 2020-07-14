@@ -636,15 +636,13 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         {"min_blob_size",
-         {offset_of(&ColumnFamilyOptions::min_blob_size),
-          OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+         {offset_of(&ColumnFamilyOptions::min_blob_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
         {"blob_file_size",
-         {offset_of(&ColumnFamilyOptions::blob_file_size),
-          OptionType::kUInt64T, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
-        {"blob_compression",
-         {offset_of(&ColumnFamilyOptions::blob_compression),
+         {offset_of(&ColumnFamilyOptions::blob_file_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"blob_compression_type",
+         {offset_of(&ColumnFamilyOptions::blob_compression_type),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         // The following properties were handled as special cases in ParseOption
@@ -784,7 +782,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       enable_blob_files(cf_options.enable_blob_files),
       min_blob_size(cf_options.min_blob_size),
       blob_file_size(cf_options.blob_file_size),
-      blob_compression(cf_options.blob_compression) {}
+      blob_compression_type(cf_options.blob_compression_type) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {

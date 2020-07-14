@@ -493,7 +493,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "enable_blob_files=true;"
       "min_blob_size=256;"
       "blob_file_size=1000000;"
-      "blob_compression=kBZip2Compression;"
+      "blob_compression_type=kBZip2Compression;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

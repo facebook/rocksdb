@@ -128,7 +128,7 @@ struct ImmutableCFOptions {
 
   uint64_t blob_file_size;
 
-  CompressionType blob_compression;
+  CompressionType blob_compression_type;
 };
 
 struct MutableCFOptions {

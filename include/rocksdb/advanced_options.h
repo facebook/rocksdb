@@ -721,7 +721,7 @@ struct AdvancedColumnFamilyOptions {
   bool enable_blob_files = false;
   uint64_t min_blob_size = 0;
   uint64_t blob_file_size = 1 << 18;
-  CompressionType blob_compression = kNoCompression;
+  CompressionType blob_compression_type = kNoCompression;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

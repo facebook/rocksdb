@@ -92,7 +92,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
-      blob_compression(options.blob_compression) {
+      blob_compression_type(options.blob_compression_type) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -382,9 +382,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "                      Options.blob_file_size: %" PRIu64,
                      blob_file_size);
-    ROCKS_LOG_HEADER(log,
-                     "                    Options.blob_compression: %s",
-                     CompressionTypeToString(blob_compression).c_str());
+    ROCKS_LOG_HEADER(log, "               Options.blob_compression_type: %s",
+                     CompressionTypeToString(blob_compression_type).c_str());
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
