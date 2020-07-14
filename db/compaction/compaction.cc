@@ -205,6 +205,7 @@ bool Compaction::IsFullCompaction(
 Compaction::Compaction(VersionStorageInfo* vstorage,
                        const ImmutableCFOptions& _immutable_cf_options,
                        const MutableCFOptions& _mutable_cf_options,
+                       const MutableDBOptions& _mutable_db_options,
                        std::vector<CompactionInputFiles> _inputs,
                        int _output_level, uint64_t _target_file_size,
                        uint64_t _max_compaction_bytes, uint32_t _output_path_id,
@@ -243,7 +244,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     compaction_reason_ = CompactionReason::kManualCompaction;
   }
   if (max_subcompactions_ == 0) {
-    max_subcompactions_ = immutable_cf_options_.max_subcompactions;
+    max_subcompactions_ = _mutable_db_options.max_subcompactions;
   }
   if (!bottommost_level_) {
     // Currently we only enable dictionary compression during compaction to the
