@@ -20,15 +20,12 @@ namespace ROCKSDB_NAMESPACE {
 
 BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
                              Env* env, Statistics* statistics,
-                             uint64_t log_number, uint64_t bpsync, bool use_fs,
-                             uint64_t boffset)
+                             uint64_t log_number, bool use_fs, uint64_t boffset)
     : dest_(std::move(dest)),
       env_(env),
       statistics_(statistics),
       log_number_(log_number),
       block_offset_(boffset),
-      bytes_per_sync_(bpsync),
-      next_sync_offset_(0),
       use_fsync_(use_fs),
       last_elem_type_(kEtNone) {}
 
