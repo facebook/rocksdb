@@ -31,9 +31,8 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
 
   blob_index_.clear();
 
-  constexpr size_t min_blob_size = 128;  // TODO: config option
-
-  if (value.size() < min_blob_size) {
+  assert(immutable_cf_options_);
+  if (value.size() < immutable_cf_options_->min_blob_size) {
     return Status::OK();
   }
 
@@ -44,15 +43,12 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  constexpr CompressionType compression_type =
-      kSnappyCompression;  // TODO: config option
-
   Slice blob = value;
   std::string compressed_blob;
 
   {
-    const Status s =
-        CompressBlobIfNeeded(&blob, compression_type, &compressed_blob);
+    const Status s = CompressBlobIfNeeded(
+        &blob, immutable_cf_options_->blob_compression_type, &compressed_blob);
     if (!s.ok()) {
       return s;
     }
@@ -77,7 +73,8 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   BlobIndex::EncodeBlob(&blob_index_, blob_file_number, blob_offset,
-                        blob.size(), compression_type);
+                        blob.size(),
+                        immutable_cf_options_->blob_compression_type);
   *blob_index = blob_index_;
 
   return Status::OK();
@@ -137,7 +134,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
 
-  BlobLogHeader header(column_family_id_, kNoCompression /* FIXME */, has_ttl,
+  assert(immutable_cf_options_);
+  BlobLogHeader header(column_family_id_,
+                       immutable_cf_options_->blob_compression_type, has_ttl,
                        expiration_range);
 
   {
@@ -171,8 +170,9 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                        compression_type, sample_for_compression);
 
-  // FIXME
-  CompressionType type = kNoCompression;
+  // TODO: move out from block_based_table_builder and refactor
+  assert(immutable_cf_options_);
+  CompressionType type = immutable_cf_options_->blob_compression_type;
   CompressBlock(*blob, info, &type, 2, false, compressed_blob, nullptr,
                 nullptr);
 
@@ -235,9 +235,8 @@ Status BlobFileBuilder::CloseBlobFile() {
 Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   assert(IsBlobFileOpen());
 
-  // TODO: make this configurable
-  constexpr uint64_t file_size_limit = 1 << 30;
-  if (writer_->file()->GetFileSize() < file_size_limit) {
+  assert(immutable_cf_options_);
+  if (writer_->file()->GetFileSize() < immutable_cf_options_->blob_file_size) {
     return Status::OK();
   }
 
