@@ -1432,7 +1432,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   return s;
 }
 
-void StressTest::TestGetProperty(ThreadState* thread) {
+void StressTest::TestGetProperty(ThreadState* thread) const {
   std::unordered_set<std::string> levelPropertyNames = {
       DB::Properties::kAggregatedTablePropertiesAtLevel,
       DB::Properties::kCompressionRatioAtLevelPrefix,
@@ -1460,6 +1460,7 @@ void StressTest::TestGetProperty(ThreadState* thread) {
         if (!db_->GetIntProperty(ppt_name_and_info.first, &prop_int)) {
           fprintf(stderr, "Failed to get Int property: %s\n",
                   ppt_name_and_info.first.c_str());
+          thread->shared->SetVerificationFailure();
         }
       }
     }
@@ -1479,10 +1480,12 @@ void StressTest::TestGetProperty(ThreadState* thread) {
     }
   }
 
-  // Test for invalid property name
-  if (db_->GetProperty("rocksdb.invalid_property_name", &prop)) {
-    fprintf(stderr, "Failed to return false for invalid property name\n");
-    thread->shared->SetVerificationFailure();
+  // Test for an invalid property name
+  if (thread->rand.OneIn(100)) {
+    if (db_->GetProperty("rocksdb.invalid_property_name", &prop)) {
+      fprintf(stderr, "Failed to return false for invalid property name\n");
+      thread->shared->SetVerificationFailure();
+    }
   }
 }
 

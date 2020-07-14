@@ -189,7 +189,7 @@ class StressTest {
   Status VerifyGetLiveFiles() const;
   Status VerifyGetSortedWalFiles() const;
   Status VerifyGetCurrentWalFile() const;
-  void TestGetProperty(ThreadState* thread);
+  void TestGetProperty(ThreadState* thread) const;
 
   virtual Status TestApproximateSize(
       ThreadState* thread, uint64_t iteration,
