@@ -24,8 +24,6 @@ class Status;
 
 using WalNumber = uint64_t;
 
-// The size of WAL is unknown, used when the WAL is not closed yet.
-
 // Metadata of a WAL.
 class WalMetadata {
  public:
@@ -40,6 +38,7 @@ class WalMetadata {
   uint64_t GetSizeInBytes() const { return size_bytes_; }
 
  private:
+  // The size of WAL is unknown, used when the WAL is not closed yet.
   constexpr static uint64_t kUnknownWalSize = 0;
 
   // Size of a closed WAL in bytes.
