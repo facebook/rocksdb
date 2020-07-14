@@ -17,7 +17,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
-#include "db/wal_version_edit.h"
+#include "db/wal_version.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"

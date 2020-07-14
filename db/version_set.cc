@@ -3687,6 +3687,7 @@ void VersionSet::Reset() {
   manifest_file_size_ = 0;
   obsolete_files_.clear();
   obsolete_manifests_.clear();
+  wals_.Reset();
 }
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
@@ -3721,6 +3722,7 @@ Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
+  mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
@@ -5284,6 +5286,14 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
   if (min_log_number_to_keep_2pc_.load(std::memory_order_relaxed) < number) {
     min_log_number_to_keep_2pc_.store(number, std::memory_order_relaxed);
+  }
+}
+
+WalNumber VersionSet::MinLogNumberToKeep() const {
+  if (db_options_->allow_2pc) {
+    return min_log_number_to_keep_2pc();
+  } else {
+    return MinLogNumberWithUnflushedData();
   }
 }
 

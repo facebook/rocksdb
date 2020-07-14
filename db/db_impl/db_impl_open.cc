@@ -742,73 +742,6 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
-Status DBImpl::CheckLogFiles(const std::vector<uint64_t>& log_numbers) {
-  const std::map<WalNumber, WalMetadata>& wals = versions_->GetWals();
-  const uint64_t min_log_number = MinLogNumberToKeep();
-
-  // Skip the ignorable logs.
-  size_t log_idx = 0;
-  while (log_idx < log_numbers.size() &&
-         log_numbers[log_idx] < min_log_number) {
-    log_idx++;
-  }
-  if (log_idx >= log_numbers.size()) {
-    // Not log to recover from.
-    return Status::OK();
-  }
-
-  auto it = wals.find(log_numbers[log_idx]);
-  if (it == wals.end()) {
-    if (log_idx == log_numbers.size() - 1) {
-      // The last log might not be added to MANIFEST before DB crash or close.
-      return Status::OK();
-    } else {
-      // There shouldn't be more than 1 log that is not logged in MANIFEST.
-      return Status::Corruption("More WALs than expected");
-    }
-  }
-
-  Status s;
-  for (; it != wals.end(); ++log_idx, ++it) {
-    const uint64_t log_number = it->first;
-    const WalMetadata& wal_meta = it->second;
-
-    if (log_idx >= log_numbers.size() || log_number != log_numbers[log_idx]) {
-      std::stringstream ss;
-      ss << "Missing WAL with log number: " << log_number << ".";
-      s = Status::Corruption(ss.str());
-      break;
-    }
-
-    if (!wal_meta.HasUnknownSize()) {
-      std::string fname =
-          LogFileName(immutable_db_options_.wal_dir, log_number);
-      uint64_t bytes = 0;
-      s = env_->GetFileSize(fname, &bytes);
-      if (!s.ok()) {
-        break;
-      }
-      if (wal_meta.GetSizeInBytes() != bytes) {
-        std::stringstream ss;
-        ss << "Size mismatch: WAL (log number: " << log_number
-           << ") in MANIFEST is " << wal_meta.GetSizeInBytes()
-           << " bytes , but actually is " << bytes << " bytes on disk.";
-        s = Status::Corruption(ss.str());
-        break;
-      }
-    }  // else since the size is unknown, skip the size check.
-  }
-
-  if (s.ok()) {
-    if (log_idx < log_numbers.size() - 1) {
-      // There shouldn't be more than 1 log that is not logged in MANIFEST.
-      s = Status::Corruption("More WALs than expected");
-    }
-  }
-
-  return s;
-}
-
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                                SequenceNumber* next_sequence, bool read_only,
@@ -830,7 +763,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
   mutex_.AssertHeld();
 
-  Status status = CheckLogFiles(log_numbers);
+  std::vector<std::string> log_fnames;
+  log_fnames.reserve(log_numbers.size());
+  for (uint64_t log_number : log_numbers) {
+    log_fnames.emplace_back(
+        LogFileName(immutable_db_options_.wal_dir, log_number));
+  }
+  Status status = versions_->GetWalSet().CheckWals(env_, MinLogNumberToKeep(),
+                                                   log_numbers, log_fnames);
   if (!status.ok()) {
     return status;
   }

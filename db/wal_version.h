@@ -3,15 +3,17 @@
 // COPYING file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
-// WAL related classes used in VersionEdit.
+// WAL related classes used in VersionEdit and VersionSet.
 
 #pragma once
 
 #include <cstdint>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
+#include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -71,5 +73,39 @@ std::ostream& operator<<(std::ostream& os, const WalAddition& wal);
 JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
+
+// Used in VersionSet to keep the current set of WALs.
+//
+// When a WAL is created or closed, a VersionEdit is logged to MANIFEST and
+// the WAL is added to WalSet.
+//
+// WALs are archived or deleted asynchronously, so even if a WAL has been
+// archived or deleted, it might still exist in WalSet.
+//
+// Whenever a VersionEdit is applied to VersionSet, PurgeObsoleteWals() is
+// called, so that WalSet will not keep growing.
+//
+// Not thread safe, needs external synchronization.
+class WalSet {
+ public:
+  // Remove WALs with log number < min_log_number_to_keep.
+  void PurgeObsoleteWals(WalNumber min_log_number_to_keep);
+
+  // Checks whether there are missing or unrecognized WALs,
+  // also checks the WALs' sizes.
+  // WALs that can be ignored (log number < min_log_number_to_keep) are not
+  // checked.
+  // log_fnames are the log filenames corresponding to log_numbers.
+  // REQUIRES: log_numbers are sorted in ascending order
+  Status CheckWals(Env* env, WalNumber min_log_number_to_keep,
+                   const std::vector<uint64_t>& log_numbers,
+                   const std::vector<std::string>& log_fnames) const;
+
+  // Resets the internal state.
+  void Reset();
+
+ private:
+  std::map<WalNumber, WalMetadata> wals_;
+};
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -142,7 +142,6 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       if (!s.ok()) {
         io_s = IOStatus::IOError("Failed to log WAL information to MANIFEST",
                                  s.ToString());
-        break;
       }
     } else {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
