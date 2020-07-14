@@ -395,7 +395,7 @@ TEST_F(CompactionJobTest, Simple) {
   RunCompaction({ files }, expected_results);
 }
 
-TEST_F(CompactionJobTest, SimpleCorrupted) {
+TEST_F(CompactionJobTest, DISABLED_SimpleCorrupted) {
   NewDB();
 
   auto expected_results = CreateTwoFiles(true);
@@ -989,7 +989,7 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
 // single deletion and the (single) deletion gets removed while the corrupt key
 // gets written out. TODO(noetzli): We probably want a better way to treat
 // corrupt keys.
-TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
+TEST_F(CompactionJobTest, DISABLED_CorruptionAfterDeletion) {
   NewDB();
 
   auto file1 =
