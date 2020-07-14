@@ -373,8 +373,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
-    ROCKS_LOG_HEADER(log,
-                     "                   Options.enable_blob_files: %s",
+    ROCKS_LOG_HEADER(log, "                   Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
     ROCKS_LOG_HEADER(log,
                      "                       Options.min_blob_size: %" PRIu64,
