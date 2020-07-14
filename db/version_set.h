@@ -1174,6 +1174,8 @@ class VersionSet {
     AppendVersion(cfd, version);
   }
 
+  const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
+
  protected:
   using VersionBuilderMap =
       std::unordered_map<uint32_t,
@@ -1247,6 +1249,16 @@ class VersionSet {
 
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
+
+  // The WALs of the DB.
+  // When a WAL is created or closed, a VersionEdit is applied to VersionSet.
+  // WALs are archived or deleted asynchronously, so even if a WAL has been
+  // archived or deleted, it might still exist in wals_.
+  // If we can determine that a WAL is no longer used based on the log numbers
+  // kept in MANIFEST, it'll be deleted from wals_ in the following situations:
+  // 1. when writing the first snapshot during creating a new MANIFEST;
+  // 2. when recovering from MANIFEST.
+  std::map<WalNumber, WalMetadata> wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Env* const env_;

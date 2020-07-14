@@ -132,16 +132,17 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       for (log::Writer* log : logs_to_sync) {
         WalMetadata meta(log->file()->GetFileSize());
         edit.AddWal(log->get_log_number(), meta);
-        ColumnFamilyData* default_cf =
-            versions_->GetColumnFamilySet()->GetDefault();
-        const MutableCFOptions* cf_options =
-            default_cf->GetLatestMutableCFOptions();
-        Status s = versions_->LogAndApply(default_cf, *cf_options, &edit,
-                                          &mutex_, nullptr, false);
-        if (!s.ok()) {
-          io_s = IOStatus::IOError("Failed to log WAL information to MANIFEST");
-          break;
-        }
+      }
+      ColumnFamilyData* default_cf =
+          versions_->GetColumnFamilySet()->GetDefault();
+      const MutableCFOptions* cf_options =
+          default_cf->GetLatestMutableCFOptions();
+      Status s = versions_->LogAndApply(default_cf, *cf_options, &edit, &mutex_,
+                                        nullptr, false);
+      if (!s.ok()) {
+        io_s = IOStatus::IOError("Failed to log WAL information to MANIFEST",
+                                 s.ToString());
+        break;
       }
     } else {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);

@@ -1415,6 +1415,12 @@ class DBImpl : public DB {
       JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri);
 
   // REQUIRES: log_numbers are sorted in ascending order
+  // Checks whether there are missing or unrecognized log files,
+  // also checks the log size.
+  // Logs that can be ignored (log number < MinLogNumberToKeep) are not checked.
+  Status CheckLogFiles(const std::vector<uint64_t>& log_numbers);
+
+  // REQUIRES: log_numbers are sorted in ascending order
   // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
