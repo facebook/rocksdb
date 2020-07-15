@@ -113,6 +113,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
 
   ASSERT_EQ(1, count1);
   ASSERT_EQ(5, count2);
+  ASSERT_TRUE(false);
 }
 
 TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
@@ -219,6 +220,7 @@ TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
 
   ASSERT_EQ(count1, 5);
   ASSERT_EQ(count2, 5);
+  ASSERT_TRUE(false);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -393,6 +393,7 @@ TEST_F(CompactionJobTest, Simple) {
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   ASSERT_EQ(2U, files.size());
   RunCompaction({ files }, expected_results);
+  ASSERT_TRUE(false);
 }
 
 TEST_F(CompactionJobTest, DISABLED_SimpleCorrupted) {
@@ -403,6 +404,7 @@ TEST_F(CompactionJobTest, DISABLED_SimpleCorrupted) {
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected_results);
   ASSERT_EQ(compaction_job_stats_.num_corrupt_keys, 400U);
+  ASSERT_TRUE(false);
 }
 
 TEST_F(CompactionJobTest, SimpleDeletion) {
