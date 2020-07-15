@@ -13,6 +13,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+
 #include "db/dbformat.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -239,9 +240,8 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
   return comparator.CompareKeySeq(k1, k2);
 }
 
-int MemTable::KeyComparator::operator()(const char* prefix_len_key,
-                                        const KeyComparator::DecodedType& key)
-    const {
+int MemTable::KeyComparator::operator()(
+    const char* prefix_len_key, const KeyComparator::DecodedType& key) const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
   return comparator.CompareKeySeq(a, key);
@@ -623,6 +623,35 @@ struct Saver {
 };
 }  // namespace
 
+static void mergeValue(Saver* s, const char* key_ptr, uint32_t key_length,
+                       const MergeOperator* merge_operator,
+                       MergeContext* merge_context) {
+  Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+  *(s->status) = Status::OK();
+  if (*(s->merge_in_progress)) {
+    if (s->do_merge) {
+      if (s->value != nullptr) {
+        *(s->status) = MergeHelper::TimedFullMerge(
+            merge_operator, s->key->user_key(), &v,
+            merge_context->GetOperands(), s->value, s->logger, s->statistics,
+            s->env_, nullptr /* result_operand */, true);
+      }
+    } else {
+      // Preserve the value with the goal of returning it as part of
+      // raw merge operands to the user
+      merge_context->PushOperand(
+          v, s->inplace_update_support == false /* operand_pinned */);
+    }
+  } else if (!s->do_merge) {
+    // Preserve the value with the goal of returning it as part of
+    // raw merge operands to the user
+    merge_context->PushOperand(
+        v, s->inplace_update_support == false /* operand_pinned */);
+  } else if (s->value != nullptr) {
+    s->value->assign(v.data(), v.size());
+  }
+}
+
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   assert(s != nullptr);
@@ -684,35 +713,12 @@ static bool SaveValue(void* arg, const char* entry) {
         FALLTHROUGH_INTENDED;
       case kTypeValue: {
         if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadLock();
+          ReadLock aReadLock(s->mem->GetLock(s->key->user_key()));
+          mergeValue(s, key_ptr, key_length, merge_operator, merge_context);
+        } else {
+          mergeValue(s, key_ptr, key_length, merge_operator, merge_context);
         }
-        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-        *(s->status) = Status::OK();
-        if (*(s->merge_in_progress)) {
-          if (s->do_merge) {
-            if (s->value != nullptr) {
-              *(s->status) = MergeHelper::TimedFullMerge(
-                  merge_operator, s->key->user_key(), &v,
-                  merge_context->GetOperands(), s->value, s->logger,
-                  s->statistics, s->env_, nullptr /* result_operand */, true);
-            }
-          } else {
-            // Preserve the value with the goal of returning it as part of
-            // raw merge operands to the user
-            merge_context->PushOperand(
-                v, s->inplace_update_support == false /* operand_pinned */);
-          }
-        } else if (!s->do_merge) {
-          // Preserve the value with the goal of returning it as part of
-          // raw merge operands to the user
-          merge_context->PushOperand(
-              v, s->inplace_update_support == false /* operand_pinned */);
-        } else if (s->value != nullptr) {
-          s->value->assign(v.data(), v.size());
-        }
-        if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadUnlock();
-        }
+
         *(s->found_final_value) = true;
         if (s->is_blob_index != nullptr) {
           *(s->is_blob_index) = (type == kTypeBlobIndex);
@@ -948,8 +954,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
-void MemTable::Update(SequenceNumber seq,
-                      const Slice& key,
+void MemTable::Update(SequenceNumber seq, const Slice& key,
                       const Slice& value) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
@@ -1007,8 +1012,7 @@ void MemTable::Update(SequenceNumber seq,
   assert(add_res);
 }
 
-bool MemTable::UpdateCallback(SequenceNumber seq,
-                              const Slice& key,
+bool MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
                               const Slice& delta) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
