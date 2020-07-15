@@ -31,7 +31,7 @@ class WalMetadata {
 
   WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
 
-  bool HasSize() const { return size_bytes_ == kUnknownWalSize; }
+  bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
 
   void SetSizeInBytes(uint64_t bytes) { size_bytes_ = bytes; }
 
@@ -81,12 +81,18 @@ using WalAdditions = std::vector<WalAddition>;
 // WALs are archived or deleted asynchronously, so even if a WAL has been
 // archived or deleted, it might still exist in WalSet.
 //
-// Whenever a VersionEdit is applied to VersionSet, PurgeObsoleteWals() is
-// called, so that WalSet will not keep growing.
+// When creating a new MANIFEST, PurgeObsoleteWals() is called, so that obsolete
+// WALs are not written to the initial snapshot in the new MANIFEST and WalSet
+// does not keep growing.
 //
-// Not thread safe, needs external synchronization.
+// Not thread safe, needs external synchronization such as holding DB mutex.
 class WalSet {
  public:
+  // Add WAL(s).
+  // Can happen when applying a VersionEdit or recovering from MANIFEST.
+  void AddWal(const WalAddition& wal);
+  void AddWals(const WalAdditions& wals);
+
   // Remove WALs with log number < min_log_number_to_keep.
   void PurgeObsoleteWals(WalNumber min_log_number_to_keep);
 
