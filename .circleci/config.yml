@@ -228,7 +228,7 @@ jobs:
             echo "JAVA_HOME=${JAVA_HOME}"
             which java && java -version
             which javac && javac -version
-            SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 rocksdbjava jtest
+            SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
 
 workflows:
   build-linux:
