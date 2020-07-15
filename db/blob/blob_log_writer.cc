@@ -63,7 +63,10 @@ Status BlobLogWriter::AppendFooter(BlobLogFooter& footer) {
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
-    s = dest_->Close();
+    s = Sync();
+    if (s.ok()) {
+      s = dest_->Close();
+    }
     dest_.reset();
   }
 
