@@ -146,6 +146,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.file_checksum_gen_factory =
       immutable_db_options.file_checksum_gen_factory;
   options.best_efforts_recovery = immutable_db_options.best_efforts_recovery;
+  options.max_bgerror_resume_count =
+      immutable_db_options.max_bgerror_resume_count;
+  options.bgerror_resume_retry_interval =
+      immutable_db_options.bgerror_resume_retry_interval;
   return options;
 }
 

@@ -1638,6 +1638,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   std::unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
+  IOStatus io_s;
 
   // Recoverable state is persisted in WAL. After memtable switch, WAL might
   // be deleted, so we write the state to memtable to be persisted as well.
@@ -1683,8 +1684,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (creating_new_log) {
     // TODO: Write buffer size passed in should be max of all CF's instead
     // of mutable_cf_options.write_buffer_size.
-    s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
-                  &new_log);
+    io_s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
+                     &new_log);
+    if (s.ok()) {
+      s = io_s;
+    }
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
@@ -1710,7 +1714,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (!logs_.empty()) {
       // Alway flush the buffer of the last log before switching to a new one
       log::Writer* cur_log_writer = logs_.back().writer;
-      s = cur_log_writer->WriteBuffer();
+      io_s = cur_log_writer->WriteBuffer();
+      if (s.ok()) {
+        s = io_s;
+      }
       if (!s.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64
@@ -1745,7 +1752,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
-    error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+    if (!io_s.ok()) {
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
+    } else {
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+    }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
     return s;
