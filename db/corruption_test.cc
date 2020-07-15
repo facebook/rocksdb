@@ -30,6 +30,7 @@
 #include "rocksdb/write_batch.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/meta_blocks.h"
+#include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -557,6 +558,59 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     }
 
     DestroyDB(dbname_, options_);
+  }
+}
+
+static const auto& corruption_modes = {mock::MockTableFactory::kCorruptNone,
+                                       mock::MockTableFactory::kCorruptKey,
+                                       mock::MockTableFactory::kCorruptValue};
+
+TEST_F(CorruptionTest, ParaniodFileChecksOnFlush) {
+  Options options;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  Status s;
+  for (const auto& mode : corruption_modes) {
+    delete db_;
+    s = DestroyDB(dbname_, options);
+    std::shared_ptr<mock::MockTableFactory> mock =
+        std::make_shared<mock::MockTableFactory>();
+    options.table_factory = mock;
+    mock->SetCorruptionMode(mode);
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    Build(10);
+    s = db_->Flush(FlushOptions());
+    if (mode == mock::MockTableFactory::kCorruptNone) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_NOK(s);
+    }
+  }
+}
+
+TEST_F(CorruptionTest, ParaniodFileChecksOnCompact) {
+  Options options;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  Status s;
+  for (const auto& mode : corruption_modes) {
+    delete db_;
+    s = DestroyDB(dbname_, options);
+    std::shared_ptr<mock::MockTableFactory> mock =
+        std::make_shared<mock::MockTableFactory>();
+    options.table_factory = mock;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    Build(100, 2);
+    // ASSERT_OK(db_->Flush(FlushOptions()));
+    DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+    ASSERT_OK(dbi->TEST_FlushMemTable());
+    mock->SetCorruptionMode(mode);
+    s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+    if (mode == mock::MockTableFactory::kCorruptNone) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_NOK(s);
+    }
   }
 }
 

@@ -643,6 +643,8 @@ struct AdvancedColumnFamilyOptions {
   bool optimize_filters_for_hits = false;
 
   // After writing every SST file, reopen it and read all the keys.
+  // Checks the hash of all of the keys and values written versus the
+  // keys in the file and signals a corruption if they do not match
   //
   // Default: false
   //
