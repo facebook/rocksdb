@@ -1824,70 +1824,73 @@ Status DBImpl::AtomicFlushMemTables(
 // Called should check status and flush_needed to see if flush already happened.
 Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                                                  bool* flush_needed) {
-  {
-    *flush_needed = true;
-    InstrumentedMutexLock l(&mutex_);
-    uint64_t orig_active_memtable_id = cfd->mem()->GetID();
-    WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
-    do {
-      if (write_stall_condition != WriteStallCondition::kNormal) {
-        // Same error handling as user writes: Don't wait if there's a
-        // background error, even if it's a soft error. We might wait here
-        // indefinitely as the pending flushes/compactions may never finish
-        // successfully, resulting in the stall condition lasting indefinitely
-        if (error_handler_.IsBGWorkStopped()) {
-          return error_handler_.GetBGError();
-        }
+  *flush_needed = true;
+  InstrumentedMutexLock l(&mutex_);
+  uint64_t orig_active_memtable_id = cfd->mem()->GetID();
 
-        TEST_SYNC_POINT("DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait");
-        ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                       "[%s] WaitUntilFlushWouldNotStallWrites"
-                       " waiting on stall conditions to clear",
-                       cfd->GetName().c_str());
-        bg_cv_.Wait();
-      }
-      if (cfd->IsDropped()) {
-        return Status::ColumnFamilyDropped();
-      }
-      if (shutting_down_.load(std::memory_order_acquire)) {
-        return Status::ShutdownInProgress();
-      }
+  auto check_flush_causes_stall =
+      [&]() -> std::pair<Status, WriteStallCondition> {
+    if (cfd->IsDropped()) {
+      return {Status::ColumnFamilyDropped(), WriteStallCondition::kNormal};
+    }
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return {Status::ShutdownInProgress(), WriteStallCondition::kNormal};
+    }
 
-      uint64_t earliest_memtable_id =
-          std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
-      if (earliest_memtable_id > orig_active_memtable_id) {
-        // We waited so long that the memtable we were originally waiting on was
-        // flushed.
-        *flush_needed = false;
-        return Status::OK();
-      }
+    uint64_t earliest_memtable_id =
+        std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
+    if (earliest_memtable_id > orig_active_memtable_id) {
+      // We waited so long that the memtable we were originally waiting on was
+      // flushed.
+      *flush_needed = false;
+      return {Status::OK(), WriteStallCondition::kNormal};
+    }
 
-      const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
-      const auto* vstorage = cfd->current()->storage_info();
+    const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+    const auto* vstorage = cfd->current()->storage_info();
 
-      // Skip stalling check if we're below auto-flush and auto-compaction
-      // triggers. If it stalled in these conditions, that'd mean the stall
-      // triggers are so low that stalling is needed for any background work. In
-      // that case we shouldn't wait since background work won't be scheduled.
-      if (cfd->imm()->NumNotFlushed() <
-              cfd->ioptions()->min_write_buffer_number_to_merge &&
-          vstorage->l0_delay_trigger_count() <
-              mutable_cf_options.level0_file_num_compaction_trigger) {
-        break;
-      }
+    // Skip stalling check if we're below auto-flush and auto-compaction
+    // triggers. If it stalled in these conditions, that'd mean the stall
+    // triggers are so low that stalling is needed for any background work. In
+    // that case we shouldn't wait since background work won't be scheduled.
+    if (cfd->imm()->NumNotFlushed() <
+            cfd->ioptions()->min_write_buffer_number_to_merge &&
+        vstorage->l0_delay_trigger_count() <
+            mutable_cf_options.level0_file_num_compaction_trigger) {
+      return {Status::OK(), WriteStallCondition::kNormal};
+    }
 
-      // check whether one extra immutable memtable or an extra L0 file would
-      // cause write stalling mode to be entered. It could still enter stall
-      // mode due to pending compaction bytes, but that's less common
-      write_stall_condition =
-          ColumnFamilyData::GetWriteStallConditionAndCause(
-              cfd->imm()->NumNotFlushed() + 1,
-              vstorage->l0_delay_trigger_count() + 1,
-              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
-              .first;
-    } while (write_stall_condition != WriteStallCondition::kNormal);
+    // check whether one extra immutable memtable or an extra L0 file would
+    // cause write stalling mode to be entered. It could still enter stall
+    // mode due to pending compaction bytes, but that's less common
+    return {Status::OK(), ColumnFamilyData::GetWriteStallConditionAndCause(
+                              cfd->imm()->NumNotFlushed() + 1,
+                              vstorage->l0_delay_trigger_count() + 1,
+                              vstorage->estimated_compaction_needed_bytes(),
+                              mutable_cf_options)
+                              .first};
+  };
+
+  auto status_and_stall = check_flush_causes_stall();
+  while (status_and_stall.first.ok() &&
+         status_and_stall.second != WriteStallCondition::kNormal) {
+    // Same error handling as user writes: Don't wait if there's a
+    // background error, even if it's a soft error. We might wait here
+    // indefinitely as the pending flushes/compactions may never finish
+    // successfully, resulting in the stall condition lasting indefinitely
+    if (error_handler_.IsBGWorkStopped()) {
+      return error_handler_.GetBGError();
+    }
+
+    TEST_SYNC_POINT("DBImpl::WaitUntilFlushWouldNotStallWrites:StallWait");
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] WaitUntilFlushWouldNotStallWrites"
+                   " waiting on stall conditions to clear",
+                   cfd->GetName().c_str());
+    bg_cv_.Wait();
+    status_and_stall = check_flush_causes_stall();
   }
-  return Status::OK();
+  return status_and_stall.first;
 }
 
 // Wait for memtables to be flushed for multiple column families.
