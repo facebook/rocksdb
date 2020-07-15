@@ -74,6 +74,16 @@ std::string WalAddition::DebugString() const {
   return oss.str();
 }
 
+void WalSet::AddWal(const WalAddition& wal) {
+  wals_[wal.GetLogNumber()] = wal.GetMetadata();
+}
+
+void WalSet::AddWals(const WalAdditions& wals) {
+  for (const WalAddition& wal : wals) {
+    AddWal(wal);
+  }
+}
+
 void WalSet::PurgeObsoleteWals(WalNumber min_log_number_to_keep) {
   auto it = wals_.lower_bound(min_log_number_to_keep);
   wals_.erase(wals_.begin(), it);
@@ -102,11 +112,11 @@ Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
   }
 
   if (log_idx >= log_numbers.size()) {
-    // Not log to recover from.
+    // No log to recover from.
     return Status::OK();
   }
 
-  auto it = wals_.find(log_numbers[log_idx]);
+  auto it = wals_.lower_bound(min_log_number_to_keep);
   if (it == wals_.end()) {
     // The last synced batch of logs might not be persisted into MANIFEST.
     return Status::OK();
