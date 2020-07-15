@@ -221,6 +221,7 @@ DECLARE_bool(level_compaction_dynamic_level_bytes);
 DECLARE_int32(verify_checksum_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
+DECLARE_int32(get_property_one_in);
 
 #ifndef ROCKSDB_LITE
 DECLARE_bool(use_blob_db);

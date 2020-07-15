@@ -175,11 +175,13 @@ bool BlobIndexCompactionFilterBase::OpenNewBlobFileIfNeeded() const {
   assert(blob_db_impl);
 
   const Status s = blob_db_impl->CreateBlobFileAndWriter(
-      /* has_ttl */ false, ExpirationRange(), "GC", &blob_file_, &writer_);
+      /* has_ttl */ false, ExpirationRange(), "compaction/GC", &blob_file_,
+      &writer_);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error opening new blob file during GC, status: %s",
-                    s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error opening new blob file during compaction/GC, status: %s",
+        s.ToString().c_str());
     blob_file_.reset();
     writer_.reset();
     return false;
@@ -202,11 +204,12 @@ bool BlobIndexCompactionFilterBase::ReadBlobFromOldFile(
       blob, compression_type);
 
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error reading blob during GC, key: %s (%s), status: %s",
-                    key.ToString(/* output_hex */ true).c_str(),
-                    blob_index.DebugString(/* output_hex */ true).c_str(),
-                    s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error reading blob during compaction/GC, key: %s (%s), status: %s",
+        key.ToString(/* output_hex */ true).c_str(),
+        blob_index.DebugString(/* output_hex */ true).c_str(),
+        s.ToString().c_str());
 
     return false;
   }
@@ -248,11 +251,12 @@ bool BlobIndexCompactionFilterBase::WriteBlobToNewFile(
     const BlobDBImpl* const blob_db_impl = context_.blob_db_impl;
     assert(blob_db_impl);
 
-    ROCKS_LOG_ERROR(
-        blob_db_impl->db_options_.info_log,
-        "Error writing blob to new file %s during GC, key: %s, status: %s",
-        blob_file_->PathName().c_str(),
-        key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
+    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
+                    "Error writing blob to new file %s during compaction/GC, "
+                    "key: %s, status: %s",
+                    blob_file_->PathName().c_str(),
+                    key.ToString(/* output_hex */ true).c_str(),
+                    s.ToString().c_str());
     return false;
   }
 
@@ -294,16 +298,17 @@ bool BlobIndexCompactionFilterBase::CloseAndRegisterNewBlobFile() const {
     s = blob_db_impl->CloseBlobFile(blob_file_);
 
     // Note: we delay registering the new blob file until it's closed to
-    // prevent FIFO eviction from processing it during the GC run.
+    // prevent FIFO eviction from processing it during compaction/GC.
     blob_db_impl->RegisterBlobFile(blob_file_);
   }
 
   assert(blob_file_->Immutable());
 
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(blob_db_impl->db_options_.info_log,
-                    "Error closing new blob file %s during GC, status: %s",
-                    blob_file_->PathName().c_str(), s.ToString().c_str());
+    ROCKS_LOG_ERROR(
+        blob_db_impl->db_options_.info_log,
+        "Error closing new blob file %s during compaction/GC, status: %s",
+        blob_file_->PathName().c_str(), s.ToString().c_str());
   }
 
   blob_file_.reset();

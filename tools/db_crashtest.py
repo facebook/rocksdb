@@ -127,7 +127,8 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
-    "sync_fault_injection": False
+    "sync_fault_injection": False,
+    "get_property_one_in": 1000000,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'

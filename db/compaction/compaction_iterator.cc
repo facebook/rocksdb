@@ -263,6 +263,7 @@ void CompactionIterator::NextFromInput() {
     iter_stats_.num_input_records++;
 
     if (!ParseInternalKey(key_, &ikey_)) {
+      iter_stats_.num_input_corrupt_records++;
       // If `expect_valid_internal_key_` is false, return the corrupted key
       // and let the caller decide what to do with it.
       // TODO(noetzli): We should have a more elegant solution for this.
@@ -275,7 +276,6 @@ void CompactionIterator::NextFromInput() {
       has_current_user_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
-      iter_stats_.num_input_corrupt_records++;
       valid_ = true;
       break;
     }

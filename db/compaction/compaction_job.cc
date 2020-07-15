@@ -116,6 +116,9 @@ struct CompactionJob::SubcompactionState {
   // The return status of this subcompaction
   Status status;
 
+  // The return IO Status of this subcompaction
+  IOStatus io_status;
+
   // Files produced by this subcompaction
   struct Output {
     FileMetaData meta;
@@ -179,6 +182,7 @@ struct CompactionJob::SubcompactionState {
     start = std::move(o.start);
     end = std::move(o.end);
     status = std::move(o.status);
+    io_status = std::move(o.io_status);
     outputs = std::move(o.outputs);
     outfile = std::move(o.outfile);
     builder = std::move(o.builder);
@@ -609,22 +613,26 @@ Status CompactionJob::Run() {
 
   // Check if any thread encountered an error during execution
   Status status;
+  IOStatus io_s;
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
       status = state.status;
+      io_s = state.io_status;
       break;
     }
   }
-
-  IOStatus io_s;
+  if (io_status_.ok()) {
+    io_status_ = io_s;
+  }
   if (status.ok() && output_directory_) {
     io_s = output_directory_->Fsync(IOOptions(), nullptr);
   }
-  if (!io_s.ok()) {
+  if (io_status_.ok()) {
     io_status_ = io_s;
+  }
+  if (status.ok()) {
     status = io_s;
   }
-
   if (status.ok()) {
     thread_pool.clear();
     std::vector<const FileMetaData*> files_meta;
@@ -898,9 +906,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
-      snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
-      &range_del_agg, sub_compact->compaction, compaction_filter,
-      shutting_down_, preserve_deletes_seqnum_, manual_compaction_paused_,
+      snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
+      /*expect_valid_internal_key=*/true, &range_del_agg,
+      sub_compact->compaction, compaction_filter, shutting_down_,
+      preserve_deletes_seqnum_, manual_compaction_paused_,
       db_options_.info_log));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
@@ -1209,6 +1218,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     } else {
       it->SeekToFirst();
     }
+    TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
       if (upper_bound != nullptr) {
@@ -1309,9 +1319,9 @@ Status CompactionJob::FinishCompactionOutputFile(
   } else {
     sub_compact->builder->Abandon();
   }
-  if (!sub_compact->builder->io_status().ok()) {
-    io_status_ = sub_compact->builder->io_status();
-    s = io_status_;
+  IOStatus io_s = sub_compact->builder->io_status();
+  if (s.ok()) {
+    s = io_s;
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
@@ -1321,23 +1331,24 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
-  if (io_s.ok()) {
+  if (s.ok() && io_s.ok()) {
     io_s = sub_compact->outfile->Close();
   }
-  if (io_s.ok()) {
+  if (s.ok() && io_s.ok()) {
     // Add the checksum information to file metadata.
     meta->file_checksum = sub_compact->outfile->GetFileChecksum();
     meta->file_checksum_func_name =
         sub_compact->outfile->GetFileChecksumFuncName();
   }
-  if (!io_s.ok()) {
-    io_status_ = io_s;
+  if (s.ok()) {
     s = io_s;
+  }
+  if (sub_compact->io_status.ok()) {
+    sub_compact->io_status = io_s;
   }
   sub_compact->outfile.reset();
 
@@ -1487,7 +1498,12 @@ Status CompactionJob::OpenCompactionOutputFile(
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
-  Status s = NewWritableFile(fs_, fname, &writable_file, file_options_);
+  Status s;
+  IOStatus io_s = NewWritableFile(fs_, fname, &writable_file, file_options_);
+  s = io_s;
+  if (sub_compact->io_status.ok()) {
+    sub_compact->io_status = io_s;
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,

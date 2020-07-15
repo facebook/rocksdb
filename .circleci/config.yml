@@ -97,6 +97,19 @@ jobs:
       - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev
       - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
 
+  build-linux-clang10-mini-tsan:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 EXCLUDE_TESTS_REGEX="DBTestCompactionFilterWithCompactParam.CompactionFilterWithValueChang|DBTestRandomized/DBTestRandomized.Randomized|DBTestWithParam.MergeCompactionTimeTest|DBTestUniversalCompaction.UniversalCompactionTrivialMoveTest1|DBTestUniversalCompactionMultiLevels.UniversalCompactionMultiLevels|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized|ReadaheadSequentialFileTest|ReadExceedsReadaheadSize/ReadaheadSequentialFileTest|TransactionStressTest|MySQLStyleTransactionTest|SnapshotConcurrentAccessTest|eqAdvanceConcurrentTest|WritePreparedTransactionTest|WriteUnpreparedTransactionTest|WriteUnpreparedStressTest|MultiThreadedDBTest|LogMarkLeakTest" make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. Exclude some tests to speed up. MultiThreadedDBTest, TransactionStressTest, TransactionStressTest, TransactionStressTest and TransactionStressTest are showing TSAN warning so excluding them for now. Will investigate later.
+
+
   build-linux-clang10-ubsan:
     machine:
       image: ubuntu-1604:201903-01
@@ -108,6 +121,18 @@ jobs:
       - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
       - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev
       - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 ubsan_check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+
+  build-linux-clang10-clang-analyze:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev clang-tools-10
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
 
   build-linux-cmake:
     machine:
@@ -132,17 +157,31 @@ jobs:
       extra_cmake_opt:
         default: ""
         type: string
+      vs_year:
+        default: "2019"
+        type: string
+      cmake_generator:
+        default: "Visual Studio 16 2019"
+        type: string
     environment:
       THIRDPARTY_HOME: C:/Users/circleci/thirdparty
       CMAKE_HOME: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64
       CMAKE_BIN: C:/Users/circleci/thirdparty/cmake-3.16.4-win64-x64/bin/cmake.exe
-      CMAKE_GENERATOR: Visual Studio 16 2019
       SNAPPY_HOME: C:/Users/circleci/thirdparty/snappy-1.1.7
       SNAPPY_INCLUDE: C:/Users/circleci/thirdparty/snappy-1.1.7;C:/Users/circleci/thirdparty/snappy-1.1.7/build
       SNAPPY_LIB_DEBUG: C:/Users/circleci/thirdparty/snappy-1.1.7/build/Debug/snappy.lib
-
+      VS_YEAR: <<parameters.vs_year>>
+      CMAKE_GENERATOR: <<parameters.cmake_generator>>
     steps:
       - checkout
+      - run:
+          name: "Setup VS"
+          command: |
+            if [[ "${VS_YEAR}" == "2017" ]]; then
+              powershell .circleci/vs2017_install.ps1
+            elif [[ "${VS_YEAR}" == "2015" ]]; then
+              powershell .circleci/vs2015_install.ps1
+            fi
       - run:
           name: "Install thirdparty dependencies"
           command: |
@@ -173,6 +212,24 @@ jobs:
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,env_basic_test,env_test,db_merge_operand_test -Concurrency 16
 
+  build-linux-java:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout
+      - run: pyenv global 3.5.2
+      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+      - run:
+          name: "Build RocksDBJava"
+          command: |
+            export JAVA_HOME=/usr/lib/jvm/jdk1.8.0
+            export PATH=$JAVA_HOME/bin:$PATH
+            echo "JAVA_HOME=${JAVA_HOME}"
+            which java && java -version
+            which javac && javac -version
+            SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 rocksdbjava jtest
+
 workflows:
   build-linux:
     jobs:
@@ -198,9 +255,15 @@ workflows:
   build-linux-clang10-asan:
     jobs:
       - build-linux-clang10-asan
+  build-linux-clang10-mini-tsan:
+    jobs:
+      - build-linux-clang10-mini-tsan
   build-linux-clang10-ubsan:
     jobs:
       - build-linux-clang10-ubsan
+  build-linux-clang10-clang-analyze:
+    jobs:
+      - build-linux-clang10-clang-analyze
   build-linux-cmake:
     jobs:
       - build-linux-cmake
@@ -210,7 +273,20 @@ workflows:
   build-windows:
     jobs:
       - build-windows
+  build-windows-vs2017:
+    jobs:
+      - build-windows:
+          vs_year: "2017"
+          cmake_generator: "Visual Studio 15 Win64"
+  build-windows-vs2015:
+    jobs:
+      - build-windows:
+          vs_year: "2015"
+          cmake_generator: "Visual Studio 14 Win64"
   build-windows-cxx20:
     jobs:
       - build-windows:
           extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+  build-java:
+    jobs:
+      - build-linux-java

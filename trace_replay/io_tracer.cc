@@ -33,13 +33,30 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
   trace.type = record.trace_type;
   Slice file_operation(record.file_operation);
   PutLengthPrefixedSlice(&trace.payload, file_operation);
+  PutFixed64(&trace.payload, record.latency);
   Slice io_status(record.io_status);
   PutLengthPrefixedSlice(&trace.payload, io_status);
-  Slice file_name(record.file_name);
-  PutLengthPrefixedSlice(&trace.payload, file_name);
-  // TODO: add below options based on file_operation
-  trace.payload.push_back(record.len);
-  PutFixed64(&trace.payload, record.offset);
+  /* Write remaining options based on trace_type set by file operation */
+  switch (record.trace_type) {
+    case TraceType::kIOGeneral:
+      break;
+    case TraceType::kIOFileNameAndFileSize:
+      PutFixed64(&trace.payload, record.file_size);
+      FALLTHROUGH_INTENDED;
+    case TraceType::kIOFileName: {
+      Slice file_name(record.file_name);
+      PutLengthPrefixedSlice(&trace.payload, file_name);
+      break;
+    }
+    case TraceType::kIOLenAndOffset:
+      PutFixed64(&trace.payload, record.offset);
+      FALLTHROUGH_INTENDED;
+    case TraceType::kIOLen:
+      trace.payload.push_back(record.len);
+      break;
+    default:
+      assert(false);
+  }
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
   return trace_writer_->Write(encoded_trace);
@@ -124,29 +141,53 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
         "Incomplete access record: Failed to read file operation.");
   }
   record->file_operation = file_operation.ToString();
+  if (!GetFixed64(&enc_slice, &record->latency)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read latency.");
+  }
   Slice io_status;
   if (!GetLengthPrefixedSlice(&enc_slice, &io_status)) {
     return Status::Incomplete(
         "Incomplete access record: Failed to read IO status.");
   }
   record->io_status = io_status.ToString();
-  Slice file_name;
-  if (!GetLengthPrefixedSlice(&enc_slice, &file_name)) {
-    return Status::Incomplete(
-        "Incomplete access record: Failed to read file name.");
-  }
-  record->file_name = file_name.ToString();
-  // TODO: Read below options based on file_operation.
-  record->len = static_cast<size_t>(enc_slice[0]);
-  const unsigned int kCharSize = 1;
-  enc_slice.remove_prefix(kCharSize);
-  if (enc_slice.empty()) {
-    return Status::Incomplete(
-        "Incomplete access record: Failed to read is_cache_hit.");
-  }
-  if (!GetFixed64(&enc_slice, &record->offset)) {
-    return Status::Incomplete(
-        "Incomplete access record: Failed to read offset.");
+  /* Read remaining options based on trace_type set by file operation */
+  switch (record->trace_type) {
+    case TraceType::kIOGeneral:
+      break;
+    case TraceType::kIOFileNameAndFileSize:
+      if (!GetFixed64(&enc_slice, &record->file_size)) {
+        return Status::Incomplete(
+            "Incomplete access record: Failed to read file size.");
+      }
+      FALLTHROUGH_INTENDED;
+    case TraceType::kIOFileName: {
+      Slice file_name;
+      if (!GetLengthPrefixedSlice(&enc_slice, &file_name)) {
+        return Status::Incomplete(
+            "Incomplete access record: Failed to read file name.");
+      }
+      record->file_name = file_name.ToString();
+      break;
+    }
+    case TraceType::kIOLenAndOffset:
+      if (!GetFixed64(&enc_slice, &record->offset)) {
+        return Status::Incomplete(
+            "Incomplete access record: Failed to read offset.");
+      }
+      FALLTHROUGH_INTENDED;
+    case TraceType::kIOLen: {
+      if (enc_slice.empty()) {
+        return Status::Incomplete(
+            "Incomplete access record: Failed to read length.");
+      }
+      record->len = static_cast<size_t>(enc_slice[0]);
+      const unsigned int kCharSize = 1;
+      enc_slice.remove_prefix(kCharSize);
+      break;
+    }
+    default:
+      assert(false);
   }
   return Status::OK();
 }
