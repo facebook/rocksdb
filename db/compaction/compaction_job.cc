@@ -898,9 +898,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
-      snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_), false,
-      &range_del_agg, sub_compact->compaction, compaction_filter,
-      shutting_down_, preserve_deletes_seqnum_, manual_compaction_paused_,
+      snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
+      /*expect_valid_internal_key=*/true, &range_del_agg,
+      sub_compact->compaction, compaction_filter, shutting_down_,
+      preserve_deletes_seqnum_, manual_compaction_paused_,
       db_options_.info_log));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
