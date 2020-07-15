@@ -103,12 +103,6 @@ void BlobFile::MarkObsolete(SequenceNumber sequence) {
   obsolete_.store(true);
 }
 
-bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
-  assert(last_fsync_ <= file_size_);
-  return (hard) ? file_size_ > last_fsync_
-                : (file_size_ - last_fsync_) >= bytes_per_sync;
-}
-
 Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
@@ -160,8 +154,6 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 }
 
 Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
-  // assume that file has been fully fsync'd
-  last_fsync_.store(file_size_);
   blob_count_ = footer.blob_count;
   expiration_range_ = footer.expiration_range;
   closed_ = true;
@@ -172,7 +164,6 @@ Status BlobFile::Fsync() {
   Status s;
   if (log_writer_.get()) {
     s = log_writer_->Sync();
-    last_fsync_.store(file_size_.load());
   }
   return s;
 }
