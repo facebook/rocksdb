@@ -31,7 +31,7 @@ class WalMetadata {
 
   WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
 
-  bool HasUnknownSize() const { return size_bytes_ == kUnknownWalSize; }
+  bool HasSize() const { return size_bytes_ == kUnknownWalSize; }
 
   void SetSizeInBytes(uint64_t bytes) { size_bytes_ = bytes; }
 

@@ -86,6 +86,9 @@ void WalSet::Reset() {
 Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
                          const std::vector<uint64_t>& log_numbers,
                          const std::vector<std::string>& log_fnames) const {
+  assert(log_numbers.size() == log_fnames.size());
+  assert(env != nullptr);
+
   // Skip the ignorable logs.
   size_t log_idx = 0;
   {
@@ -105,13 +108,8 @@ Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
 
   auto it = wals_.find(log_numbers[log_idx]);
   if (it == wals_.end()) {
-    if (log_idx == log_numbers.size() - 1) {
-      // The last log might not be added to MANIFEST before DB crash or close.
-      return Status::OK();
-    } else {
-      // There shouldn't be more than 1 log that is not logged in MANIFEST.
-      return Status::Corruption("More WALs than expected");
-    }
+    // The last synced batch of logs might not be persisted into MANIFEST.
+    return Status::OK();
   }
 
   Status s;
@@ -126,7 +124,7 @@ Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
       break;
     }
 
-    if (!wal_meta.HasUnknownSize()) {
+    if (wal_meta.HasSize()) {
       uint64_t bytes = 0;
       s = env->GetFileSize(log_fnames[log_idx], &bytes);
       if (!s.ok()) {
@@ -141,13 +139,6 @@ Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
         break;
       }
     }  // else since the size is unknown, skip the size check.
-  }
-
-  if (s.ok()) {
-    if (log_idx < log_numbers.size() - 1) {
-      // There shouldn't be more than 1 log that is not logged in MANIFEST.
-      s = Status::Corruption("More WALs than expected");
-    }
   }
 
   return s;
