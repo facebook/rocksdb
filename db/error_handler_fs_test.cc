@@ -1212,6 +1212,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   delete def_env;
 }
 
+
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
   // Fail the first resume and make the second resume successful
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1264,7 +1265,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
 
   Destroy(options);
 }
-
+/*
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   // Activate the FS before the first resume
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1317,7 +1318,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
 
   Destroy(options);
 }
-
+*/
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
   // Fail all the resume and let user to resume
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
