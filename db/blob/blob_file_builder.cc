@@ -129,7 +129,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
 
   std::unique_ptr<BlobLogWriter> blob_log_writer(new BlobLogWriter(
       std::move(file_writer), env_, statistics, blob_file_number,
-      /* bytes_per_sync - TODO: remove */ 0, immutable_cf_options_->use_fsync));
+      immutable_cf_options_->use_fsync));
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
