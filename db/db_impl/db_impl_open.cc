@@ -1388,10 +1388,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
-IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                           size_t preallocate_block_size,
-                           log::Writer** new_log) {
-  IOStatus io_s;
+Status DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
+                         size_t preallocate_block_size, log::Writer** new_log) {
+  Status s;
   std::unique_ptr<FSWritableFile> lfile;
 
   DBOptions db_options =
@@ -1409,13 +1408,13 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
         LogFileName(immutable_db_options_.wal_dir, recycle_log_number);
     TEST_SYNC_POINT("DBImpl::CreateWAL:BeforeReuseWritableFile1");
     TEST_SYNC_POINT("DBImpl::CreateWAL:BeforeReuseWritableFile2");
-    io_s = fs_->ReuseWritableFile(log_fname, old_log_fname, opt_file_options,
-                                  &lfile, /*dbg=*/nullptr);
+    s = fs_->ReuseWritableFile(log_fname, old_log_fname, opt_file_options,
+                               &lfile, /*dbg=*/nullptr);
   } else {
-    io_s = NewWritableFile(fs_.get(), log_fname, &lfile, opt_file_options);
+    s = NewWritableFile(fs_.get(), log_fname, &lfile, opt_file_options);
   }
 
-  if (io_s.ok()) {
+  if (s.ok()) {
     lfile->SetWriteLifeTimeHint(CalculateWALWriteHint());
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
@@ -1427,7 +1426,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);
   }
-  return io_s;
+  return s;
 }
 
 Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,

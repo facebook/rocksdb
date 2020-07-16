@@ -94,7 +94,6 @@ Status BuildTable(
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
-  IOStatus io_s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -125,11 +124,7 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      io_s = NewWritableFile(fs, fname, &file, file_options);
-      s = io_s;
-      if (io_status->ok()) {
-        *io_status = io_s;
-      }
+      s = NewWritableFile(fs, fname, &file, file_options);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
@@ -198,10 +193,7 @@ Status BuildTable(
     } else {
       s = builder->Finish();
     }
-    io_s = builder->io_status();
-    if (io_status->ok()) {
-      *io_status = io_s;
-    }
+    *io_status = builder->io_status();
 
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
@@ -220,16 +212,16 @@ Status BuildTable(
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
-    if (s.ok() && io_status->ok() && !empty) {
+    if (io_status->ok() && !empty) {
       *io_status = file_writer->Close();
     }
-    if (s.ok() && io_status->ok() && !empty) {
+    if (io_status->ok() && !empty) {
       // Add the checksum information to file metadata.
       meta->file_checksum = file_writer->GetFileChecksum();
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
     }
 
-    if (s.ok()) {
+    if (!io_status->ok()) {
       s = *io_status;
     }
 

@@ -324,9 +324,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_unnecessary_blocking_io=false;"
                              "log_readahead_size=0;"
                              "write_dbid_to_manifest=false;"
-                             "best_efforts_recovery=false;"
-                             "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000",
+                             "best_efforts_recovery=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

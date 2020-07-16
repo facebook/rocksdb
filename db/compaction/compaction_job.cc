@@ -116,9 +116,6 @@ struct CompactionJob::SubcompactionState {
   // The return status of this subcompaction
   Status status;
 
-  // The return IO Status of this subcompaction
-  IOStatus io_status;
-
   // Files produced by this subcompaction
   struct Output {
     FileMetaData meta;
@@ -182,7 +179,6 @@ struct CompactionJob::SubcompactionState {
     start = std::move(o.start);
     end = std::move(o.end);
     status = std::move(o.status);
-    io_status = std::move(o.io_status);
     outputs = std::move(o.outputs);
     outfile = std::move(o.outfile);
     builder = std::move(o.builder);
@@ -613,26 +609,22 @@ Status CompactionJob::Run() {
 
   // Check if any thread encountered an error during execution
   Status status;
-  IOStatus io_s;
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
       status = state.status;
-      io_s = state.io_status;
       break;
     }
   }
-  if (io_status_.ok()) {
-    io_status_ = io_s;
-  }
+
+  IOStatus io_s;
   if (status.ok() && output_directory_) {
     io_s = output_directory_->Fsync(IOOptions(), nullptr);
   }
-  if (io_status_.ok()) {
+  if (!io_s.ok()) {
     io_status_ = io_s;
-  }
-  if (status.ok()) {
     status = io_s;
   }
+
   if (status.ok()) {
     thread_pool.clear();
     std::vector<const FileMetaData*> files_meta;
@@ -1218,7 +1210,6 @@ Status CompactionJob::FinishCompactionOutputFile(
     } else {
       it->SeekToFirst();
     }
-    TEST_SYNC_POINT("CompactionJob::FinishCompactionOutputFile1");
     for (; it->Valid(); it->Next()) {
       auto tombstone = it->Tombstone();
       if (upper_bound != nullptr) {
@@ -1319,9 +1310,9 @@ Status CompactionJob::FinishCompactionOutputFile(
   } else {
     sub_compact->builder->Abandon();
   }
-  IOStatus io_s = sub_compact->builder->io_status();
-  if (s.ok()) {
-    s = io_s;
+  if (!sub_compact->builder->io_status().ok()) {
+    io_status_ = sub_compact->builder->io_status();
+    s = io_status_;
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
@@ -1331,24 +1322,23 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
+  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
-  if (s.ok() && io_s.ok()) {
+  if (io_s.ok()) {
     io_s = sub_compact->outfile->Close();
   }
-  if (s.ok() && io_s.ok()) {
+  if (io_s.ok()) {
     // Add the checksum information to file metadata.
     meta->file_checksum = sub_compact->outfile->GetFileChecksum();
     meta->file_checksum_func_name =
         sub_compact->outfile->GetFileChecksumFuncName();
   }
-  if (s.ok()) {
+  if (!io_s.ok()) {
+    io_status_ = io_s;
     s = io_s;
-  }
-  if (sub_compact->io_status.ok()) {
-    sub_compact->io_status = io_s;
   }
   sub_compact->outfile.reset();
 
@@ -1498,12 +1488,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
-  Status s;
-  IOStatus io_s = NewWritableFile(fs_, fname, &writable_file, file_options_);
-  s = io_s;
-  if (sub_compact->io_status.ok()) {
-    sub_compact->io_status = io_s;
-  }
+  Status s = NewWritableFile(fs_, fname, &writable_file, file_options_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
