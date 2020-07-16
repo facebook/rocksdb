@@ -1833,9 +1833,6 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
     if (cfd->IsDropped()) {
       return {Status::ColumnFamilyDropped(), WriteStallCondition::kNormal};
     }
-    if (shutting_down_.load(std::memory_order_acquire)) {
-      return {Status::ShutdownInProgress(), WriteStallCondition::kNormal};
-    }
 
     uint64_t earliest_memtable_id =
         std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
@@ -1874,6 +1871,9 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
   auto status_and_stall = check_flush_causes_stall();
   while (status_and_stall.first.ok() &&
          status_and_stall.second != WriteStallCondition::kNormal) {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return Status::ShutdownInProgress();
+    }
     // Same error handling as user writes: Don't wait if there's a
     // background error, even if it's a soft error. We might wait here
     // indefinitely as the pending flushes/compactions may never finish
