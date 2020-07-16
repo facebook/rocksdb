@@ -1211,8 +1211,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   options.clear();
   delete def_env;
 }
-
-
+/*
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
   // Fail the first resume and make the second resume successful
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1265,7 +1264,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
 
   Destroy(options);
 }
-/*
+*/
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   // Activate the FS before the first resume
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1288,25 +1287,16 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   error_msg.SetRetryable(true);
 
   Put(Key(1), "val1");
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"RecoverFromRetryableBGIOError:BeforeStart",
-        "FLushWritRetryableeErrorAutoRecover2:0"},
-       {"FLushWritRetryableeErrorAutoRecover2:1",
-        "RecoverFromRetryableBGIOError:BeforeStart1"},
-       {"RecoverFromRetryableBGIOError:RecoverSuccess",
-        "FLushWritRetryableeErrorAutoRecover2:2"}});
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
-  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover2:0");
-  fault_fs->SetFilesystemActive(true);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover2:1");
-  TEST_SYNC_POINT("FLushWritRetryableeErrorAutoRecover2:2");
   SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_EQ(listener->WaitForRecovery(5000000), true);
 
   ASSERT_EQ("val1", Get(Key(1)));
   Reopen(options);
@@ -1318,7 +1308,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
 
   Destroy(options);
 }
-*/
+
+
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
   // Fail all the resume and let user to resume
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1371,7 +1362,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
 
   Destroy(options);
 }
-
+/*
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover4) {
   // Fail the first resume and does not do resume second time because
   // the IO error severity is Fatal Error and not Retryable.
@@ -1438,6 +1429,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover4) {
   Destroy(options);
 }
 
+
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover5) {
   // During the resume, call DB->CLose, make sure the resume thread exist
   // before close continues. Due to the shutdown, the resume is not successful
@@ -1491,7 +1483,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover5) {
 
   Destroy(options);
 }
-
+*/
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover6) {
   // During the resume, call DB->CLose, make sure the resume thread exist
   // before close continues. Due to the shutdown, the resume is not successful
