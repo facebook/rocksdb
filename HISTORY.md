@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.11.4 (7/15/2020)
 ### Bug Fixes
 * Make compaction report InternalKey corruption while iterating over the input.
 
