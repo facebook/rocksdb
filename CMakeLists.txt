@@ -713,6 +713,7 @@ set(SOURCES
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
         tools/dump/db_dump_tool.cc
+        tools/io_tracer_parser_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
@@ -996,7 +997,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
-  
+
 if(WITH_TESTS)
   set(TESTS
         db/db_basic_test.cc
