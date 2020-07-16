@@ -230,6 +230,19 @@ jobs:
             which javac && javac -version
             SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
 
+  build-examples:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: medium
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+      - run:
+          name: "Build examples"
+          command: |
+            OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4 | ../.circleci/cat_ignore_eagain
+
 workflows:
   build-linux:
     jobs:
@@ -290,3 +303,6 @@ workflows:
   build-java:
     jobs:
       - build-linux-java
+  build-examples:
+    jobs:
+      - build-examples
