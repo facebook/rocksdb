@@ -685,9 +685,18 @@ void DBImpl::StartTimedTasks() {
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
     if (stats_dump_period_sec > 0) {
       if (!thread_dump_stats_) {
+        // In case of many `DB::Open()` in rapid succession we can have all
+        // threads dumping at once, which causes severe lock contention in
+        // jemalloc. Ensure successive `DB::Open()`s are staggered by at least
+        // one second in the common case.
+        static uint64_t stats_dump_threads_started = 0;
         thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond));
+            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
+            stats_dump_threads_started %
+                static_cast<uint64_t>(stats_dump_period_sec) *
+                kMicrosInSecond));
+        ++stats_dump_threads_started;
       }
     }
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
@@ -1083,10 +1092,20 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_dump_period_sec > 0) {
+          // In case many DBs have `stats_dump_period_sec` enabled in rapid
+          // succession, we can have all threads dumping at once, which causes
+          // severe lock contention in jemalloc. Ensure successive enabling of
+          // `stats_dump_period_sec` are staggered by at least one second in the
+          // common case.
+          static uint64_t stats_dump_threads_started = 0;
           thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
               static_cast<uint64_t>(new_options.stats_dump_period_sec) *
+                  kMicrosInSecond,
+              stats_dump_threads_started %
+                  static_cast<uint64_t>(new_options.stats_dump_period_sec) *
                   kMicrosInSecond));
+          ++stats_dump_threads_started;
         } else {
           thread_dump_stats_.reset();
         }
