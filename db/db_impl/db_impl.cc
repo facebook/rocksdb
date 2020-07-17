@@ -689,12 +689,12 @@ void DBImpl::StartTimedTasks() {
         // threads dumping at once, which causes severe lock contention in
         // jemalloc. Ensure successive `DB::Open()`s are staggered by at least
         // one second in the common case.
-        static unsigned int stats_dump_threads_started = 0;
+        static uint64_t stats_dump_threads_started = 0;
         thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
             static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
-            static_cast<uint64_t>(stats_dump_threads_started %
-                                  stats_dump_period_sec) *
+            stats_dump_threads_started %
+                static_cast<uint64_t>(stats_dump_period_sec) *
                 kMicrosInSecond));
         ++stats_dump_threads_started;
       }
@@ -1097,13 +1097,13 @@ Status DBImpl::SetDBOptions(
           // severe lock contention in jemalloc. Ensure successive enabling of
           // `stats_dump_period_sec` are staggered by at least one second in the
           // common case.
-          static unsigned int stats_dump_threads_started = 0;
+          static uint64_t stats_dump_threads_started = 0;
           thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
               static_cast<uint64_t>(new_options.stats_dump_period_sec) *
                   kMicrosInSecond,
-              static_cast<uint64_t>(stats_dump_threads_started %
-                                    new_options.stats_dump_period_sec) *
+              stats_dump_threads_started %
+                  static_cast<uint64_t>(new_options.stats_dump_period_sec) *
                   kMicrosInSecond));
           ++stats_dump_threads_started;
         } else {
