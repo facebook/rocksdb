@@ -20,6 +20,8 @@ jobs:
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
       - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - store_artifacts:
+          path: LOG
 
   build-linux-shared_lib-alt_namespace-status_checked:
     machine:
@@ -247,62 +249,4 @@ workflows:
   build-linux:
     jobs:
       - build-linux
-  build-linux-shared_lib-alt_namespace-status_checked:
-    jobs:
-      - build-linux-shared_lib-alt_namespace-status_checked
-  build-linux-lite:
-    jobs:
-      - build-linux-lite
-  build-linux-release:
-    jobs:
-      - build-linux-release
-  build-linux-lite-release:
-    jobs:
-      - build-linux-lite-release
-  build-linux-clang-no-test:
-    jobs:
-      - build-linux-clang-no-test
-  build-linux-clang10-no-test:
-    jobs:
-      - build-linux-clang10-no-test
-  build-linux-clang10-asan:
-    jobs:
-      - build-linux-clang10-asan
-  build-linux-clang10-mini-tsan:
-    jobs:
-      - build-linux-clang10-mini-tsan
-  build-linux-clang10-ubsan:
-    jobs:
-      - build-linux-clang10-ubsan
-  build-linux-clang10-clang-analyze:
-    jobs:
-      - build-linux-clang10-clang-analyze
-  build-linux-cmake:
-    jobs:
-      - build-linux-cmake
-  build-linux-unity:
-    jobs:
-      - build-linux-unity
-  build-windows:
-    jobs:
-      - build-windows
-  build-windows-vs2017:
-    jobs:
-      - build-windows:
-          vs_year: "2017"
-          cmake_generator: "Visual Studio 15 Win64"
-  build-windows-vs2015:
-    jobs:
-      - build-windows:
-          vs_year: "2015"
-          cmake_generator: "Visual Studio 14 Win64"
-  build-windows-cxx20:
-    jobs:
-      - build-windows:
-          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-  build-java:
-    jobs:
-      - build-linux-java
-  build-examples:
-    jobs:
-      - build-examples
+      - build-linux
