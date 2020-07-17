@@ -169,41 +169,28 @@ struct BackupableDBOptions {
   // When this option is nullptr, BackupEngine will use its default crc32c as
   // the checksum function.
   //
-  // When it is not nullptr, BackupEngine will use the checksum function
-  // returned by
-  // backup_checksum_gen_factory
-  //                   ->CreateFileChecksumGenerator(FileChecksumGenContext)
-  // with FileChecksumGenContext::requested_function_name being empty as its
-  // checksum function for creating new backups.
+  // When it is not nullptr, this option comes into effect only if DB has a
+  // custom checksum factory and this option is set to the same factory.
   //
-  // When verifying or restoring a backup, BackupEngine will try to find the
-  // checksum function, which was used to create the backup, in the checksum
-  // factory passed in by this option. If the requested checksum function is
-  // not found in the factory, BackupEngine will faill the verfiying or
-  // restoring process.
-  // One exception is that when one tries to verfiy or resotre a backup created
-  // with backup_checksum_gen_factory = GetFileChecksumGenCrc32cFactory(),
-  // using a different checksum factory that does not necessarily have the
-  // checksum generator FileChecksumGenCrc32c(), BackupEngine will use its
-  // default crc32c checksum function to verify or restore the backup even if
-  // FileChecksumGenCrc32c() is not found in the custom factory.
+  // Regardless of what is set for this option, BackupEngine will always use
+  // its default crc32c checksum for creating, verifying, or restoring backups.
   //
-  // Note: If share_files_with_checksum and share_table_files are true, when
-  // one creates two backups that share some table files using different
-  // checksum functions, the same table files will be duplicated in the
-  // shared_checksum directory with different names.
+  // If this option is set to the DB checksum factory, BackupEngine will try
+  // to find the requested checksum function and use it to create, verify, or
+  // restore backups, in addition to the default crc32c checksum function.
+  // When the DB checksum factory is set to GetFileChecksumGenCrc32cFactory(),
+  // we recommend not setting this option to the same factory to avoid
+  // unnecessary additional computation of crc32c since the backup engine
+  // default checksum function is also crc32c.
   //
-  // For example, backup 1 and 2 share table 000007.sst and they were created
-  // using checksum function A and B, respectively. The checksums for 000007.sst
-  // for backup 1 and 2 are a7 and b7, respectively.
-  // Then files 000007_a7_<file_size_or_session_id>.sst and
-  // 000007_b7_<file_size_or_session_id>.sst are created in the shared_checksum
-  // directory with the same content.
-  // The only exception is when both A and B have the same checksum value for
-  // the shared file.
+  // Note: If share_files_with_checksum and share_table_files are true,
+  // the <checksum> appeared in the table filenames will be the custom checksum
+  // value if db session ids are available (namely, table file naming options
+  // is kOptionalChecksumAndDbSessionId and the db session ids obtained from
+  // the table files are nonempty).
   //
   // Default: nullptr
-  std::shared_ptr<FileChecksumGenFactory> backup_checksum_gen_factory;
+  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
 
   void Dump(Logger* logger) const;
 
@@ -217,7 +204,7 @@ struct BackupableDBOptions {
       int _max_valid_backups_to_open = INT_MAX,
       BackupTableNameOption _share_files_with_checksum_naming =
           kOptionalChecksumAndDbSessionId,
-      std::shared_ptr<FileChecksumGenFactory> _backup_checksum_gen_factory =
+      std::shared_ptr<FileChecksumGenFactory> _file_checksum_gen_factory =
           nullptr)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
@@ -233,7 +220,7 @@ struct BackupableDBOptions {
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
         share_files_with_checksum_naming(_share_files_with_checksum_naming),
-        backup_checksum_gen_factory(_backup_checksum_gen_factory) {
+        file_checksum_gen_factory(_file_checksum_gen_factory) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
@@ -370,16 +357,18 @@ class BackupEngineReadOnly {
   }
 
   // If verify_with_checksum is true, this function
-  // inspects the current checksums and file sizes of backup files to see if
-  // they match our expectation.
+  // inspects the default crc32c checksums and file sizes of backup files to
+  // see if they match our expectation. This function further inspects the
+  // custom checksums if BackupableDBOptions::file_checksum_gen_factory is
+  // the same as DBOptions::file_checksum_gen_factory.
   //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
   // expectation. It does not check file checksum.
   //
   // If this BackupEngine created the backup, it compares the files' current
-  // sizes (and current checksum) against the number of bytes written to
-  // them (and the checksum calculated) during creation.
+  // sizes (and current checksums) against the number of bytes written to
+  // them (and the checksums calculated) during creation.
   // Otherwise, it compares the files' current sizes (and checksums) against
   // their sizes (and checksums) when the BackupEngine was opened.
   //
@@ -499,7 +488,9 @@ class BackupEngine {
 
   // If verify_with_checksum is true, this function
   // inspects the current checksums and file sizes of backup files to see if
-  // they match our expectation.
+  // they match our expectation. It further inspects the custom checksums
+  // if BackupableDBOptions::file_checksum_gen_factory is the same as
+  // DBOptions::file_checksum_gen_factory.
   //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our

@@ -26,7 +26,7 @@ constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
 struct FileChecksumGenContext {
   std::string file_name;
   // The name of the requested checksum generator
-  std::string requested_function_name;
+  std::string requested_checksum_func_name;
 };
 
 // FileChecksumGenerator is the class to generates the checksum value

@@ -49,8 +49,8 @@ class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
  public:
   std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenContext& context) override {
-    if (context.requested_function_name.empty() ||
-        context.requested_function_name == "FileChecksumCrc32c") {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileChecksumCrc32c") {
       return std::unique_ptr<FileChecksumGenerator>(
           new FileChecksumGenCrc32c(context));
     } else {
