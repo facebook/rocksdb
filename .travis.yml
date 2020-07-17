@@ -50,14 +50,24 @@ env:
   - JOB_NAME=examples # 5-7 minutes
   - JOB_NAME=cmake # 3-5 minutes
   - JOB_NAME=cmake-gcc8 # 3-5 minutes
+  - JOB_NAME=cmake-gcc9 # 3-5 minutes
+  - JOB_NAME=cmake-gcc9-c++20 # 3-5 minutes
   - JOB_NAME=cmake-mingw # 3 minutes
+  - JOB_NAME=make-gcc4.8
+  - JOB_NAME=status_checked
 
 matrix:
   exclude:
   - os: osx
     env: JOB_NAME=cmake-gcc8
   - os: osx
+    env: JOB_NAME=cmake-gcc9
+  - os: osx
+    env: JOB_NAME=cmake-gcc9-c++20
+  - os: osx
     env: JOB_NAME=cmake-mingw
+  - os: osx
+    env: JOB_NAME=make-gcc4.8
   - os: osx
     arch: ppc64le
   - os: osx
@@ -65,12 +75,36 @@ matrix:
   - os : linux
     arch: arm64
     env: JOB_NAME=cmake-mingw
+  - os : linux
+    arch: arm64
+    env: JOB_NAME=make-gcc4.8
   - os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-mingw
   - os: linux
+    arch: ppc64le
+    env: JOB_NAME=make-gcc4.8
+  - os: linux
     compiler: clang
+  # Exclude all but most unique cmake variants for pull requests, but build all in branches
+  - if: type = pull_request
+    os : linux
+    arch: amd64
+    env: JOB_NAME=cmake
+  - if: type = pull_request
+    os : linux
+    arch: amd64
+    env: JOB_NAME=cmake-gcc8
+  - if: type = pull_request
+    os : linux
+    arch: amd64
+    env: JOB_NAME=cmake-gcc9
   # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
+  # Temporarily disable ppc64le unit tests in PRs until Travis gets its act together (#6653)
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: TEST_GROUP=platform_dependent
   # NB: the cmake build is a partial java test
   - if: type = pull_request
     os: osx
@@ -116,14 +150,14 @@ matrix:
     os: linux
     arch: ppc64le
     env: TEST_GROUP=4
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /java/
     os : osx
     env: JOB_NAME=java_test
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /java/
     os : linux
     arch: arm64
     env: JOB_NAME=java_test
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /java/
     os: linux
     arch: ppc64le
     env: JOB_NAME=java_test
@@ -157,6 +191,33 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc8
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-gcc9
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-gcc9
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=cmake-gcc9-c++20
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=cmake-gcc9-c++20
+  - if: type = pull_request
+    os : osx
+    env: JOB_NAME=status_checked
+  - if: type = pull_request
+    os : linux
+    arch: arm64
+    env: JOB_NAME=status_checked
+  - if: type = pull_request
+    os: linux
+    arch: ppc64le
+    env: JOB_NAME=status_checked
 
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
@@ -166,17 +227,20 @@ install:
       sudo apt-get install -y g++-8;
       CC=gcc-8 && CXX=g++-8;
     fi
+  - if [ "${JOB_NAME}" == cmake-gcc9 ] || [ "${JOB_NAME}" == cmake-gcc9-c++20 ]; then
+      sudo apt-get install -y g++-9;
+      CC=gcc-9 && CXX=g++-9;
+    fi
   - if [ "${JOB_NAME}" == cmake-mingw ]; then
       sudo apt-get install -y mingw-w64 ;
     fi
+  - if [ "${JOB_NAME}" == make-gcc4.8 ]; then
+      sudo apt-get install -y g++-4.8 ;
+      CC=gcc-4.8 && CXX=g++-4.8;
+    fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      CMAKE_DIST_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/cmake-3.14.5-Linux-$(uname -m).tar.bz2";
-      TAR_OPT="--strip-components=1 -xj";
-      if [ "aarch64" == "$(uname -m)" ]; then
-        sudo apt-get install -y libuv1 librhash0;
-        sudo apt-get upgrade -y libstdc++6;
-      fi;
-      mkdir cmake-dist && curl --silent --fail --show-error --location "${CMAKE_DIST_URL}" | tar -C cmake-dist ${TAR_OPT} && export PATH=$PWD/cmake-dist/bin:$PATH;
+      sudo snap install cmake --beta --classic;
+      export PATH=/snap/bin:$PATH;
     fi
   - |
     if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
@@ -214,7 +278,7 @@ script:
       OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_START=db_iter_test ROCKSDBTESTS_END=options_file_test make -j4 check_some
       ;;
     3)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=options_file_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_START=options_file_test ROCKSDBTESTS_END=write_prepared_transaction_test make -j4 check_some
       ;;
     4)
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=write_prepared_transaction_test make -j4 check_some
@@ -225,7 +289,7 @@ script:
       OPT=-DTRAVIS V=1 make rocksdbjava jtest
       ;;
     lite_build)
-      OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 static_lib tools
+      OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 all
       ;;
     examples)
       OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
@@ -235,7 +299,19 @@ script:
       mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       ;;
     cmake*)
-      mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release && make -j4 rocksdb rocksdbjni
+      case $JOB_NAME in
+        *-c++20)
+          OPT=-DCMAKE_CXX_STANDARD=20
+          ;;
+      esac
+
+      mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j4 && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
+      ;;
+    make-gcc4.8)
+      OPT=-DTRAVIS V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
+      ;;
+    status_checked)
+      OPT=-DTRAVIS V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
       ;;
     esac
 notifications:

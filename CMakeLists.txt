@@ -83,6 +83,10 @@ else()
   option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
 
+if( NOT DEFINED CMAKE_CXX_STANDARD )
+  set(CMAKE_CXX_STANDARD 11)
+endif()
+
 include(CMakeDependentOption)
 CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
   "NOT MSVC;NOT MINGW" OFF)
@@ -91,7 +95,7 @@ if(MSVC)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
-  if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+  if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD" AND NOT CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
     # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
@@ -103,18 +107,35 @@ else()
     endif()
   endif()
 
-  # No config file for this
+  set(GFLAGS_LIB)
   if(WITH_GFLAGS)
-    find_package(gflags REQUIRED)
+    # Config with namespace available since gflags 2.2.2
+    option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
+    find_package(gflags CONFIG)
+    if(gflags_FOUND)
+      if(TARGET ${GFLAGS_TARGET})
+        # Config with GFLAGS_TARGET available since gflags 2.2.0
+        set(GFLAGS_LIB ${GFLAGS_TARGET})
+      else()
+        # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
+        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
+      endif()
+    else()
+      find_package(gflags REQUIRED)
+        set(GFLAGS_LIB gflags::gflags)
+    endif()
+    include_directories(${GFLAGS_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
     add_definitions(-DGFLAGS=1)
-    include_directories(${gflags_INCLUDE_DIR})
-    list(APPEND THIRDPARTY_LIBS gflags::gflags)
   endif()
 
   if(WITH_SNAPPY)
-    find_package(snappy REQUIRED)
+    find_package(Snappy CONFIG)
+    if(NOT Snappy_FOUND)
+      find_package(Snappy REQUIRED)
+    endif()
     add_definitions(-DSNAPPY)
-    list(APPEND THIRDPARTY_LIBS snappy::snappy)
+    list(APPEND THIRDPARTY_LIBS Snappy::snappy)
   endif()
 
   if(WITH_ZLIB)
@@ -191,7 +212,6 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
     include(CheckCXXCompilerFlag)
@@ -254,6 +274,7 @@ include(CheckCXXSourceCompiles)
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
+
 CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
@@ -386,7 +407,15 @@ if(MSVC)
     message(STATUS "Debug optimization is enabled")
     set(CMAKE_CXX_FLAGS_DEBUG "/Oxt")
   else()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1")
+
+    # Minimal Build is deprecated after MSVC 2015
+    if( MSVC_VERSION GREATER 1900 )
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm-")
+    else()
+      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Gm")
+    endif()
+
   endif()
   if(WITH_RUNTIME_DEBUG)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /${RUNTIME_LIBRARY}d")
@@ -422,6 +451,8 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
   add_definitions(-DOS_SOLARIS)
+elseif(CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
+  add_definitions(-DOS_GNU_KFREEBSD)
 elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   add_definitions(-DOS_FREEBSD)
 elseif(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
@@ -480,7 +511,11 @@ if(HAVE_PTHREAD_MUTEX_ADAPTIVE_NP)
 endif()
 
 include(CheckCXXSymbolExists)
-check_cxx_symbol_exists(malloc_usable_size malloc.h HAVE_MALLOC_USABLE_SIZE)
+if(CMAKE_SYSTEM_NAME MATCHES "^FreeBSD")
+  check_cxx_symbol_exists(malloc_usable_size malloc_np.h HAVE_MALLOC_USABLE_SIZE)
+else()
+  check_cxx_symbol_exists(malloc_usable_size malloc.h HAVE_MALLOC_USABLE_SIZE)
+endif()
 if(HAVE_MALLOC_USABLE_SIZE)
   add_definitions(-DROCKSDB_MALLOC_USABLE_SIZE)
 endif()
@@ -497,7 +532,6 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
 if(WITH_FOLLY_DISTRIBUTED_MUTEX)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
 endif()
@@ -506,6 +540,7 @@ find_package(Threads REQUIRED)
 # Main library source code
 
 set(SOURCES
+        cache/cache.cc
         cache/clock_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
@@ -513,6 +548,9 @@ set(SOURCES
         db/blob/blob_file_addition.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
+        db/blob/blob_log_format.cc
+        db/blob/blob_log_reader.cc
+        db/blob/blob_log_writer.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -595,6 +633,7 @@ set(SOURCES
         memory/arena.cc
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
+        memory/memkind_kmem_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -619,7 +658,6 @@ set(SOURCES
         options/options.cc
         options/options_helper.cc
         options/options_parser.cc
-        options/options_sanity_check.cc
         port/stack_trace.cc
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
@@ -663,6 +701,7 @@ set(SOURCES
         table/plain/plain_table_index.cc
         table/plain/plain_table_key_coding.cc
         table/plain/plain_table_reader.cc
+        table/sst_file_dumper.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc
@@ -704,9 +743,6 @@ set(SOURCES
         utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
-        utilities/blob_db/blob_log_reader.cc
-        utilities/blob_db/blob_log_writer.cc
-        utilities/blob_db/blob_log_format.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
@@ -715,6 +751,8 @@ set(SOURCES
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
+        utilities/fault_injection_env.cc
+        utilities/fault_injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators/bytesxor.cc
@@ -777,9 +815,13 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc
-    port/win/win_thread.cc)
-
+    port/win/win_logger.cc)
+  if(NOT MINGW)
+    # Mingw only supports std::thread when using
+    # posix threads.
+    list(APPEND SOURCES
+      port/win/win_thread.cc)
+  endif()
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -826,12 +868,12 @@ else()
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
-target_link_libraries(${ROCKSDB_STATIC_LIB}
+target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
-  target_link_libraries(${ROCKSDB_SHARED_LIB}
+  target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   if(WIN32)
@@ -848,7 +890,6 @@ if(ROCKSDB_BUILD_SHARED)
                           LINKER_LANGUAGE CXX
                           VERSION ${rocksdb_VERSION}
                           SOVERSION ${rocksdb_VERSION_MAJOR}
-                          CXX_STANDARD 11
                           OUTPUT_NAME "rocksdb")
   endif()
 endif()
@@ -860,6 +901,16 @@ else()
 endif()
 
 option(WITH_JNI "build with JNI" OFF)
+# Tests are excluded from Release builds
+CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
+  "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
+option(WITH_CORE_TOOLS "build with ldb and sst_dump" ON)
+option(WITH_TOOLS "build with tools" ON)
+
+if(WITH_TESTS OR WITH_BENCHMARK_TOOLS OR WITH_TOOLS OR WITH_JNI OR JNI)
+  include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.8.1/fused-src)
+endif()
 if(WITH_JNI OR JNI)
   message(STATUS "JNI library is enabled")
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/java)
@@ -897,6 +948,8 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
+  install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
+
   install(
     TARGETS ${ROCKSDB_STATIC_LIB}
     EXPORT RocksDBTargets
@@ -933,16 +986,22 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-# Tests are excluded from Release builds
-CMAKE_DEPENDENT_OPTION(WITH_TESTS "build with tests" ON
-  "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
-if(WITH_TESTS)
+option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
+
+if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
-
+endif()
+  
+if(WITH_TESTS)
   set(TESTS
+        db/db_basic_test.cc
+        env/env_basic_test.cc
+  )
+  if(WITH_ALL_TESTS)
+    list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
@@ -957,7 +1016,6 @@ if(WITH_TESTS)
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
-        db/db_basic_test.cc
         db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
@@ -987,6 +1045,7 @@ if(WITH_TESTS)
         db/db_logical_block_size_cache_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
+        db/db_with_timestamp_compaction_test.cc
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
@@ -1019,7 +1078,6 @@ if(WITH_TESTS)
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
-        env/env_basic_test.cc
         env/env_test.cc
         env/io_posix_test.cc
         env/mock_env_test.cc
@@ -1029,6 +1087,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
+        memory/memkind_kmem_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc
@@ -1039,6 +1098,7 @@ if(WITH_TESTS)
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
+        table/block_based/block_based_table_reader_test.cc
         table/block_based/block_test.cc
         table/block_based/data_block_hash_index_test.cc
         table/block_based/full_filter_block_test.cc
@@ -1049,6 +1109,8 @@ if(WITH_TESTS)
         table/merger_test.cc
         table/sst_file_reader_test.cc
         table/table_test.cc
+        table/block_fetcher_test.cc
+        test_util/testutil_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
@@ -1070,6 +1132,7 @@ if(WITH_TESTS)
         util/slice_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
+        util/timer_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
@@ -1092,11 +1155,13 @@ if(WITH_TESTS)
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
+        utilities/transactions/transaction_lock_mgr_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
-  )
+    )
+  endif()
   if(WITH_LIBRADOS)
     list(APPEND TESTS utilities/env_librados_test.cc)
   endif()
@@ -1109,8 +1174,6 @@ if(WITH_TESTS)
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
-      test_util/fault_injection_test_env.cc
-      test_util/fault_injection_test_fs.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
@@ -1125,7 +1188,7 @@ if(WITH_TESTS)
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-        )
+  )
 
   foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
@@ -1135,11 +1198,15 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
-        )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB})
+      )
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${GFLAGS_LIB} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
+      endif()
+      if("${exename}" MATCHES "env_librados_test")
+        # env_librados_test.cc uses librados directly
+        target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} rados)
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1164,47 +1231,44 @@ if(WITH_TESTS)
   endif()
 endif()
 
-option(WITH_BENCHMARK_TOOLS "build with benchmarks" ON)
 if(WITH_BENCHMARK_TOOLS)
   add_executable(db_bench
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(cache_bench
     cache/cache_bench.cc)
   target_link_libraries(cache_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(memtablerep_bench
     memtable/memtablerep_bench.cc)
   target_link_libraries(memtablerep_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(range_del_aggregator_bench
     db/range_del_aggregator_bench.cc)
   target_link_libraries(range_del_aggregator_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(table_reader_bench
     table/table_reader_bench.cc)
   target_link_libraries(table_reader_bench
-    ${ROCKSDB_LIB} testharness)
+    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
   add_executable(filter_bench
     util/filter_bench.cc)
   target_link_libraries(filter_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(hash_table_bench
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 
-option(WITH_CORE_TOOLS "build with ldb and sst_dump" ON)
-option(WITH_TOOLS "build with tools" ON)
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
   add_subdirectory(tools)
   add_custom_target(core_tools
@@ -1215,4 +1279,9 @@ if(WITH_TOOLS)
   add_subdirectory(db_stress_tool)
   add_custom_target(tools
     DEPENDS ${tool_deps})
+endif()
+
+option(WITH_EXAMPLES "build with examples" OFF)
+if(WITH_EXAMPLES)
+  add_subdirectory(examples)
 endif()

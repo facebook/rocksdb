@@ -15,7 +15,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public BlockBasedTableConfig() {
     //TODO(AR) flushBlockPolicyFactory
     cacheIndexAndFilterBlocks = false;
-    cacheIndexAndFilterBlocksWithHighPriority = false;
+    cacheIndexAndFilterBlocksWithHighPriority = true;
     pinL0FilterAndIndexBlocksInCache = false;
     pinTopLevelIndexAndFilter = true;
     indexType = IndexType.kBinarySearch;
@@ -32,14 +32,16 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     indexBlockRestartInterval = 1;
     metadataBlockSize = 4096;
     partitionFilters = false;
+    optimizeFiltersForMemory = false;
     useDeltaEncoding = true;
     filterPolicy = null;
     wholeKeyFiltering = true;
-    verifyCompression = true;
+    verifyCompression = false;
     readAmpBytesPerBit = 0;
-    formatVersion = 2;
+    formatVersion = 4;
     enableIndexCompression = true;
     blockAlign = false;
+    indexShortening = IndexShorteningMode.kShortenSeparators;
 
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
@@ -77,7 +79,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
 
   /**
    * Indicates if index and filter blocks will be treated as high-priority in the block cache.
-   * See note below about applicability. If not specified, defaults to false.
+   * See note below about applicability. If not specified, defaults to true.
    *
    * @return if index and filter blocks will be treated as high-priority.
    */
@@ -453,6 +455,65 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return this;
   }
 
+  /***
+   * Option to generate Bloom filters that minimize memory
+   * internal fragmentation.
+   *
+   * See {@link #setOptimizeFiltersForMemory(boolean)}.
+   *
+   * @return true if bloom filters are used to minimize memory internal
+   *     fragmentation
+   */
+  @Experimental("Option to generate Bloom filters that minimize memory internal fragmentation")
+  public boolean optimizeFiltersForMemory() {
+    return optimizeFiltersForMemory;
+  }
+
+  /**
+   * Option to generate Bloom filters that minimize memory
+   * internal fragmentation.
+   *
+   * When false, malloc_usable_size is not available, or format_version &lt; 5,
+   * filters are generated without regard to internal fragmentation when
+   * loaded into memory (historical behavior). When true (and
+   * malloc_usable_size is available and {@link #formatVersion()} &gt;= 5),
+   * then Bloom filters are generated to "round up" and "round down" their
+   * sizes to minimize internal fragmentation when loaded into memory, assuming
+   * the reading DB has the same memory allocation characteristics as the
+   * generating DB. This option does not break forward or backward
+   * compatibility.
+   *
+   * While individual filters will vary in bits/key and false positive rate
+   * when setting is true, the implementation attempts to maintain a weighted
+   * average FP rate for filters consistent with this option set to false.
+   *
+   * With Jemalloc for example, this setting is expected to save about 10% of
+   * the memory footprint and block cache charge of filters, while increasing
+   * disk usage of filters by about 1-2% due to encoding efficiency losses
+   * with variance in bits/key.
+   *
+   * NOTE: Because some memory counted by block cache might be unmapped pages
+   * within internal fragmentation, this option can increase observed RSS
+   * memory usage. With {@link #cacheIndexAndFilterBlocks()} == true,
+   * this option makes the block cache better at using space it is allowed.
+   *
+   * NOTE: Do not set to true if you do not trust malloc_usable_size. With
+   * this option, RocksDB might access an allocated memory object beyond its
+   * original size if malloc_usable_size says it is safe to do so. While this
+   * can be considered bad practice, it should not produce undefined behavior
+   * unless malloc_usable_size is buggy or broken.
+   *
+   * @param optimizeFiltersForMemory true to enable Bloom filters that minimize
+   *     memory internal fragmentation, or false to disable.
+   *
+   * @return the reference to the current config.
+   */
+  @Experimental("Option to generate Bloom filters that minimize memory internal fragmentation")
+  public BlockBasedTableConfig setOptimizeFiltersForMemory(final boolean optimizeFiltersForMemory) {
+    this.optimizeFiltersForMemory = optimizeFiltersForMemory;
+    return this;
+  }
+
   /**
    * Determine if delta encoding is being used to compress block keys.
    *
@@ -717,6 +778,28 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return this;
   }
 
+  /**
+   * Get the index shortening mode.
+   *
+   * @return the index shortening mode.
+   */
+  public IndexShorteningMode indexShortening() {
+    return indexShortening;
+  }
+
+  /**
+   * Set the index shortening mode.
+   *
+   * See {@link IndexShorteningMode}.
+   *
+   * @param indexShortening the index shortening mode.
+   *
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setIndexShortening(final IndexShorteningMode indexShortening) {
+    this.indexShortening = indexShortening;
+    return this;
+  }
 
   /**
    * Get the size of the cache in bytes that will be used by RocksDB.
@@ -900,54 +983,35 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     }
 
     return newTableFactoryHandle(cacheIndexAndFilterBlocks,
-        cacheIndexAndFilterBlocksWithHighPriority,
-        pinL0FilterAndIndexBlocksInCache, pinTopLevelIndexAndFilter,
-        indexType.getValue(), dataBlockIndexType.getValue(),
-        dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache,
-        blockCacheHandle, persistentCacheHandle, blockCacheCompressedHandle,
-        blockSize, blockSizeDeviation, blockRestartInterval,
-        indexBlockRestartInterval, metadataBlockSize, partitionFilters,
-        useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
-        verifyCompression, readAmpBytesPerBit, formatVersion,
-        enableIndexCompression, blockAlign,
-        blockCacheSize, blockCacheNumShardBits,
+        cacheIndexAndFilterBlocksWithHighPriority, pinL0FilterAndIndexBlocksInCache,
+        pinTopLevelIndexAndFilter, indexType.getValue(), dataBlockIndexType.getValue(),
+        dataBlockHashTableUtilRatio, checksumType.getValue(), noBlockCache, blockCacheHandle,
+        persistentCacheHandle, blockCacheCompressedHandle, blockSize, blockSizeDeviation,
+        blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
+        optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
+        verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
+        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
         blockCacheCompressedSize, blockCacheCompressedNumShardBits);
   }
 
-  private native long newTableFactoryHandle(
-      final boolean cacheIndexAndFilterBlocks,
+  private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
       final boolean cacheIndexAndFilterBlocksWithHighPriority,
-      final boolean pinL0FilterAndIndexBlocksInCache,
-      final boolean pinTopLevelIndexAndFilter,
-      final byte indexTypeValue,
-      final byte dataBlockIndexTypeValue,
-      final double dataBlockHashTableUtilRatio,
-      final byte checksumTypeValue,
-      final boolean noBlockCache,
-      final long blockCacheHandle,
-      final long persistentCacheHandle,
-      final long blockCacheCompressedHandle,
-      final long blockSize,
-      final int blockSizeDeviation,
-      final int blockRestartInterval,
-      final int indexBlockRestartInterval,
-      final long metadataBlockSize,
-      final boolean partitionFilters,
-      final boolean useDeltaEncoding,
-      final long filterPolicyHandle,
-      final boolean wholeKeyFiltering,
-      final boolean verifyCompression,
-      final int readAmpBytesPerBit,
-      final int formatVersion,
-      final boolean enableIndexCompression,
-      final boolean blockAlign,
+      final boolean pinL0FilterAndIndexBlocksInCache, final boolean pinTopLevelIndexAndFilter,
+      final byte indexTypeValue, final byte dataBlockIndexTypeValue,
+      final double dataBlockHashTableUtilRatio, final byte checksumTypeValue,
+      final boolean noBlockCache, final long blockCacheHandle, final long persistentCacheHandle,
+      final long blockCacheCompressedHandle, final long blockSize, final int blockSizeDeviation,
+      final int blockRestartInterval, final int indexBlockRestartInterval,
+      final long metadataBlockSize, final boolean partitionFilters,
+      final boolean optimizeFiltersForMemory, final boolean useDeltaEncoding,
+      final long filterPolicyHandle, final boolean wholeKeyFiltering,
+      final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
+      final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
 
-      @Deprecated final long blockCacheSize,
-      @Deprecated final int blockCacheNumShardBits,
+      @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
 
       @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits
-  );
+      @Deprecated final int blockCacheCompressedNumShardBits);
 
   //TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
@@ -968,6 +1032,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private int indexBlockRestartInterval;
   private long metadataBlockSize;
   private boolean partitionFilters;
+  private boolean optimizeFiltersForMemory;
   private boolean useDeltaEncoding;
   private Filter filterPolicy;
   private boolean wholeKeyFiltering;
@@ -976,6 +1041,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private int formatVersion;
   private boolean enableIndexCompression;
   private boolean blockAlign;
+  private IndexShorteningMode indexShortening;
 
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;

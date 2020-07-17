@@ -14,13 +14,11 @@
 #include <string>
 
 #include "db/dbformat.h"
-#include "options/options_helper.h"
-#include "options/options_parser.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+struct ConfigOptions;
 struct EnvOptions;
 
 class BlockBasedTableBuilder;
@@ -50,8 +48,9 @@ class BlockBasedTableFactory : public TableFactory {
 
   const char* Name() const override { return kName.c_str(); }
 
+  using TableFactory::NewTableReader;
   Status NewTableReader(
-      const TableReaderOptions& table_reader_options,
+      const ReadOptions& ro, const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const override;
@@ -66,14 +65,16 @@ class BlockBasedTableFactory : public TableFactory {
 
   std::string GetPrintableTableOptions() const override;
 
-  Status GetOptionString(std::string* opt_string,
-                         const std::string& delimiter) const override;
+  Status GetOptionString(const ConfigOptions& config_options,
+                         std::string* opt_string) const override;
 
   const BlockBasedTableOptions& table_options() const;
 
   void* GetOptions() override { return &table_options_; }
 
   bool IsDeleteRangeSupported() const override { return true; }
+
+  TailPrefetchStats* tail_prefetch_stats() { return &tail_prefetch_stats_; }
 
   static const std::string kName;
 
@@ -89,9 +90,7 @@ extern const std::string kPropFalse;
 
 #ifndef ROCKSDB_LITE
 extern Status VerifyBlockBasedTableFactory(
-    const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf,
-    OptionsSanityCheckLevel sanity_check_level);
-
+    const ConfigOptions& config_options, const BlockBasedTableFactory* base_tf,
+    const BlockBasedTableFactory* file_tf);
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

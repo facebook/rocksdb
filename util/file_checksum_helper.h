@@ -6,11 +6,12 @@
 #pragma once
 #include <cassert>
 #include <unordered_map>
+
 #include "port/port.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/status.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -26,59 +27,18 @@ class FileChecksumGenCrc32c : public FileChecksumGenerator {
     checksum_ = crc32c::Extend(checksum_, data, n);
   }
 
-  void Finalize() override { checksum_str_ = Uint32ToString(checksum_); }
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
 
-  std::string GetChecksum() const override { return checksum_str_; }
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
 
   const char* Name() const override { return "FileChecksumCrc32c"; }
-
-  // Convert a uint32_t type data into a 4 bytes string.
-  static std::string Uint32ToString(uint32_t v) {
-    std::string s;
-    if (port::kLittleEndian) {
-      s.append(reinterpret_cast<char*>(&v), sizeof(v));
-    } else {
-      char buf[sizeof(v)];
-      buf[0] = v & 0xff;
-      buf[1] = (v >> 8) & 0xff;
-      buf[2] = (v >> 16) & 0xff;
-      buf[3] = (v >> 24) & 0xff;
-      s.append(buf, sizeof(v));
-    }
-    size_t i = 0, j = s.size() - 1;
-    while (i < j) {
-      char tmp = s[i];
-      s[i] = s[j];
-      s[j] = tmp;
-      ++i;
-      --j;
-    }
-    return s;
-  }
-
-  // Convert a 4 bytes size string into a uint32_t type data.
-  static uint32_t StringToUint32(std::string s) {
-    assert(s.size() == sizeof(uint32_t));
-    size_t i = 0, j = s.size() - 1;
-    while (i < j) {
-      char tmp = s[i];
-      s[i] = s[j];
-      s[j] = tmp;
-      ++i;
-      --j;
-    }
-    uint32_t v = 0;
-    if (port::kLittleEndian) {
-      memcpy(&v, s.c_str(), sizeof(uint32_t));
-    } else {
-      const char* buf = s.c_str();
-      v |= static_cast<uint32_t>(buf[0]);
-      v |= (static_cast<uint32_t>(buf[1]) << 8);
-      v |= (static_cast<uint32_t>(buf[2]) << 16);
-      v |= (static_cast<uint32_t>(buf[3]) << 24);
-    }
-    return v;
-  }
 
  private:
   uint32_t checksum_;

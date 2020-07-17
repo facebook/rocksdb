@@ -334,10 +334,8 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
   std::sort(
       log_files.begin(), log_files.end(),
       [](const std::unique_ptr<LogFile>& a, const std::unique_ptr<LogFile>& b) {
-        LogFileImpl* a_impl =
-            static_cast_with_check<LogFileImpl, LogFile>(a.get());
-        LogFileImpl* b_impl =
-            static_cast_with_check<LogFileImpl, LogFile>(b.get());
+        LogFileImpl* a_impl = static_cast_with_check<LogFileImpl>(a.get());
+        LogFileImpl* b_impl = static_cast_with_check<LogFileImpl>(b.get());
         return *a_impl < *b_impl;
       });
   return status;

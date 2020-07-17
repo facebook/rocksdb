@@ -77,14 +77,16 @@ enum class IOType : uint8_t {
 // honored. More hints can be added here in the future to indicate things like
 // storage media (HDD/SSD) to be used, replication level etc.
 struct IOOptions {
-  // Timeout for the operation in milliseconds
-  std::chrono::milliseconds timeout;
+  // Timeout for the operation in microseconds
+  std::chrono::microseconds timeout;
 
   // Priority - high or low
   IOPriority prio;
 
   // Type of data being read/written
   IOType type;
+
+  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
 
 // File scope options that control how a file is opened/created and accessed
@@ -105,6 +107,8 @@ struct FileOptions : EnvOptions {
 
   FileOptions(const FileOptions& opts)
     : EnvOptions(opts), io_options(opts.io_options) {}
+
+  FileOptions& operator=(const FileOptions& opts) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -521,6 +525,10 @@ class FileSystem {
                                 IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported();
   }
+
+  virtual IOStatus IsDirectory(const std::string& /*path*/,
+                               const IOOptions& options, bool* is_dir,
+                               IODebugContext* /*dgb*/) = 0;
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -1193,6 +1201,10 @@ class FileSystemWrapper : public FileSystem {
                         uint64_t* diskfree, IODebugContext* dbg) override {
     return target_->GetFreeSpace(path, options, diskfree, dbg);
   }
+  IOStatus IsDirectory(const std::string& path, const IOOptions& options,
+                       bool* is_dir, IODebugContext* dbg) override {
+    return target_->IsDirectory(path, options, is_dir, dbg);
+  }
 
  private:
   std::shared_ptr<FileSystem> target_;
@@ -1200,8 +1212,9 @@ class FileSystemWrapper : public FileSystem {
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
-  explicit FSSequentialFileWrapper(FSSequentialFile* target)
-      : target_(target) {}
+  explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
+
+  FSSequentialFile* target() const { return target_; }
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override {
@@ -1227,8 +1240,9 @@ class FSSequentialFileWrapper : public FSSequentialFile {
 
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
-  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* target)
-      : target_(target) {}
+  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
+
+  FSRandomAccessFile* target() const { return target_; }
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -1262,6 +1276,8 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
 class FSWritableFileWrapper : public FSWritableFile {
  public:
   explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
+
+  FSWritableFile* target() const { return target_; }
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
@@ -1346,7 +1362,9 @@ class FSWritableFileWrapper : public FSWritableFile {
 
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
-  explicit FSRandomRWFileWrapper(FSRandomRWFile* target) : target_(target) {}
+  explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
+
+  FSRandomRWFile* target() const { return target_; }
 
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {
@@ -1380,7 +1398,7 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
 
 class FSDirectoryWrapper : public FSDirectory {
  public:
-  explicit FSDirectoryWrapper(FSDirectory* target) : target_(target) {}
+  explicit FSDirectoryWrapper(FSDirectory* t) : target_(t) {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);

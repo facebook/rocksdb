@@ -44,7 +44,8 @@ class MockTableReader : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
@@ -162,7 +163,7 @@ class MockTableBuilder : public TableBuilder {
   std::string GetFileChecksum() const override { return kUnknownFileChecksum; }
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 
  private:
@@ -175,8 +176,9 @@ class MockTableFactory : public TableFactory {
  public:
   MockTableFactory();
   const char* Name() const override { return "MockTable"; }
+  using TableFactory::NewTableReader;
   Status NewTableReader(
-      const TableReaderOptions& table_reader_options,
+      const ReadOptions& ro, const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const override;

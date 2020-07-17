@@ -14,9 +14,15 @@
 // FileSystem related operations, by specify the "IOStatus Error", a specific
 // error can be returned when file system is not activated.
 
-#include "test_util/fault_injection_test_fs.h"
+#include "utilities/fault_injection_fs.h"
+
 #include <functional>
 #include <utility>
+
+#include "env/composite_env_wrapper.h"
+#include "port/lang.h"
+#include "port/stack_trace.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -195,6 +201,27 @@ IOStatus TestFSRandomRWFile::Sync(const IOOptions& options,
   return target_->Sync(options, dbg);
 }
 
+TestFSRandomAccessFile::TestFSRandomAccessFile(const std::string& /*fname*/,
+                                       std::unique_ptr<FSRandomAccessFile>&& f,
+                                       FaultInjectionTestFS* fs)
+    : target_(std::move(f)), fs_(fs) {
+  assert(target_ != nullptr);
+}
+
+IOStatus TestFSRandomAccessFile::Read(uint64_t offset, size_t n,
+                                  const IOOptions& options, Slice* result,
+                                  char* scratch, IODebugContext* dbg) const {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = target_->Read(offset, n, options, result, scratch, dbg);
+  if (s.ok()) {
+    s = fs_->InjectError(FaultInjectionTestFS::ErrorOperation::kRead, result,
+                         use_direct_io(), scratch);
+  }
+  return s;
+}
+
 IOStatus FaultInjectionTestFS::NewDirectory(
     const std::string& name, const IOOptions& options,
     std::unique_ptr<FSDirectory>* result, IODebugContext* dbg) {
@@ -215,15 +242,11 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  // Not allow overwriting files
-  IOStatus io_s = target()->FileExists(fname, IOOptions(), dbg);
-  if (io_s.ok()) {
-    return IOStatus::Corruption("File already exists.");
-  } else if (!io_s.IsNotFound()) {
-    assert(io_s.IsIOError());
-    return io_s;
+  if (IsFilesystemDirectWritable()) {
+    return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
-  io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
+
+  IOStatus io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSWritableFile(fname, std::move(*result), this));
     // WritableFileWriter* file is opened
@@ -243,6 +266,9 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     std::unique_ptr<FSWritableFile>* result, IODebugContext* dbg) {
   if (!IsFilesystemActive()) {
     return GetError();
+  }
+  if (IsFilesystemDirectWritable()) {
+    return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
   IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
@@ -265,6 +291,9 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  if (IsFilesystemDirectWritable()) {
+    return target()->NewRandomRWFile(fname, file_opts, result, dbg);
+  }
   IOStatus io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSRandomRWFile(fname, std::move(*result), this));
@@ -286,7 +315,14 @@ IOStatus FaultInjectionTestFS::NewRandomAccessFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
-  return target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+  IOStatus io_s = InjectError(ErrorOperation::kOpen, nullptr, false, nullptr);
+  if (io_s.ok()) {
+    io_s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+  }
+  if (io_s.ok()) {
+    result->reset(new TestFSRandomAccessFile(fname, std::move(*result), this));
+  }
+  return io_s;
 }
 
 IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
@@ -296,10 +332,6 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
     return GetError();
   }
   IOStatus io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
-  if (!io_s.ok()) {
-    fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
-            io_s.ToString().c_str());
-  }
   if (io_s.ok()) {
     UntrackFile(f);
   }
@@ -425,6 +457,96 @@ void FaultInjectionTestFS::UntrackFile(const std::string& f) {
       dir_and_name.second);
   db_file_state_.erase(f);
   open_files_.erase(f);
+}
+
+IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
+                                           Slice* result,
+                                           bool direct_io,
+                                           char* scratch) {
+  ErrorContext* ctx =
+        static_cast<ErrorContext*>(thread_local_error_->Get());
+  if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in) {
+    return IOStatus::OK();
+  }
+
+  if (ctx->rand.OneIn(ctx->one_in)) {
+    ctx->count++;
+    if (ctx->callstack) {
+      free(ctx->callstack);
+    }
+    ctx->callstack = port::SaveStack(&ctx->frames);
+    switch (op) {
+      case kRead:
+      {
+        if (!direct_io) {
+          ctx->type =
+            static_cast<ErrorType>(ctx->rand.Uniform(ErrorType::kErrorTypeMax));
+        } else {
+          // In Direct IO mode, the actual read will read extra data due to
+          // alignment restrictions. So don't inject corruption or
+          // truncated reads as we don't know if it will actually cause a
+          // detectable error
+          ctx->type = ErrorType::kErrorTypeStatus;
+        }
+        switch (ctx->type) {
+          // Inject IO error
+          case ErrorType::kErrorTypeStatus:
+            return IOStatus::IOError();
+          // Inject random corruption
+          case ErrorType::kErrorTypeCorruption:
+          {
+            if (result->data() == scratch) {
+              uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
+              uint64_t len =
+                std::min<uint64_t>(result->size() - offset, 64UL);
+              assert(offset < result->size());
+              assert(offset + len <= result->size());
+              std::string str;
+              // The randomly generated string could be identical to the
+              // original one, so retry
+              do {
+                str = ctx->rand.RandomString(static_cast<int>(len));
+              } while (str == std::string(scratch + offset, len));
+              memcpy(scratch + offset, str.data(), len);
+              break;
+            } else {
+              FALLTHROUGH_INTENDED;
+            }
+          }
+          // Truncate the result
+          case ErrorType::kErrorTypeTruncated:
+          {
+            assert(result->size() > 0);
+            uint64_t offset = ctx->rand.Uniform((uint32_t)result->size());
+            assert(offset < result->size());
+            *result = Slice(result->data(), offset);
+            break;
+          }
+          default:
+            assert(false);
+        }
+        break;
+      }
+      case kOpen:
+        return IOStatus::IOError();
+      default:
+        assert(false);
+    }
+  }
+  return IOStatus::OK();
+}
+
+void FaultInjectionTestFS::PrintFaultBacktrace() {
+#if defined(OS_LINUX)
+  ErrorContext* ctx =
+        static_cast<ErrorContext*>(thread_local_error_->Get());
+  if (ctx == nullptr) {
+    return;
+  }
+  fprintf(stderr, "Injected error type = %d\n", ctx->type);
+  port::PrintAndFreeStack(ctx->callstack, ctx->frames);
+  ctx->callstack = nullptr;
+#endif
 }
 
 }  // namespace ROCKSDB_NAMESPACE

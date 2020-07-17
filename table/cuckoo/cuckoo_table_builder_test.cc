@@ -57,10 +57,9 @@ class CuckooBuilderTest : public testing::Test {
     uint64_t read_file_size;
     ASSERT_OK(env_->GetFileSize(fname, &read_file_size));
 
-   // @lint-ignore TXT2 T25377293 Grandfathered in
-	  Options options;
-	  options.allow_mmap_reads = true;
-	  ImmutableCFOptions ioptions(options);
+    Options options;
+    options.allow_mmap_reads = true;
+    ImmutableCFOptions ioptions(options);
 
     // Assert Table Properties.
     TableProperties* props = nullptr;
@@ -111,10 +110,10 @@ class CuckooBuilderTest : public testing::Test {
     // Check contents of the bucket.
     std::vector<bool> keys_found(keys.size(), false);
     size_t bucket_size = expected_unused_bucket.size();
-    for (uint32_t i = 0; i < table_size + cuckoo_block_size - 1; ++i) {
+    for (uint32_t i = 0; i + 1 < table_size + cuckoo_block_size; ++i) {
       Slice read_slice;
-      ASSERT_OK(file_reader->Read(i * bucket_size, bucket_size, &read_slice,
-                                  nullptr, nullptr));
+      ASSERT_OK(file_reader->Read(IOOptions(), i * bucket_size, bucket_size,
+                                  &read_slice, nullptr, nullptr));
       size_t key_idx =
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();

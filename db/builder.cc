@@ -51,7 +51,8 @@ TableBuilder* NewTableBuilder(
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     int level, const bool skip_filters, const uint64_t creation_time,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
-    const uint64_t file_creation_time) {
+    const uint64_t file_creation_time, const std::string& db_id,
+    const std::string& db_session_id) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -61,7 +62,7 @@ TableBuilder* NewTableBuilder(
                           sample_for_compression, compression_opts,
                           skip_filters, column_family_name, level,
                           creation_time, oldest_key_time, target_file_size,
-                          file_creation_time),
+                          file_creation_time, db_id, db_session_id),
       column_family_id, file);
 }
 
@@ -85,13 +86,15 @@ Status BuildTable(
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
-    const uint64_t file_creation_time) {
+    const uint64_t file_creation_time, const std::string& db_id,
+    const std::string& db_session_id) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
+  IOStatus io_s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -122,7 +125,11 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      s = NewWritableFile(fs, fname, &file, file_options);
+      io_s = NewWritableFile(fs, fname, &file, file_options);
+      s = io_s;
+      if (io_status->ok()) {
+        *io_status = io_s;
+      }
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
@@ -142,7 +149,7 @@ Status BuildTable(
           column_family_name, file_writer.get(), compression,
           sample_for_compression, compression_opts_for_flush, level,
           false /* skip_filters */, creation_time, oldest_key_time,
-          0 /*target_file_size*/, file_creation_time);
+          0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
@@ -191,7 +198,10 @@ Status BuildTable(
     } else {
       s = builder->Finish();
     }
-    *io_status = builder->io_status();
+    io_s = builder->io_status();
+    if (io_status->ok()) {
+      *io_status = io_s;
+    }
 
     if (s.ok() && !empty) {
       uint64_t file_size = builder->FileSize();
@@ -210,16 +220,16 @@ Status BuildTable(
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
-    if (io_status->ok() && !empty) {
+    if (s.ok() && io_status->ok() && !empty) {
       *io_status = file_writer->Close();
     }
-    if (io_status->ok() && !empty) {
+    if (s.ok() && io_status->ok() && !empty) {
       // Add the checksum information to file metadata.
       meta->file_checksum = file_writer->GetFileChecksum();
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
     }
 
-    if (!io_status->ok()) {
+    if (s.ok()) {
       s = *io_status;
     }
 
@@ -239,8 +249,11 @@ Status BuildTable(
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
-          /*skip_filter=*/false, level, /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key*/ nullptr));
+          /*skip_filter=*/false, level,
+          MaxFileSizeForL0MetaPin(mutable_cf_options),
+          /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key*/ nullptr,
+          /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {

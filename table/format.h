@@ -38,6 +38,8 @@ const int kMagicNumberLengthByte = 8;
 // block or a meta block.
 class BlockHandle {
  public:
+  // Creates a block handle with special values indicating "uninitialized,"
+  // distinct from the "null" block handle.
   BlockHandle();
   BlockHandle(uint64_t offset, uint64_t size);
 
@@ -64,6 +66,13 @@ class BlockHandle {
 
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
+
+  inline bool operator==(const BlockHandle& rhs) const {
+    return offset_ == rhs.offset_ && size_ == rhs.size_;
+  }
+  inline bool operator!=(const BlockHandle& rhs) const {
+    return !(*this == rhs);
+  }
 
  private:
   uint64_t offset_;
@@ -206,12 +215,12 @@ class Footer {
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
-Status ReadFooterFromFile(RandomAccessFileReader* file,
+Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
-// 1-byte type + 32-bit crc
+// 1-byte compression type + 32-bit checksum
 static const size_t kBlockTrailerSize = 5;
 
 // Make block size calculation for IO less error prone

@@ -7,18 +7,41 @@
 
 #include <cinttypes>
 
-#include "db/version_edit.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+static std::unordered_map<std::string, WALRecoveryMode>
+    wal_recovery_mode_string_map = {
+        {"kTolerateCorruptedTailRecords",
+         WALRecoveryMode::kTolerateCorruptedTailRecords},
+        {"kAbsoluteConsistency", WALRecoveryMode::kAbsoluteConsistency},
+        {"kPointInTimeRecovery", WALRecoveryMode::kPointInTimeRecovery},
+        {"kSkipAnyCorruptedRecords",
+         WALRecoveryMode::kSkipAnyCorruptedRecords}};
+
+static std::unordered_map<std::string, DBOptions::AccessHint>
+    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
+                              {"NORMAL", DBOptions::AccessHint::NORMAL},
+                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
+                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
+
+static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
+    {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
+     {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
+     {"WARN_LEVEL", InfoLogLevel::WARN_LEVEL},
+     {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
+     {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
+     {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
+
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::db_options_type_info = {
         /*
@@ -133,7 +156,8 @@ std::unordered_map<std::string, OptionTypeInfo>
           offsetof(struct MutableDBOptions, base_background_compactions)}},
         {"max_background_flushes",
          {offsetof(struct DBOptions, max_background_flushes), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableDBOptions, max_background_flushes)}},
         {"max_file_opening_threads",
          {offsetof(struct DBOptions, max_file_opening_threads),
           OptionType::kInt, OptionVerificationType::kNormal,
@@ -245,10 +269,9 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, allow_concurrent_memtable_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
-        {"wal_recovery_mode",
-         {offsetof(struct DBOptions, wal_recovery_mode),
-          OptionType::kWALRecoveryMode, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
+        {"wal_recovery_mode", OptionTypeInfo::Enum<WALRecoveryMode>(
+                                  offsetof(struct DBOptions, wal_recovery_mode),
+                                  &wal_recovery_mode_string_map)},
         {"enable_write_thread_adaptive_yield",
          {offsetof(struct DBOptions, enable_write_thread_adaptive_yield),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -266,12 +289,12 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         {"access_hint_on_compaction_start",
-         {offsetof(struct DBOptions, access_hint_on_compaction_start),
-          OptionType::kAccessHint, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone, 0}},
-        {"info_log_level",
-         {offsetof(struct DBOptions, info_log_level), OptionType::kInfoLogLevel,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+         OptionTypeInfo::Enum<DBOptions::AccessHint>(
+             offsetof(struct DBOptions, access_hint_on_compaction_start),
+             &access_hint_string_map)},
+        {"info_log_level", OptionTypeInfo::Enum<InfoLogLevel>(
+                               offsetof(struct DBOptions, info_log_level),
+                               &info_log_level_string_map)},
         {"dump_malloc_stats",
          {offsetof(struct DBOptions, dump_malloc_stats), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
@@ -331,6 +354,45 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, best_efforts_recovery),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
+        {"max_bgerror_resume_count",
+         {offsetof(struct DBOptions, max_bgerror_resume_count),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"bgerror_resume_retry_interval",
+         {offsetof(struct DBOptions, bgerror_resume_retry_interval),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        // The following properties were handled as special cases in ParseOption
+        // This means that the properties could be read from the options file
+        // but never written to the file or compared to each other.
+        {"rate_limiter_bytes_per_sec",
+         {offsetof(struct DBOptions, rate_limiter), OptionType::kUnknown,
+          OptionVerificationType::kNormal,
+          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever), 0,
+          // Parse the input value as a RateLimiter
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            auto limiter =
+                reinterpret_cast<std::shared_ptr<RateLimiter>*>(addr);
+            limiter->reset(NewGenericRateLimiter(
+                static_cast<int64_t>(ParseUint64(value))));
+            return Status::OK();
+          }}},
+        {"env",
+         {offsetof(struct DBOptions, env), OptionType::kUnknown,
+          OptionVerificationType::kNormal,
+          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever), 0,
+          // Parse the input value as an Env
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            auto old_env = reinterpret_cast<Env**>(addr);  // Get the old value
+            Env* new_env = *old_env;                       // Set new to old
+            Status s = Env::LoadEnv(value, &new_env);      // Update new value
+            if (s.ok()) {                                  // It worked
+              *old_env = new_env;                          // Update the old one
+            }
+            return s;
+          }}},
 };
 #endif  // ROCKSDB_LITE
 
@@ -354,7 +416,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
       max_subcompactions(options.max_subcompactions),
-      max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),
       keep_log_file_num(options.keep_log_file_num),
@@ -412,7 +473,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
-      best_efforts_recovery(options.best_efforts_recovery) {
+      best_efforts_recovery(options.best_efforts_recovery),
+      max_bgerror_resume_count(options.max_bgerror_resume_count),
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -472,8 +535,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                     Options.max_subcompactions: %" PRIu32,
                    max_subcompactions);
-  ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
-                   max_background_flushes);
   ROCKS_LOG_HEADER(log,
                    "                        Options.WAL_ttl_seconds: %" PRIu64,
                    wal_ttl_seconds);
@@ -564,11 +625,15 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       log, "                Options.log_readahead_size: %" ROCKSDB_PRIszt,
       log_readahead_size);
   ROCKS_LOG_HEADER(log, "                Options.file_checksum_gen_factory: %s",
-                   file_checksum_gen_factory
-                       ? file_checksum_gen_factory->Name()
-                       : kUnknownFileChecksumFuncName.c_str());
+                   file_checksum_gen_factory ? file_checksum_gen_factory->Name()
+                                             : kUnknownFileChecksumFuncName);
   ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
                    static_cast<int>(best_efforts_recovery));
+  ROCKS_LOG_HEADER(log, "               Options.max_bgerror_resume_count: %d",
+                   max_bgerror_resume_count);
+  ROCKS_LOG_HEADER(log,
+                   "           Options.bgerror_resume_retry_interval: %" PRIu64,
+                   bgerror_resume_retry_interval);
 }
 
 MutableDBOptions::MutableDBOptions()
@@ -587,7 +652,8 @@ MutableDBOptions::MutableDBOptions()
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
-      compaction_readahead_size(0) {}
+      compaction_readahead_size(0),
+      max_background_flushes(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -606,7 +672,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
-      compaction_readahead_size(options.compaction_readahead_size) {}
+      compaction_readahead_size(options.compaction_readahead_size),
+      max_background_flushes(options.max_background_flushes) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -647,6 +714,8 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "      Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
                    compaction_readahead_size);
+  ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
+                          max_background_flushes);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

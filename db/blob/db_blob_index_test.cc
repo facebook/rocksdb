@@ -46,7 +46,7 @@ class DBBlobIndexTest : public DBTestBase {
   ColumnFamilyHandle* cfh() { return dbfull()->DefaultColumnFamily(); }
 
   ColumnFamilyData* cfd() {
-    return reinterpret_cast<ColumnFamilyHandleImpl*>(cfh())->cfd();
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh())->cfd();
   }
 
   Status PutBlobIndex(WriteBatch* batch, const Slice& key,

@@ -78,8 +78,17 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
   }
 
+  // Create a new VersionStorageInfo object so we can add mode files and then
+  // merge it with the existing VersionStorageInfo
+  void AddVersionStorage() {
+    temp_vstorage_.reset(new VersionStorageInfo(
+        &icmp_, ucmp_, options_.num_levels, ioptions_.compaction_style,
+        vstorage_.get(), false));
+  }
+
   void DeleteVersionStorage() {
     vstorage_.reset();
+    temp_vstorage_.reset();
     files_.clear();
     file_map_.clear();
     input_files_.clear();
@@ -88,18 +97,24 @@ class CompactionPickerTest : public testing::Test {
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
-           size_t compensated_file_size = 0) {
-    assert(level < vstorage_->num_levels());
+           size_t compensated_file_size = 0, bool marked_for_compact = false) {
+    VersionStorageInfo* vstorage;
+    if (temp_vstorage_) {
+      vstorage = temp_vstorage_.get();
+    } else {
+      vstorage = vstorage_.get();
+    }
+    assert(level < vstorage->num_levels());
     FileMetaData* f = new FileMetaData(
         file_number, path_id, file_size,
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, /* marked_for_compact */ false, kInvalidBlobFileNumber,
+        largest_seq, marked_for_compact, kInvalidBlobFileNumber,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    vstorage_->AddFile(level, f);
+    vstorage->AddFile(level, f);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
   }
@@ -122,6 +137,12 @@ class CompactionPickerTest : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
+    if (temp_vstorage_) {
+      VersionBuilder builder(FileOptions(), &ioptions_, nullptr,
+                             vstorage_.get(), nullptr);
+      builder.SaveTo(temp_vstorage_.get());
+      vstorage_ = std::move(temp_vstorage_);
+    }
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
     vstorage_->UpdateFilesByCompactionPri(ioptions_.compaction_pri);
     vstorage_->UpdateNumNonEmptyLevels();
@@ -132,6 +153,28 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->ComputeFilesMarkedForCompaction();
     vstorage_->SetFinalized();
   }
+  void AddFileToVersionStorage(int level, uint32_t file_number,
+                               const char* smallest, const char* largest,
+                               uint64_t file_size = 1, uint32_t path_id = 0,
+                               SequenceNumber smallest_seq = 100,
+                               SequenceNumber largest_seq = 100,
+                               size_t compensated_file_size = 0,
+                               bool marked_for_compact = false) {
+    VersionStorageInfo* base_vstorage = vstorage_.release();
+    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
+                                           kCompactionStyleUniversal,
+                                           base_vstorage, false));
+    Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
+        largest_seq, compensated_file_size, marked_for_compact);
+
+    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
+                           nullptr);
+    builder.SaveTo(vstorage_.get());
+    UpdateVersionStorageInfo();
+  }
+
+ private:
+  std::unique_ptr<VersionStorageInfo> temp_vstorage_;
 };
 
 TEST_F(CompactionPickerTest, Empty) {
@@ -371,8 +414,8 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
   NewVersionStorage(num_levels, kCompactionStyleLevel);
   Add(0, 1U, "150", "200");
-  Add(num_levels - 1, 3U, "200", "250", 300U);
-  Add(num_levels - 1, 4U, "300", "350", 3000U);
+  Add(num_levels - 1, 2U, "200", "250", 300U);
+  Add(num_levels - 1, 3U, "300", "350", 3000U);
   Add(num_levels - 1, 4U, "400", "450", 3U);
   Add(num_levels - 2, 5U, "150", "180", 300U);
   Add(num_levels - 2, 6U, "181", "350", 500U);
@@ -739,7 +782,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
   Add(2, 8U, "201", "300",
       60000000U);  // Overlaps with file 28, 29, total size 521M
 
-  Add(3, 26U, "100", "110", 261000000U);
+  Add(3, 25U, "100", "110", 261000000U);
   Add(3, 26U, "150", "170", 261000000U);
   Add(3, 27U, "171", "179", 260000000U);
   Add(3, 28U, "191", "220", 260000000U);
@@ -1255,7 +1298,7 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded1) {
   // Size ratio L4/L3 is 9.9
   // After merge from L3, L4 size is 1000900
   Add(4, 11U, "400", "500", 999900);
-  Add(5, 11U, "400", "500", 8007200);
+  Add(5, 12U, "400", "500", 8007200);
 
   UpdateVersionStorageInfo();
 
@@ -1568,8 +1611,8 @@ TEST_F(CompactionPickerTest, IsTrivialMoveOn) {
 
   Add(3, 5U, "120", "130", 7000U);
   Add(3, 6U, "170", "180", 7000U);
-  Add(3, 5U, "220", "230", 7000U);
-  Add(3, 5U, "270", "280", 7000U);
+  Add(3, 7U, "220", "230", 7000U);
+  Add(3, 8U, "270", "280", 7000U);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
@@ -1732,6 +1775,165 @@ TEST_F(CompactionPickerTest, IntraL0ForEarliestSeqno) {
             compaction->compaction_reason());
   ASSERT_EQ(0, compaction->output_level());
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  // This test covers the case where a "regular" universal compaction is
+  // scheduled first, followed by a delete triggered compaction. The latter
+  // should fail
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450);
+  Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300);
+  Add(3, 5U, "010", "080", 8 * kFileSize, 0, 200, 251);
+  Add(4, 3U, "301", "350", 8 * kFileSize, 0, 101, 150);
+  Add(4, 6U, "501", "750", 8 * kFileSize, 0, 101, 150);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_TRUE(compaction);
+  // Validate that its a compaction to reduce sorted runs
+  ASSERT_EQ(CompactionReason::kUniversalSortedRunNum,
+            compaction->compaction_reason());
+  ASSERT_EQ(0, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+
+  AddVersionStorage();
+  // Simulate a flush and mark the file for compaction
+  Add(0, 7U, "150", "200", kFileSize, 0, 551, 600, 0, true);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction2(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_FALSE(compaction2);
+}
+
+TEST_F(CompactionPickerTest, UniversalMarkedCompactionFullOverlap2) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  // This test covers the case where a delete triggered compaction is
+  // scheduled first, followed by a "regular" compaction. The latter
+  // should fail
+  NewVersionStorage(5, kCompactionStyleUniversal);
+
+  // Mark file number 4 for compaction
+  Add(0, 4U, "260", "300", 4 * kFileSize, 0, 260, 300, 0, true);
+  Add(3, 5U, "240", "290", 8 * kFileSize, 0, 201, 250);
+  Add(4, 3U, "301", "350", 8 * kFileSize, 0, 101, 150);
+  Add(4, 6U, "501", "750", 8 * kFileSize, 0, 101, 150);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_TRUE(compaction);
+  // Validate that its a delete triggered compaction
+  ASSERT_EQ(CompactionReason::kFilesMarkedForCompaction,
+            compaction->compaction_reason());
+  ASSERT_EQ(3, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+
+  AddVersionStorage();
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", 2 * kFileSize, 0, 401, 450);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction2(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_FALSE(compaction2);
+}
+
+TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
+  // The case where universal periodic compaction can be picked
+  // with some newer files being compacted.
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+
+  bool input_level_overlap = false;
+  bool output_level_overlap = false;
+  // Let's mark 2 files in 2 different levels for compaction. The
+  // compaction picker will randomly pick one, so use the sync point to
+  // ensure a deterministic order. Loop until both cases are covered
+  size_t random_index = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionPicker::PickFilesMarkedForCompaction", [&](void* arg) {
+        size_t* index = static_cast<size_t*>(arg);
+        *index = random_index;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  while (!input_level_overlap || !output_level_overlap) {
+    // Ensure that the L0 file gets picked first
+    random_index = !input_level_overlap ? 0 : 1;
+    UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+    NewVersionStorage(5, kCompactionStyleUniversal);
+
+    Add(0, 1U, "260", "300", 4 * kFileSize, 0, 260, 300, 0, true);
+    Add(3, 2U, "010", "020", 2 * kFileSize, 0, 201, 248);
+    Add(3, 3U, "250", "270", 2 * kFileSize, 0, 202, 249);
+    Add(3, 4U, "290", "310", 2 * kFileSize, 0, 203, 250);
+    Add(3, 5U, "310", "320", 2 * kFileSize, 0, 204, 251, 0, true);
+    Add(4, 6U, "301", "350", 8 * kFileSize, 0, 101, 150);
+    Add(4, 7U, "501", "750", 8 * kFileSize, 0, 101, 150);
+    UpdateVersionStorageInfo();
+
+    std::unique_ptr<Compaction> compaction(
+        universal_compaction_picker.PickCompaction(
+            cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+    ASSERT_TRUE(compaction);
+    // Validate that its a delete triggered compaction
+    ASSERT_EQ(CompactionReason::kFilesMarkedForCompaction,
+              compaction->compaction_reason());
+    ASSERT_TRUE(compaction->start_level() == 0 ||
+                compaction->start_level() == 3);
+    if (compaction->start_level() == 0) {
+      // The L0 file was picked. The next compaction will detect an
+      // overlap on its input level
+      input_level_overlap = true;
+      ASSERT_EQ(3, compaction->output_level());
+      ASSERT_EQ(1U, compaction->num_input_files(0));
+      ASSERT_EQ(3U, compaction->num_input_files(1));
+    } else {
+      // The level 3 file was picked. The next compaction will pick
+      // the L0 file and will detect overlap when adding output
+      // level inputs
+      output_level_overlap = true;
+      ASSERT_EQ(4, compaction->output_level());
+      ASSERT_EQ(2U, compaction->num_input_files(0));
+      ASSERT_EQ(1U, compaction->num_input_files(1));
+    }
+
+    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
+    // After recomputing the compaction score, only one marked file will remain
+    random_index = 0;
+    std::unique_ptr<Compaction> compaction2(
+        universal_compaction_picker.PickCompaction(
+            cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+    ASSERT_FALSE(compaction2);
+    DeleteVersionStorage();
+  }
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -10,9 +10,9 @@
 #pragma once
 
 #include <fcntl.h>
-#include <cinttypes>
 
 #include <algorithm>
+#include <cinttypes>
 #include <map>
 #include <set>
 #include <string>
@@ -43,12 +43,11 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/mock_time_env.h"
-#include "util/compression.h"
-#include "util/mutexlock.h"
-
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
+#include "util/cast_util.h"
+#include "util/compression.h"
+#include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -276,7 +275,10 @@ class SpecialEnv : public EnvWrapper {
         while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
-        Status s = base_->Sync();
+        Status s;
+        if (!env_->skip_fsync_) {
+          s = base_->Sync();
+        }
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Sync", &s);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
@@ -314,7 +316,11 @@ class SpecialEnv : public EnvWrapper {
         if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated sync error");
         } else {
-          return base_->Sync();
+          if (env_->skip_fsync_) {
+            return Status::OK();
+          } else {
+            return base_->Sync();
+          }
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
@@ -369,11 +375,39 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
-        return base_->Sync();
+        if (env_->skip_fsync_) {
+          return Status::OK();
+        } else {
+          return base_->Sync();
+        }
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
       }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
+
+     private:
+      SpecialEnv* env_;
+      std::unique_ptr<WritableFile> base_;
+    };
+    class OtherFile : public WritableFile {
+     public:
+      OtherFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
+          : env_(env), base_(std::move(b)) {}
+      Status Append(const Slice& data) override { return base_->Append(data); }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      Status Close() override { return base_->Close(); }
+      Status Flush() override { return base_->Flush(); }
+      Status Sync() override {
+        if (env_->skip_fsync_) {
+          return Status::OK();
+        } else {
+          return base_->Sync();
+        }
+      }
+      uint64_t GetFileSize() override { return base_->GetFileSize(); }
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
@@ -416,6 +450,8 @@ class SpecialEnv : public EnvWrapper {
         r->reset(new ManifestFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "log") != nullptr) {
         r->reset(new WalFile(this, std::move(*r)));
+      } else {
+        r->reset(new OtherFile(this, std::move(*r)));
       }
     }
     return s;
@@ -502,10 +538,14 @@ class SpecialEnv : public EnvWrapper {
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
-    if (!time_elapse_only_sleep_) {
+    if (time_elapse_only_sleep_) {
+      *unix_time = maybe_starting_time_;
+    } else {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
+      // FIXME: addon_time_ sometimes used to mean seconds (here) and
+      // sometimes microseconds
       *unix_time += addon_time_.load();
     }
     return s;
@@ -530,6 +570,38 @@ class SpecialEnv : public EnvWrapper {
     delete_count_.fetch_add(1);
     return target()->DeleteFile(fname);
   }
+
+  void SetTimeElapseOnlySleep(Options* options) {
+    time_elapse_only_sleep_ = true;
+    no_slowdown_ = true;
+    // Need to disable stats dumping and persisting which also use
+    // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
+    // With time_elapse_only_sleep_, this can hang on some platforms.
+    // TODO: why? investigate/fix
+    options->stats_dump_period_sec = 0;
+    options->stats_persist_period_sec = 0;
+  }
+
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override {
+    if (!skip_fsync_) {
+      return target()->NewDirectory(name, result);
+    } else {
+      class NoopDirectory : public Directory {
+       public:
+        NoopDirectory() {}
+        ~NoopDirectory() {}
+
+        Status Fsync() override { return Status::OK(); }
+      };
+
+      result->reset(new NoopDirectory());
+      return Status::OK();
+    }
+  }
+
+  // Something to return when mocking current time
+  const int64_t maybe_starting_time_;
 
   Random rnd_;
   port::Mutex rnd_mutex_;  // Lock to pretect rnd_
@@ -574,6 +646,9 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int64_t> bytes_written_;
 
   std::atomic<int> sync_counter_;
+
+  // If true, all fsync to files and directories are skipped.
+  bool skip_fsync_ = false;
 
   std::atomic<uint32_t> non_writeable_rate_;
 
@@ -645,6 +720,72 @@ class TestPutOperator : public MergeOperator {
   }
 
   virtual const char* Name() const override { return "TestPutOperator"; }
+};
+
+// A wrapper around Cache that can easily be extended with instrumentation,
+// etc.
+class CacheWrapper : public Cache {
+ public:
+  explicit CacheWrapper(std::shared_ptr<Cache> target)
+      : target_(std::move(target)) {}
+
+  const char* Name() const override { return target_->Name(); }
+
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
+    return target_->Insert(key, value, charge, deleter, handle, priority);
+  }
+
+  Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
+    return target_->Lookup(key, stats);
+  }
+
+  bool Ref(Handle* handle) override { return target_->Ref(handle); }
+
+  bool Release(Handle* handle, bool force_erase = false) override {
+    return target_->Release(handle, force_erase);
+  }
+
+  void* Value(Handle* handle) override { return target_->Value(handle); }
+
+  void Erase(const Slice& key) override { target_->Erase(key); }
+  uint64_t NewId() override { return target_->NewId(); }
+
+  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
+
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
+    target_->SetStrictCapacityLimit(strict_capacity_limit);
+  }
+
+  bool HasStrictCapacityLimit() const override {
+    return target_->HasStrictCapacityLimit();
+  }
+
+  size_t GetCapacity() const override { return target_->GetCapacity(); }
+
+  size_t GetUsage() const override { return target_->GetUsage(); }
+
+  size_t GetUsage(Handle* handle) const override {
+    return target_->GetUsage(handle);
+  }
+
+  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
+
+  size_t GetCharge(Handle* handle) const override {
+    return target_->GetCharge(handle);
+  }
+
+  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                              bool thread_safe) override {
+    target_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
+
+ protected:
+  std::shared_ptr<Cache> target_;
 };
 
 class DBTestBase : public testing::Test {
@@ -734,12 +875,6 @@ class DBTestBase : public testing::Test {
 
   ~DBTestBase();
 
-  static std::string RandomString(Random* rnd, int len) {
-    std::string r;
-    test::RandomString(rnd, len, &r);
-    return r;
-  }
-
   static std::string Key(int i) {
     char buf[100];
     snprintf(buf, sizeof(buf), "key%06d", i);
@@ -780,7 +915,7 @@ class DBTestBase : public testing::Test {
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
-  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);

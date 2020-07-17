@@ -33,30 +33,36 @@ struct TableReaderOptions {
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
                      bool _skip_filters = false, bool _immortal = false,
-                     int _level = -1,
-                     BlockCacheTracer* const _block_cache_tracer = nullptr)
+                     bool _force_direct_prefetch = false, int _level = -1,
+                     BlockCacheTracer* const _block_cache_tracer = nullptr,
+                     size_t _max_file_size_for_l0_meta_pin = 0)
       : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
                            _internal_comparator, _skip_filters, _immortal,
-                           _level, 0 /* _largest_seqno */,
-                           _block_cache_tracer) {}
+                           _force_direct_prefetch, _level,
+                           0 /* _largest_seqno */, _block_cache_tracer,
+                           _max_file_size_for_l0_meta_pin) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
                      const SliceTransform* _prefix_extractor,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters, bool _immortal, int _level,
+                     bool _skip_filters, bool _immortal,
+                     bool _force_direct_prefetch, int _level,
                      SequenceNumber _largest_seqno,
-                     BlockCacheTracer* const _block_cache_tracer)
+                     BlockCacheTracer* const _block_cache_tracer,
+                     size_t _max_file_size_for_l0_meta_pin)
       : ioptions(_ioptions),
         prefix_extractor(_prefix_extractor),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
         skip_filters(_skip_filters),
         immortal(_immortal),
+        force_direct_prefetch(_force_direct_prefetch),
         level(_level),
         largest_seqno(_largest_seqno),
-        block_cache_tracer(_block_cache_tracer) {}
+        block_cache_tracer(_block_cache_tracer),
+        max_file_size_for_l0_meta_pin(_max_file_size_for_l0_meta_pin) {}
 
   const ImmutableCFOptions& ioptions;
   const SliceTransform* prefix_extractor;
@@ -66,11 +72,18 @@ struct TableReaderOptions {
   bool skip_filters;
   // Whether the table will be valid as long as the DB is open
   bool immortal;
+  // When data prefetching is needed, even if direct I/O is off, read data to
+  // fetch into RocksDB's buffer, rather than relying
+  // RandomAccessFile::Prefetch().
+  bool force_direct_prefetch;
   // what level this table/file is on, -1 for "not set, don't know"
   int level;
   // largest seqno in the table
   SequenceNumber largest_seqno;
   BlockCacheTracer* const block_cache_tracer;
+  // Largest L0 file size whose meta-blocks may be pinned (can be zero when
+  // unknown).
+  const size_t max_file_size_for_l0_meta_pin;
 };
 
 struct TableBuilderOptions {
@@ -84,7 +97,8 @@ struct TableBuilderOptions {
       const std::string& _column_family_name, int _level,
       const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
       const uint64_t _target_file_size = 0,
-      const uint64_t _file_creation_time = 0)
+      const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
+      const std::string& _db_session_id = "")
       : ioptions(_ioptions),
         moptions(_moptions),
         internal_comparator(_internal_comparator),
@@ -98,7 +112,10 @@ struct TableBuilderOptions {
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
-        file_creation_time(_file_creation_time) {}
+        file_creation_time(_file_creation_time),
+        db_id(_db_id),
+        db_session_id(_db_session_id) {}
+
   const ImmutableCFOptions& ioptions;
   const MutableCFOptions& moptions;
   const InternalKeyComparator& internal_comparator;
@@ -114,6 +131,8 @@ struct TableBuilderOptions {
   const int64_t oldest_key_time;
   const uint64_t target_file_size;
   const uint64_t file_creation_time;
+  const std::string db_id;
+  const std::string db_session_id;
 };
 
 // TableBuilder provides the interface used to build a Table

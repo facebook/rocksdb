@@ -35,7 +35,6 @@ struct ImmutableDBOptions {
   std::string db_log_dir;
   std::string wal_dir;
   uint32_t max_subcompactions;
-  int max_background_flushes;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
   size_t keep_log_file_num;
@@ -89,6 +88,8 @@ struct ImmutableDBOptions {
   size_t log_readahead_size;
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
   bool best_efforts_recovery;
+  int max_bgerror_resume_count;
+  uint64_t bgerror_resume_retry_interval;
 };
 
 struct MutableDBOptions {
@@ -114,6 +115,7 @@ struct MutableDBOptions {
   uint64_t wal_bytes_per_sync;
   bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
+  int max_background_flushes;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

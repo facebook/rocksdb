@@ -8,13 +8,8 @@
 #include "utilities/transactions/transaction_lock_mgr.h"
 
 #include <cinttypes>
-
 #include <algorithm>
-#include <condition_variable>
-#include <functional>
 #include <mutex>
-#include <string>
-#include <vector>
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
@@ -171,8 +166,7 @@ TransactionLockMgr::TransactionLockMgr(
       dlock_buffer_(max_num_deadlocks),
       mutex_factory_(mutex_factory) {
   assert(txn_db);
-  txn_db_impl_ =
-      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
+  txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}
@@ -202,7 +196,9 @@ void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
     InstrumentedMutexLock l(&lock_map_mutex_);
 
     auto lock_maps_iter = lock_maps_.find(column_family_id);
-    assert(lock_maps_iter != lock_maps_.end());
+    if (lock_maps_iter == lock_maps_.end()) {
+      return;
+    }
 
     lock_maps_.erase(lock_maps_iter);
   }  // lock_map_mutex_

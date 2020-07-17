@@ -139,7 +139,9 @@ class Transaction {
   //
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
-  // TransactionOptions.expiration.
+  // TransactionOptions.expiration. Status::TxnNotPrepared() may be returned if
+  // TransactionOptions.skip_prepare is false and Prepare is not called on this
+  // transaction before Commit.
   virtual Status Commit() = 0;
 
   // Discard all batched writes in this transaction.

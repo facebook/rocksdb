@@ -7,7 +7,9 @@
 #include "table/plain/plain_table_factory.h"
 
 #include <stdint.h>
+
 #include <memory>
+
 #include "db/dbformat.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -47,7 +49,7 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
       OptionTypeFlags::kNone, 0}}};
 
 Status PlainTableFactory::NewTableReader(
-    const TableReaderOptions& table_reader_options,
+    const ReadOptions& /*ro*/, const TableReaderOptions& table_reader_options,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table,
     bool /*prefetch_index_and_filter_in_cache*/) const {
@@ -74,7 +76,8 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
       table_options_.index_sparseness, table_options_.bloom_bits_per_key,
       table_builder_options.column_family_name, 6,
       table_options_.huge_page_tlb_size, table_options_.hash_table_ratio,
-      table_options_.store_index_in_file);
+      table_options_.store_index_in_file, table_builder_options.db_id,
+      table_builder_options.db_session_id);
 }
 
 std::string PlainTableFactory::GetPrintableTableOptions() const {
@@ -117,12 +120,24 @@ const PlainTableOptions& PlainTableFactory::table_options() const {
 Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
                                       const std::string& opts_str,
                                       PlainTableOptions* new_table_options) {
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+  return GetPlainTableOptionsFromString(config_options, table_options, opts_str,
+                                        new_table_options);
+}
+
+Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
+                                      const PlainTableOptions& table_options,
+                                      const std::string& opts_str,
+                                      PlainTableOptions* new_table_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
     return s;
   }
-  return GetPlainTableOptionsFromMap(table_options, opts_map,
+
+  return GetPlainTableOptionsFromMap(config_options, table_options, opts_map,
                                      new_table_options);
 }
 
@@ -190,46 +205,60 @@ Status GetMemTableRepFactoryFromString(
   return Status::OK();
 }
 
-std::string ParsePlainTableOptions(const std::string& name,
+std::string ParsePlainTableOptions(const ConfigOptions& config_options,
+                                   const std::string& name,
                                    const std::string& org_value,
-                                   PlainTableOptions* new_options,
-                                   bool input_strings_escaped = false,
-                                   bool ignore_unknown_options = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
+                                   PlainTableOptions* new_options) {
+  const std::string& value = config_options.input_strings_escaped
+                                 ? UnescapeOptionString(org_value)
+                                 : org_value;
   const auto iter = plain_table_type_info.find(name);
   if (iter == plain_table_type_info.end()) {
-    if (ignore_unknown_options) {
+    if (config_options.ignore_unknown_options) {
       return "";
     } else {
       return "Unrecognized option";
     }
   }
   const auto& opt_info = iter->second;
-  if (!opt_info.IsDeprecated() &&
-      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info.type, value)) {
-    return "Invalid value";
+  Status s =
+      opt_info.Parse(config_options, name, value,
+                     reinterpret_cast<char*>(new_options) + opt_info.offset_);
+  if (s.ok()) {
+    return "";
+  } else {
+    return s.ToString();
   }
-  return "";
 }
 
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool /*ignore_unknown_options*/) {
+    bool ignore_unknown_options) {
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = input_strings_escaped;
+  config_options.ignore_unknown_options = ignore_unknown_options;
+  return GetPlainTableOptionsFromMap(config_options, table_options, opts_map,
+                                     new_table_options);
+}
+
+Status GetPlainTableOptionsFromMap(
+    const ConfigOptions& config_options, const PlainTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    PlainTableOptions* new_table_options) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
-    auto error_message = ParsePlainTableOptions(
-        o.first, o.second, new_table_options, input_strings_escaped);
+    auto error_message = ParsePlainTableOptions(config_options, o.first,
+                                                o.second, new_table_options);
     if (error_message != "") {
       const auto iter = plain_table_type_info.find(o.first);
       if (iter == plain_table_type_info.end() ||
-          !input_strings_escaped ||  // !input_strings_escaped indicates
-                                     // the old API, where everything is
-                                     // parsable.
+          !config_options
+               .input_strings_escaped ||  // !input_strings_escaped indicates
+                                          // the old API, where everything is
+                                          // parsable.
           (!iter->second.IsByName() && !iter->second.IsDeprecated())) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
@@ -245,6 +274,7 @@ extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
 
+const std::string PlainTableFactory::kName = "PlainTable";
 const std::string PlainTablePropertyNames::kEncodingType =
     "rocksdb.plain.table.encoding.type";
 

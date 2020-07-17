@@ -83,6 +83,11 @@ class DeleteScheduler {
   static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
                                  const std::string& path);
 
+  void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) {
+    InstrumentedMutexLock l(&mu_);
+    stats_ = stats;
+  }
+
  private:
   Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
 
@@ -101,7 +106,7 @@ class DeleteScheduler {
   std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second
   std::atomic<int64_t> rate_bytes_per_sec_;
-  // Mutex to protect queue_, pending_files_, bg_errors_, closing_
+  // Mutex to protect queue_, pending_files_, bg_errors_, closing_, stats_
   InstrumentedMutex mu_;
 
   struct FileAndDir {
@@ -137,6 +142,7 @@ class DeleteScheduler {
   // immediately
   std::atomic<double> max_trash_db_ratio_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
+  std::shared_ptr<Statistics> stats_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,8 +1,8 @@
 # - Find gflags library
 # Find the gflags includes and library
 #
-# gflags_INCLUDE_DIR - where to find gflags.h.
-# gflags_LIBRARIES - List of libraries when using gflags.
+# GFLAGS_INCLUDE_DIR - where to find gflags.h.
+# GFLAGS_LIBRARIES - List of libraries when using gflags.
 # gflags_FOUND - True if gflags found.
 
 find_path(GFLAGS_INCLUDE_DIR

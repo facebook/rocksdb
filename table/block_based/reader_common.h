@@ -28,6 +28,10 @@ inline MemoryAllocator* GetMemoryAllocatorForCompressedBlock(
              : nullptr;
 }
 
-extern Status VerifyChecksum(const ChecksumType type, const char* buf,
-                             size_t len, uint32_t expected);
+// Assumes block has a trailer as in format.h. file_name and offset provided
+// for generating a diagnostic message in returned status.
+extern Status VerifyBlockChecksum(ChecksumType type, const char* data,
+                                  size_t block_size,
+                                  const std::string& file_name,
+                                  uint64_t offset);
 }  // namespace ROCKSDB_NAMESPACE

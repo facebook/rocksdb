@@ -28,6 +28,7 @@
 #       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
 #       -DTBB                       if the TBB library is present
+#       -DMEMKIND                   if the memkind library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -150,7 +151,7 @@ case "$TARGET_OS" in
         else
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
         if test $ROCKSDB_USE_IO_URING; then
             # check for liburing
             $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
@@ -190,6 +191,17 @@ EOF
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/freebsd/freebsd_specific.cc
+        ;;
+    GNU/kFreeBSD)
+        PLATFORM=OS_GNU_KFREEBSD
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_GNU_KFREEBSD"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/gnu_kfreebsd/gnu_kfreebsd_specific.cc
         ;;
     NetBSD)
         PLATFORM=OS_NETBSD
@@ -245,6 +257,10 @@ JAVAC_ARGS="-source 7"
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
     # Also don't need any compilation tests if compiling on fbcode
+    if [ "$FBCODE_BUILD" = "true" ]; then
+      # Enable backtrace on fbcode since the necessary libraries are present
+      COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+    fi
     true
 else
     if ! test $ROCKSDB_DISABLE_FALLOCATE; then
@@ -280,24 +296,32 @@ EOF
         # Test whether gflags library is installed
         # http://gflags.github.io/gflags/
         # check if the namespace is gflags
-        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        if $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
           #include <gflags/gflags.h>
+          using namespace GFLAGS_NAMESPACE;
           int main() {}
 EOF
-        if [ "$?" = 0 ]; then
-            COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-        else
-          # check if namespace is google
-          $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        # check if namespace is gflags
+        elif $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+            #include <gflags/gflags.h>
+            using namespace gflags;
+            int main() {}
+EOF
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=gflags"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        # check if namespace is google
+        elif $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
             #include <gflags/gflags.h>
             using namespace google;
             int main() {}
 EOF
-          if [ "$?" = 0 ]; then
-              COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-              PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-          fi
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=google"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         fi
     fi
 
@@ -423,6 +447,22 @@ EOF
 EOF
         if [ "$?" = 0 ]; then
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
+        fi
+    fi
+
+    if ! test $ROCKSDB_DISABLE_MEMKIND; then
+        # Test whether memkind library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <memkind.h>
+          int main() {
+            memkind_malloc(MEMKIND_DAX_KMEM, 1024);
+            return 0;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DMEMKIND"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lmemkind"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
         fi
     fi
 
@@ -591,6 +631,13 @@ else
   if test "$USE_SSE"; then
     TRY_SSE_ETC="1"
   fi
+
+  if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
+    # For portability compile for macOS 10.12 (2016) or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
+    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+  fi
 fi
 
 if test "$TRY_SSE_ETC"; then
@@ -683,6 +730,7 @@ EOF
     COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
   fi
 fi
+
 
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
   $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF

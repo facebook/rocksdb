@@ -23,6 +23,7 @@
 #include "memory/memory_usage.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -36,7 +37,6 @@
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
-#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -641,8 +641,9 @@ static bool SaveValue(void* arg, const char* entry) {
   // Check that it belongs to same user key.  We do not check the
   // sequence number since the Seek() call above should have skipped
   // all entries with overly large sequence numbers.
-  uint32_t key_length;
+  uint32_t key_length = 0;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+  assert(key_length >= 8);
   Slice user_key_slice = Slice(key_ptr, key_length - 8);
   const Comparator* user_comparator =
       s->mem->GetInternalKeyComparator().user_comparator();
@@ -724,6 +725,7 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeDeletion:
+      case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
@@ -765,7 +767,13 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         return true;
       }
-      default:
+      default: {
+        std::string msg("Unrecognized value type: " +
+                        std::to_string(static_cast<int>(type)) + ". ");
+        msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) + ". ");
+        msg.append("seq: " + std::to_string(seq) + ".");
+        *(s->status) = Status::Corruption(msg.c_str());
+      }
         assert(false);
         return true;
     }
@@ -929,8 +937,18 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
     if (found_final_value) {
       iter->value->PinSelf();
+      range->AddValueSize(iter->value->size());
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
+      if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        // Set all remaining keys in range to Abort
+        for (auto range_iter = range->begin(); range_iter != range->end();
+             ++range_iter) {
+          range->MarkKeyDone(range_iter);
+          *(range_iter->s) = Status::Aborted();
+        }
+        break;
+      }
     }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
