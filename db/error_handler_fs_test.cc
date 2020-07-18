@@ -1211,8 +1211,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   options.clear();
   delete def_env;
 }
-/*
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
+
+TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover1) {
   // Fail the first resume and make the second resume successful
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
@@ -1264,7 +1264,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover1) {
 
   Destroy(options);
 }
-*/
+
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   // Activate the FS before the first resume
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1308,7 +1308,6 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
 
   Destroy(options);
 }
-
 
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
   // Fail all the resume and let user to resume
@@ -1362,8 +1361,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
 
   Destroy(options);
 }
-/*
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover4) {
+
+TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover4) {
   // Fail the first resume and does not do resume second time because
   // the IO error severity is Fatal Error and not Retryable.
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -1429,8 +1428,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover4) {
   Destroy(options);
 }
 
-
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover5) {
+TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover5) {
   // During the resume, call DB->CLose, make sure the resume thread exist
   // before close continues. Due to the shutdown, the resume is not successful
   // and the FS does not become active, so close status is still IO error
@@ -1483,7 +1481,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover5) {
 
   Destroy(options);
 }
-*/
+
 TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover6) {
   // During the resume, call DB->CLose, make sure the resume thread exist
   // before close continues. Due to the shutdown, the resume is not successful
