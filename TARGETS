@@ -650,7 +650,7 @@ ROCKS_TESTS = [
     [
         "column_family_test",
         "db/column_family_test.cc",
-        "serial",
+        "parallel",
         [],
         [],
     ],
@@ -944,7 +944,7 @@ ROCKS_TESTS = [
     [
         "db_test2",
         "db/db_test2.cc",
-        "serial",
+        "parallel",
         [],
         [],
     ],

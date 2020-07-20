@@ -517,8 +517,10 @@ PARALLEL_TEST = \
 	db_merge_operator_test \
 	db_sst_test \
 	db_test \
+	db_test2 \
 	db_universal_compaction_test \
 	db_wal_test \
+	column_family_test \
 	external_sst_file_test \
 	import_column_family_test \
 	fault_injection_test \
