@@ -351,7 +351,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (ucmp_wrapper_.Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
+  if (ucmp().Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;
   }
@@ -969,7 +969,7 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   }
 }
 
-DataBlockIter* Block::NewDataIterator(const Comparator* ucmp,
+DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,
                                       DataBlockIter* iter, Statistics* stats,
                                       bool block_contents_pinned) {
@@ -989,7 +989,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* ucmp,
     return ret_iter;
   } else {
     ret_iter->Initialize(
-        ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
@@ -1004,10 +1004,10 @@ DataBlockIter* Block::NewDataIterator(const Comparator* ucmp,
 }
 
 IndexBlockIter* Block::NewIndexIterator(
-    const Comparator* ucmp, SequenceNumber global_seqno, IndexBlockIter* iter,
-    Statistics* /*stats*/, bool total_order_seek, bool have_first_key,
-    bool key_includes_seq, bool value_is_full, bool block_contents_pinned,
-    BlockPrefixIndex* prefix_index) {
+    const Comparator* raw_ucmp, SequenceNumber global_seqno,
+    IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
+    bool have_first_key, bool key_includes_seq, bool value_is_full,
+    bool block_contents_pinned, BlockPrefixIndex* prefix_index) {
   IndexBlockIter* ret_iter;
   if (iter != nullptr) {
     ret_iter = iter;
@@ -1025,7 +1025,7 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
-    ret_iter->Initialize(ucmp, data_, restart_offset_, num_restarts_,
+    ret_iter->Initialize(raw_ucmp, data_, restart_offset_, num_restarts_,
                          global_seqno, prefix_index_ptr, have_first_key,
                          key_includes_seq, value_is_full,
                          block_contents_pinned);
