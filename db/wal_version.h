@@ -109,6 +109,8 @@ class WalSet {
   // Resets the internal state.
   void Reset();
 
+  const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
+
  private:
   std::map<WalNumber, WalMetadata> wals_;
 };

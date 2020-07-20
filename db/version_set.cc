@@ -3739,6 +3739,17 @@ Status VersionSet::ProcessManifestWrites(
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front());
     batch_edits.push_back(first_writer.edit_list.front());
+  } else if (first_writer.edit_list.front()->IsWalAddition()) {
+    // WAL addition won't appear together with other kinds of edits,
+    // and will only be applied to default column family, so there should just
+    // be one writer.
+    assert(writers.size() == 1);
+    assert(first_writer.cfd->GetID() == 0);  // default CF
+    // Only write to MANIFEST without applying to default CF's versions.
+    for (VersionEdit* edit : first_writer.edit_list) {
+      batch_edits.push_back(edit);
+      wals_.AddWals(edit->GetWalAdditions());
+    }
   } else {
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
@@ -3908,6 +3919,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
       curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
+
+    // Do not write obsolete WALs to the new MANIFEST to keep WALs from
+    // accumulating in MANIFESTs.
+    wals_.PurgeObsoleteWals(MinLogNumberToKeep());
   }
 
   uint64_t new_manifest_file_size = 0;
@@ -4184,6 +4199,23 @@ Status VersionSet::LogAndApply(
     }
 #endif /* ! NDEBUG */
   }
+#ifndef NDEBUG
+  bool is_wal_addition = false;
+  for (const auto& edit_list : edit_lists) {
+    for (const auto& edit : edit_list) {
+      if (edit->IsWalAddition()) {
+        // VersionEdit with WAL additions won't contain other kinds of edits.
+        assert(edit->NumEntries() == edit->GetWalAdditions().size());
+        is_wal_addition = true;
+      }
+    }
+  }
+  if (is_wal_addition) {
+    // WAL additions are always applied to default column family.
+    assert(column_family_dates.size() == 1);
+    assert(edit_lists.size() == 1);
+  }
+#endif  // ! NDEBUG
 
   int num_cfds = static_cast<int>(column_family_datas.size());
   if (num_cfds == 1 && column_family_datas[0] == nullptr) {
@@ -5307,6 +5339,9 @@ Status VersionSet::WriteCurrentStateToManifest(
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
+  //
+  // WalSet addition and purge can only happen within the single thread
+  // LogAndApply too, so we can read the latest state of WalSet without mutex.
 
   assert(io_s.ok());
   if (db_options_->write_dbid_to_manifest) {
@@ -5350,6 +5385,25 @@ Status VersionSet::WriteCurrentStateToManifest(
       io_s = log->AddRecord(record);
       if (!io_s.ok()) {
         return io_s;
+      }
+    }
+
+    {
+      // Save WALs.
+      for (auto wal : wals_.GetWals()) {
+        WalNumber number = wal->first;
+        WalMetadata meta = wal->second;
+        VersionEdit edit;
+        edit.AddWal(number, meta);
+        std::string record;
+        if (!edit.EncodeTo(&record)) {
+          return Status::Corruption("Unable to Encode VersionEdit: " +
+                                    edit.DebugString(true));
+        }
+        io_s = log->AddRecord(record);
+        if (!io_s.ok()) {
+          return io_s;
+        }
       }
     }
 

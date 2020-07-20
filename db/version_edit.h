@@ -384,6 +384,9 @@ class VersionEdit {
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
+  // VersionEdits with WAL addition should not contain other types of edits.
+  bool IsWalAddition() const { return !wal_additions_.empty(); }
+
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
