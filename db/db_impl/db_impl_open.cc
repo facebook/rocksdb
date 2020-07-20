@@ -1428,22 +1428,6 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
   }
 
   if (io_s.ok()) {
-    // Update MANIFEST.
-    VersionEdit edit;
-    edit.AddWal(log_file_num);
-    ColumnFamilyData* default_cf =
-        versions_->GetColumnFamilySet()->GetDefault();
-    const MutableCFOptions* cf_options =
-        default_cf->GetLatestMutableCFOptions();
-    Status s = versions_->LogAndApply(default_cf, *cf_options, &edit, &mutex_,
-                                      nullptr, false);
-    if (!s.ok()) {
-      io_s = IOStatus::IOError("Failed to log WAL information to MANIFEST",
-                               s.ToString());
-    }
-  }
-
-  if (io_s.ok()) {
     lfile->SetWriteLifeTimeHint(CalculateWALWriteHint());
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
@@ -1528,10 +1512,24 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
                         preallocate_block_size, &new_log);
     if (s.ok()) {
-      InstrumentedMutexLock wl(&impl->log_write_mutex_);
-      impl->logfile_number_ = new_log_number;
-      assert(new_log != nullptr);
-      impl->logs_.emplace_back(new_log_number, new_log);
+      {
+        InstrumentedMutexLock wl(&impl->log_write_mutex_);
+        impl->logfile_number_ = new_log_number;
+        assert(new_log != nullptr);
+        impl->logs_.emplace_back(new_log_number, new_log);
+      }
+
+      {
+        // Add the new WAL to MANIFEST.
+        VersionEdit edit;
+        edit.AddWal(new_log_number);
+        ColumnFamilyData* default_cf =
+            impl->versions_->GetColumnFamilySet()->GetDefault();
+        const MutableCFOptions* cf_options =
+            default_cf->GetLatestMutableCFOptions();
+        s = impl->versions_->LogAndApply(default_cf, *cf_options, &edit,
+                                         &impl->mutex_, nullptr, false);
+      }
     }
 
     if (s.ok()) {
