@@ -763,16 +763,18 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
   mutex_.AssertHeld();
 
-  std::vector<std::string> log_fnames;
-  log_fnames.reserve(log_numbers.size());
-  for (uint64_t log_number : log_numbers) {
-    log_fnames.emplace_back(
-        LogFileName(immutable_db_options_.wal_dir, log_number));
-  }
-  Status status = versions_->GetWalSet().CheckWals(env_, MinLogNumberToKeep(),
-                                                   log_numbers, log_fnames);
-  if (!status.ok()) {
-    return status;
+  if (immutable_db_options_.check_wal) {
+    std::vector<std::string> log_fnames;
+    log_fnames.reserve(log_numbers.size());
+    for (uint64_t log_number : log_numbers) {
+      log_fnames.emplace_back(
+          LogFileName(immutable_db_options_.wal_dir, log_number));
+    }
+    Status status = versions_->GetWalSet().CheckWals(env_, MinLogNumberToKeep(),
+                                                     log_numbers, log_fnames);
+    if (!status.ok()) {
+      return status;
+    }
   }
 
   std::unordered_map<int, VersionEdit> version_edits;
