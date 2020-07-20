@@ -134,6 +134,10 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
+ifneq ($(findstring riscv64, $(MACHINE)),)
+LDFLAGS += -latomic
+endif
+
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 CXXFLAGS += -DHAS_ALTIVEC
 CFLAGS += -DHAS_ALTIVEC
