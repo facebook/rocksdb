@@ -2424,7 +2424,10 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
 
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
-
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
+  
   // 1MB should create ~10 files for each CF
   int kKeysNum = 10000;
   PutRandomData(1, kKeysNum, 100);
@@ -2438,6 +2441,9 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   // now we sleep again. this is just so we're certain that flush job finished
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
 
@@ -2987,6 +2993,9 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   test::SleepingBackgroundTask sleeping_task;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
 
   WriteOptions wo;
   wo.sync = true;
@@ -3032,6 +3041,9 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   test::SleepingBackgroundTask sleeping_task;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
 
   WriteOptions wo;
   wo.sync = true;
