@@ -4212,7 +4212,7 @@ Status VersionSet::LogAndApply(
   }
   if (is_wal_addition) {
     // WAL additions are always applied to default column family.
-    assert(column_family_dates.size() == 1);
+    assert(column_family_datas.size() == 1);
     assert(edit_lists.size() == 1);
   }
 #endif  // ! NDEBUG
@@ -5390,11 +5390,11 @@ Status VersionSet::WriteCurrentStateToManifest(
 
     {
       // Save WALs.
-      for (auto wal : wals_.GetWals()) {
-        WalNumber number = wal->first;
-        WalMetadata meta = wal->second;
+      for (auto it : wals_.GetWals()) {
+        WalNumber number = it.first;
+        WalMetadata wal = it.second;
         VersionEdit edit;
-        edit.AddWal(number, meta);
+        edit.AddWal(number, wal);
         std::string record;
         if (!edit.EncodeTo(&record)) {
           return Status::Corruption("Unable to Encode VersionEdit: " +
