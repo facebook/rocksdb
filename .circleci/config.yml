@@ -19,7 +19,9 @@ jobs:
       - checkout # check out the code in the project directory
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - store_test_results:
+          path: /tmp/test-results
 
   build-linux-shared_lib-alt_namespace-status_checked:
     machine:
@@ -29,7 +31,9 @@ jobs:
       - checkout # check out the code in the project directory
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 ASSERT_STATUS_CHECKED=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 ASSERT_STATUS_CHECKED=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
+      - store_test_results:
+          path: /tmp/test-results
 
   build-linux-release:
     machine:
@@ -51,7 +55,9 @@ jobs:
       - checkout # check out the code in the project directory
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 LITE=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 LITE=1 GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - store_test_results:
+          path: /tmp/test-results
 
   build-linux-lite-release:
     machine:
@@ -95,7 +101,9 @@ jobs:
       - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
       - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
       - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out
+      - store_test_results:
+          path: /tmp/test-results
 
   build-linux-clang10-mini-tsan:
     machine:
@@ -107,8 +115,9 @@ jobs:
       - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
       - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
       - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 EXCLUDE_TESTS_REGEX="TransactionStressTest|SnapshotConcurrentAccess|SeqAdvanceConcurrent|DeadlockStress|MultiThreadedDBTest.MultiThreaded|WriteUnpreparedStressTest.ReadYourOwnWriteStress|DBAsBaseDB/TransactionStressTest" make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out.
-
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 EXCLUDE_TESTS_REGEX="TransactionStressTest|SnapshotConcurrentAccess|SeqAdvanceConcurrent|DeadlockStress|MultiThreadedDBTest.MultiThreaded|WriteUnpreparedStressTest.ReadYourOwnWriteStress|DBAsBaseDB/TransactionStressTest" GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out.
+      - store_test_results:
+          path: /tmp/test-results
 
   build-linux-clang10-ubsan:
     machine:
