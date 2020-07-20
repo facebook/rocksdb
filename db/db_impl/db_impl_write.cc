@@ -1684,25 +1684,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (creating_new_log) {
     // TODO: Write buffer size passed in should be max of all CF's instead
     // of mutable_cf_options.write_buffer_size.
-    io_s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
-                     &new_log);
-    if (io_s.ok()) {
-      mutex_.Lock();
-      // Add the new WAL to MANIFEST.
-      VersionEdit edit;
-      edit.AddWal(new_log_number);
-      ColumnFamilyData* default_cf =
-          versions_->GetColumnFamilySet()->GetDefault();
-      const MutableCFOptions* cf_options =
-          default_cf->GetLatestMutableCFOptions();
-      Status status = versions_->LogAndApply(default_cf, *cf_options, &edit,
-                                             &mutex_, nullptr, false);
-      if (!status.ok()) {
-        io_s = IOStatus::IOError("Failed to log WAL information to MANIFEST",
-                                 status.ToString());
-      }
-      mutex_.Unlock();
-    }
+    io_s = CreateWAL(false, new_log_number, recycle_log_number,
+                     preallocate_block_size, &new_log);
     if (s.ok()) {
       s = io_s;
     }
