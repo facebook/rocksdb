@@ -161,7 +161,7 @@ enum class FileOperationType {
 };
 
 struct FileOperationInfo {
-  using TimePoint = std::chrono::time_point<std::chrono::system_clock,
+  using TimePoint = std::chrono::time_point<std::chrono::steady_clock,
                                             std::chrono::nanoseconds>;
 
   FileOperationType type;

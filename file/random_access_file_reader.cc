@@ -63,7 +63,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         FileOperationInfo::TimePoint start_ts;
         uint64_t orig_offset = 0;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::now();
+          start_ts = std::chrono::steady_clock::now();
           orig_offset = aligned_offset + buf.CurrentSize();
         }
 
@@ -78,7 +78,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                           &tmp, buf.Destination(), nullptr);
         }
         if (ShouldNotifyListeners()) {
-          auto finish_ts = std::chrono::system_clock::now();
+          auto finish_ts = std::chrono::steady_clock::now();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
                                  s);
         }
@@ -123,7 +123,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
 #ifndef ROCKSDB_LITE
         FileOperationInfo::TimePoint start_ts;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::now();
+          start_ts = std::chrono::steady_clock::now();
         }
 #endif
 
@@ -139,7 +139,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
-          auto finish_ts = std::chrono::system_clock::now();
+          auto finish_ts = std::chrono::steady_clock::now();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
                                  finish_ts, s);
         }
@@ -258,7 +258,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 #ifndef ROCKSDB_LITE
     FileOperationInfo::TimePoint start_ts;
     if (ShouldNotifyListeners()) {
-      start_ts = std::chrono::system_clock::now();
+      start_ts = std::chrono::steady_clock::now();
     }
 #endif  // ROCKSDB_LITE
 
@@ -292,7 +292,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
     for (size_t i = 0; i < num_reqs; ++i) {
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
-        auto finish_ts = std::chrono::system_clock::now();
+        auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileReadFinish(read_reqs[i].offset, read_reqs[i].result.size(),
                                start_ts, finish_ts, read_reqs[i].status);
       }
