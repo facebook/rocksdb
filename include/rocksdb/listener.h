@@ -161,24 +161,19 @@ enum class FileOperationType {
 };
 
 struct FileOperationInfo {
-  using TimePoint = std::chrono::time_point<std::chrono::steady_clock,
-                                            std::chrono::nanoseconds>;
+  using Duration = std::chrono::nanoseconds;
+  using TimePoint =
+      std::chrono::time_point<std::chrono::steady_clock, Duration>;
 
   FileOperationType type;
   const std::string& path;
   uint64_t offset;
   size_t length;
-  const TimePoint& start_timestamp;
-  const TimePoint& finish_timestamp;
+  const Duration& duration;
   Status status;
   FileOperationInfo(const FileOperationType _type, const std::string& _path,
-                    const TimePoint& start, const TimePoint& finish,
-                    const Status& _status)
-      : type(_type),
-        path(_path),
-        start_timestamp(start),
-        finish_timestamp(finish),
-        status(_status) {}
+                    const Duration& _duration, const Status& _status)
+      : type(_type), path(_path), duration(_duration), status(_status) {}
 };
 
 struct FlushJobInfo {

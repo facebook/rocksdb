@@ -38,8 +38,10 @@ class WritableFileWriter {
                                const FileOperationInfo::TimePoint& start_ts,
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
-                           finish_ts, io_status);
+    FileOperationInfo info(FileOperationType::kWrite, file_name_,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               finish_ts - start_ts),
+                           io_status);
     info.offset = offset;
     info.length = length;
 
@@ -51,8 +53,10 @@ class WritableFileWriter {
   void NotifyOnFileFlushFinish(const FileOperationInfo::TimePoint& start_ts,
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
-                           finish_ts, io_status);
+    FileOperationInfo info(FileOperationType::kFlush, file_name_,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               finish_ts - start_ts),
+                           io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileFlushFinish(info);
@@ -63,7 +67,10 @@ class WritableFileWriter {
       const FileOperationInfo::TimePoint& start_ts,
       const FileOperationInfo::TimePoint& finish_ts, const IOStatus& io_status,
       FileOperationType type = FileOperationType::kSync) {
-    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+    FileOperationInfo info(type, file_name_,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               finish_ts - start_ts),
+                           io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileSyncFinish(info);
@@ -75,8 +82,10 @@ class WritableFileWriter {
       const FileOperationInfo::TimePoint& start_ts,
       const FileOperationInfo::TimePoint& finish_ts,
       const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
-                           finish_ts, io_status);
+    FileOperationInfo info(FileOperationType::kRangeSync, file_name_,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               finish_ts - start_ts),
+                           io_status);
     info.offset = offset;
     info.length = length;
 
@@ -88,8 +97,10 @@ class WritableFileWriter {
   void NotifyOnFileTruncateFinish(const FileOperationInfo::TimePoint& start_ts,
                                   const FileOperationInfo::TimePoint& finish_ts,
                                   const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
-                           finish_ts, io_status);
+    FileOperationInfo info(FileOperationType::kTruncate, file_name_,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               finish_ts - start_ts),
+                           io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileTruncateFinish(info);
@@ -99,8 +110,10 @@ class WritableFileWriter {
   void NotifyOnFileCloseFinish(const FileOperationInfo::TimePoint& start_ts,
                                const FileOperationInfo::TimePoint& finish_ts,
                                const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
-                           finish_ts, io_status);
+    FileOperationInfo info(FileOperationType::kClose, file_name_,
+                           std::chrono::duration_cast<std::chrono::nanoseconds>(
+                               finish_ts - start_ts),
+                           io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileCloseFinish(info);
