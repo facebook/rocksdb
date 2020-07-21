@@ -166,7 +166,7 @@ struct FileOperationInfo {
       std::chrono::time_point<std::chrono::steady_clock, Duration>;
   using SystemTimePoint =
       std::chrono::time_point<std::chrono::system_clock, Duration>;
-  using StartTimePoint = std::pair<SteadyTimePoint, SystemTimePoint>;
+  using StartTimePoint = std::pair<SystemTimePoint, SteadyTimePoint>;
   using FinishTimePoint = SteadyTimePoint;
 
   FileOperationType type;
@@ -182,12 +182,12 @@ struct FileOperationInfo {
       : type(_type),
         path(_path),
         duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
-            _finish_ts - _start_ts.first)),
-        start_ts(_start_ts.second),
+            _finish_ts - _start_ts.second)),
+        start_ts(_start_ts.first),
         status(_status) {}
   static StartTimePoint StartNow() {
-    return std::make_pair<SteadyTimePoint, SystemTimePoint>(
-        std::chrono::steady_clock::now(), std::chrono::system_clock::now());
+    return std::make_pair<SystemTimePoint, SteadyTimePoint>(
+        std::chrono::system_clock::now(), std::chrono::steady_clock::now());
   }
   static FinishTimePoint FinishNow() {
     return std::chrono::steady_clock::now();
