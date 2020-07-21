@@ -98,6 +98,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
 
   IOStatus io_s;
   if (!logs_to_sync.empty()) {
+    std::map<WalNumber, WalMetadata> wals;
+
     mutex_.Unlock();
 
     for (log::Writer* log : logs_to_sync) {
@@ -108,6 +110,9 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       if (!io_s.ok()) {
         break;
       }
+      // Cache WAL information here because recycled logs will be closed below,
+      // after which log->file() is nullptr.
+      wals[log->get_log_number()] = WalMetadata(log->file()->GetFileSize());
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
         io_s = log->Close();
@@ -129,9 +134,10 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     if (io_s.ok()) {
       // Update MANIFEST.
       VersionEdit edit;
-      for (log::Writer* log : logs_to_sync) {
-        WalMetadata meta(log->file()->GetFileSize());
-        edit.AddWal(log->get_log_number(), meta);
+      for (auto it : wals) {
+        WalNumber number = it.first;
+        const WalMetadata& meta = it.second;
+        edit.AddWal(number, meta);
       }
       ColumnFamilyData* default_cf =
           versions_->GetColumnFamilySet()->GetDefault();
