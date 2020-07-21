@@ -162,18 +162,36 @@ enum class FileOperationType {
 
 struct FileOperationInfo {
   using Duration = std::chrono::nanoseconds;
-  using TimePoint =
+  using SteadyTimePoint =
       std::chrono::time_point<std::chrono::steady_clock, Duration>;
+  using SystemTimePoint =
+      std::chrono::time_point<std::chrono::system_clock, Duration>;
+  using StartTimePoint = std::pair<SteadyTimePoint, SystemTimePoint>;
+  using FinishTimePoint = SteadyTimePoint;
 
   FileOperationType type;
   const std::string& path;
   uint64_t offset;
   size_t length;
-  const Duration& duration;
+  const Duration duration;
+  const SystemTimePoint& start_ts;
   Status status;
   FileOperationInfo(const FileOperationType _type, const std::string& _path,
-                    const Duration& _duration, const Status& _status)
-      : type(_type), path(_path), duration(_duration), status(_status) {}
+                    const StartTimePoint& _start_ts,
+                    const FinishTimePoint& _finish_ts, const Status& _status)
+      : type(_type),
+        path(_path),
+        duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            _finish_ts - _start_ts.first)),
+        start_ts(_start_ts.second),
+        status(_status) {}
+  static StartTimePoint StartNow() {
+    return std::make_pair<SteadyTimePoint, SystemTimePoint>(
+        std::chrono::steady_clock::now(), std::chrono::system_clock::now());
+  }
+  static FinishTimePoint FinishNow() {
+    return std::chrono::steady_clock::now();
+  }
 };
 
 struct FlushJobInfo {

@@ -35,14 +35,13 @@ using AlignedBuf = std::unique_ptr<char[]>;
 class RandomAccessFileReader {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileReadFinish(uint64_t offset, size_t length,
-                              const FileOperationInfo::TimePoint& start_ts,
-                              const FileOperationInfo::TimePoint& finish_ts,
-                              const Status& status) const {
-    FileOperationInfo info(FileOperationType::kRead, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           status);
+  void NotifyOnFileReadFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const Status& status) const {
+    FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
+                           finish_ts, status);
     info.offset = offset;
     info.length = length;
 

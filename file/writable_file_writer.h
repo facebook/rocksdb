@@ -34,14 +34,13 @@ class Statistics;
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileWriteFinish(uint64_t offset, size_t length,
-                               const FileOperationInfo::TimePoint& start_ts,
-                               const FileOperationInfo::TimePoint& finish_ts,
-                               const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kWrite, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           io_status);
+  void NotifyOnFileWriteFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
+                           finish_ts, io_status);
     info.offset = offset;
     info.length = length;
 
@@ -50,13 +49,12 @@ class WritableFileWriter {
     }
     info.status.PermitUncheckedError();
   }
-  void NotifyOnFileFlushFinish(const FileOperationInfo::TimePoint& start_ts,
-                               const FileOperationInfo::TimePoint& finish_ts,
-                               const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kFlush, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           io_status);
+  void NotifyOnFileFlushFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
+                           finish_ts, io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileFlushFinish(info);
@@ -64,13 +62,11 @@ class WritableFileWriter {
     info.status.PermitUncheckedError();
   }
   void NotifyOnFileSyncFinish(
-      const FileOperationInfo::TimePoint& start_ts,
-      const FileOperationInfo::TimePoint& finish_ts, const IOStatus& io_status,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status,
       FileOperationType type = FileOperationType::kSync) {
-    FileOperationInfo info(type, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           io_status);
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileSyncFinish(info);
@@ -79,13 +75,11 @@ class WritableFileWriter {
   }
   void NotifyOnFileRangeSyncFinish(
       uint64_t offset, size_t length,
-      const FileOperationInfo::TimePoint& start_ts,
-      const FileOperationInfo::TimePoint& finish_ts,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
       const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kRangeSync, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           io_status);
+    FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
+                           finish_ts, io_status);
     info.offset = offset;
     info.length = length;
 
@@ -94,26 +88,24 @@ class WritableFileWriter {
     }
     info.status.PermitUncheckedError();
   }
-  void NotifyOnFileTruncateFinish(const FileOperationInfo::TimePoint& start_ts,
-                                  const FileOperationInfo::TimePoint& finish_ts,
-                                  const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kTruncate, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           io_status);
+  void NotifyOnFileTruncateFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
+                           finish_ts, io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileTruncateFinish(info);
     }
     info.status.PermitUncheckedError();
   }
-  void NotifyOnFileCloseFinish(const FileOperationInfo::TimePoint& start_ts,
-                               const FileOperationInfo::TimePoint& finish_ts,
-                               const IOStatus& io_status) {
-    FileOperationInfo info(FileOperationType::kClose, file_name_,
-                           std::chrono::duration_cast<std::chrono::nanoseconds>(
-                               finish_ts - start_ts),
-                           io_status);
+  void NotifyOnFileCloseFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
+                           finish_ts, io_status);
 
     for (auto& listener : listeners_) {
       listener->OnFileCloseFinish(info);
