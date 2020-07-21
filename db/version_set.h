@@ -1217,6 +1217,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+      const std::vector<std::unique_ptr<VersionEdit>>& wal_additions,
       log::Writer* log, IOStatus& io_s);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
@@ -1318,6 +1319,7 @@ class VersionSet {
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
+  void LogAndApplyWalHelper(InstrumentedMutex* mu, VersionEdit* edit);
   void LogAndApplyCFHelper(VersionEdit* edit);
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                            VersionEdit* edit, InstrumentedMutex* mu);

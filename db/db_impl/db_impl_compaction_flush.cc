@@ -112,7 +112,8 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       }
       // Cache WAL information here because recycled logs will be closed below,
       // after which log->file() is nullptr.
-      wals[log->get_log_number()] = WalMetadata(log->file()->GetFileSize());
+      wals.emplace(log->get_log_number(),
+                   WalMetadata(log->file()->GetFileSize()));
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
         io_s = log->Close();

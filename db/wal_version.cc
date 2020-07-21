@@ -89,9 +89,7 @@ void WalSet::PurgeObsoleteWals(WalNumber min_log_number_to_keep) {
   wals_.erase(wals_.begin(), it);
 }
 
-void WalSet::Reset() {
-  wals_.clear();
-}
+void WalSet::Reset() { wals_.clear(); }
 
 Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
                          const std::vector<uint64_t>& log_numbers,
@@ -103,7 +101,7 @@ Status WalSet::CheckWals(Env* env, WalNumber min_log_number_to_keep,
   size_t log_idx = 0;
   {
     auto it = std::lower_bound(log_numbers.begin(), log_numbers.end(),
-                              min_log_number_to_keep);
+                               min_log_number_to_keep);
     if (it == log_numbers.end()) {
       log_idx = log_numbers.size();
     } else {

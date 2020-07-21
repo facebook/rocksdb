@@ -3741,14 +3741,15 @@ Status VersionSet::ProcessManifestWrites(
     batch_edits.push_back(first_writer.edit_list.front());
   } else if (first_writer.edit_list.front()->IsWalAddition()) {
     // WAL addition won't appear together with other kinds of edits,
-    // and will only be applied to default column family, so there should just
-    // be one writer.
+    // and its column family will be default, so there should be just
+    // one writer.
     assert(writers.size() == 1);
     assert(first_writer.cfd->GetID() == 0);  // default CF
-    // Only write to MANIFEST without applying to default CF's versions.
+    // Write to MANIFEST without applying to default CF's versions.
     for (VersionEdit* edit : first_writer.edit_list) {
-      batch_edits.push_back(edit);
       wals_.AddWals(edit->GetWalAdditions());
+      LogAndApplyWalHelper(mu, edit);
+      batch_edits.push_back(edit);
     }
   } else {
     auto it = manifest_writers_.cbegin();
@@ -3905,6 +3906,7 @@ Status VersionSet::ProcessManifestWrites(
   // reads its content after releasing db mutex to avoid race with
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
+  std::vector<std::unique_ptr<VersionEdit>> wal_additions;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -3923,6 +3925,15 @@ Status VersionSet::ProcessManifestWrites(
     // Do not write obsolete WALs to the new MANIFEST to keep WALs from
     // accumulating in MANIFESTs.
     wals_.PurgeObsoleteWals(MinLogNumberToKeep());
+
+    for (auto it : wals_.GetWals()) {
+      WalNumber number = it.first;
+      const WalMetadata& meta = it.second;
+      VersionEdit* edit = new VersionEdit();
+      edit->AddWal(number, meta);
+      LogAndApplyWalHelper(mu, edit);
+      wal_additions.emplace_back(edit);
+    }
   }
 
   uint64_t new_manifest_file_size = 0;
@@ -3975,8 +3986,8 @@ Status VersionSet::ProcessManifestWrites(
             nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get(),
-                                        io_s);
+        s = WriteCurrentStateToManifest(curr_state, wal_additions,
+                                        descriptor_log_.get(), io_s);
       } else {
         s = io_s;
       }
@@ -4272,6 +4283,17 @@ Status VersionSet::LogAndApply(
                                new_cf_options);
 }
 
+void VersionSet::LogAndApplyWalHelper(InstrumentedMutex* mu,
+                                      VersionEdit* edit) {
+  mu->AssertHeld();
+  assert(edit->IsWalAddition());
+
+  edit->SetPrevLogNumber(prev_log_number_);
+  edit->SetNextFile(next_file_number_.load());
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
+}
+
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
@@ -4518,7 +4540,9 @@ Status VersionSet::ReadAndRecover(
     }
     if (edit.IsWalAddition()) {
       wals_.AddWals(edit.GetWalAdditions());
-      // WAL additions do not need to apply to versions.
+      // WAL additions do not need to apply to versions,
+      // but still need to extract info from it and add to version_edit_params.
+      ExtractInfoFromVersionEdit(nullptr, edit, version_edit_params);
       continue;
     }
     if (edit.has_db_id_) {
@@ -5336,6 +5360,7 @@ WalNumber VersionSet::MinLogNumberToKeep() const {
 
 Status VersionSet::WriteCurrentStateToManifest(
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
+    const std::vector<std::unique_ptr<VersionEdit>>& wal_additions,
     log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
@@ -5344,9 +5369,6 @@ Status VersionSet::WriteCurrentStateToManifest(
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
-  //
-  // WalSet addition and purge can only happen within the single thread
-  // LogAndApply too, so we can read the latest state of WalSet without mutex.
 
   assert(io_s.ok());
   if (db_options_->write_dbid_to_manifest) {
@@ -5395,15 +5417,11 @@ Status VersionSet::WriteCurrentStateToManifest(
 
     {
       // Save WALs.
-      for (auto it : wals_.GetWals()) {
-        WalNumber number = it.first;
-        WalMetadata wal = it.second;
-        VersionEdit edit;
-        edit.AddWal(number, wal);
+      for (const auto& wal_addition : wal_additions) {
         std::string record;
-        if (!edit.EncodeTo(&record)) {
+        if (!wal_addition->EncodeTo(&record)) {
           return Status::Corruption("Unable to Encode VersionEdit: " +
-                                    edit.DebugString(true));
+                                    wal_addition->DebugString(true));
         }
         io_s = log->AddRecord(record);
         if (!io_s.ok()) {

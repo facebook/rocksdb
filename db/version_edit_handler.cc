@@ -45,8 +45,14 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
     }
     if (edit.IsWalAddition()) {
       version_set_->wals_.AddWals(edit.GetWalAdditions());
-      // WAL additions do not need to apply to versions.
-      continue;
+      // WAL addition edit does not need to apply to versions,
+      // but still need to extract info from it.
+      s = ExtractInfoFromVersionEdit(nullptr, edit);
+      if (!s.ok()) {
+        break;
+      } else {
+        continue;
+      }
     }
     if (edit.has_db_id_) {
       version_set_->db_id_ = edit.GetDbId();
