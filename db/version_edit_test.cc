@@ -309,6 +309,102 @@ TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, AddWalEncodeDecode) {
+  VersionEdit edit;
+  for (uint64_t log_number = 1; log_number <= 20; log_number++) {
+    edit.AddWal(log_number, WalMetadata(rand() % 100));
+  }
+  TestEncodeDecode(edit);
+}
+
+TEST_F(VersionEditTest, AddWalDebug) {
+  const int n = 2;
+  const std::vector<uint64_t> kLogNumbers{10, 20};
+  const std::vector<uint64_t> kBytes{100, 200};
+
+  VersionEdit edit;
+  for (int i = 0; i < n; i++) {
+    edit.AddWal(kLogNumbers[i], WalMetadata(kBytes[i]));
+  }
+
+  const WalAdditions& wals = edit.GetWalAdditions();
+
+  ASSERT_TRUE(edit.IsWalAddition());
+  ASSERT_EQ(wals.size(), n);
+  for (int i = 0; i < n; i++) {
+    const WalAddition& wal = wals[i];
+    ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[i]);
+    ASSERT_EQ(wal.GetMetadata().GetSizeInBytes(), kBytes[i]);
+  }
+
+  std::string expected_str = "VersionEdit {\n";
+  for (int i = 0; i < n; i++) {
+    std::stringstream ss;
+    ss << "  WalAddition: log_number: " << kLogNumbers[i]
+       << " size_in_bytes: " << kBytes[i] << "\n";
+    expected_str += ss.str();
+  }
+  expected_str += "  ColumnFamily: 0\n}\n";
+  ASSERT_EQ(edit.DebugString(true), expected_str);
+
+  std::string expected_json = "{\"EditNumber\": 4, \"WalAdditions\": [";
+  for (int i = 0; i < n; i++) {
+    std::stringstream ss;
+    ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
+       << "\"SizeInBytes\": " << kBytes[i] << "}";
+    if (i < n - 1) ss << ", ";
+    expected_json += ss.str();
+  }
+  expected_json += "], \"ColumnFamily\": 0}";
+  ASSERT_EQ(edit.DebugJSON(4, true), expected_json);
+}
+
+TEST_F(VersionEditTest, DeleteWalEncodeDecode) {
+  VersionEdit edit;
+  for (uint64_t log_number = 1; log_number <= 20; log_number++) {
+    edit.DeleteWal(log_number);
+  }
+  TestEncodeDecode(edit);
+}
+
+TEST_F(VersionEditTest, DeleteWalDebug) {
+  const int n = 2;
+  const std::vector<uint64_t> kLogNumbers{10, 20};
+
+  VersionEdit edit;
+  for (int i = 0; i < n; i++) {
+    edit.DeleteWal(kLogNumbers[i]);
+  }
+
+  const WalDeletions& wals = edit.GetWalDeletions();
+
+  ASSERT_TRUE(edit.IsWalDeletion());
+  ASSERT_EQ(wals.size(), n);
+  for (int i = 0; i < n; i++) {
+    const WalDeletion& wal = wals[i];
+    ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[i]);
+  }
+
+  std::string expected_str = "VersionEdit {\n";
+  for (int i = 0; i < n; i++) {
+    std::stringstream ss;
+    ss << "  WalDeletion: log_number: " << kLogNumbers[i] << "\n";
+    expected_str += ss.str();
+  }
+  expected_str += "  ColumnFamily: 0\n}\n";
+  ASSERT_EQ(edit.DebugString(true), expected_str);
+
+  std::string expected_json = "{\"EditNumber\": 4, \"WalDeletions\": [";
+  for (int i = 0; i < n; i++) {
+    std::stringstream ss;
+    ss << "{\"LogNumber\": " << kLogNumbers[i] << "}";
+    if (i < n - 1) ss << ", ";
+    expected_json += ss.str();
+  }
+  expected_json += "], \"ColumnFamily\": 0}";
+  ASSERT_EQ(edit.DebugJSON(4, true), expected_json);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
