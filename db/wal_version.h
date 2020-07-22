@@ -73,6 +73,30 @@ JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
 
+// Records the event of deleting/archiving a WAL in VersionEdit.
+class WalDeletion {
+ public:
+  WalDeletion() : number_(0) {}
+
+  WalDeletion(WalNumber number) : number_(number) {}
+
+  WalNumber GetLogNumber() const { return number_; }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* src);
+
+  std::string DebugString() const;
+
+ private:
+  WalNumber number_;
+};
+
+std::ostream& operator<<(std::ostream& os, const WalDeletion& wal);
+JSONWriter& operator<<(JSONWriter& jw, const WalDeletion& wal);
+
+using WalDeletions = std::vector<WalDeletion>;
+
 // Used in VersionSet to keep the current set of WALs.
 //
 // When a WAL is created or closed, a VersionEdit is logged to MANIFEST and
@@ -93,8 +117,10 @@ class WalSet {
   void AddWal(const WalAddition& wal);
   void AddWals(const WalAdditions& wals);
 
-  // Remove WALs with log number < min_log_number_to_keep.
-  void PurgeObsoleteWals(WalNumber min_log_number_to_keep);
+  // Delete WAL(s).
+  // Can happen when applying a VersionEdit or recovering from MANIFEST.
+  void DeleteWal(const WalDeletion& wal);
+  void DeleteWals(const WalDeletions& wals);
 
   // Checks whether there are missing or unrecognized WALs,
   // also checks the WALs' sizes.

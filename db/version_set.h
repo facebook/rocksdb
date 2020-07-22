@@ -1251,10 +1251,6 @@ class VersionSet {
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
-  // WAL with log number less than this returned value can be ignored during
-  // WAL recovery.
-  WalNumber MinLogNumberToKeep() const;
-
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
@@ -1319,7 +1315,7 @@ class VersionSet {
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
-  void LogAndApplyWalHelper(InstrumentedMutex* mu, VersionEdit* edit);
+  void LogAndApplyWalHelper(VersionEdit* edit);
   void LogAndApplyCFHelper(VersionEdit* edit);
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                            VersionEdit* edit, InstrumentedMutex* mu);

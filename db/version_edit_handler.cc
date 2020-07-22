@@ -43,16 +43,13 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
     if (!s.ok()) {
       break;
     }
-    if (edit.IsWalAddition()) {
+    if (edit.IsWalManipulation()) {
       version_set_->wals_.AddWals(edit.GetWalAdditions());
-      // WAL addition edit does not need to apply to versions,
-      // but still need to extract info from it.
-      s = ExtractInfoFromVersionEdit(nullptr, edit);
-      if (!s.ok()) {
-        break;
-      } else {
-        continue;
-      }
+      version_set_->wals_.DeleteWals(edit.GetWalDeletions());
+      // WAL edits do not need to apply to versions,
+      // but still may contain information such as next file number.
+      ExtractInfoFromVersionEdit(nullptr, edit);
+      continue;
     }
     if (edit.has_db_id_) {
       version_set_->db_id_ = edit.GetDbId();

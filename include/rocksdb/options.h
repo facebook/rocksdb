@@ -394,7 +394,7 @@ struct DBOptions {
   // No matter whether this is true or false, on WAL creation and close,
   // the WAL information is always persisted into MANIFEST.
   // Default: false
-  bool check_wal = false;
+  bool check_wal = true;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near

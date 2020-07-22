@@ -531,6 +531,26 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       continue;
     }
 
+    if (type == kLogFile) {
+      // Write WAL deletion event to MANIFEST before actually deleting.
+      mutex_.Lock();
+      VersionEdit edit;
+      edit.DeleteWal(number);
+      Options options;
+      MutableCFOptions mutable_cf_options(options);
+      Status s = versions_->LogAndApply(
+          versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options,
+          &edit, &mutex_, nullptr, false);
+      mutex_.Unlock();
+      if (!s.ok()) {
+        ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                        "[JOB %d] Failed to log and apply VersionEdit: %s\n",
+                        state.job_id, edit.DebugString().c_str());
+        // Must sync to MANIFEST before actually deleting the WAL.
+        continue;
+      }
+    }
+
     std::string fname;
     std::string dir_to_sync;
     if (type == kTableFile) {

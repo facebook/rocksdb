@@ -3739,8 +3739,8 @@ Status VersionSet::ProcessManifestWrites(
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front());
     batch_edits.push_back(first_writer.edit_list.front());
-  } else if (first_writer.edit_list.front()->IsWalAddition()) {
-    // WAL addition won't appear together with other kinds of edits,
+  } else if (first_writer.edit_list.front()->IsWalManipulation()) {
+    // WAL addition/deletion won't appear together with other kinds of edits,
     // and its column family will be default, so there should be just
     // one writer.
     assert(writers.size() == 1);
@@ -3748,7 +3748,8 @@ Status VersionSet::ProcessManifestWrites(
     // Write to MANIFEST without applying to default CF's versions.
     for (VersionEdit* edit : first_writer.edit_list) {
       wals_.AddWals(edit->GetWalAdditions());
-      LogAndApplyWalHelper(mu, edit);
+      wals_.DeleteWals(edit->GetWalDeletions());
+      LogAndApplyWalHelper(edit);
       batch_edits.push_back(edit);
     }
   } else {
@@ -3922,16 +3923,11 @@ Status VersionSet::ProcessManifestWrites(
       curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
 
-    // Do not write obsolete WALs to the new MANIFEST to keep WALs from
-    // accumulating in MANIFESTs.
-    wals_.PurgeObsoleteWals(MinLogNumberToKeep());
-
     for (auto it : wals_.GetWals()) {
       WalNumber number = it.first;
       const WalMetadata& meta = it.second;
       VersionEdit* edit = new VersionEdit();
       edit->AddWal(number, meta);
-      LogAndApplyWalHelper(mu, edit);
       wal_additions.emplace_back(edit);
     }
   }
@@ -4211,18 +4207,19 @@ Status VersionSet::LogAndApply(
 #endif /* ! NDEBUG */
   }
 #ifndef NDEBUG
-  bool is_wal_addition = false;
+  bool is_wal_manipulation = false;
   for (const auto& edit_list : edit_lists) {
     for (const auto& edit : edit_list) {
-      if (edit->IsWalAddition()) {
-        // VersionEdit with WAL additions won't contain other kinds of edits.
-        assert(edit->NumEntries() == edit->GetWalAdditions().size());
-        is_wal_addition = true;
+      if (edit->IsWalManipulation()) {
+        assert(edit->NumEntries() ==
+               edit->GetWalAdditions().size() + edit->GetWalDeletions().size());
+        is_wal_manipulation = true;
+        break;
       }
     }
   }
-  if (is_wal_addition) {
-    // WAL additions are always applied to default column family.
+  if (is_wal_manipulation) {
+    // WAL additions/deletions are always applied to default column family.
     assert(column_family_datas.size() == 1);
     assert(edit_lists.size() == 1);
   }
@@ -4283,13 +4280,16 @@ Status VersionSet::LogAndApply(
                                new_cf_options);
 }
 
-void VersionSet::LogAndApplyWalHelper(InstrumentedMutex* mu,
-                                      VersionEdit* edit) {
-  mu->AssertHeld();
-  assert(edit->IsWalAddition());
+void VersionSet::LogAndApplyWalHelper(VersionEdit* edit) {
+  assert(edit->IsWalManipulation());
 
   edit->SetPrevLogNumber(prev_log_number_);
   edit->SetNextFile(next_file_number_.load());
+  // The log might have data that is not visible to memtbale and hence have not
+  // updated the last_sequence_ yet. It is also possible that the log has is
+  // expecting some new data that is not written yet. Since LastSequence is an
+  // upper bound on the sequence, it is ok to record
+  // last_allocated_sequence_ as the last sequence.
   edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
                                                       : last_sequence_);
 }
@@ -4538,10 +4538,11 @@ Status VersionSet::ReadAndRecover(
     if (!s.ok()) {
       break;
     }
-    if (edit.IsWalAddition()) {
+    if (edit.IsWalManipulation()) {
       wals_.AddWals(edit.GetWalAdditions());
-      // WAL additions do not need to apply to versions,
-      // but still need to extract info from it and add to version_edit_params.
+      wals_.DeleteWals(edit.GetWalDeletions());
+      // WAL edits do not need to apply to versions,
+      // but still may contain information such as next file number.
       ExtractInfoFromVersionEdit(nullptr, edit, version_edit_params);
       continue;
     }
@@ -5347,14 +5348,6 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
   if (min_log_number_to_keep_2pc_.load(std::memory_order_relaxed) < number) {
     min_log_number_to_keep_2pc_.store(number, std::memory_order_relaxed);
-  }
-}
-
-WalNumber VersionSet::MinLogNumberToKeep() const {
-  if (db_options_->allow_2pc) {
-    return min_log_number_to_keep_2pc();
-  } else {
-    return MinLogNumberWithUnflushedData();
   }
 }
 

@@ -56,6 +56,7 @@ enum Tag : uint32_t {
   kBlobFileAddition,
   kBlobFileGarbage,
   kWalAddition,
+  kWalDeletion,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -289,6 +290,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   for (const auto& wal_addition : wal_additions_) {
     PutVarint32(dst, kWalAddition);
     wal_addition.EncodeTo(dst);
+  }
+
+  for (const auto& wal_deletion : wal_deletions_) {
+    PutVarint32(dst, kWalDeletion);
+    wal_deletion.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -626,6 +632,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kWalDeletion: {
+        WalDeletion wal_deletion;
+        const Status s = wal_deletion.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_deletions_.emplace_back(wal_deletion);
+        break;
+      }
+
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
           if (!msg) {
@@ -771,6 +788,11 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(wal_addition.DebugString());
   }
 
+  for (const auto& wal_deletion : wal_deletions_) {
+    r.append("\n  WalDeletion: ");
+    r.append(wal_deletion.DebugString());
+  }
+
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
   if (is_column_family_add_) {
@@ -889,6 +911,20 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     for (const auto& wal_addition : wal_additions_) {
       jw.StartArrayedObject();
       jw << wal_addition;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!wal_deletions_.empty()) {
+    jw << "WalDeletions";
+
+    jw.StartArray();
+
+    for (const auto& wal_deletion : wal_deletions_) {
+      jw.StartArrayedObject();
+      jw << wal_deletion;
       jw.EndArrayedObject();
     }
 

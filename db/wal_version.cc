@@ -74,8 +74,38 @@ std::string WalAddition::DebugString() const {
   return oss.str();
 }
 
+void WalDeletion::EncodeTo(std::string* dst) const {
+  PutVarint64(dst, number_);
+}
+
+Status WalDeletion::DecodeFrom(Slice* src) {
+  constexpr char class_name[] = "WalDeletion";
+
+  if (!GetVarint64(src, &number_)) {
+    return Status::Corruption(class_name, "Error decoding WAL log number");
+  }
+
+  return Status::OK();
+}
+
+JSONWriter& operator<<(JSONWriter& jw, const WalDeletion& wal) {
+  jw << "LogNumber" << wal.GetLogNumber();
+  return jw;
+}
+
+std::ostream& operator<<(std::ostream& os, const WalDeletion& wal) {
+  os << "log_number: " << wal.GetLogNumber();
+  return os;
+}
+
+std::string WalDeletion::DebugString() const {
+  std::ostringstream oss;
+  oss << *this;
+  return oss.str();
+}
+
 void WalSet::AddWal(const WalAddition& wal) {
-  wals_[wal.GetLogNumber()] = wal.GetMetadata();
+  wals_.emplace(wal.GetLogNumber(), wal.GetMetadata());
 }
 
 void WalSet::AddWals(const WalAdditions& wals) {
@@ -84,9 +114,14 @@ void WalSet::AddWals(const WalAdditions& wals) {
   }
 }
 
-void WalSet::PurgeObsoleteWals(WalNumber min_log_number_to_keep) {
-  auto it = wals_.lower_bound(min_log_number_to_keep);
-  wals_.erase(wals_.begin(), it);
+void WalSet::DeleteWal(const WalDeletion& wal) {
+  wals_.erase(wal.GetLogNumber());
+}
+
+void WalSet::DeleteWals(const WalDeletions& wals) {
+  for (const WalDeletion& wal : wals) {
+    DeleteWal(wal);
+  }
 }
 
 void WalSet::Reset() { wals_.clear(); }

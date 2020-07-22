@@ -384,14 +384,23 @@ class VersionEdit {
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
-  // VersionEdits with WAL addition should not contain other types of edits.
-  bool IsWalAddition() const { return !wal_additions_.empty(); }
+  // Delete a WAL (either directly deleted or archived).
+  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+
+  // Retrieve all the deleted WALs.
+  const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
+
+  // VersionEdits with WAL addition/deletion should not contain other types of
+  // edits.
+  bool IsWalManipulation() const {
+    return !wal_additions_.empty() || !wal_deletions_.empty();
+  }
 
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
            blob_file_additions_.size() + blob_file_garbages_.size() +
-           wal_additions_.size();
+           wal_additions_.size() + wal_deletions_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -472,6 +481,7 @@ class VersionEdit {
   BlobFileGarbages blob_file_garbages_;
 
   WalAdditions wal_additions_;
+  WalDeletions wal_deletions_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)
