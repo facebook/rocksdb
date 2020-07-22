@@ -149,6 +149,10 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
           offsetof(struct MutableDBOptions, max_background_compactions)}},
+        {"max_subcompactions",
+         {offsetof(struct DBOptions, max_subcompactions), OptionType::kUInt32T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableDBOptions, max_subcompactions)}},
         {"base_background_compactions",
          {offsetof(struct DBOptions, base_background_compactions),
           OptionType::kInt, OptionVerificationType::kNormal,
@@ -195,10 +199,6 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"wal_dir",
          {offsetof(struct DBOptions, wal_dir), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
-        {"max_subcompactions",
-         {offsetof(struct DBOptions, max_subcompactions), OptionType::kUInt32T,
-          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-          offsetof(struct MutableDBOptions, max_subcompactions)}},
         {"WAL_size_limit_MB",
          {offsetof(struct DBOptions, WAL_size_limit_MB), OptionType::kUInt64T,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
@@ -637,6 +637,7 @@ MutableDBOptions::MutableDBOptions()
     : max_background_jobs(2),
       base_background_compactions(-1),
       max_background_compactions(-1),
+      max_subcompactions(0),
       avoid_flush_during_shutdown(false),
       writable_file_max_buffer_size(1024 * 1024),
       delayed_write_rate(2 * 1024U * 1024U),
@@ -650,13 +651,13 @@ MutableDBOptions::MutableDBOptions()
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
       compaction_readahead_size(0),
-      max_background_flushes(-1),
-      max_subcompactions(0) {}
+      max_background_flushes(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
       base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
+      max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       writable_file_max_buffer_size(options.writable_file_max_buffer_size),
       delayed_write_rate(options.delayed_write_rate),
@@ -671,14 +672,15 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes),
-      max_subcompactions(options.max_subcompactions) {}
+      max_background_flushes(options.max_background_flushes) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
                    max_background_jobs);
   ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
                    max_background_compactions);
+  ROCKS_LOG_HEADER(log, "            Options.max_subcompactions: %" PRIu32,
+                   max_subcompactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",
                    avoid_flush_during_shutdown);
   ROCKS_LOG_HEADER(
@@ -715,9 +717,6 @@ void MutableDBOptions::Dump(Logger* log) const {
                    compaction_readahead_size);
   ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
                           max_background_flushes);
-  ROCKS_LOG_HEADER(log,
-                   "                     Options.max_subcompactions: %" PRIu32,
-                   max_subcompactions);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

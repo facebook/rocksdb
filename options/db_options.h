@@ -101,6 +101,7 @@ struct MutableDBOptions {
   int max_background_jobs;
   int base_background_compactions;
   int max_background_compactions;
+  uint32_t max_subcompactions;
   bool avoid_flush_during_shutdown;
   size_t writable_file_max_buffer_size;
   uint64_t delayed_write_rate;
@@ -115,7 +116,6 @@ struct MutableDBOptions {
   bool strict_bytes_per_sync;
   size_t compaction_readahead_size;
   int max_background_flushes;
-  uint32_t max_subcompactions;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
