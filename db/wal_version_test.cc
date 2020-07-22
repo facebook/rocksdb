@@ -36,6 +36,17 @@ TEST(WalSet, AddDeleteReset) {
   ASSERT_TRUE(wals.GetWals().empty());
 }
 
+TEST(WalSet, Overwrite) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 200;
+  WalSet wals;
+  wals.AddWal(WalAddition(kNumber));
+  ASSERT_TRUE(!wals.GetWals().at(kNumber).HasSize());
+  wals.AddWal(WalAddition(kNumber, kBytes));
+  ASSERT_TRUE(wals.GetWals().at(kNumber).HasSize());
+  ASSERT_EQ(wals.GetWals().at(kNumber).GetSizeInBytes(), kBytes);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
