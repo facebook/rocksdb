@@ -3330,7 +3330,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
       std::string key = "k" + ToString(i);
-      Put(key, RandomString(&rnd, 100));
+      Put(key, rnd.RandomString(100));
     }
     Flush();
 
