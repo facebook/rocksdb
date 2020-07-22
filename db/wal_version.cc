@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-enum WalAdditionTag : uint32_t {
+enum class WalAdditionTag : uint32_t {
   // Indicates that there are no more tags.
   kTerminate = 1,
   // Add tags in the future, such as checksum?
@@ -24,7 +24,7 @@ enum WalAdditionTag : uint32_t {
 void WalAddition::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
   PutVarint64(dst, metadata_.GetSizeInBytes());
-  PutVarint32(dst, WalAdditionTag::kTerminate);
+  PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kTerminate));
 }
 
 Status WalAddition::DecodeFrom(Slice* src) {
@@ -45,7 +45,7 @@ Status WalAddition::DecodeFrom(Slice* src) {
     if (!GetVarint32(src, &tag)) {
       return Status::Corruption(class_name, "Error decoding tag");
     }
-    if (tag == kTerminate) {
+    if (tag == static_cast<uint32_t>(WalAdditionTag::kTerminate)) {
       break;
     }
     // TODO: process future tags such as checksum.
