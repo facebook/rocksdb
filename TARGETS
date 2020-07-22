@@ -1594,13 +1594,6 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "wal_version_test",
-        "db/wal_version_test.cc",
-        "serial",
-        [],
-        [],
-    ],
-    [
         "work_queue_test",
         "util/work_queue_test.cc",
         "serial",
