@@ -1,0 +1,127 @@
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+// This source code is licensed under both the GPLv2 (found in the
+// COPYING file in the root directory) and Apache 2.0 License
+// (found in the LICENSE.Apache file in the root directory).
+
+// WAL related classes used in VersionEdit and VersionSet.
+
+#pragma once
+
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+#include "logging/event_logger.h"
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
+
+class JSONWriter;
+class Slice;
+class Status;
+
+using WalNumber = uint64_t;
+
+// Metadata of a WAL.
+class WalMetadata {
+ public:
+  WalMetadata() = default;
+
+  WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
+
+  bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
+
+  void SetSizeInBytes(uint64_t bytes) { size_bytes_ = bytes; }
+
+  uint64_t GetSizeInBytes() const { return size_bytes_; }
+
+ private:
+  // The size of WAL is unknown, used when the WAL is not closed yet.
+  constexpr static uint64_t kUnknownWalSize = 0;
+
+  // Size of a closed WAL in bytes.
+  uint64_t size_bytes_ = kUnknownWalSize;
+};
+
+// Records the event of adding a WAL in VersionEdit.
+class WalAddition {
+ public:
+  WalAddition() : number_(0), metadata_() {}
+
+  WalAddition(WalNumber number, const WalMetadata& metadata = WalMetadata())
+      : number_(number), metadata_(metadata) {}
+
+  WalNumber GetLogNumber() const { return number_; }
+
+  const WalMetadata& GetMetadata() const { return metadata_; }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* src);
+
+  std::string DebugString() const;
+
+ private:
+  WalNumber number_;
+  WalMetadata metadata_;
+};
+
+std::ostream& operator<<(std::ostream& os, const WalAddition& wal);
+JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
+
+using WalAdditions = std::vector<WalAddition>;
+
+// Records the event of deleting/archiving a WAL in VersionEdit.
+class WalDeletion {
+ public:
+  WalDeletion() : number_(0) {}
+
+  WalDeletion(WalNumber number) : number_(number) {}
+
+  WalNumber GetLogNumber() const { return number_; }
+
+  void EncodeTo(std::string* dst) const;
+
+  Status DecodeFrom(Slice* src);
+
+  std::string DebugString() const;
+
+ private:
+  WalNumber number_;
+};
+
+std::ostream& operator<<(std::ostream& os, const WalDeletion& wal);
+JSONWriter& operator<<(JSONWriter& jw, const WalDeletion& wal);
+
+using WalDeletions = std::vector<WalDeletion>;
+
+// Used in VersionSet to keep the current set of WALs.
+//
+// When a WAL is created, closed, deleted, or archived,
+// a VersionEdit is logged to MANIFEST and
+// the WAL is added to or deleted from WalSet.
+//
+// Not thread safe, needs external synchronization such as holding DB mutex.
+class WalSet {
+ public:
+  // Add WAL(s).
+  // Can happen when applying a VersionEdit or recovering from MANIFEST.
+  void AddWal(const WalAddition& wal);
+  void AddWals(const WalAdditions& wals);
+
+  // Delete WAL(s).
+  // Can happen when applying a VersionEdit or recovering from MANIFEST.
+  void DeleteWal(const WalDeletion& wal);
+  void DeleteWals(const WalDeletions& wals);
+
+  // Resets the internal state.
+  void Reset();
+
+  const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
+
+ private:
+  std::map<WalNumber, WalMetadata> wals_;
+};
+
+}  // namespace ROCKSDB_NAMESPACE

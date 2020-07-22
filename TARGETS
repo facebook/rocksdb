@@ -183,6 +183,7 @@ cpp_library(
         "db/version_edit_handler.cc",
         "db/version_set.cc",
         "db/wal_manager.cc",
+        "db/wal_version.cc",
         "db/write_batch.cc",
         "db/write_batch_base.cc",
         "db/write_controller.cc",
@@ -1588,6 +1589,13 @@ ROCKS_TESTS = [
     [
         "wal_manager_test",
         "db/wal_manager_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "wal_version_test",
+        "db/wal_version_test.cc",
         "serial",
         [],
         [],
