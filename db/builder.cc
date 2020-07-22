@@ -93,6 +93,7 @@ Status BuildTable(
          column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
+  uint64_t paranoid_hash = 0;
   Status s;
   IOStatus io_s;
   meta->fd.file_size = 0;
@@ -110,7 +111,6 @@ Status BuildTable(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
 #endif  // !ROCKSDB_LITE
   TableProperties tp;
-
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
@@ -168,6 +168,11 @@ Status BuildTable(
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
+      if (paranoid_file_checks) {
+        // Generate a rolling 64-bit hash of the key and values
+        paranoid_hash = Hash64(key.data(), key.size(), paranoid_hash);
+        paranoid_hash = Hash64(value.data(), value.size(), paranoid_hash);
+      }
       builder->Add(key, value);
       meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
 
@@ -256,9 +261,17 @@ Status BuildTable(
           /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
+        uint64_t check_hash = 0;
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          // Generate a rolling 64-bit hash of the key and values
+          check_hash = Hash64(it->key().data(), it->key().size(), check_hash);
+          check_hash =
+              Hash64(it->value().data(), it->value().size(), check_hash);
         }
         s = it->status();
+        if (s.ok() && check_hash != paranoid_hash) {
+          s = Status::Corruption("Paraniod checksums do not match");
+        }
       }
     }
   }

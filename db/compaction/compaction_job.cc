@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/compaction/compaction_job.h"
+
 #include <algorithm>
 #include <cinttypes>
 #include <functional>
@@ -19,7 +21,6 @@
 #include <vector>
 
 #include "db/builder.h"
-#include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -54,6 +55,7 @@
 #include "table/table_builder.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
+#include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
@@ -123,6 +125,7 @@ struct CompactionJob::SubcompactionState {
   struct Output {
     FileMetaData meta;
     bool finished;
+    uint64_t paranoid_hash;
     std::shared_ptr<const TableProperties> table_properties;
   };
 
@@ -132,7 +135,7 @@ struct CompactionJob::SubcompactionState {
   std::unique_ptr<TableBuilder> builder;
   Output* current_output() {
     if (outputs.empty()) {
-      // This subcompaction's outptut could be empty if compaction was aborted
+      // This subcompaction's output could be empty if compaction was aborted
       // before this subcompaction had a chance to generate any output files.
       // When subcompactions are executed sequentially this is more likely and
       // will be particulalry likely for the later subcompactions to be empty.
@@ -201,6 +204,21 @@ struct CompactionJob::SubcompactionState {
   SubcompactionState(const SubcompactionState&) = delete;
 
   SubcompactionState& operator=(const SubcompactionState&) = delete;
+
+  // Adds the key and value to the builder
+  // If paranoid is true, adds the key-value to the paranoid hash
+  void AddToBuilder(const Slice& key, const Slice& value, bool paranoid) {
+    auto curr = current_output();
+    assert(builder != nullptr);
+    assert(curr != nullptr);
+    if (paranoid) {
+      // Generate a rolling 64-bit hash of the key and values
+      curr->paranoid_hash = Hash64(key.data(), key.size(), curr->paranoid_hash);
+      curr->paranoid_hash =
+          Hash64(value.data(), value.size(), curr->paranoid_hash);
+    }
+    builder->Add(key, value);
+  }
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
@@ -635,20 +653,20 @@ Status CompactionJob::Run() {
   }
   if (status.ok()) {
     thread_pool.clear();
-    std::vector<const FileMetaData*> files_meta;
+    std::vector<const CompactionJob::SubcompactionState::Output*> files_output;
     for (const auto& state : compact_->sub_compact_states) {
       for (const auto& output : state.outputs) {
-        files_meta.emplace_back(&output.meta);
+        files_output.emplace_back(&output);
       }
     }
     ColumnFamilyData* cfd = compact_->compaction->column_family_data();
     auto prefix_extractor =
         compact_->compaction->mutable_cf_options()->prefix_extractor.get();
-    std::atomic<size_t> next_file_meta_idx(0);
+    std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
       while (true) {
-        size_t file_idx = next_file_meta_idx.fetch_add(1);
-        if (file_idx >= files_meta.size()) {
+        size_t file_idx = next_file_idx.fetch_add(1);
+        if (file_idx >= files_output.size()) {
           break;
         }
         // Verify that the table is usable
@@ -659,7 +677,8 @@ Status CompactionJob::Run() {
         // to cache it here for further user reads
         InternalIterator* iter = cfd->table_cache()->NewIterator(
             ReadOptions(), file_options_, cfd->internal_comparator(),
-            *files_meta[file_idx], /*range_del_agg=*/nullptr, prefix_extractor,
+            files_output[file_idx]->meta, /*range_del_agg=*/nullptr,
+            prefix_extractor,
             /*table_reader_ptr=*/nullptr,
             cfd->internal_stats()->GetFileReadHist(
                 compact_->compaction->output_level()),
@@ -673,8 +692,16 @@ Status CompactionJob::Run() {
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {
-          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
+          uint64_t hash = 0;
+          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+            // Generate a rolling 64-bit hash of the key and values, using the
+            hash = Hash64(iter->key().data(), iter->key().size(), hash);
+            hash = Hash64(iter->value().data(), iter->value().size(), hash);
+          }
           s = iter->status();
+          if (s.ok() && hash != files_output[file_idx]->paranoid_hash) {
+            s = Status::Corruption("Paraniod checksums do not match");
+          }
         }
 
         delete iter;
@@ -948,9 +975,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         break;
       }
     }
-    assert(sub_compact->builder != nullptr);
-    assert(sub_compact->current_output() != nullptr);
-    sub_compact->builder->Add(key, value);
+    sub_compact->AddToBuilder(key, value, paranoid_file_checks_);
+
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
     const ParsedInternalKey& ikey = c_iter->ikey();
@@ -1246,7 +1272,8 @@ Status CompactionJob::FinishCompactionOutputFile(
       auto kv = tombstone.Serialize();
       assert(lower_bound == nullptr ||
              ucmp->Compare(*lower_bound, kv.second) < 0);
-      sub_compact->builder->Add(kv.first.Encode(), kv.second);
+      sub_compact->AddToBuilder(kv.first.Encode(), kv.second,
+                                paranoid_file_checks_);
       InternalKey smallest_candidate = std::move(kv.first);
       if (lower_bound != nullptr &&
           ucmp->Compare(smallest_candidate.user_key(), *lower_bound) <= 0) {
@@ -1543,6 +1570,7 @@ Status CompactionJob::OpenCompactionOutputFile(
     out.meta.oldest_ancester_time = oldest_ancester_time;
     out.meta.file_creation_time = current_time;
     out.finished = false;
+    out.paranoid_hash = 0;
     sub_compact->outputs.push_back(out);
   }
 
