@@ -228,6 +228,8 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
           aligned_reqs.push_back(r);
         }
       }
+      TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
+                               &aligned_reqs);
 
       // Allocate aligned buffer and let scratch buffers point to it.
       size_t total_len = 0;
