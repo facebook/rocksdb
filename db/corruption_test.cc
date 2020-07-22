@@ -565,7 +565,7 @@ static const auto& corruption_modes = {mock::MockTableFactory::kCorruptNone,
                                        mock::MockTableFactory::kCorruptKey,
                                        mock::MockTableFactory::kCorruptValue};
 
-TEST_F(CorruptionTest, ParaniodFileChecksOnFlush) {
+TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
   Options options;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
@@ -588,7 +588,7 @@ TEST_F(CorruptionTest, ParaniodFileChecksOnFlush) {
   }
 }
 
-TEST_F(CorruptionTest, ParaniodFileChecksOnCompact) {
+TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   Options options;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
