@@ -78,6 +78,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
     ro.deadline = read_options.deadline;
+    ro.io_timeout = read_options.io_timeout;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(

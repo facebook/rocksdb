@@ -1347,7 +1347,8 @@ struct ReadOptions {
   const Slice* timestamp;
   const Slice* iter_start_ts;
 
-  // Deadline for completing the read request (only Get/MultiGet for now) in us.
+  // Deadline for completing an API call (Get/MultiGet/Seek/Next for now)
+  // in microseconds.
   // It should be set to microseconds since epoch, i.e, gettimeofday or
   // equivalent plus allowed duration in microseconds. The best way is to use
   // env->NowMicros() + some timeout.
@@ -1356,6 +1357,12 @@ struct ReadOptions {
   // checking for deadline periodically rather than for every key if
   // processing a batch
   std::chrono::microseconds deadline;
+
+  // A timeout in microseconds to be passed to the underlying FileSystem for
+  // reads. As opposed to deadline, this determines the timeout for each
+  // individual file read request. If a MultiGet/Get/Seek/Next etc call
+  // results in multiple reads, each read can last upto io_timeout us.
+  std::chrono::microseconds io_timeout;
 
   // It limits the maximum cumulative value size of the keys in batch while
   // reading through MultiGet. Once the cumulative value size exceeds this
