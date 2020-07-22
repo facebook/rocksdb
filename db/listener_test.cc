@@ -1052,9 +1052,7 @@ class TestFileOperationListener : public EventListener {
 
  private:
   void ReportDuration(const FileOperationInfo& info) const {
-    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        info.finish_timestamp - info.start_timestamp);
-    ASSERT_GT(duration.count(), 0);
+    ASSERT_GT(info.duration.count(), 0);
   }
 };
 

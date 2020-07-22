@@ -141,15 +141,15 @@ IOStatus WritableFileWriter::Close() {
   if (use_direct_io()) {
     {
 #ifndef ROCKSDB_LITE
-      FileOperationInfo::TimePoint start_ts;
+      FileOperationInfo::StartTimePoint start_ts;
       if (ShouldNotifyListeners()) {
-        start_ts = std::chrono::system_clock::now();
+        start_ts = FileOperationInfo::StartNow();
       }
 #endif
       interim = writable_file_->Truncate(filesize_, IOOptions(), nullptr);
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
-        auto finish_ts = std::chrono::system_clock::now();
+        auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileTruncateFinish(start_ts, finish_ts, s);
       }
 #endif
@@ -157,15 +157,15 @@ IOStatus WritableFileWriter::Close() {
     if (interim.ok()) {
       {
 #ifndef ROCKSDB_LITE
-        FileOperationInfo::TimePoint start_ts;
+        FileOperationInfo::StartTimePoint start_ts;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::now();
+          start_ts = FileOperationInfo::StartNow();
         }
 #endif
         interim = writable_file_->Fsync(IOOptions(), nullptr);
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
-          auto finish_ts = std::chrono::system_clock::now();
+          auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileSyncFinish(start_ts, finish_ts, s,
                                  FileOperationType::kFsync);
         }
@@ -180,15 +180,15 @@ IOStatus WritableFileWriter::Close() {
   TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
   {
 #ifndef ROCKSDB_LITE
-    FileOperationInfo::TimePoint start_ts;
+    FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
-      start_ts = std::chrono::system_clock::now();
+      start_ts = FileOperationInfo::StartNow();
     }
 #endif
     interim = writable_file_->Close(IOOptions(), nullptr);
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
-      auto finish_ts = std::chrono::system_clock::now();
+      auto finish_ts = FileOperationInfo::FinishNow();
       NotifyOnFileCloseFinish(start_ts, finish_ts, s);
     }
 #endif
@@ -232,15 +232,15 @@ IOStatus WritableFileWriter::Flush() {
 
   {
 #ifndef ROCKSDB_LITE
-    FileOperationInfo::TimePoint start_ts;
+    FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
-      start_ts = std::chrono::system_clock::now();
+      start_ts = FileOperationInfo::StartNow();
     }
 #endif
     s = writable_file_->Flush(IOOptions(), nullptr);
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
-      auto finish_ts = std::chrono::system_clock::now();
+      auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileFlushFinish(start_ts, finish_ts, s);
     }
 #endif
@@ -333,9 +333,9 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   auto prev_perf_level = GetPerfLevel();
   IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
 #ifndef ROCKSDB_LITE
-  FileOperationInfo::TimePoint start_ts;
+  FileOperationInfo::StartTimePoint start_ts;
   if (ShouldNotifyListeners()) {
-    start_ts = std::chrono::system_clock::now();
+    start_ts = FileOperationInfo::StartNow();
   }
 #endif
   if (use_fsync) {
@@ -345,7 +345,7 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   }
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
-    auto finish_ts = std::chrono::system_clock::now();
+    auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileSyncFinish(
         start_ts, finish_ts, s,
         use_fsync ? FileOperationType::kFsync : FileOperationType::kSync);
@@ -359,15 +359,15 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   IOSTATS_TIMER_GUARD(range_sync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
 #ifndef ROCKSDB_LITE
-  FileOperationInfo::TimePoint start_ts;
+  FileOperationInfo::StartTimePoint start_ts;
   if (ShouldNotifyListeners()) {
-    start_ts = std::chrono::system_clock::now();
+    start_ts = FileOperationInfo::StartNow();
   }
 #endif
   IOStatus s = writable_file_->RangeSync(offset, nbytes, IOOptions(), nullptr);
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
-    auto finish_ts = std::chrono::system_clock::now();
+    auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
   }
 #endif
@@ -397,10 +397,10 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
 
 #ifndef ROCKSDB_LITE
-      FileOperationInfo::TimePoint start_ts;
+      FileOperationInfo::StartTimePoint start_ts;
       uint64_t old_size = writable_file_->GetFileSize(IOOptions(), nullptr);
       if (ShouldNotifyListeners()) {
-        start_ts = std::chrono::system_clock::now();
+        start_ts = FileOperationInfo::StartNow();
         old_size = next_write_offset_;
       }
 #endif
@@ -412,7 +412,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       }
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
-        auto finish_ts = std::chrono::system_clock::now();
+        auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(old_size, allowed, start_ts, finish_ts, s);
       }
 #endif
@@ -482,15 +482,15 @@ IOStatus WritableFileWriter::WriteDirect() {
     {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
-      FileOperationInfo::TimePoint start_ts;
+      FileOperationInfo::StartTimePoint start_ts;
       if (ShouldNotifyListeners()) {
-        start_ts = std::chrono::system_clock::now();
+        start_ts = FileOperationInfo::StartNow();
       }
       // direct writes must be positional
       s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
                                            IOOptions(), nullptr);
       if (ShouldNotifyListeners()) {
-        auto finish_ts = std::chrono::system_clock::now();
+        auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);
       }
       if (!s.ok()) {
