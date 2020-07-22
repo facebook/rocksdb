@@ -26,6 +26,17 @@ class HistogramImpl;
 
 using AlignedBuf = std::unique_ptr<char[]>;
 
+// Align the request r according to alignment and return the aligned result.
+FSReadRequest Align(const FSReadRequest& r, size_t alignment);
+
+// Try to merge src to dest if they have overlap.
+//
+// Each request represents an inclusive interval [offset, offset + len].
+// If the intervals have overlap, update offset and len to represent the
+// merged interval, and return true.
+// Otherwise, do nothing and return false.
+bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
+
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:
 // - Handling Buffered and Direct reads appropriately.

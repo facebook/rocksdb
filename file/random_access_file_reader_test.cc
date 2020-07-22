@@ -5,6 +5,8 @@
 
 #include "file/random_access_file_reader.h"
 
+#include <algorithm>
+
 #include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -249,6 +251,138 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
 }
 
 #endif  // ROCKSDB_LITE
+
+TEST(FSReadRequest, Align) {
+  FSReadRequest r;
+  r.offset = 2000;
+  r.len = 2000;
+
+  FSReadRequest aligned_r = Align(r, 1024);
+  ASSERT_EQ(aligned_r.offset, 1024);
+  ASSERT_EQ(aligned_r.len, 3072);
+}
+
+TEST(FSReadRequest, TryMerge) {
+  // reverse means merging dest into src.
+  for (bool reverse : {true, false}) {
+    {
+      // dest: [ ]
+      //  src:      [ ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 15;
+      src.len = 10;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_FALSE(TryMerge(&dest, src));
+    }
+
+    {
+      // dest: [ ]
+      //  src:   [ ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 10;
+      src.len = 10;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 20);
+    }
+
+    {
+      // dest: [    ]
+      //  src:   [    ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 5;
+      src.len = 10;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 15);
+    }
+
+    {
+      // dest: [    ]
+      //  src:   [  ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 5;
+      src.len = 5;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+    }
+
+    {
+      // dest: [     ]
+      //  src:   [ ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 5;
+      src.len = 1;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+    }
+
+    {
+      // dest: [ ]
+      //  src: [ ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 0;
+      src.len = 10;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+    }
+
+    {
+      // dest: [   ]
+      //  src: [ ]
+      FSReadRequest dest;
+      dest.offset = 0;
+      dest.len = 10;
+
+      FSReadRequest src;
+      src.offset = 0;
+      src.len = 5;
+
+      if (reverse) std::swap(dest, src);
+      ASSERT_TRUE(TryMerge(&dest, src));
+      ASSERT_EQ(dest.offset, 0);
+      ASSERT_EQ(dest.len, 10);
+    }
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 
