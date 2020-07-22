@@ -3687,6 +3687,7 @@ void VersionSet::Reset() {
   manifest_file_size_ = 0;
   obsolete_files_.clear();
   obsolete_manifests_.clear();
+  wals_.Reset();
 }
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,

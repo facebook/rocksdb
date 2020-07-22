@@ -1177,6 +1177,8 @@ class VersionSet {
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
 
+  const WalSet& GetWalSet() const { return wals_; }
+
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
 
@@ -1262,6 +1264,8 @@ class VersionSet {
 
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
+
+  WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Env* const env_;
