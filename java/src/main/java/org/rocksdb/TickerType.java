@@ -732,6 +732,18 @@ public enum TickerType {
      */
     FILES_DELETED_IMMEDIATELY((byte) -0x0f),
 
+    /**
+     * Compaction read and write statistics broken down by CompactionReason
+     */
+    COMPACT_READ_BYTES_DELETE_TRIGGERED((byte) -0x10),
+    COMPACT_READ_BYTES_PERIODIC((byte) -0x11),
+    COMPACT_READ_BYTES_TTL((byte) -0x12),
+    COMPACT_WRITE_BYTES_DELETE_TRIGGERED((byte) -0x13),
+    COMPACT_WRITE_BYTES_PERIODIC((byte) -0x14),
+    COMPACT_WRITE_BYTES_TTL((byte) -0x15),
+
+
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
