@@ -105,7 +105,7 @@ std::string WalDeletion::DebugString() const {
 }
 
 void WalSet::AddWal(const WalAddition& wal) {
-  wals_.emplace(wal.GetLogNumber(), wal.GetMetadata());
+  wals_[wal.GetLogNumber()] = wal.GetMetadata();
 }
 
 void WalSet::AddWals(const WalAdditions& wals) {
