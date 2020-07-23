@@ -5279,6 +5279,108 @@ TEST_P(DBCompactionTestWithParam,
   }
 }
 
+TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  bool has_compaction = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 10);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 10);
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+
+  has_compaction = false;
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_subcompactions", "2"}}));
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 2);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+}
+
+TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  bool has_compaction = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 10);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+  has_compaction = false;
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_subcompactions", "2"}}));
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 2);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+}
+
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -56,7 +56,8 @@ class CompactionPicker {
   // describes the compaction.  Caller should delete the result.
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer,
       SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) = 0;
 
   // Return a compaction object for compacting the range [begin,end] in
@@ -72,7 +73,8 @@ class CompactionPicker {
   // *compaction_end should point to valid InternalKey!
   virtual Compaction* CompactRange(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, int input_level, int output_level,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      int input_level, int output_level,
       const CompactRangeOptions& compact_range_options,
       const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end, bool* manual_conflict,
@@ -113,6 +115,7 @@ class CompactionPicker {
                            const std::vector<CompactionInputFiles>& input_files,
                            int output_level, VersionStorageInfo* vstorage,
                            const MutableCFOptions& mutable_cf_options,
+                           const MutableDBOptions& mutable_db_options,
                            uint32_t output_path_id);
 
   // Converts a set of compaction input file numbers into
@@ -250,6 +253,7 @@ class NullCompactionPicker : public CompactionPicker {
   Compaction* PickCompaction(
       const std::string& /*cf_name*/,
       const MutableCFOptions& /*mutable_cf_options*/,
+      const MutableDBOptions& /*mutable_db_options*/,
       VersionStorageInfo* /*vstorage*/, LogBuffer* /* log_buffer */,
       SequenceNumber /* earliest_memtable_seqno */) override {
     return nullptr;
@@ -258,6 +262,7 @@ class NullCompactionPicker : public CompactionPicker {
   // Always return "nullptr"
   Compaction* CompactRange(const std::string& /*cf_name*/,
                            const MutableCFOptions& /*mutable_cf_options*/,
+                           const MutableDBOptions& /*mutable_db_options*/,
                            VersionStorageInfo* /*vstorage*/,
                            int /*input_level*/, int /*output_level*/,
                            const CompactRangeOptions& /*compact_range_options*/,

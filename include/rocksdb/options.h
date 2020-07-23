@@ -558,6 +558,8 @@ struct DBOptions {
   // concurrently perform a compaction job by breaking it into multiple,
   // smaller ones that are run simultaneously.
   // Default: 1 (i.e. no subcompactions)
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint32_t max_subcompactions = 1;
 
   // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the

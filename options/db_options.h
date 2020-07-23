@@ -34,7 +34,6 @@ struct ImmutableDBOptions {
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
   std::string wal_dir;
-  uint32_t max_subcompactions;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
   size_t keep_log_file_num;
@@ -102,6 +101,7 @@ struct MutableDBOptions {
   int max_background_jobs;
   int base_background_compactions;
   int max_background_compactions;
+  uint32_t max_subcompactions;
   bool avoid_flush_during_shutdown;
   size_t writable_file_max_buffer_size;
   uint64_t delayed_write_rate;
