@@ -3304,6 +3304,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
       continue;
     }
     options.env = env.get();
+    options.disable_auto_compactions = true;
     Cache* block_cache = nullptr;
     env_->SetTimeElapseOnlySleep(&options);
     // DB open will create table readers unless we reduce the table cache
