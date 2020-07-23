@@ -557,7 +557,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   std::string key_str = key.ToString();
   PointLockStatus status = tracked_locks_->GetPointLockStatus(cfh_id, key_str);
   bool previously_locked = status.locked;
-  bool lock_upgrade = exclusive && !status.exclusive;
+  bool lock_upgrade = previously_locked && exclusive && !status.exclusive;
 
   // Lock this key if this transactions hasn't already locked it or we require
   // an upgrade.
@@ -604,15 +604,13 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
       if (!s.ok()) {
         // Failed to validate key
-        if (!previously_locked) {
-          // Unlock key we just locked
-          if (lock_upgrade) {
-            s = txn_db_impl_->TryLock(this, cfh_id, key_str,
-                                      false /* exclusive */);
-            assert(s.ok());
-          } else {
-            txn_db_impl_->UnLock(this, cfh_id, key.ToString());
-          }
+        // Unlock key we just locked
+        if (lock_upgrade) {
+          s = txn_db_impl_->TryLock(this, cfh_id, key_str,
+                                    false /* exclusive */);
+          assert(s.ok());
+        } else if (!previously_locked) {
+          txn_db_impl_->UnLock(this, cfh_id, key.ToString());
         }
       }
     }
