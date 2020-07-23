@@ -194,7 +194,9 @@ Status DBImpl::FlushMemTableToOutputFile(
   } else {
     flush_job.Cancel();
   }
-  io_s = flush_job.io_status();
+  if (io_s.ok()) {
+    io_s = flush_job.io_status();
+  }
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWork(cfd, superversion_context,
@@ -1019,7 +1021,7 @@ Status DBImpl::CompactFilesImpl(
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
-      *cfd->GetLatestMutableCFOptions(), output_path_id));
+      *cfd->GetLatestMutableCFOptions(), mutable_db_options_, output_path_id));
   // we already sanitized the set of input files and checked for conflicts
   // without releasing the lock, so we're guaranteed a compaction can be formed.
   assert(c != nullptr);
@@ -1107,7 +1109,12 @@ Status DBImpl::CompactFilesImpl(
                    "[%s] [JOB %d] Compaction error: %s",
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id, status.ToString().c_str());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    IOStatus io_s = compaction_job.io_status();
+    if (!io_s.ok()) {
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
+    } else {
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+    }
   }
 
   if (output_file_names != nullptr) {
@@ -1529,9 +1536,9 @@ Status DBImpl::RunManualCompaction(
         scheduled ||
         (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
          ((compaction = manual.cfd->CompactRange(
-               *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-               manual.output_level, compact_range_options, manual.begin,
-               manual.end, &manual.manual_end, &manual_conflict,
+               *manual.cfd->GetLatestMutableCFOptions(), mutable_db_options_,
+               manual.input_level, manual.output_level, compact_range_options,
+               manual.begin, manual.end, &manual.manual_end, &manual_conflict,
                max_file_num_to_ignore)) == nullptr &&
           manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
@@ -2635,7 +2642,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // compaction is not necessary. Need to make sure mutex is held
       // until we make a copy in the following code
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
-      c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
+      c.reset(cfd->PickCompaction(*mutable_cf_options, mutable_db_options_,
+                                  log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
 
       if (c != nullptr) {

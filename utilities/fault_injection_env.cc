@@ -11,10 +11,12 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
-#include "test_util/fault_injection_test_env.h"
+#include "utilities/fault_injection_env.h"
+
 #include <functional>
 #include <utility>
 
+#include "util/random.h"
 namespace ROCKSDB_NAMESPACE {
 
 // Assume a filename, and not a directory name like "/foo/bar/"

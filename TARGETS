@@ -194,6 +194,7 @@ cpp_library(
         "env/env_hdfs.cc",
         "env/env_posix.cc",
         "env/file_system.cc",
+        "env/file_system_tracer.cc",
         "env/fs_posix.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
@@ -334,6 +335,8 @@ cpp_library(
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
+        "utilities/fault_injection_env.cc",
+        "utilities/fault_injection_fs.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/memory/memory_util.cc",
         "utilities/merge_operators/bytesxor.cc",
@@ -387,8 +390,6 @@ cpp_library(
     srcs = [
         "db/db_test_util.cc",
         "table/mock_table.cc",
-        "test_util/fault_injection_test_env.cc",
-        "test_util/fault_injection_test_fs.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
@@ -451,24 +452,26 @@ cpp_library(
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
-cpp_binary(
-    name = "c_test_bin",
-    srcs = ["db/c_test.c"],
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [":rocksdb_test_lib"],
-)
+if not is_opt_mode:
+    cpp_binary(
+        name = "c_test_bin",
+        srcs = ["db/c_test.c"],
+        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        compiler_flags = ROCKSDB_COMPILER_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        deps = [":rocksdb_test_lib"],
+    )
 
-custom_unittest(
-    "c_test",
-    command = [
-        native.package_name() + "/buckifier/rocks_test_runner.sh",
-        "$(location :{})".format("c_test_bin"),
-    ],
-    type = "simple",
-)
+if not is_opt_mode:
+    custom_unittest(
+        "c_test",
+        command = [
+            native.package_name() + "/buckifier/rocks_test_runner.sh",
+            "$(location :{})".format("c_test_bin"),
+        ],
+        type = "simple",
+    )
 
 cpp_library(
     name = "env_basic_test_lib",
@@ -649,7 +652,7 @@ ROCKS_TESTS = [
     [
         "column_family_test",
         "db/column_family_test.cc",
-        "serial",
+        "parallel",
         [],
         [],
     ],
@@ -943,7 +946,7 @@ ROCKS_TESTS = [
     [
         "db_test2",
         "db/db_test2.cc",
-        "serial",
+        "parallel",
         [],
         [],
     ],

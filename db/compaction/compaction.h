@@ -71,6 +71,7 @@ class Compaction {
   Compaction(VersionStorageInfo* input_version,
              const ImmutableCFOptions& immutable_cf_options,
              const MutableCFOptions& mutable_cf_options,
+             const MutableDBOptions& mutable_db_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,

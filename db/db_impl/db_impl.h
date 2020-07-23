@@ -852,8 +852,8 @@ class DBImpl : public DB {
   InstrumentedMutex* mutex() const { return &mutex_; }
 
   // Initialize a brand new DB. The DB directory is expected to be empty before
-  // calling it.
-  Status NewDB();
+  // calling it. Push new manifest file name into `new_filenames`.
+  Status NewDB(std::vector<std::string>* new_filenames);
 
   // This is to be used only by internal rocksdb classes.
   static Status Open(const DBOptions& db_options, const std::string& name,
@@ -1710,8 +1710,8 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  Status CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
-                   size_t preallocate_block_size, log::Writer** new_log);
+  IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
+                     size_t preallocate_block_size, log::Writer** new_log);
 
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);

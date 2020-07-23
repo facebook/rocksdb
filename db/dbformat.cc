@@ -26,12 +26,6 @@ namespace ROCKSDB_NAMESPACE {
 const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 
-uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
-  assert(seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(t));
-  return (seq << 8) | t;
-}
-
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
     case kTypeValue:
@@ -60,14 +54,6 @@ bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
   fkey->sequence = ikey.sequence;
   fkey->type = GetEntryType(ikey.type);
   return true;
-}
-
-void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
-  *seq = packed >> 8;
-  *t = static_cast<ValueType>(packed & 0xff);
-
-  assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
@@ -111,7 +97,12 @@ std::string InternalKey::DebugString(bool hex) const {
   return result;
 }
 
-const char* InternalKeyComparator::Name() const { return name_.c_str(); }
+const char* InternalKeyComparator::Name() const {
+  if (name_.empty()) {
+    return "rocksdb.anonymous.InternalKeyComparator";
+  }
+  return name_.c_str();
+}
 
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,
                                    const ParsedInternalKey& b) const {

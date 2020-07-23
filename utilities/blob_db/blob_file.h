@@ -86,7 +86,7 @@ class BlobFile {
   SequenceNumber obsolete_sequence_{0};
 
   // Sequential/Append writer for blobs
-  std::shared_ptr<Writer> log_writer_;
+  std::shared_ptr<BlobLogWriter> log_writer_;
 
   // random access file reader for GET calls
   std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
@@ -97,9 +97,6 @@ class BlobFile {
 
   // time when the random access reader was last created.
   std::atomic<std::int64_t> last_access_{-1};
-
-  // last time file was fsync'd/fdatasyncd
-  std::atomic<uint64_t> last_fsync_{0};
 
   bool header_valid_{false};
 
@@ -184,9 +181,6 @@ class BlobFile {
     return obsolete_sequence_;
   }
 
-  // we will assume this is atomic
-  bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
-
   Status Fsync();
 
   uint64_t GetFileSize() const {
@@ -208,7 +202,7 @@ class BlobFile {
 
   CompressionType GetCompressionType() const { return compression_; }
 
-  std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
+  std::shared_ptr<BlobLogWriter> GetWriter() const { return log_writer_; }
 
   // Read blob file header and footer. Return corruption if file header is
   // malform or incomplete. If footer is malform or incomplete, set
@@ -220,7 +214,7 @@ class BlobFile {
                    bool* fresh_open);
 
  private:
-  std::shared_ptr<Reader> OpenRandomAccessReader(
+  std::shared_ptr<BlobLogReader> OpenRandomAccessReader(
       Env* env, const DBOptions& db_options,
       const EnvOptions& env_options) const;
 

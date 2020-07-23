@@ -78,7 +78,8 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
-  env/fs_posix.cc                                         	  \
+  env/fs_posix.cc                                               \
+  env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -214,6 +215,8 @@ LIB_SOURCES =                                                   \
   utilities/debug.cc                                            \
   utilities/env_mirror.cc                                       \
   utilities/env_timed.cc                                        \
+  utilities/fault_injection_env.cc                              \
+  utilities/fault_injection_fs.cc                               \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/max.cc                              \
@@ -279,8 +282,6 @@ ANALYZER_LIB_SOURCES =                                          \
 
 MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
-  test_util/fault_injection_test_fs.cc                          \
-  test_util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \

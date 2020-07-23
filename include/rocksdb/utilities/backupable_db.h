@@ -34,12 +34,17 @@ constexpr char kBackupFileChecksumFuncName[] = "crc32c";
 // directory (i.e., both share_table_files and share_files_with_checksum
 // are true).
 enum BackupTableNameOption : unsigned char {
-  // Backup SST filenames consist of file_number, crc32c, db_session_id
+  // Backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
+  // where <crc32c> is uint32_t.
   kChecksumAndFileSize = 0,
-  // Backup SST filenames consist of file_number, crc32c, file_size
-  // When there is no `db_session_id` available in the table file, we use
-  // `file_size` as a fallback.
-  kChecksumAndDbSessionId = 1
+  // Backup SST filenames are <file_number>_<crc32c>_<db_session_id>.sst
+  // where <crc32c> is hexidecimally encoded.
+  // When DBOptions::file_checksum_gen_factory is not set to
+  // GetFileChecksumGenCrc32cFactory(), the filenames will be
+  // <file_number>_<db_session_id>.sst
+  // When there are no db session ids available in the table file, this
+  // option will use kChecksumAndFileSize as a fallback.
+  kOptionalChecksumAndDbSessionId = 1
 };
 
 struct BackupableDBOptions {
@@ -111,9 +116,10 @@ struct BackupableDBOptions {
   // (file name, crc32c, db session id or file length)
   //
   // Note: If this option is set to true, we recommend setting
-  // share_files_with_checksum_naming to kChecksumAndDbSessionId, which is also
-  // our default option. Otherwise, there is a non-negligible chance of filename
-  // collision when sharing tables in shared_checksum among several DBs.
+  // share_files_with_checksum_naming to kOptionalChecksumAndDbSessionId, which
+  // is also our default option. Otherwise, there is a non-negligible chance of
+  // filename collision when sharing tables in shared_checksum among several
+  // DBs.
   // *turn it on only if you know what you're doing*
   //
   // Default: false
@@ -141,17 +147,17 @@ struct BackupableDBOptions {
   int max_valid_backups_to_open;
 
   // Naming option for share_files_with_checksum table files. This option
-  // can be set to kChecksumAndFileSize or kChecksumAndDbSessionId.
+  // can be set to kChecksumAndFileSize or kOptionalChecksumAndDbSessionId.
   // kChecksumAndFileSize is susceptible to collision as file size is not a
   // good source of entroy.
-  // kChecksumAndDbSessionId is immune to collision.
+  // kOptionalChecksumAndDbSessionId is immune to collision.
   //
   // Modifying this option cannot introduce a downgrade compatibility issue
   // because RocksDB can read, restore, and delete backups using different file
   // names, and it's OK for a backup directory to use a mixture of table file
   // naming schemes.
   //
-  // Default: kChecksumAndDbSessionId
+  // Default: kOptionalChecksumAndDbSessionId
   //
   // Note: This option comes into effect only if both share_files_with_checksum
   // and share_table_files are true. In the cases of old table files where no
@@ -170,7 +176,7 @@ struct BackupableDBOptions {
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
       BackupTableNameOption _share_files_with_checksum_naming =
-          kChecksumAndDbSessionId)
+          kOptionalChecksumAndDbSessionId)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),

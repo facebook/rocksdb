@@ -15,6 +15,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
 #include "util/cast_util.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
@@ -464,7 +465,7 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
-  txn_options.lock_timeout = 60000; // 1min
+  txn_options.lock_timeout = 60000;  // 1min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
@@ -651,6 +652,10 @@ void StressTest::OperateDb(ThreadState* thread) {
         if (!status.ok()) {
           VerificationAbort(shared, "VerifyChecksum status not OK", status);
         }
+      }
+
+      if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
+        TestGetProperty(thread);
       }
 #endif
 
@@ -1341,7 +1346,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   if (db_stress_env->FileExists(checkpoint_dir).ok()) {
     // If the directory might still exist, try to delete the files one by one.
     // Likely a trash file is still there.
-    Status my_s = test::DestroyDir(db_stress_env, checkpoint_dir);
+    Status my_s = DestroyDir(db_stress_env, checkpoint_dir);
     if (!my_s.ok()) {
       fprintf(stderr, "Fail to destory directory before checkpoint: %s",
               my_s.ToString().c_str());
@@ -1425,6 +1430,63 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     DestroyDB(checkpoint_dir, tmp_opts);
   }
   return s;
+}
+
+void StressTest::TestGetProperty(ThreadState* thread) const {
+  std::unordered_set<std::string> levelPropertyNames = {
+      DB::Properties::kAggregatedTablePropertiesAtLevel,
+      DB::Properties::kCompressionRatioAtLevelPrefix,
+      DB::Properties::kNumFilesAtLevelPrefix,
+  };
+  std::unordered_set<std::string> unknownPropertyNames = {
+      DB::Properties::kEstimateOldestKeyTime,
+      DB::Properties::kOptionsStatistics,
+  };
+  unknownPropertyNames.insert(levelPropertyNames.begin(),
+                              levelPropertyNames.end());
+
+  std::string prop;
+  for (const auto& ppt_name_and_info : InternalStats::ppt_name_to_info) {
+    bool res = db_->GetProperty(ppt_name_and_info.first, &prop);
+    if (unknownPropertyNames.find(ppt_name_and_info.first) ==
+        unknownPropertyNames.end()) {
+      if (!res) {
+        fprintf(stderr, "Failed to get DB property: %s\n",
+                ppt_name_and_info.first.c_str());
+        thread->shared->SetVerificationFailure();
+      }
+      if (ppt_name_and_info.second.handle_int != nullptr) {
+        uint64_t prop_int;
+        if (!db_->GetIntProperty(ppt_name_and_info.first, &prop_int)) {
+          fprintf(stderr, "Failed to get Int property: %s\n",
+                  ppt_name_and_info.first.c_str());
+          thread->shared->SetVerificationFailure();
+        }
+      }
+    }
+  }
+
+  ROCKSDB_NAMESPACE::ColumnFamilyMetaData cf_meta_data;
+  db_->GetColumnFamilyMetaData(&cf_meta_data);
+  int level_size = static_cast<int>(cf_meta_data.levels.size());
+  for (int level = 0; level < level_size; level++) {
+    for (const auto& ppt_name : levelPropertyNames) {
+      bool res = db_->GetProperty(ppt_name + std::to_string(level), &prop);
+      if (!res) {
+        fprintf(stderr, "Failed to get DB property: %s\n",
+                (ppt_name + std::to_string(level)).c_str());
+        thread->shared->SetVerificationFailure();
+      }
+    }
+  }
+
+  // Test for an invalid property name
+  if (thread->rand.OneIn(100)) {
+    if (db_->GetProperty("rocksdb.invalid_property_name", &prop)) {
+      fprintf(stderr, "Failed to return false for invalid property name\n");
+      thread->shared->SetVerificationFailure();
+    }
+  }
 }
 
 void StressTest::TestCompactFiles(ThreadState* thread,

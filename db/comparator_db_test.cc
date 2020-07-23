@@ -13,6 +13,7 @@
 #include "test_util/testutil.h"
 #include "util/hash.h"
 #include "util/kv_map.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -342,12 +343,12 @@ TEST_P(ComparatorDBTest, SimpleSuffixReverseComparator) {
     std::vector<std::string> source_prefixes;
     // Randomly generate 5 prefixes
     for (int i = 0; i < 5; i++) {
-      source_prefixes.push_back(test::RandomHumanReadableString(&rnd, 8));
+      source_prefixes.push_back(rnd.HumanReadableString(8));
     }
     for (int j = 0; j < 20; j++) {
       int prefix_index = rnd.Uniform(static_cast<int>(source_prefixes.size()));
       std::string key = source_prefixes[prefix_index] +
-                        test::RandomHumanReadableString(&rnd, rnd.Uniform(8));
+                        rnd.HumanReadableString(rnd.Uniform(8));
       source_strings.push_back(key);
     }
 

@@ -21,45 +21,49 @@ struct IOTraceRecord {
   uint64_t access_timestamp = 0;
   TraceType trace_type = TraceType::kTraceMax;
   std::string file_operation;
+  uint64_t latency = 0;
   std::string io_status;
   // Required fields for read.
   std::string file_name;
-  uint64_t offset = 0;
   size_t len = 0;
+  uint64_t offset = 0;
   uint64_t file_size = 0;
 
   IOTraceRecord() {}
 
   IOTraceRecord(const uint64_t& _access_timestamp, const TraceType& _trace_type,
-                const std::string& _file_operation,
+                const std::string& _file_operation, const uint64_t& _latency,
                 const std::string& _io_status, const std::string& _file_name)
       : access_timestamp(_access_timestamp),
         trace_type(_trace_type),
         file_operation(_file_operation),
+        latency(_latency),
         io_status(_io_status),
         file_name(_file_name) {}
 
   IOTraceRecord(const uint64_t& _access_timestamp, const TraceType& _trace_type,
-                const std::string& _file_operation,
+                const std::string& _file_operation, const uint64_t& _latency,
                 const std::string& _io_status, const std::string& _file_name,
                 const uint64_t& _file_size)
       : access_timestamp(_access_timestamp),
         trace_type(_trace_type),
         file_operation(_file_operation),
+        latency(_latency),
         io_status(_io_status),
         file_name(_file_name),
         file_size(_file_size) {}
 
   IOTraceRecord(const uint64_t& _access_timestamp, const TraceType& _trace_type,
-                const std::string& _file_operation,
-                const std::string& _io_status, const uint64_t& _offset = 0,
-                const uint64_t& _len = 0)
+                const std::string& _file_operation, const uint64_t& _latency,
+                const std::string& _io_status, const uint64_t& _len = 0,
+                const uint64_t& _offset = 0)
       : access_timestamp(_access_timestamp),
         trace_type(_trace_type),
         file_operation(_file_operation),
+        latency(_latency),
         io_status(_io_status),
-        offset(_offset),
-        len(_len) {}
+        len(_len),
+        offset(_offset) {}
 };
 
 struct IOTraceHeader {

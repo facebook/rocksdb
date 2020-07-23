@@ -15,6 +15,7 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBTestDynamicLevel : public DBTestBase {
@@ -80,9 +81,9 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
 
       for (int i = 0; i < kNKeys; i++) {
         int key = keys[i];
-        ASSERT_OK(Put(Key(kNKeys + key), RandomString(&rnd, 102)));
-        ASSERT_OK(Put(Key(key), RandomString(&rnd, 102)));
-        ASSERT_OK(Put(Key(kNKeys * 2 + key), RandomString(&rnd, 102)));
+        ASSERT_OK(Put(Key(kNKeys + key), rnd.RandomString(102)));
+        ASSERT_OK(Put(Key(key), rnd.RandomString(102)));
+        ASSERT_OK(Put(Key(kNKeys * 2 + key), rnd.RandomString(102)));
         ASSERT_OK(Delete(Key(kNKeys + keys[i / 10])));
         env_->SleepForMicroseconds(5000);
       }
@@ -158,7 +159,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   // Put about 28K to L0
   for (int i = 0; i < 70; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 380)));
+                  rnd.RandomString(380)));
   }
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "false"},
@@ -175,7 +176,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   }));
   for (int i = 0; i < 70; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 380)));
+                  rnd.RandomString(380)));
   }
 
   ASSERT_OK(dbfull()->SetOptions({
@@ -197,7 +198,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   // Write about 40K more
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 380)));
+                  rnd.RandomString(380)));
   }
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "false"},
@@ -216,7 +217,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   // Each file is about 11KB, with 9KB of data.
   for (int i = 0; i < 1300; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 380)));
+                  rnd.RandomString(380)));
   }
 
   // Make sure that the compaction starts before the last bit of data is
@@ -257,7 +258,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:1");
   for (int i = 0; i < 2; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 380)));
+                  rnd.RandomString(380)));
   }
   TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:2");
 
@@ -310,15 +311,15 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesCompactRange) {
 
   // Put about 7K to L0
   for (int i = 0; i < 140; i++) {
-    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 80)));
+    ASSERT_OK(
+        Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))), rnd.RandomString(80)));
   }
   Flush();
   dbfull()->TEST_WaitForCompact();
   if (NumTableFilesAtLevel(0) == 0) {
     // Make sure level 0 is not empty
-    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
-                  RandomString(&rnd, 80)));
+    ASSERT_OK(
+        Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))), rnd.RandomString(80)));
     Flush();
   }
 
@@ -382,7 +383,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   const int total_keys = 3000;
   const int random_part_size = 100;
   for (int i = 0; i < total_keys; i++) {
-    std::string value = RandomString(&rnd, random_part_size);
+    std::string value = rnd.RandomString(random_part_size);
     PutFixed32(&value, static_cast<uint32_t>(i));
     ASSERT_OK(Put(Key(i), value));
   }
@@ -441,8 +442,8 @@ TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
 
   int total_keys = 1000;
   for (int i = 0; i < total_keys; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
-    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), rnd.RandomString(102)));
     ASSERT_OK(Delete(Key(i / 10)));
   }
   verify_func(total_keys, false);
@@ -475,8 +476,8 @@ TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
 
   int total_keys2 = 2000;
   for (int i = total_keys; i < total_keys2; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
-    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), rnd.RandomString(102)));
     ASSERT_OK(Delete(Key(i / 10)));
   }
 

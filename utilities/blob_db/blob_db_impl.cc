@@ -742,11 +742,11 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
                     boffset);
   }
 
-  Writer::ElemType et = Writer::kEtNone;
+  BlobLogWriter::ElemType et = BlobLogWriter::kEtNone;
   if (bfile->file_size_ == BlobLogHeader::kSize) {
-    et = Writer::kEtFileHdr;
+    et = BlobLogWriter::kEtFileHdr;
   } else if (bfile->file_size_ > BlobLogHeader::kSize) {
-    et = Writer::kEtRecord;
+    et = BlobLogWriter::kEtRecord;
   } else if (bfile->file_size_) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Open blob file: %s with wrong size: %" PRIu64,
@@ -754,9 +754,9 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
     return Status::Corruption("Invalid blob file size");
   }
 
-  bfile->log_writer_ = std::make_shared<Writer>(
+  bfile->log_writer_ = std::make_shared<BlobLogWriter>(
       std::move(fwriter), env_, statistics_, bfile->file_number_,
-      bdb_options_.bytes_per_sync, db_options_.use_fsync, boffset);
+      db_options_.use_fsync, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
   return s;
@@ -798,7 +798,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::FindBlobFileLocked(
 
 Status BlobDBImpl::CheckOrCreateWriterLocked(
     const std::shared_ptr<BlobFile>& blob_file,
-    std::shared_ptr<Writer>* writer) {
+    std::shared_ptr<BlobLogWriter>* writer) {
   assert(writer != nullptr);
   *writer = blob_file->GetWriter();
   if (*writer != nullptr) {
@@ -814,7 +814,7 @@ Status BlobDBImpl::CheckOrCreateWriterLocked(
 Status BlobDBImpl::CreateBlobFileAndWriter(
     bool has_ttl, const ExpirationRange& expiration_range,
     const std::string& reason, std::shared_ptr<BlobFile>* blob_file,
-    std::shared_ptr<Writer>* writer) {
+    std::shared_ptr<BlobLogWriter>* writer) {
   TEST_SYNC_POINT("BlobDBImpl::CreateBlobFileAndWriter");
   assert(has_ttl == (expiration_range.first || expiration_range.second));
   assert(blob_file);
@@ -871,7 +871,7 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return Status::OK();
   }
 
-  std::shared_ptr<Writer> writer;
+  std::shared_ptr<BlobLogWriter> writer;
   const Status s = CreateBlobFileAndWriter(
       /* has_ttl */ false, ExpirationRange(),
       /* reason */ "SelectBlobFile", blob_file, &writer);
@@ -917,7 +917,7 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
   std::ostringstream oss;
   oss << "SelectBlobFileTTL range: [" << exp_low << ',' << exp_high << ')';
 
-  std::shared_ptr<Writer> writer;
+  std::shared_ptr<BlobLogWriter> writer;
   const Status s =
       CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
                               /* reason */ oss.str(), blob_file, &writer);
@@ -1070,7 +1070,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
     std::string headerbuf;
-    Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration);
+    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value_compressed,
+                                       expiration);
 
     // Check DB size limit before selecting blob file to
     // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
@@ -1147,25 +1148,26 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
 Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
                                    CompressionType compression_type,
                                    PinnableSlice* value_output) const {
-  if (compression_type != kNoCompression) {
-    BlockContents contents;
-    auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+  assert(compression_type != kNoCompression);
 
-    {
-      StopWatch decompression_sw(env_, statistics_,
-                                 BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(compression_type);
-      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                             compression_type);
-      Status s = UncompressBlockContentsForCompressionType(
-          info, compressed_value.data(), compressed_value.size(), &contents,
-          kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
-      if (!s.ok()) {
-        return Status::Corruption("Unable to decompress blob.");
-      }
+  BlockContents contents;
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+
+  {
+    StopWatch decompression_sw(env_, statistics_, BLOB_DB_DECOMPRESSION_MICROS);
+    UncompressionContext context(compression_type);
+    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                           compression_type);
+    Status s = UncompressBlockContentsForCompressionType(
+        info, compressed_value.data(), compressed_value.size(), &contents,
+        kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+    if (!s.ok()) {
+      return Status::Corruption("Unable to decompress blob.");
     }
-    value_output->PinSelf(contents.data);
   }
+
+  value_output->PinSelf(contents.data);
+
   return Status::OK();
 }
 
@@ -1342,7 +1344,7 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   uint64_t key_offset = 0;
   {
     WriteLock lockbfile_w(&bfile->mutex_);
-    std::shared_ptr<Writer> writer;
+    std::shared_ptr<BlobLogWriter> writer;
     s = CheckOrCreateWriterLocked(bfile, &writer);
     if (!s.ok()) {
       return s;

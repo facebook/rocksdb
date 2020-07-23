@@ -1212,8 +1212,9 @@ class FileSystemWrapper : public FileSystem {
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
-  explicit FSSequentialFileWrapper(FSSequentialFile* target)
-      : target_(target) {}
+  explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
+
+  FSSequentialFile* target() const { return target_; }
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override {
@@ -1239,8 +1240,9 @@ class FSSequentialFileWrapper : public FSSequentialFile {
 
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
-  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* target)
-      : target_(target) {}
+  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
+
+  FSRandomAccessFile* target() const { return target_; }
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -1274,6 +1276,8 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
 class FSWritableFileWrapper : public FSWritableFile {
  public:
   explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
+
+  FSWritableFile* target() const { return target_; }
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
@@ -1358,7 +1362,9 @@ class FSWritableFileWrapper : public FSWritableFile {
 
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
-  explicit FSRandomRWFileWrapper(FSRandomRWFile* target) : target_(target) {}
+  explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
+
+  FSRandomRWFile* target() const { return target_; }
 
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {
@@ -1392,7 +1398,7 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
 
 class FSDirectoryWrapper : public FSDirectory {
  public:
-  explicit FSDirectoryWrapper(FSDirectory* target) : target_(target) {}
+  explicit FSDirectoryWrapper(FSDirectory* t) : target_(t) {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);

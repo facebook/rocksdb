@@ -1122,8 +1122,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
   *metaindex_block = std::move(metaindex);
   // meta block uses bytewise comparator.
   iter->reset(metaindex_block->get()->NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
   return Status::OK();
 }
 
@@ -1382,10 +1381,10 @@ template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
     DataBlockIter* input_iter, bool block_contents_pinned) {
-  return block->NewDataIterator(
-      &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-      rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
-      block_contents_pinned);
+  return block->NewDataIterator(rep->internal_comparator.user_comparator(),
+                                rep->get_global_seqno(block_type), input_iter,
+                                rep->ioptions.statistics,
+                                block_contents_pinned);
 }
 
 template <>
@@ -1393,7 +1392,7 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
     IndexBlockIter* input_iter, bool block_contents_pinned) {
   return block->NewIndexIterator(
-      &rep->internal_comparator, rep->internal_comparator.user_comparator(),
+      rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
@@ -1940,7 +1939,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     return block->second.GetValue()->NewIndexIterator(
-        &rep->internal_comparator, rep->internal_comparator.user_comparator(),
+        rep->internal_comparator.user_comparator(),
         rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
         rep->index_has_first_key, rep->index_key_includes_seq,
         rep->index_value_is_full);

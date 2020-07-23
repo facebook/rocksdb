@@ -274,6 +274,7 @@ extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
 
+const std::string PlainTableFactory::kName = "PlainTable";
 const std::string PlainTablePropertyNames::kEncodingType =
     "rocksdb.plain.table.encoding.type";
 
