@@ -183,12 +183,6 @@ FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
   return req;
 }
 
-// Try to merge src to dest if they have overlap.
-//
-// Each request represents an inclusive interval [offset, offset + len].
-// If the intervals have overlap, update offset and len to represent the
-// merged interval, and return true.
-// Otherwise, do nothing and return false.
 bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   size_t dest_offset = static_cast<size_t>(dest->offset);
   size_t src_offset = static_cast<size_t>(src.offset);
@@ -234,6 +228,8 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
           aligned_reqs.push_back(r);
         }
       }
+      TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
+                               &aligned_reqs);
 
       // Allocate aligned buffer and let scratch buffers point to it.
       size_t total_len = 0;
