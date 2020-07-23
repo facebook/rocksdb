@@ -2127,6 +2127,57 @@ TEST_F(BlobDBTest, ShutdownWait) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(BlobDBTest, SyncBlobFileBeforeClose) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+
+  BlobDBOptions blob_options;
+  blob_options.min_blob_size = 0;
+  blob_options.bytes_per_sync = 1 << 20;
+  blob_options.disable_background_tasks = true;
+
+  Open(blob_options, options);
+
+  Put("foo", "bar");
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
+  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_SYNCED), 1);
+}
+
+TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+
+  BlobDBOptions blob_options;
+  blob_options.min_blob_size = 0;
+  blob_options.bytes_per_sync = 1 << 20;
+  blob_options.disable_background_tasks = true;
+
+  Open(blob_options, options);
+
+  Put("foo", "bar");
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobLogWriter::Sync", [this](void * /* arg */) {
+        fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = blob_db_impl()->TEST_CloseBlobFile(blob_files[0]);
+
+  fault_injection_env_->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(s.IsIOError());
+}
+
 }  //  namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 
