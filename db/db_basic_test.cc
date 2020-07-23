@@ -3295,6 +3295,9 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
   bool set_deadline = std::get<0>(GetParam());
   bool set_timeout = std::get<1>(GetParam());
 
+  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
+  // properly for the DB that's opened by the DBTestBase constructor.
+  Close();
   do {
     Options options = CurrentOptions();
     if (options.use_direct_reads) {
@@ -3356,7 +3359,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
       Iterator* iter = dbfull()->NewIterator(ro);
       int count = 0;
       iter->Seek("k50");
-      while (iter->Valid() && count++ < 100) {
+      while (iter->Valid() && iter->status().ok() && count++ < 100) {
         iter->Next();
       }
       if (fs->TimedOut()) {
