@@ -169,13 +169,15 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   Slice GetLargestUserKey() const override {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
-  bool allow_ingest_behind() const override { return false; }
+  bool allow_ingest_behind() const override { return is_allow_ingest_behind; }
 
   bool preserve_deletes() const override { return false; }
 
   bool key_not_exists_beyond_output_level = false;
 
   bool is_bottommost_level = false;
+
+  bool is_allow_ingest_behind = false;
 };
 
 // A simplifed snapshot checker which assumes each snapshot has a global
@@ -237,6 +239,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     if (filter || bottommost_level) {
       compaction_proxy_ = new FakeCompaction();
       compaction_proxy_->is_bottommost_level = bottommost_level;
+      compaction_proxy_->is_allow_ingest_behind = AllowIngestBehind();
       compaction.reset(compaction_proxy_);
     }
     bool use_snapshot_checker = UseSnapshotChecker() || GetParam();
@@ -265,6 +268,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   }
 
   virtual bool UseSnapshotChecker() const { return false; }
+
+  virtual bool AllowIngestBehind() const { return false; }
 
   void RunTest(
       const std::vector<std::string>& input_keys,
@@ -697,6 +702,18 @@ TEST_P(CompactionIteratorTest, RemoveSingleDeletionAtBottomLevel) {
           nullptr /*compaction_filter*/, true /*bottommost_level*/);
 }
 
+TEST_P(CompactionIteratorTest, ConvertToPutAtBottom) {
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendOperator();
+  RunTest({test::KeyStr("a", 4, kTypeMerge), test::KeyStr("a", 3, kTypeMerge),
+           test::KeyStr("a", 2, kTypeMerge), test::KeyStr("b", 1, kTypeValue)},
+          {"a4", "a3", "a2", "b1"},
+          {test::KeyStr("a", 0, kTypeValue), test::KeyStr("b", 0, kTypeValue)},
+          {"a2,a3,a4", "b1"}, kMaxSequenceNumber /*last_committed_seq*/,
+          merge_op.get(), nullptr /*compaction_filter*/,
+          true /*bottomost_level*/);
+}
+
 INSTANTIATE_TEST_CASE_P(CompactionIteratorTestInstance, CompactionIteratorTest,
                         testing::Values(true, false));
 
@@ -967,6 +984,45 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_FullMerge) {
       {"v3", ""}, 2 /*last_committed_seq*/, merge_op.get(),
       compaction_filter.get());
 }
+
+// Tests how CompactionIterator work together with AllowIngestBehind.
+class CompactionIteratorWithAllowIngestBehindTest
+    : public CompactionIteratorTest {
+ public:
+  bool AllowIngestBehind() const override { return true; }
+};
+
+// When allow_ingest_behind is set, compaction iterator is not targeting
+// the bottommost level since there is no guarantee there won't be further
+// data ingested under the compaction output in future.
+TEST_P(CompactionIteratorWithAllowIngestBehindTest, NoConvertToPutAtBottom) {
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendOperator();
+  RunTest({test::KeyStr("a", 4, kTypeMerge), test::KeyStr("a", 3, kTypeMerge),
+           test::KeyStr("a", 2, kTypeMerge), test::KeyStr("b", 1, kTypeValue)},
+          {"a4", "a3", "a2", "b1"},
+          {test::KeyStr("a", 4, kTypeMerge), test::KeyStr("b", 1, kTypeValue)},
+          {"a2,a3,a4", "b1"}, kMaxSequenceNumber /*last_committed_seq*/,
+          merge_op.get(), nullptr /*compaction_filter*/,
+          true /*bottomost_level*/);
+}
+
+TEST_P(CompactionIteratorWithAllowIngestBehindTest,
+       MergeToPutIfEncounteredPutAtBottom) {
+  std::shared_ptr<MergeOperator> merge_op =
+      MergeOperators::CreateStringAppendOperator();
+  RunTest({test::KeyStr("a", 4, kTypeMerge), test::KeyStr("a", 3, kTypeMerge),
+           test::KeyStr("a", 2, kTypeValue), test::KeyStr("b", 1, kTypeValue)},
+          {"a4", "a3", "a2", "b1"},
+          {test::KeyStr("a", 4, kTypeValue), test::KeyStr("b", 1, kTypeValue)},
+          {"a2,a3,a4", "b1"}, kMaxSequenceNumber /*last_committed_seq*/,
+          merge_op.get(), nullptr /*compaction_filter*/,
+          true /*bottomost_level*/);
+}
+
+INSTANTIATE_TEST_CASE_P(CompactionIteratorWithAllowIngestBehindTestInstance,
+                        CompactionIteratorWithAllowIngestBehindTest,
+                        testing::Values(true, false));
 
 }  // namespace ROCKSDB_NAMESPACE
 
