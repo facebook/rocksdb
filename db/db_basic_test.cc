@@ -3298,7 +3298,10 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
   // Since we call SetTimeElapseOnlySleep, Close() later on may not work
   // properly for the DB that's opened by the DBTestBase constructor.
   Close();
-  do {
+  for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+    if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
+      continue;
+    }
     Options options = CurrentOptions();
     if (options.use_direct_reads) {
       continue;
@@ -3360,7 +3363,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
       Iterator* iter = dbfull()->NewIterator(ro);
       int count = 0;
       iter->Seek("k50");
-      while (iter->Valid() && iter->status().ok() && count++ < 100) {
+      while (iter->Valid() && count++ < 100) {
         iter->Next();
       }
       if (fs->TimedOut()) {
@@ -3376,7 +3379,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     // Reset the delay sequence in order to avoid false alarms during Reopen
     fs->SetDelayTrigger(std::chrono::microseconds::zero(),
                         std::chrono::microseconds::zero(), 0);
-  } while (ChangeOptions(kSkipPlainTable | kSkipMmapReads));
+  }
   Close();
 }
 
