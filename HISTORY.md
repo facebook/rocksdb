@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.11.5 (7/23/2020)
+### Bug Fixes
+* Memtable lookup should report unrecognized value_type as corruption (#7121).
+
 ## 6.11.4 (7/15/2020)
 ### Bug Fixes
 * Make compaction report InternalKey corruption while iterating over the input.
