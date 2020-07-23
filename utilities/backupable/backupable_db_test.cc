@@ -1832,61 +1832,79 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
-TEST_F(BackupableDBTest, RateLimiting) {
-  size_t const kMicrosPerSec = 1000 * 1000LL;
-  uint64_t const MB = 1024 * 1024;
+class BackupableDBRateLimitingTestWithParam
+    : public BackupableDBTest,
+      public testing::WithParamInterface<
+          std::tuple<bool /* make throttle */,
+                     int /* 0 = single threaded, 1 = multi threaded*/,
+                     std::pair<uint64_t, uint64_t> /* limits */>> {
+ public:
+  BackupableDBRateLimitingTestWithParam() {}
+};
 
-  const std::vector<std::pair<uint64_t, uint64_t>> limits(
-      {{1 * MB, 5 * MB}, {2 * MB, 3 * MB}});
+uint64_t const MB = 1024 * 1024;
+
+INSTANTIATE_TEST_CASE_P(
+    RateLimiting, BackupableDBRateLimitingTestWithParam,
+    ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 1,
+                                      std::make_pair(2 * MB, 3 * MB))));
+
+TEST_P(BackupableDBRateLimitingTestWithParam, RateLimiting) {
+  size_t const kMicrosPerSec = 1000 * 1000LL;
 
   std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
   std::shared_ptr<RateLimiter> restoreThrottler(NewGenericRateLimiter(1));
 
-  for (bool makeThrottler : {false, true}) {
-    if (makeThrottler) {
-      backupable_options_->backup_rate_limiter = backupThrottler;
-      backupable_options_->restore_rate_limiter = restoreThrottler;
-    }
-    // iter 0 -- single threaded
-    // iter 1 -- multi threaded
-    for (int iter = 0; iter < 2; ++iter) {
-      for (const auto& limit : limits) {
-        // destroy old data
-        DestroyDB(dbname_, Options());
-        if (makeThrottler) {
-          backupThrottler->SetBytesPerSecond(limit.first);
-          restoreThrottler->SetBytesPerSecond(limit.second);
-        } else {
-          backupable_options_->backup_rate_limit = limit.first;
-          backupable_options_->restore_rate_limit = limit.second;
-        }
-        backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
-        options_.compression = kNoCompression;
-        OpenDBAndBackupEngine(true);
-        size_t bytes_written = FillDB(db_.get(), 0, 100000);
-
-        auto start_backup = db_chroot_env_->NowMicros();
-        ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-        auto backup_time = db_chroot_env_->NowMicros() - start_backup;
-        auto rate_limited_backup_time =
-            (bytes_written * kMicrosPerSec) / limit.first;
-        ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
-
-        CloseDBAndBackupEngine();
-
-        OpenBackupEngine();
-        auto start_restore = db_chroot_env_->NowMicros();
-        ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-        auto restore_time = db_chroot_env_->NowMicros() - start_restore;
-        CloseBackupEngine();
-        auto rate_limited_restore_time =
-            (bytes_written * kMicrosPerSec) / limit.second;
-        ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
-
-        AssertBackupConsistency(0, 0, 100000, 100010);
-      }
-    }
+  bool makeThrottler = std::get<0>(GetParam());
+  if (makeThrottler) {
+    backupable_options_->backup_rate_limiter = backupThrottler;
+    backupable_options_->restore_rate_limiter = restoreThrottler;
   }
+
+  // iter 0 -- single threaded
+  // iter 1 -- multi threaded
+  int iter = std::get<1>(GetParam());
+  const std::pair<uint64_t, uint64_t> limit = std::get<2>(GetParam());
+
+  // destroy old data
+  DestroyDB(dbname_, Options());
+  if (makeThrottler) {
+    backupThrottler->SetBytesPerSecond(limit.first);
+    restoreThrottler->SetBytesPerSecond(limit.second);
+  } else {
+    backupable_options_->backup_rate_limit = limit.first;
+    backupable_options_->restore_rate_limit = limit.second;
+  }
+  backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
+  options_.compression = kNoCompression;
+  OpenDBAndBackupEngine(true);
+  size_t bytes_written = FillDB(db_.get(), 0, 100000);
+
+  auto start_backup = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+  auto backup_time = db_chroot_env_->NowMicros() - start_backup;
+  auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) / limit.first;
+  ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
+
+  CloseDBAndBackupEngine();
+
+  OpenBackupEngine();
+  auto start_restore = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  auto restore_time = db_chroot_env_->NowMicros() - start_restore;
+  CloseBackupEngine();
+  auto rate_limited_restore_time =
+      (bytes_written * kMicrosPerSec) / limit.second;
+  ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
+
+  AssertBackupConsistency(0, 0, 100000, 100010);
 }
 
 TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
