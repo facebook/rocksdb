@@ -4962,7 +4962,6 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
         return -0x15;
 
-
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -5265,7 +5264,7 @@ class TickerTypeJni {
       case -0x10:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_DELETE_TRIGGERED;
       case -0x11:
-        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC;
       case -0x12:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL;
       case -0x13:

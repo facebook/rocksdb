@@ -365,8 +365,10 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
-  ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_DELETE_TRIGGERED));
-  ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_DELETE_TRIGGERED));
+  ASSERT_LT(
+      0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_DELETE_TRIGGERED));
+  ASSERT_LT(
+      0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_DELETE_TRIGGERED));
 }
 
 INSTANTIATE_TEST_CASE_P(

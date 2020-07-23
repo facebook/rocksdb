@@ -213,7 +213,6 @@ enum Tickers : uint32_t {
   COMPACT_WRITE_BYTES_PERIODIC,
   COMPACT_WRITE_BYTES_TTL,
 
-
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
   NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,

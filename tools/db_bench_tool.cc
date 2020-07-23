@@ -686,9 +686,9 @@ DEFINE_int32(level0_file_num_compaction_trigger,
              " when compactions start");
 
 DEFINE_uint64(periodic_compaction_seconds,
-             ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
-             "Files older than this will be picked up for compaction and"
-             " rewritten to the same level");
+              ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
+              "Files older than this will be picked up for compaction and"
+              " rewritten to the same level");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value <= 0 || value>=100) {

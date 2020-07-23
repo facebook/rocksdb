@@ -742,8 +742,6 @@ public enum TickerType {
     COMPACT_WRITE_BYTES_PERIODIC((byte) -0x14),
     COMPACT_WRITE_BYTES_TTL((byte) -0x15),
 
-
-
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
