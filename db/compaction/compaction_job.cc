@@ -1468,7 +1468,7 @@ void CompactionJob::RecordCompactionIOStats() {
   RecordTick(stats_, COMPACT_READ_BYTES, IOSTATS(bytes_read));
   RecordTick(stats_, COMPACT_WRITE_BYTES, IOSTATS(bytes_written));
   CompactionReason compaction_reason =
-    compact_->compaction->compaction_reason();
+      compact_->compaction->compaction_reason();
   if (compaction_reason == CompactionReason::kFilesMarkedForCompaction) {
     RecordTick(stats_, COMPACT_READ_BYTES_DELETE_TRIGGERED,
                IOSTATS(bytes_read));
