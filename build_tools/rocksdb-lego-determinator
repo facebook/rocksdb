@@ -422,6 +422,66 @@ STRESS_CRASH_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB blackbox stress/crash test
+#
+BLACKBOX_STRESS_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Blackbox Stress and Crash Test',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug stress tests',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            {
+                'name':'Build and run RocksDB debug blackbox crash tests',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 blackbox_crash_test || $CONTRUN_NAME=blackbox_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB whitebox stress/crash test
+#
+WHITEBOX_STRESS_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Whitebox Stress and Crash Test',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug stress tests',
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            {
+                'name':'Build and run RocksDB debug whitebox crash tests',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 whitebox_crash_test || $CONTRUN_NAME=whitebox_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB stress/crash test with atomic flush
 #
 STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
@@ -550,6 +610,54 @@ ASAN_CRASH_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB blackbox crash testing under address sanitizer
+#
+ASAN_BLACKBOX_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb blackbox crash test under ASAN',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug blackbox asan_crash_test',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 blackbox_asan_crash_test || $CONTRUN_NAME=blackbox_asan_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB whitebox crash testing under address sanitizer
+#
+ASAN_WHITEBOX_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb whitebox crash test under ASAN',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug whitebox asan_crash_test',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH make J=1 whitebox_asan_crash_test || $CONTRUN_NAME=whitebox_asan_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB crash testing with atomic flush under address sanitizer
 #
 ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS="[
@@ -619,7 +727,7 @@ UBSAN_TEST_COMMANDS="[
 ]"
 
 #
-# RocksDB crash testing under udnefined behavior sanitizer
+# RocksDB crash testing under undefined behavior sanitizer
 #
 UBSAN_CRASH_TEST_COMMANDS="[
     {
@@ -633,6 +741,54 @@ UBSAN_CRASH_TEST_COMMANDS="[
                 'name':'Build and run RocksDB debug ubsan_crash_test',
                 'timeout': 86400,
                 'shell':'$SHM $DEBUG $NON_TSAN_CRASH $CLANG make J=1 ubsan_crash_test || $CONTRUN_NAME=ubsan_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB crash testing under undefined behavior sanitizer
+#
+UBSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb blackbox crash test under UBSAN',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug blackbox ubsan_crash_test',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH $CLANG make J=1 blackbox_ubsan_crash_test || $CONTRUN_NAME=blackbox_ubsan_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB crash testing under undefined behavior sanitizer
+#
+UBSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb whitebox crash test under UBSAN',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug whitebox ubsan_crash_test',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG $NON_TSAN_CRASH $CLANG make J=1 whitebox_ubsan_crash_test || $CONTRUN_NAME=whitebox_ubsan_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -751,6 +907,54 @@ TSAN_CRASH_TEST_COMMANDS="[
                 'name':'Compile and run',
                 'timeout': 86400,
                 'shell':'set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB blackbox crash test under TSAN
+#
+TSAN_BLACKBOX_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Blackbox Crash Test under TSAN',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Compile and run',
+                'timeout': 86400,
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 blackbox_crash_test || $CONTRUN_NAME=tsan_blackbox_crash_test $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB whitebox crash test under TSAN
+#
+TSAN_WHITEBOX_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Whitebox Crash Test under TSAN',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Compile and run',
+                'timeout': 86400,
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN $TSAN_CRASH CRASH_TEST_KILL_ODD=1887 make J=1 whitebox_crash_test || $CONTRUN_NAME=tsan_whitebox_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },

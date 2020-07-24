@@ -981,6 +981,14 @@ asan_crash_test: clean
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
+whitebox_asan_crash_test: clean
+	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	$(MAKE) clean
+
+blackbox_asan_crash_test: clean
+	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	$(MAKE) clean
+
 asan_crash_test_with_atomic_flush: clean
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
@@ -999,6 +1007,14 @@ ubsan_check: clean
 
 ubsan_crash_test: clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
+	$(MAKE) clean
+
+whitebox_ubsan_crash_test: clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) whitebox_crash_test
+	$(MAKE) clean
+
+blackbox_ubsan_crash_test: clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 ubsan_crash_test_with_atomic_flush: clean
