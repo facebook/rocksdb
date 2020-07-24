@@ -61,6 +61,11 @@ inline std::string ChecksumInt32ToHex(const uint32_t& checksum_value) {
   PutFixed32(&checksum_str, EndianSwapValue(checksum_value));
   return ChecksumStrToHex(checksum_str);
 }
+// Checks if the checksum function names are the same. Note that both the
+// backup default checksum function and the db default checksum function are
+// crc32c although they have different names. So We treat the db default
+// checksum function name and the backup default checksum function name as
+// the same name.
 inline bool IsSameChecksumFunc(const std::string& dst_checksum_func_name,
                                const std::string& src_checksum_func_name) {
   return (dst_checksum_func_name == src_checksum_func_name) ||
@@ -376,13 +381,39 @@ class BackupEngineImpl : public BackupEngine {
     return GetBackupMetaDir() + "/" + (tmp ? "." : "") +
            ROCKSDB_NAMESPACE::ToString(backup_id) + (tmp ? ".tmp" : "");
   }
-  inline bool HasCustomChecksumFunc() const {
+  inline Status GetFileNameInfo(const std::string& file,
+                                std::string& local_name, uint64_t& number,
+                                FileType& type) const {
+    // 1. extract the filename
+    size_t last_slash = file.find_last_of('/');
+    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
+    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
+    // or private/<number>/<file>
+    assert(last_slash != std::string::npos);
+    local_name = file.substr(last_slash + 1);
+
+    // if the file was in shared_checksum, extract the real file name
+    // in this case the file is <number>_<checksum>_<size>.<type>,
+    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
+    if (file.substr(0, last_slash) == GetSharedChecksumDirRel()) {
+      local_name = GetFileFromChecksumFile(local_name);
+    }
+
+    // 2. find the filetype
+    bool ok = ParseFileName(local_name, &number, &type);
+    if (!ok) {
+      return Status::Corruption("Backup corrupted: Fail to parse filename " +
+                                local_name);
+    }
+    return Status::OK();
+  }
+  inline bool HasCustomChecksumGenFactory() const {
     return options_.file_checksum_gen_factory != nullptr;
   }
   // Returns nullptr if file_checksum_gen_factory is not set or
   // file_checksum_gen_factory is not able to create a generator with
   // name being requested_checksum_func_name
-  inline std::unique_ptr<FileChecksumGenerator> GetCustomChecksumFunc(
+  inline std::unique_ptr<FileChecksumGenerator> GetCustomChecksumGenerator(
       const std::string& requested_checksum_func_name = "") const {
     std::shared_ptr<FileChecksumGenFactory> checksum_factory =
         options_.file_checksum_gen_factory;
@@ -395,11 +426,11 @@ class BackupEngineImpl : public BackupEngine {
     }
   }
   // Set the checksum generator by the requested checksum function name
-  inline Status SetChecksumFunc(
+  inline Status SetChecksumGenerator(
       const std::string& requested_checksum_func_name,
       std::unique_ptr<FileChecksumGenerator>& checksum_func) {
     if (requested_checksum_func_name != kDefaultBackupFileChecksumFuncName) {
-      if (!HasCustomChecksumFunc()) {
+      if (!HasCustomChecksumGenFactory()) {
         // if the requested checksum function for the file is the db default
         // checksum function we can use the backup default checksum function
         // as they are both crc32c; otherwise, we return Status::NotSupported()
@@ -409,7 +440,8 @@ class BackupEngineImpl : public BackupEngine {
                                       " not implemented");
         }
       } else {
-        checksum_func = GetCustomChecksumFunc(requested_checksum_func_name);
+        checksum_func =
+            GetCustomChecksumGenerator(requested_checksum_func_name);
         // we will use the default backup checksum function if the custom
         // checksum functions is the db default checksum function but is not
         // found in the checksum factory passed in; otherwise, we return
@@ -1442,35 +1474,20 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
 
   RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
   if (rate_limiter) {
-    copy_file_buffer_size_ = static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
+    copy_file_buffer_size_ =
+        static_cast<size_t>(rate_limiter->GetSingleBurstBytes());
   }
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
   for (const auto& file_info : backup->GetFiles()) {
     const std::string& file = file_info->filename;
     std::string dst;
-    // 1. extract the filename
-    size_t slash = file.find_last_of('/');
-    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
-    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
-    // or private/<number>/<file>
-    assert(slash != std::string::npos);
-    dst = file.substr(slash + 1);
-
-    // if the file was in shared_checksum, extract the real file name
-    // in this case the file is <number>_<checksum>_<size>.<type>,
-    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
-    if (file.substr(0, slash) == GetSharedChecksumDirRel()) {
-      dst = GetFileFromChecksumFile(dst);
-    }
-
-    // 2. find the filetype
     uint64_t number;
     FileType type;
-    bool ok = ParseFileName(dst, &number, &type);
-    if (!ok) {
-      return Status::Corruption("Backup corrupted: Fail to parse filename " +
-                                dst);
+    s = GetFileNameInfo(file, dst, number, type);
+    if (!s.ok()) {
+      return s;
     }
+
     std::string src_checksum_func_name = kUnknownFileChecksumFuncName;
     std::string src_checksum_str = kUnknownFileChecksum;
     std::string src_checksum_hex;
@@ -1486,7 +1503,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
       }
     }
 
-    // 3. Construct the final path
+    // Construct the final path
     // kLogFile lives in wal_dir and all the rest live in db_dir
     dst = ((type == kLogFile) ? wal_dir : db_dir) +
       "/" + dst;
@@ -1497,7 +1514,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     std::string backup_checksum_func_name = file_info->checksum_func_name;
     std::unique_ptr<FileChecksumGenerator> checksum_func;
     if (src_checksum_func_name != kUnknownFileChecksumFuncName) {
-      SetChecksumFunc(src_checksum_func_name, checksum_func);
+      SetChecksumGenerator(src_checksum_func_name, checksum_func);
       if (checksum_func != nullptr) {
         backup_checksum_func_name = checksum_func->Name();
       }
@@ -1529,7 +1546,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
       std::string checksum_info("Expected checksum is " + item.checksum_hex +
                                 " while computed checksum is " +
                                 result.checksum_hex);
-      s = Status::Corruption("Checksum check failed: " + checksum_info);
+      s = Status::Corruption("Crc32c checksum check failed: " + checksum_info);
       break;
     }
   }
@@ -1568,11 +1585,12 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
     InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size);
   }
 
+  Status s;
   std::unique_ptr<FileChecksumList> checksum_list(NewFileChecksumList());
   if (verify_with_checksum) {
     // Try to obtain checksum info from backuped DB MANIFEST
-    Status s = GetFileChecksumsFromManifestInBackup(
-        backup_env_, backup_id, backup.get(), checksum_list.get());
+    s = GetFileChecksumsFromManifestInBackup(backup_env_, backup_id,
+                                             backup.get(), checksum_list.get());
     if (!s.ok()) {
       return s;
     }
@@ -1602,32 +1620,26 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       std::string src_checksum_str = kUnknownFileChecksum;
       std::string src_checksum_hex;
       if (IsSstFile(file_info->filename)) {
-        // Extract table file number
         const std::string& file = file_info->filename;
         std::string local_name;
-        size_t last_slash = file.find_last_of('/');
-        assert(last_slash != std::string::npos);
-        local_name = file.substr(last_slash + 1);
-        if (file.substr(0, last_slash) == GetSharedChecksumDirRel()) {
-          local_name = GetFileFromChecksumFile(local_name);
-        }
         uint64_t number;
         FileType type;
-        bool ok = ParseFileName(local_name, &number, &type);
-        if (!ok) {
-          return Status::Corruption(
-              "Backup corrupted: Fail to parse filename " + local_name);
+        s = GetFileNameInfo(file, local_name, number, type);
+        if (!s.ok()) {
+          return s;
         }
         assert(type == kTableFile);
+
         // Try to get checksum for the table file
-        Status s = checksum_list->SearchOneFileChecksum(
+        Status file_checksum_status = checksum_list->SearchOneFileChecksum(
             number, &src_checksum_str, &src_checksum_func_name);
-        if (s.ok() && src_checksum_str != kUnknownFileChecksum &&
+        if (file_checksum_status.ok() &&
+            src_checksum_str != kUnknownFileChecksum &&
             src_checksum_func_name != kUnknownFileChecksumFuncName) {
           // Ignore returned status of the following function.
           // If checksum_func is nullptr, we verify with crc32c but not the
           // custom checksum function.
-          SetChecksumFunc(src_checksum_func_name, checksum_func);
+          SetChecksumGenerator(src_checksum_func_name, checksum_func);
           src_checksum_hex = ChecksumStrToHex(src_checksum_str);
         }
       }
@@ -1679,7 +1691,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
 
   // Get custom checksum function
   std::unique_ptr<FileChecksumGenerator> checksum_func;
-  s = SetChecksumFunc(backup_checksum_func_name, checksum_func);
+  s = SetChecksumGenerator(backup_checksum_func_name, checksum_func);
   if (!s.ok()) {
     return s;
   }
@@ -1804,7 +1816,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   std::unique_ptr<FileChecksumGenerator> checksum_func;
   if (src_checksum_func_name != kUnknownFileChecksumFuncName) {
     // DB files have checksum functions
-    SetChecksumFunc(src_checksum_func_name, checksum_func);
+    SetChecksumGenerator(src_checksum_func_name, checksum_func);
     if (checksum_func != nullptr) {
       backup_checksum_func_name = checksum_func->Name();
     }

@@ -22,6 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 constexpr char kUnknownFileChecksum[] = "";
 // The unknown sst file checksum function name.
 constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
+// The default DB file checksum function name.
+constexpr char kDefaultDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 
 struct FileChecksumGenContext {
   std::string file_name;

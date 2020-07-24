@@ -24,8 +24,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// The default DB file checksum function name.
-constexpr char kDefaultDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 // The default BackupEngine file checksum function name.
 constexpr char kDefaultBackupFileChecksumFuncName[] = "crc32c";
 
@@ -169,15 +167,16 @@ struct BackupableDBOptions {
   // When this option is nullptr, BackupEngine will use its default crc32c as
   // the checksum function.
   //
-  // When it is not nullptr, this option comes into effect only if DB has a
-  // custom checksum factory and this option is set to the same factory.
+  // When it is not nullptr, BackupEngine will try to find in the factory the
+  // checksum function that DB used to calculate the file checksums. If such a
+  // function is found, BackupEngine will use it to create, verify, or restore
+  // backups, in addition to the default crc32c checksum function. Therefore,
+  // this option comes into effect only if DB has a custom checksum factory and
+  // this option is set to the same factory.
   //
   // Regardless of what is set for this option, BackupEngine will always use
   // its default crc32c checksum for creating, verifying, or restoring backups.
   //
-  // If this option is set to the DB checksum factory, BackupEngine will try
-  // to find the requested checksum function and use it to create, verify, or
-  // restore backups, in addition to the default crc32c checksum function.
   // When the DB checksum factory is set to GetFileChecksumGenCrc32cFactory(),
   // we recommend not setting this option to the same factory to avoid
   // unnecessary additional computation of crc32c since the backup engine
