@@ -32,6 +32,7 @@ thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>
     aes_context(nullptr, &do_nothing);
 
 Sha1Description::Sha1Description(const std::string& key_desc_str) {
+  EncryptedEnvV2::Default(); // force clang to initialize local statics
   bool good = {true};
   int ret_val;
   unsigned len;
@@ -64,6 +65,7 @@ Sha1Description::Sha1Description(const std::string& key_desc_str) {
 }
 
 AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
+  EncryptedEnvV2::Default(); // force clang to initialize local statics
   memset(key, 0, EVP_MAX_KEY_LENGTH);
 
   // simple parse:  must be 64 characters long and hexadecimal values
@@ -267,6 +269,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
 Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
                                                 char* prefix,
                                                 size_t prefixLength) const {
+  EncryptedEnvV2::Default(); // force clang to initialize local statics
   Status s;
   if (EncryptedEnvV2::crypto_.IsValid()) {
     if (sizeof(PrefixVersion0) <= prefixLength) {
