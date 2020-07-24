@@ -69,7 +69,7 @@ class RandomAccessFileReaderTest : public testing::Test {
 
   void ComputeAndSetAlignment() {
     std::string f = "get_alignment";
-    Write(f, "");
+    Write(f, "content");
     std::unique_ptr<RandomAccessFileReader> r;
     Read(f, FileOptions(), &r);
     alignment_ = r->file()->GetRequiredBufferAlignment();
