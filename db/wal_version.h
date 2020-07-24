@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include <iostream>
 #include <map>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -28,7 +28,7 @@ class WalMetadata {
  public:
   WalMetadata() = default;
 
-  WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
+  explicit WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
 
   bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
 
@@ -49,8 +49,10 @@ class WalAddition {
  public:
   WalAddition() : number_(0), metadata_() {}
 
-  WalAddition(WalNumber number, const WalMetadata& metadata = WalMetadata())
-      : number_(number), metadata_(metadata) {}
+  explicit WalAddition(WalNumber number) : number_(number), metadata_() {}
+
+  explicit WalAddition(WalNumber number, const WalMetadata& meta)
+      : number_(number), metadata_(meta) {}
 
   WalNumber GetLogNumber() const { return number_; }
 
@@ -77,7 +79,7 @@ class WalDeletion {
  public:
   WalDeletion() : number_(0) {}
 
-  WalDeletion(WalNumber number) : number_(number) {}
+  explicit WalDeletion(WalNumber number) : number_(number) {}
 
   WalNumber GetLogNumber() const { return number_; }
 
