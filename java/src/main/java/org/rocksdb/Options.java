@@ -1808,6 +1808,18 @@ public class Options extends RocksObject
     return atomicFlush(nativeHandle_);
   }
 
+  @Override
+  public Options setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
+    setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
+    this.sstPartitionerFactory_ = sstPartitionerFactory;
+    return this;
+  }
+
+  @Override
+  public SstPartitionerFactory sstPartitionerFactory() {
+    return sstPartitionerFactory_;
+  }
+
   private native static long newOptions();
   private native static long newOptions(long dbOptHandle,
       long cfOptHandle);
@@ -2178,6 +2190,7 @@ public class Options extends RocksObject
   private native void setAtomicFlush(final long handle,
       final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);
+  private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
@@ -2196,4 +2209,5 @@ public class Options extends RocksObject
   private Cache rowCache_;
   private WalFilter walFilter_;
   private WriteBufferManager writeBufferManager_;
+  private SstPartitionerFactory sstPartitionerFactory_;
 }

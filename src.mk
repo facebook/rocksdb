@@ -22,6 +22,7 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_fifo.cc                       \
   db/compaction/compaction_picker_level.cc                      \
   db/compaction/compaction_picker_universal.cc                  \
+  db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl/db_impl.cc                                         \
@@ -554,6 +555,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/sst_file_writerjni.cc                         \
   java/rocksjni/sst_file_readerjni.cc                         \
   java/rocksjni/sst_file_reader_iterator.cc                   \
+  java/rocksjni/sst_partitioner.cc                            \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \

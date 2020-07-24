@@ -977,6 +977,60 @@ TEST_F(DBCompactionTest, UserKeyCrossFile2) {
   ASSERT_EQ("NOT_FOUND", Get("3"));
 }
 
+TEST_F(DBCompactionTest, CompactionSstPartitioner) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(4));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("aaaa1", "A");
+  Put("bbbb1", "B");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("aaaa1", "A2");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A2", Get("aaaa1"));
+  ASSERT_EQ("B", Get("bbbb1"));
+}
+
+TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 1;
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(4));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("aaaa1", "A");
+  Put("bbbb1", "B");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact(true);
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A", Get("aaaa1"));
+  ASSERT_EQ("B", Get("bbbb1"));
+}
+
 TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
