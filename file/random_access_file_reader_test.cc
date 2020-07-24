@@ -133,6 +133,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // First page: xxxx
     // 1st block:  x
     // 2nd block:    xx
+    printf("alignment: %zu\n", alignment());
     FSReadRequest r0;
     r0.offset = 0;
     r0.len = alignment() / 4;
