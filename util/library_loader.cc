@@ -27,6 +27,9 @@ void* LibraryLoader::GetEntryPoint(const char* function_name) {
 
   if (is_valid_) {
     Status stat = lib_->LoadSymbol(function_name, &ret_ptr);
+    if (!stat.ok()) {
+      ret_ptr = nullptr;  // redundant but safe
+    }
   }
 
   return ret_ptr;
