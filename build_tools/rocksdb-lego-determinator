@@ -1198,6 +1198,12 @@ case $1 in
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
     ;;
+  blackbox_stress_crash)
+    echo $BLACKBOX_STRESS_CRASH_TEST_COMMANDS
+    ;;
+  whitebox_stress_crash)
+    echo $WHITEBOX_STRESS_CRASH_TEST_COMMANDS
+    ;;
   stress_crash_with_atomic_flush)
     echo $STRESS_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
     ;;
@@ -1213,6 +1219,12 @@ case $1 in
   asan_crash)
     echo $ASAN_CRASH_TEST_COMMANDS
     ;;
+  blackbox_asan_crash)
+    echo $ASAN_BLACKBOX_CRASH_TEST_COMMANDS
+    ;;
+  whitebox_asan_crash)
+    echo $ASAN_WHITEBOX_CRASH_TEST_COMMANDS
+    ;;
   asan_crash_with_atomic_flush)
     echo $ASAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
     ;;
@@ -1224,6 +1236,12 @@ case $1 in
     ;;
   ubsan_crash)
     echo $UBSAN_CRASH_TEST_COMMANDS
+    ;;
+  blackbox_ubsan_crash)
+    echo $UBSAN_BLACKBOX_CRASH_TEST_COMMANDS
+    ;;
+  whitebox_ubsan_crash)
+    echo $UBSAN_WHITEBOX_CRASH_TEST_COMMANDS
     ;;
   ubsan_crash_with_atomic_flush)
     echo $UBSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
@@ -1239,6 +1257,12 @@ case $1 in
     ;;
   tsan_crash)
     echo $TSAN_CRASH_TEST_COMMANDS
+    ;;
+  blackbox_tsan_crash)
+    echo $TSAN_BLACKBOX_CRASH_TEST_COMMANDS
+    ;;
+  whitebox_tsan_crash)
+    echo $TSAN_WHITEBOX_CRASH_TEST_COMMANDS
     ;;
   tsan_crash_with_atomic_flush)
     echo $TSAN_CRASH_TEST_WITH_ATOMIC_FLUSH_COMMANDS
