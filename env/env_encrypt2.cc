@@ -20,11 +20,14 @@
 #include "port/port.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 static port::RWMutex key_lock;
+
+static std::shared_ptr<UnixLibCrypto> crypto_shared;
 
 // reuse cipher context between calls to Encrypt & Decrypt
 static void do_nothing(EVP_CIPHER_CTX*){};
@@ -32,29 +35,27 @@ thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>
     aes_context(nullptr, &do_nothing);
 
 Sha1Description::Sha1Description(const std::string& key_desc_str) {
-  EncryptedEnvV2::Default();  // force clang to initialize local statics
+  EncryptedEnvV2::Default();  // ensure libcryto available
   bool good = {true};
   int ret_val;
   unsigned len;
 
   memset(desc, 0, EVP_MAX_MD_SIZE);
-  if (0 != key_desc_str.length() && EncryptedEnvV2::crypto_.IsValid()) {
+  if (0 != key_desc_str.length() && crypto_shared->IsValid()) {
     std::unique_ptr<EVP_MD_CTX, void (*)(EVP_MD_CTX*)> context(
-        EncryptedEnvV2::crypto_.EVP_MD_CTX_new(),
-        EncryptedEnvV2::crypto_.EVP_MD_CTX_free_ptr());
+        crypto_shared->EVP_MD_CTX_new(), crypto_shared->EVP_MD_CTX_free_ptr());
 
-    ret_val = EncryptedEnvV2::crypto_.EVP_DigestInit_ex(
-        context.get(), EncryptedEnvV2::crypto_.EVP_sha1(), nullptr);
+    ret_val = crypto_shared->EVP_DigestInit_ex(
+        context.get(), crypto_shared->EVP_sha1(), nullptr);
     good = (1 == ret_val);
     if (good) {
-      ret_val = EncryptedEnvV2::crypto_.EVP_DigestUpdate(
+      ret_val = crypto_shared->EVP_DigestUpdate(
           context.get(), key_desc_str.c_str(), key_desc_str.length());
       good = (1 == ret_val);
     }
 
     if (good) {
-      ret_val =
-          EncryptedEnvV2::crypto_.EVP_DigestFinal_ex(context.get(), desc, &len);
+      ret_val = crypto_shared->EVP_DigestFinal_ex(context.get(), desc, &len);
       good = (1 == ret_val);
     }
   } else {
@@ -65,7 +66,7 @@ Sha1Description::Sha1Description(const std::string& key_desc_str) {
 }
 
 AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
-  EncryptedEnvV2::Default();  // force clang to initialize local statics
+  EncryptedEnvV2::Default();  // ensure libcryto available
   memset(key, 0, EVP_MAX_KEY_LENGTH);
 
   // simple parse:  must be 64 characters long and hexadecimal values
@@ -124,7 +125,7 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
                                            size_t data_size) {
   Status status;
   if (0 < data_size) {
-    if (EncryptedEnvV2::crypto_.IsValid()) {
+    if (crypto_shared->IsValid()) {
       int ret_val, out_len;
       ALIGN16 AesAlignedBlock iv;
       uint64_t block_index = file_offset / BlockSize();
@@ -133,19 +134,19 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
       if (!aes_context) {
         aes_context =
             std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
-                EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_new(),
-                EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_free_ptr());
+                crypto_shared->EVP_CIPHER_CTX_new(),
+                crypto_shared->EVP_CIPHER_CTX_free_ptr());
       }
 
       memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
       BigEndianAdd128(iv.bytes, block_index);
 
-      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
-          aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(), nullptr,
+      ret_val = crypto_shared->EVP_EncryptInit_ex(
+          aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr,
           key_.key, iv.bytes);
       if (1 == ret_val) {
         out_len = 0;
-        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
+        ret_val = crypto_shared->EVP_EncryptUpdate(
             aes_context.get(), (unsigned char*)data, &out_len,
             (unsigned char*)data, (int)data_size);
 
@@ -158,8 +159,8 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
         // this is a soft reset of aes_context per man pages
         uint8_t temp_buf[AES_BLOCK_SIZE];
         out_len = 0;
-        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptFinal_ex(
-            aes_context.get(), temp_buf, &out_len);
+        ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(),
+                                                     temp_buf, &out_len);
 
         if (1 != ret_val || 0 != out_len) {
           status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
@@ -194,20 +195,20 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
   ALIGN16 AesAlignedBlock iv;
   int out_len = 0, ret_val;
 
-  if (EncryptedEnvV2::crypto_.IsValid()) {
+  if (crypto_shared->IsValid()) {
     // make a context once per thread
     if (!aes_context) {
       aes_context = std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
-          EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_new(),
-          EncryptedEnvV2::crypto_.EVP_CIPHER_CTX_free_ptr());
+          crypto_shared->EVP_CIPHER_CTX_new(),
+          crypto_shared->EVP_CIPHER_CTX_free_ptr());
     }
 
     memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
     BigEndianAdd128(iv.bytes, block_index);
 
-    ret_val = EncryptedEnvV2::crypto_.EVP_EncryptInit_ex(
-        aes_context.get(), EncryptedEnvV2::crypto_.EVP_aes_256_ctr(), nullptr,
-        key_.key, iv.bytes);
+    ret_val = crypto_shared->EVP_EncryptInit_ex(
+        aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr, key_.key,
+        iv.bytes);
     if (1 == ret_val) {
       // handle uneven block start
       if (0 != block_offset) {
@@ -218,7 +219,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
 
         memcpy(temp_buf + block_offset, data, prefix_size);
         out_len = 0;
-        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
+        ret_val = crypto_shared->EVP_EncryptUpdate(
             aes_context.get(), temp_buf, &out_len, temp_buf, (int)block_size);
 
         if (1 != ret_val || (int)block_size != out_len) {
@@ -235,7 +236,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
       remaining -= prefix_size;
       if (status.ok() && remaining) {
         out_len = 0;
-        ret_val = EncryptedEnvV2::crypto_.EVP_EncryptUpdate(
+        ret_val = crypto_shared->EVP_EncryptUpdate(
             aes_context.get(), (uint8_t*)data + prefix_size, &out_len,
             (uint8_t*)data + prefix_size, (int)remaining);
 
@@ -249,8 +250,8 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
 
       // this is a soft reset of aes_context per man pages
       out_len = 0;
-      ret_val = EncryptedEnvV2::crypto_.EVP_EncryptFinal_ex(aes_context.get(),
-                                                            temp_buf, &out_len);
+      ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(), temp_buf,
+                                                   &out_len);
 
       if (1 != ret_val || 0 != out_len) {
         status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
@@ -269,16 +270,16 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
 Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
                                                 char* prefix,
                                                 size_t prefixLength) const {
-  EncryptedEnvV2::Default();  // force clang to initialize local statics
+  EncryptedEnvV2::Default();  // ensure libcryto available
   Status s;
-  if (EncryptedEnvV2::crypto_.IsValid()) {
+  if (crypto_shared->IsValid()) {
     if (sizeof(PrefixVersion0) <= prefixLength) {
       int ret_val;
 
       PrefixVersion0* pf = {(PrefixVersion0*)prefix};
       memcpy(pf->key_description_, key_desc_.desc, sizeof(key_desc_.desc));
-      ret_val = EncryptedEnvV2::crypto_.RAND_bytes((unsigned char*)&pf->nonce_,
-                                                   AES_BLOCK_SIZE);
+      ret_val = crypto_shared->RAND_bytes((unsigned char*)&pf->nonce_,
+                                          AES_BLOCK_SIZE);
       if (1 != ret_val) {
         s = Status::NotSupported("RAND_bytes failed");
       }
@@ -429,37 +430,39 @@ EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
                                EncryptedEnvV2::ReadKeys encrypt_read,
                                EncryptedEnvV2::WriteKey encrypt_write)
     : EnvWrapper(base_env), valid_(false) {
+  init();
   SetKeys(encrypt_read, encrypt_write);
-
-  valid_ = crypto_.IsValid();
-
-  // warning, dynamic loading of libcrypto could be delayed ... making this
-  // false
-  if (IsValid()) {
-    crypto_.RAND_poll();
-  }
 }
 
 EncryptedEnvV2::EncryptedEnvV2(Env* base_env)
     : EnvWrapper(base_env), valid_(false) {
-  valid_ = crypto_.IsValid();
+  init();
+}
+
+void EncryptedEnvV2::init() {
+  if (crypto_shared) {
+    crypto_ = crypto_shared;
+  } else {
+    crypto_ = std::make_shared<UnixLibCrypto>();
+    crypto_shared = crypto_;
+  }
+
+  valid_ = crypto_->IsValid();
   if (IsValid()) {
-    crypto_.RAND_poll();
+    crypto_->RAND_poll();
   }
 }
 
 void EncryptedEnvV2::SetKeys(EncryptedEnvV2::ReadKeys encrypt_read,
                              EncryptedEnvV2::WriteKey encrypt_write) {
-  key_lock.WriteLock();
+  WriteLock lock(&key_lock);
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
-  key_lock.WriteUnlock();
 }
 
 bool EncryptedEnvV2::IsWriteEncrypted() const {
-  key_lock.ReadLock();
+  ReadLock lock(&key_lock);
   bool ret_flag = (nullptr != encrypt_write_.second);
-  key_lock.ReadUnlock();
   return ret_flag;
 }
 
@@ -495,7 +498,7 @@ Status EncryptedEnvV2::ReadSeqEncryptionPrefix(
           Sha1Description desc(prefix_buffer.key_description_,
                                sizeof(prefix_buffer.key_description_));
 
-          key_lock.ReadLock();
+          ReadLock lock(&key_lock);
           auto it = encrypt_read_.find(desc);
           if (encrypt_read_.end() != it) {
             provider = it->second;
@@ -506,7 +509,6 @@ Status EncryptedEnvV2::ReadSeqEncryptionPrefix(
             status = Status::NotSupported(
                 "No encryption key found to match input file");
           }
-          key_lock.ReadUnlock();
         }
       } else {
         status =
@@ -544,7 +546,7 @@ Status EncryptedEnvV2::ReadRandEncryptionPrefix(
           Sha1Description desc(prefix_buffer.key_description_,
                                sizeof(prefix_buffer.key_description_));
 
-          key_lock.ReadLock();
+          ReadLock lock(&key_lock);
           auto it = encrypt_read_.find(desc);
           if (encrypt_read_.end() != it) {
             provider = it->second;
@@ -554,7 +556,6 @@ Status EncryptedEnvV2::ReadRandEncryptionPrefix(
             status = Status::NotSupported(
                 "No encryption key found to match input file");
           }
-          key_lock.ReadUnlock();
         }
       } else {
         status =
@@ -723,9 +724,10 @@ Status EncryptedEnvV2::NewWritableFile(const std::string& fname,
     if (status.ok()) {
       std::shared_ptr<const CTREncryptionProviderV2> provider;
 
-      key_lock.ReadLock();
-      provider = encrypt_write_.second;
-      key_lock.ReadUnlock();
+      {
+        ReadLock lock(&key_lock);
+        provider = encrypt_write_.second;
+      }
 
       if (provider) {
         std::unique_ptr<BlockAccessCipherStream> stream;
@@ -769,9 +771,10 @@ Status EncryptedEnvV2::ReopenWritableFile(const std::string& fname,
     if (status.ok()) {
       std::shared_ptr<const CTREncryptionProviderV2> provider;
 
-      key_lock.ReadLock();
-      provider = encrypt_write_.second;
-      key_lock.ReadUnlock();
+      {
+        ReadLock lock(&key_lock);
+        provider = encrypt_write_.second;
+      }
 
       if (provider) {
         std::unique_ptr<BlockAccessCipherStream> stream;
@@ -811,9 +814,10 @@ Status EncryptedEnvV2::ReuseWritableFile(const std::string& fname,
     if (status.ok()) {
       std::shared_ptr<const CTREncryptionProviderV2> provider;
 
-      key_lock.ReadLock();
-      provider = encrypt_write_.second;
-      key_lock.ReadUnlock();
+      {
+        ReadLock lock(&key_lock);
+        provider = encrypt_write_.second;
+      }
 
       if (provider) {
         std::unique_ptr<BlockAccessCipherStream> stream;
@@ -866,9 +870,10 @@ Status EncryptedEnvV2::NewRandomRWFile(const std::string& fname,
                                                         provider, stream);
       } else {
         // new file
-        key_lock.ReadLock();
-        provider = encrypt_write_.second;
-        key_lock.ReadUnlock();
+        {
+          ReadLock lock(&key_lock);
+          provider = encrypt_write_.second;
+        }
 
         if (provider) {
           status =
@@ -962,8 +967,6 @@ Status EncryptedEnvV2::GetEncryptionProvider(
 
   return status;
 }
-
-UnixLibCrypto EncryptedEnvV2::crypto_;
 
 Env* EncryptedEnvV2::Default() {
   // the rational for this routine is to help force the static
