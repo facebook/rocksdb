@@ -224,16 +224,6 @@ TEST(EnvEncrypt2_Key, Copy) {
 
 class EnvEncrypt2_Provider {};
 
-class CipherStreamWrapper : public BlockAccessCipherStream {
- public:
-  Status TESTEncrypt(uint64_t blockIndex, char* data, size_t size) {
-    return Encrypt(blockIndex, data, size);
-  }
-  Status TESTDecrypt(uint64_t blockIndex, char* data, size_t size) {
-    return Decrypt(blockIndex, data, size);
-  }
-};
-
 TEST(EnvEncrypt2_Provider, NistExamples) {
   uint8_t key[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                    0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
@@ -276,27 +266,26 @@ TEST(EnvEncrypt2_Provider, NistExamples) {
   //  memcpy((void*)&offset, (void*)&init[8], 8);
   offset = 0;
   memcpy((void*)block, (void*)plain1, 16);
-  CipherStreamWrapper* wrap = (CipherStreamWrapper*)stream.get();
 
-  Status status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
+  Status status = stream->Encrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher1, block, sizeof(block)));
 
   offset = 16;
   memcpy((void*)block, (void*)plain2, 16);
 
-  status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
+  status = stream->Encrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher2, block, sizeof(block)));
 
   offset = 32;
   memcpy((void*)block, (void*)plain3, 16);
 
-  status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
+  status = stream->Encrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher3, block, sizeof(block)));
 
   offset = 48;
   memcpy((void*)block, (void*)plain4, 16);
 
-  status = wrap->TESTEncrypt(offset, (char*)block, sizeof(block));
+  status = stream->Encrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(cypher4, block, sizeof(block)));
 
   //
@@ -305,25 +294,25 @@ TEST(EnvEncrypt2_Provider, NistExamples) {
   offset = 0;
   memcpy((void*)block, (void*)cypher1, 16);
 
-  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
+  status = stream->Decrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain1, block, sizeof(block)));
 
   offset = 16;
   memcpy((void*)block, (void*)cypher2, 16);
 
-  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
+  status = stream->Decrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain2, block, sizeof(block)));
 
   offset = 32;
   memcpy((void*)block, (void*)cypher3, 16);
 
-  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
+  status = stream->Decrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain3, block, sizeof(block)));
 
   offset = 48;
   memcpy((void*)block, (void*)cypher4, 16);
 
-  status = wrap->TESTDecrypt(offset, (char*)block, sizeof(block));
+  status = stream->Decrypt(offset, (char*)block, sizeof(block));
   ASSERT_TRUE(0 == memcmp(plain4, block, sizeof(block)));
 }
 
