@@ -677,10 +677,28 @@ DEFINE_int32(verify_checksum_one_in, 0,
              " checksum verification of all the files in the database once for"
              " every N ops on average. 0 indicates that calls to"
              " VerifyChecksum() are disabled.");
+
 DEFINE_int32(verify_db_one_in, 0,
              "If non-zero, call VerifyDb() once for every N ops. 0 indicates "
              "that VerifyDb() will not be called in OperateDb(). Note that "
              "enabling this can slow down tests.");
+
+DEFINE_bool(inject_corruption_and_verify_checksum, false,
+            "If true, then corruption will be injected in SST files, and "
+            "VerifySstFileChecksum() will be called to detect the corruption. "
+            "The corruption for a file is of size at most 8 bits and the bits "
+            "can be injected in any locations of the file except the Footer.\n"
+            "If db_stress was compiled with nonzero DEBUG_LEVEL, then it is "
+            "likely that some injected corruption will fail some assert().\n");
+
+DEFINE_int32(inject_corruption_and_verify_checksum_one_in, 0,
+             "If non-zero, then after SST files are generated, corruption will "
+             "be injected in SST files, and VerifySstFileChecksum() will be "
+             "called to detect the corruption once for every N ops. The "
+             "corruption for a file is of size at most 8 bits and the bits can "
+             "be injected in any locations of the file except the Footer.\n"
+             "If db_stress was compiled with nonzero DEBUG_LEVEL, then it is "
+             "likely that some injected corruption will fail some assert().\n");
 
 DEFINE_int32(continuous_verification_interval, 1000,
              "While test is running, verify db every N milliseconds. 0 "

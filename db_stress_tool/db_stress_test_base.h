@@ -38,6 +38,11 @@ class StressTest {
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const {}
 
+#ifndef ROCKSDB_LITE
+  void TestInjectCorruptionAndVerify(ThreadState* thread,
+                                     bool inbetween_ops = false) const;
+#endif  // ROCKSDB_LITE
+
   void PrintStatistics();
 
  protected:
