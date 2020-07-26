@@ -168,7 +168,6 @@ class PosixEnv : public CompositeEnvWrapper {
   // provided by the search path
   Status LoadLibrary(const std::string& name, const std::string& path,
                      std::shared_ptr<DynamicLibrary>* result) override {
-
     std::string library_name = name;
     assert(result != nullptr);
     if (name.empty()) {
