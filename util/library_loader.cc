@@ -18,8 +18,7 @@ const char* UnixLibCrypto::crypto_lib_name_ = "crypto";
 
 LibraryLoader::LibraryLoader(const char* library_name) : is_valid_(false) {
   Status stat = Env::Default()->LoadLibrary(library_name, std::string(), &lib_);
-  is_valid_ = stat.ok();  // two lines to pass 5.4.0 compile unit test
-  is_valid_ = is_valid_ && nullptr != lib_.get();
+  is_valid_ = stat.ok() && nullptr != lib_.get();
 }
 
 void* LibraryLoader::GetEntryPoint(const char* function_name) {
