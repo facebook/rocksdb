@@ -186,7 +186,7 @@ TEST_F(EnvPosixTest, DISABLED_FilePermission) {
       if (::stat(filename.c_str(), &sb) == 0) {
         ASSERT_EQ(sb.st_mode & 0777, 0644);
       }
-      env_->DeleteFile(filename);
+      ASSERT_OK(env_->DeleteFile(filename));
     }
 
     env_->SetAllowNonOwnerAccess(false);
@@ -199,7 +199,7 @@ TEST_F(EnvPosixTest, DISABLED_FilePermission) {
       if (::stat(filename.c_str(), &sb) == 0) {
         ASSERT_EQ(sb.st_mode & 0777, 0600);
       }
-      env_->DeleteFile(filename);
+      ASSERT_OK(env_->DeleteFile(filename));
     }
   }
 }
@@ -235,7 +235,8 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
   {
     // Same priority, no-op.
     env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM,
-                                     CpuPriority::kNormal);
+                                     CpuPriority::kNormal)
+        .PermitUncheckedError();
     RunTask(Env::Priority::BOTTOM);
     ASSERT_EQ(from_priority, CpuPriority::kNormal);
     ASSERT_EQ(to_priority, CpuPriority::kNormal);
@@ -243,7 +244,8 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
 
   {
     // Higher priority, no-op.
-    env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM, CpuPriority::kHigh);
+    env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM, CpuPriority::kHigh)
+        .PermitUncheckedError();
     RunTask(Env::Priority::BOTTOM);
     ASSERT_EQ(from_priority, CpuPriority::kNormal);
     ASSERT_EQ(to_priority, CpuPriority::kNormal);
@@ -251,7 +253,8 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
 
   {
     // Lower priority from kNormal -> kLow.
-    env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM, CpuPriority::kLow);
+    env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM, CpuPriority::kLow)
+        .PermitUncheckedError();
     RunTask(Env::Priority::BOTTOM);
     ASSERT_EQ(from_priority, CpuPriority::kNormal);
     ASSERT_EQ(to_priority, CpuPriority::kLow);
@@ -259,7 +262,8 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
 
   {
     // Lower priority from kLow -> kIdle.
-    env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM, CpuPriority::kIdle);
+    env_->LowerThreadPoolCPUPriority(Env::Priority::BOTTOM, CpuPriority::kIdle)
+        .PermitUncheckedError();
     RunTask(Env::Priority::BOTTOM);
     ASSERT_EQ(from_priority, CpuPriority::kLow);
     ASSERT_EQ(to_priority, CpuPriority::kIdle);
@@ -267,7 +271,8 @@ TEST_F(EnvPosixTest, LowerThreadPoolCpuPriority) {
 
   {
     // Lower priority from kNormal -> kIdle for another pool.
-    env_->LowerThreadPoolCPUPriority(Env::Priority::HIGH, CpuPriority::kIdle);
+    env_->LowerThreadPoolCPUPriority(Env::Priority::HIGH, CpuPriority::kIdle)
+        .PermitUncheckedError();
     RunTask(Env::Priority::HIGH);
     ASSERT_EQ(from_priority, CpuPriority::kNormal);
     ASSERT_EQ(to_priority, CpuPriority::kIdle);
@@ -1006,7 +1011,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     ASSERT_EQ(unique_id2, unique_id3);
 
     // Delete the file
-    env_->DeleteFile(fname);
+    ASSERT_OK(env_->DeleteFile(fname));
   }
 }
 #endif  // !defined(OS_WIN)
@@ -1567,7 +1572,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     auto data = NewAligned(kStrSize, 'A');
     Slice str(data.get(), kStrSize);
     srcfile->PrepareWrite(srcfile->GetFileSize(), kStrSize);
-    srcfile->Append(str);
+    ASSERT_OK(srcfile->Append(str));
     srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
     ASSERT_EQ(last_allocated_block, 1UL);
 
@@ -1576,7 +1581,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
       auto buf_ptr = NewAligned(block_size, ' ');
       Slice buf(buf_ptr.get(), block_size);
       srcfile->PrepareWrite(srcfile->GetFileSize(), block_size);
-      srcfile->Append(buf);
+      ASSERT_OK(srcfile->Append(buf));
       srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
       ASSERT_EQ(last_allocated_block, 2UL);
     }
@@ -1586,7 +1591,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
       auto buf_ptr = NewAligned(block_size * 5, ' ');
       Slice buf = Slice(buf_ptr.get(), block_size * 5);
       srcfile->PrepareWrite(srcfile->GetFileSize(), buf.size());
-      srcfile->Append(buf);
+      ASSERT_OK(srcfile->Append(buf));
       srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
       ASSERT_EQ(last_allocated_block, 7UL);
     }
@@ -1603,7 +1608,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
 
   std::string data;
   std::string test_base_dir = test::PerThreadDBPath(env_, "env_test_chr_attr");
-  env_->CreateDir(test_base_dir);
+  env_->CreateDir(test_base_dir).PermitUncheckedError();
   for (int i = 0; i < kNumChildren; ++i) {
     const std::string path = test_base_dir + "/testfile_" + std::to_string(i);
     std::unique_ptr<WritableFile> file;
@@ -1619,7 +1624,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       ASSERT_OK(env_->NewWritableFile(path, &file, soptions));
       auto buf_ptr = NewAligned(data.size(), 'T');
       Slice buf(buf_ptr.get(), data.size());
-      file->Append(buf);
+      ASSERT_OK(file->Append(buf));
       data.append(std::string(4096, 'T'));
   }
 
@@ -1770,13 +1775,13 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
   {
     Base b(&step);
     Wrapper w(&b);
-    w.Append(Slice());
-    w.PositionedAppend(Slice(), 0);
-    w.Truncate(0);
-    w.Close();
-    w.Flush();
-    w.Sync();
-    w.Fsync();
+    ASSERT_OK(w.Append(Slice()));
+    ASSERT_OK(w.PositionedAppend(Slice(), 0));
+    ASSERT_OK(w.Truncate(0));
+    ASSERT_OK(w.Close());
+    ASSERT_OK(w.Flush());
+    ASSERT_OK(w.Sync());
+    ASSERT_OK(w.Fsync());
     w.IsSyncThreadSafe();
     w.use_direct_io();
     w.GetRequiredBufferAlignment();
@@ -1788,10 +1793,10 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
     w.SetPreallocationBlockSize(0);
     w.GetPreallocationStatus(nullptr, nullptr);
     w.GetUniqueId(nullptr, 0);
-    w.InvalidateCache(0, 0);
-    w.RangeSync(0, 0);
+    ASSERT_OK(w.InvalidateCache(0, 0));
+    ASSERT_OK(w.RangeSync(0, 0));
     w.PrepareWrite(0, 0);
-    w.Allocate(0, 0);
+    ASSERT_OK(w.Allocate(0, 0));
   }
 
   EXPECT_EQ(24, step);
@@ -1800,7 +1805,7 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
 TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
   const std::string path = test::PerThreadDBPath(env_, "random_rw_file");
 
-  env_->DeleteFile(path);
+  env_->DeleteFile(path).PermitUncheckedError();
 
   std::unique_ptr<RandomRWFile> file;
 
@@ -1850,7 +1855,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
   ASSERT_EQ(read_res.ToString(), "XXXQ");
 
   // Close file and reopen it
-  file->Close();
+  ASSERT_OK(file->Close());
   ASSERT_OK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 
   ASSERT_OK(file->Read(0, 9, &read_res, buf));
@@ -1867,7 +1872,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
   ASSERT_EQ(read_res.ToString(), "ABXXTTTTTT");
 
   // Clean up
-  env_->DeleteFile(path);
+  ASSERT_OK(env_->DeleteFile(path));
 }
 
 class RandomRWFileWithMirrorString {
@@ -1927,7 +1932,7 @@ class RandomRWFileWithMirrorString {
 
 TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   const std::string path = test::PerThreadDBPath(env_, "random_rw_file_rand");
-  env_->DeleteFile(path);
+  env_->DeleteFile(path).PermitUncheckedError();
 
   std::unique_ptr<RandomRWFile> file;
 
@@ -1968,7 +1973,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   }
 
   // clean up
-  env_->DeleteFile(path);
+  ASSERT_OK(env_->DeleteFile(path));
 }
 
 class TestEnv : public EnvWrapper {
@@ -1982,7 +1987,8 @@ class TestEnv : public EnvWrapper {
     TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
     ~TestLogger() override {
       if (!closed_) {
-        CloseHelper();
+        Status s = CloseHelper();
+        s.PermitUncheckedError();
       }
     }
     void Logv(const char* /*format*/, va_list /*ap*/) override{};
@@ -2026,17 +2032,17 @@ TEST_F(EnvTest, Close) {
   Status s;
 
   s = env->NewLogger("", &logger);
-  ASSERT_EQ(s, Status::OK());
-  logger.get()->Close();
+  ASSERT_OK(s);
+  ASSERT_OK(logger.get()->Close());
   ASSERT_EQ(env->GetCloseCount(), 1);
   // Call Close() again. CloseHelper() should not be called again
-  logger.get()->Close();
+  ASSERT_OK(logger.get()->Close());
   ASSERT_EQ(env->GetCloseCount(), 1);
   logger.reset();
   ASSERT_EQ(env->GetCloseCount(), 1);
 
   s = env->NewLogger("", &logger);
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   logger.reset();
   ASSERT_EQ(env->GetCloseCount(), 2);
 
@@ -2105,6 +2111,8 @@ class EnvFSTestWithParam
   std::string dbname2_;
 };
 
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED  // Database tests do not do well with
+                                       // this flag
 TEST_P(EnvFSTestWithParam, OptionsTest) {
   Options opts;
   opts.env = env_;
@@ -2143,6 +2151,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     dbname = dbname2_;
   }
 }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
 // The parameters are as follows -
 // 1. True means Options::env is non-null, false means null
@@ -2152,7 +2161,6 @@ INSTANTIATE_TEST_CASE_P(
     EnvFSTest, EnvFSTestWithParam,
     ::testing::Combine(::testing::Bool(), ::testing::Bool(),
                        ::testing::Bool()));
-
 // This test ensures that default Env and those allocated by
 // NewCompositeEnv() all share the same threadpool
 TEST_F(EnvTest, MultipleCompositeEnv) {
@@ -2164,7 +2172,6 @@ TEST_F(EnvTest, MultipleCompositeEnv) {
   std::unique_ptr<Env> env2 = NewCompositeEnv(fs2);
   Env::Default()->SetBackgroundThreads(8, Env::HIGH);
   Env::Default()->SetBackgroundThreads(16, Env::LOW);
-
   ASSERT_EQ(env1->GetBackgroundThreads(Env::LOW), 16);
   ASSERT_EQ(env1->GetBackgroundThreads(Env::HIGH), 8);
   ASSERT_EQ(env2->GetBackgroundThreads(Env::LOW), 16);

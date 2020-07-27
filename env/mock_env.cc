@@ -600,7 +600,7 @@ Status MockEnv::CreateDir(const std::string& dirname) {
 }
 
 Status MockEnv::CreateDirIfMissing(const std::string& dirname) {
-  CreateDir(dirname);
+  CreateDir(dirname).PermitUncheckedError();
   return Status::OK();
 }
 
