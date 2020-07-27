@@ -691,7 +691,6 @@ void HashLinkListRep::Insert(KeyHandle handle) {
 }
 
 bool HashLinkListRep::Contains(const Slice& internal_key) const {
-
   auto transformed = GetPrefix(internal_key);
   auto bucket = GetBucket(transformed);
   if (bucket == nullptr) {

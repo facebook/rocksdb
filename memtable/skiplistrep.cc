@@ -69,7 +69,7 @@ public:
 
   // Returns true iff an entry that compares equal to key is in the list.
  bool Contains(const Slice& internal_key) const override {
-    return ContainsForwardToLegacy(skip_list_, internal_key);
+   return ContainsForwardToLegacy(skip_list_, internal_key);
  }
 
  size_t ApproximateMemoryUsage() override {
@@ -83,7 +83,8 @@ public:
    EncodedKeyValuePair pair;
    Slice dummy_slice;
    for (iter.Seek(dummy_slice, k.memtable_key().data());
-        iter.Valid() && callback_func(callback_args, pair.SetKey(iter.key())); iter.Next()) {
+        iter.Valid() && callback_func(callback_args, pair.SetKey(iter.key()));
+        iter.Next()) {
    }
  }
 

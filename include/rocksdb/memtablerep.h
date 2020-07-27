@@ -93,11 +93,9 @@ class MemTableRep {
   // InsertKey(handler) key value impl
   virtual bool InsertKeyValue(const Slice& internal_key, const Slice& value);
 
-
   // InsertKeyWithHint(handler, hint) key value impl
   virtual bool InsertKeyValueWithHint(const Slice& internal_key,
-                                      const Slice& value,
-                                      void** hint);
+                                      const Slice& value, void** hint);
 
   // InsertKeyConcurrently(handler) key value impl
   virtual bool InsertKeyValueConcurrently(const Slice& internal_key,
@@ -216,22 +214,24 @@ class MemTableRep {
     virtual Slice GetValue() const override;
     virtual std::pair<Slice, Slice> GetKeyValue() const override;
 
-    KeyValuePair* SetKey(const char* key) { key_ = key; return this; }
+    KeyValuePair* SetKey(const char* key) {
+      key_ = key;
+      return this;
+    }
 
    private:
     const char* key_ = nullptr;
   };
 
-  template<class Legacy>
+  template <class Legacy>
   static bool ContainsForwardToLegacy(const Legacy& legacy, const Slice& key) {
     size_t keylen = key.size();
     if (keylen < 128) {
       char keybuf[128];
       keybuf[0] = (char)keylen;
-      memcpy(keybuf+1, key.data(), keylen);
+      memcpy(keybuf + 1, key.data(), keylen);
       return legacy.Contains(keybuf);
-    }
-    else {
+    } else {
       std::string memtable_key;
       return legacy.Contains(EncodeKey(&memtable_key, key));
     }
@@ -314,7 +314,7 @@ class MemTableRep {
     virtual void SeekToLast() = 0;
 
     // If true, this means that the Slice returned by GetKey() is always valid
-    virtual bool IsKeyPinned() const { return true;  }
+    virtual bool IsKeyPinned() const { return true; }
   };
 
   // Return an iterator over the keys in this representation.

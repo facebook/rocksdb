@@ -219,12 +219,9 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
   // Do binary search to find first value not less than the target
   const char* encoded_key =
       (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
-  cit_ = std::lower_bound(bucket_->begin(),
-                          bucket_->end(),
-                          encoded_key,
-                          [this] (const char* a, const char* b) {
-                            return compare_(a, b) < 0;
-                          });
+  cit_ = std::lower_bound(
+      bucket_->begin(), bucket_->end(), encoded_key,
+      [this](const char* a, const char* b) { return compare_(a, b) < 0; });
 }
 
 // Advance to the first entry with a key <= target
@@ -234,12 +231,9 @@ void VectorRep::Iterator::SeekForPrev(const Slice& user_key,
   // Do binary search to find last value not greater than the target
   const char* encoded_key =
       (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
-  cit_ = std::upper_bound(bucket_->begin(),
-                          bucket_->end(),
-                          encoded_key,
-                          [this] (const char* a, const char* b) {
-                            return compare_(a, b) < 0;
-                          });
+  cit_ = std::upper_bound(
+      bucket_->begin(), bucket_->end(), encoded_key,
+      [this](const char* a, const char* b) { return compare_(a, b) < 0; });
   Prev();
 }
 
@@ -275,8 +269,7 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   rwlock_.ReadUnlock();
 
   for (iter.Seek(k.user_key(), k.memtable_key().data());
-       iter.Valid() && callback_func(callback_args, &iter);
-       iter.Next()) {
+       iter.Valid() && callback_func(callback_args, &iter); iter.Next()) {
   }
 }
 

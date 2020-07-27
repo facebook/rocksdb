@@ -124,8 +124,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
 MemTableRep* MemTableRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& key_cmp, Allocator* allocator,
     const ImmutableCFOptions& ioptions,
-    const MutableCFOptions& mutable_cf_options,
-    uint32_t column_family_id) {
+    const MutableCFOptions& mutable_cf_options, uint32_t column_family_id) {
   return CreateMemTableRep(key_cmp, allocator,
                            mutable_cf_options.prefix_extractor.get(),
                            ioptions.info_log, column_family_id);
@@ -274,8 +273,7 @@ Slice MemTableRep::UserKey(const char* key) const {
   return Slice(slice.data(), slice.size() - 8);
 }
 
-size_t MemTableRep::EncodeKeyValueSize(const Slice& key,
-                                       const Slice& value) {
+size_t MemTableRep::EncodeKeyValueSize(const Slice& key, const Slice& value) {
   size_t buf_size = 0;
   buf_size += VarintLength(key.size()) + key.size();
   buf_size += VarintLength(value.size()) + value.size();
@@ -302,8 +300,7 @@ bool MemTableRep::InsertKeyValue(const Slice& internal_key,
 }
 
 bool MemTableRep::InsertKeyValueWithHint(const Slice& internal_key,
-                                         const Slice& value,
-                                         void** hint) {
+                                         const Slice& value, void** hint) {
   KeyHandle handle = EncodeKeyValue(internal_key, value);
   return InsertKeyWithHint(handle, hint);
 }
@@ -314,10 +311,9 @@ bool MemTableRep::InsertKeyValueConcurrently(const Slice& internal_key,
   return InsertKeyConcurrently(handle);
 }
 
-bool MemTableRep::InsertKeyValueWithHintConcurrently(
-                                        const Slice& internal_key,
-                                        const Slice& value,
-                                        void** hint) {
+bool MemTableRep::InsertKeyValueWithHintConcurrently(const Slice& internal_key,
+                                                     const Slice& value,
+                                                     void** hint) {
   KeyHandle handle = EncodeKeyValue(internal_key, value);
   return InsertKeyWithHintConcurrently(handle, hint);
 }
@@ -546,7 +542,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      hint = &insert_hints_[prefix]; // overwrite hint?
+      hint = &insert_hints_[prefix];  // overwrite hint?
       bool res = table->InsertKeyValueWithHint(key_slice, value, hint);
       if (UNLIKELY(!res)) {
         return res;
@@ -591,9 +587,10 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    bool res = (hint == nullptr)
-             ? table->InsertKeyValueConcurrently(key_slice, value)
-             : table->InsertKeyValueWithHintConcurrently(key_slice, value, hint);
+    bool res =
+        (hint == nullptr)
+            ? table->InsertKeyValueConcurrently(key_slice, value)
+            : table->InsertKeyValueWithHintConcurrently(key_slice, value, hint);
     if (UNLIKELY(!res)) {
       return res;
     }
@@ -1074,8 +1071,8 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
             assert(new_prev_size <= prev_size);
             if (new_prev_size < prev_size) {
               // overwrite the new prev_size
-              char* p =
-                const_cast<char*>(prev_value.data()) - VarintLength(prev_size);
+              char* p = const_cast<char*>(prev_value.data()) -
+                        VarintLength(prev_size);
               p = EncodeVarint32(p, new_prev_size);
               if (p < prev_buffer) {
                 // shift the value buffer as well.
@@ -1153,7 +1150,7 @@ std::pair<Slice, Slice> MemTableRep::EncodedKeyValuePair::GetKeyValue() const {
   Slice key_slice = GetLengthPrefixedSlice(key_);
   Slice value_slice =
       GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
-  return { key_slice, value_slice };
+  return {key_slice, value_slice};
 }
 
 Slice MemTableRep::Iterator::GetKey() const {
@@ -1171,7 +1168,7 @@ std::pair<Slice, Slice> MemTableRep::Iterator::GetKeyValue() const {
   Slice key_slice = GetLengthPrefixedSlice(key());
   Slice value_slice =
       GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
-  return { key_slice, value_slice };
+  return {key_slice, value_slice};
 }
 
 void MemTable::RefLogContainingPrepSection(uint64_t log) {
