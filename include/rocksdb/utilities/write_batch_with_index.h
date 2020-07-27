@@ -31,6 +31,7 @@ class DB;
 class ReadCallback;
 struct ReadOptions;
 struct DBOptions;
+class WriteBatchEntryIndexFactory;
 
 enum WriteType {
   kPutRecord,
@@ -42,12 +43,27 @@ enum WriteType {
   kXIDRecord,
 };
 
+// Singleton factory instance, DO NOT delete the returned pointer
+const WriteBatchEntryIndexFactory* skip_list_WriteBatchEntryIndexFactory();
+
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
 // Used in WBWIIterator.
 struct WriteEntry {
   WriteType type;
   Slice key;
   Slice value;
+};
+
+template<class T, size_t N>
+struct WBIteratorStorage {
+  ~WBIteratorStorage() {
+    if (iter != nullptr) {
+      iter->~T();
+    }
+  }
+  T* operator->() const { return iter; }
+  T* iter = nullptr;
+  uint8_t buffer[N];
 };
 
 // Iterator of one column family out of a WriteBatchWithIndex.
@@ -74,6 +90,8 @@ class WBWIIterator {
   virtual WriteEntry Entry() const = 0;
 
   virtual Status status() const = 0;
+
+  typedef WBIteratorStorage<WBWIIterator, 56> IteratorStorage;
 };
 
 // A WriteBatchWithIndex with a binary searchable index built for all the keys
@@ -94,10 +112,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // overwrite_key: if true, overwrite the key in the index when inserting
   //                the same key as previously, so iterator will never
   //                show two entries with the same key.
+  // index_factory: third-party entry index support, NOT take ownership
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
       size_t reserved_bytes = 0, bool overwrite_key = false,
-      size_t max_bytes = 0);
+      size_t max_bytes = 0, const WriteBatchEntryIndexFactory* = nullptr);
 
   ~WriteBatchWithIndex() override;
   WriteBatchWithIndex(WriteBatchWithIndex&&);
@@ -154,6 +173,9 @@ class WriteBatchWithIndex : public WriteBatchBase {
   //
   // The returned iterator should be deleted by the caller.
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
+  void NewIterator(ColumnFamilyHandle* column_family,
+                   WBWIIterator::IteratorStorage& storage,
+                   bool ephemeral = false);
   // Create an iterator of the default column family.
   WBWIIterator* NewIterator();
 

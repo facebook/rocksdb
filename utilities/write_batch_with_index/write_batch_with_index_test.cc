@@ -273,7 +273,14 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
   }
 }
 
+namespace {
+  const std::initializer_list<const WriteBatchEntryIndexFactory*>& all_index_types = {
+          skip_list_WriteBatchEntryIndexFactory(),
+  };
+}
+
 TEST_F(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
+for (auto index_type : all_index_types) {
   Entry entries[] = {
       {"aaa", "0005", kPutRecord},
       {"b", "0002", kPutRecord},
@@ -286,7 +293,7 @@ TEST_F(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   };
   std::vector<Entry> entries_list(entries, entries + 8);
 
-  WriteBatchWithIndex batch(nullptr, 20);
+  WriteBatchWithIndex batch(nullptr, 20, false, 0, index_type);
 
   TestValueAsSecondaryIndexHelper(entries_list, &batch);
 
@@ -308,12 +315,14 @@ TEST_F(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
   TestValueAsSecondaryIndexHelper(entries_list, &batch);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestComparatorForCF) {
+for (auto index_type : all_index_types) {
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
   ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20);
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, false, 0, index_type);
 
   batch.Put(&cf1, "ddd", "");
   batch.Put(&cf2, "aaa", "");
@@ -395,12 +404,14 @@ TEST_F(WriteBatchWithIndexTest, TestComparatorForCF) {
     ASSERT_EQ("a11", iter->Entry().key.ToString());
   }
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestOverwriteKey) {
+for (auto index_type : all_index_types) {
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
   ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true, 0, index_type);
 
   batch.Put(&cf1, "ddd", "");
   batch.Merge(&cf1, "ddd", "");
@@ -499,6 +510,7 @@ TEST_F(WriteBatchWithIndexTest, TestOverwriteKey) {
     ASSERT_TRUE(!iter->Valid());
   }
 }
+}
 
 namespace {
 typedef std::map<std::string, std::string> KVMap;
@@ -558,6 +570,7 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
 }  // namespace
 
 TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
+for (auto index_type : all_index_types) {
   std::vector<std::string> source_strings = {"a", "b", "c", "d", "e",
                                              "f", "g", "h", "i", "j"};
   for (int rand_seed = 301; rand_seed < 366; rand_seed++) {
@@ -567,7 +580,7 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
     ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
     ColumnFamilyHandleImplDummy cf3(8, BytewiseComparator());
 
-    WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+    WriteBatchWithIndex batch(BytewiseComparator(), 20, true, 0, index_type);
 
     if (rand_seed % 2 == 0) {
       batch.Put(&cf2, "zoo", "bar");
@@ -677,11 +690,13 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
     }
   }
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
+for (auto index_type : all_index_types) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true, 0, index_type);
 
   {
     KVMap map;
@@ -840,11 +855,13 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     AssertIter(iter.get(), "c", "cc");
   }
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
+for (auto index_type : all_index_types) {
   ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true, 0, index_type);
 
   // Test the case that there is one element in the write batch
   batch.Put(&cf2, "zoo", "bar");
@@ -926,10 +943,12 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
     AssertIter(iter.get(), "a", "b");
   }
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatch) {
+for (auto index_type : all_index_types) {
   Options options;
-  WriteBatchWithIndex batch;
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, false, 0, index_type);
   Status s;
   std::string value;
 
@@ -975,8 +994,10 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatch) {
   ASSERT_OK(s);
   ASSERT_EQ("b", value);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
+for (auto index_type : all_index_types) {
   DB* db;
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
@@ -989,7 +1010,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   ASSERT_OK(s);
 
   ColumnFamilyHandle* column_family = db->DefaultColumnFamily();
-  WriteBatchWithIndex batch;
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, false, 0, index_type);
   std::string value;
 
   s = batch.GetFromBatch(options, "x", &value);
@@ -1023,8 +1044,10 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   delete db;
   DestroyDB(dbname, options);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge2) {
+for (auto index_type : all_index_types) {
   DB* db;
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
@@ -1039,7 +1062,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge2) {
   ColumnFamilyHandle* column_family = db->DefaultColumnFamily();
 
   // Test batch with overwrite_key=true
-  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true, 0, index_type);
   std::string value;
 
   s = batch.GetFromBatch(column_family, options, "X", &value);
@@ -1083,8 +1106,10 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge2) {
   delete db;
   DestroyDB(dbname, options);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
+for (auto index_type : all_index_types) {
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -1094,7 +1119,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
   Status s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
 
-  WriteBatchWithIndex batch;
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, false, 0, index_type);
   ReadOptions read_options;
   WriteOptions write_options;
   std::string value;
@@ -1133,8 +1158,10 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
   delete db;
   DestroyDB(dbname, options);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
+for (auto index_type : all_index_types) {
   DB* db;
   Options options;
 
@@ -1147,7 +1174,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
   Status s = DB::Open(options, dbname, &db);
   assert(s.ok());
 
-  WriteBatchWithIndex batch;
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, false, 0, index_type);
   ReadOptions read_options;
   WriteOptions write_options;
   std::string value;
@@ -1259,8 +1286,10 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
   delete db;
   DestroyDB(dbname, options);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
+for (auto index_type : all_index_types) {
   DB* db;
   Options options;
 
@@ -1274,7 +1303,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
   assert(s.ok());
 
   // Test batch with overwrite_key=true
-  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true, 0, index_type);
 
   ReadOptions read_options;
   WriteOptions write_options;
@@ -1307,6 +1336,8 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
   delete db;
   DestroyDB(dbname, options);
 }
+}
+
 
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge3) {
   DB* db;
@@ -1352,7 +1383,8 @@ void AssertValue(std::string value, WBWIIterator* iter) {
 // Tests that we can write to the WBWI while we iterate (from a single thread).
 // iteration should see the newest writes
 TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingCorrectnessTest) {
-  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+for (auto index_type : all_index_types) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true, 0, index_type);
   for (char c = 'a'; c <= 'z'; ++c) {
     batch.Put(std::string(1, c), std::string(1, c));
   }
@@ -1386,6 +1418,7 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingCorrectnessTest) {
   iter->Prev();
   AssertKey("w", iter.get());
 }
+}
 
 void AssertIterKey(std::string key, Iterator* iter) {
   ASSERT_TRUE(iter->Valid());
@@ -1399,7 +1432,8 @@ void AssertIterValue(std::string value, Iterator* iter) {
 
 // same thing as above, but testing IteratorWithBase
 TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseCorrectnessTest) {
-  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+for (auto index_type : all_index_types) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true, 0, index_type);
   for (char c = 'a'; c <= 'z'; ++c) {
     batch.Put(std::string(1, c), std::string(1, c));
   }
@@ -1464,10 +1498,12 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseCorrectnessTest) {
   // new value
   AssertIterValue("xx", iter.get());
 }
+}
 
 // stress testing mutations with IteratorWithBase
 TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseStressTest) {
-  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+for (auto index_type : all_index_types) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true, 0, index_type);
   for (char c = 'a'; c <= 'z'; ++c) {
     batch.Put(std::string(1, c), std::string(1, c));
   }
@@ -1517,6 +1553,7 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseStressTest) {
         assert(false);
     }
   }
+}
 }
 
 static std::string PrintContents(WriteBatchWithIndex* batch,
@@ -1594,7 +1631,8 @@ static std::string PrintContents(WriteBatchWithIndex* batch, KVMap* base_map,
 }
 
 TEST_F(WriteBatchWithIndexTest, SavePointTest) {
-  WriteBatchWithIndex batch;
+for (auto index_type : all_index_types) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, false, 0, index_type);
   ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
   Status s;
 
@@ -1708,9 +1746,11 @@ TEST_F(WriteBatchWithIndexTest, SavePointTest) {
   s = batch.RollbackToSavePoint();  // rollback to 6
   ASSERT_TRUE(s.IsNotFound());
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, SingleDeleteTest) {
-  WriteBatchWithIndex batch;
+for (auto index_type : all_index_types) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, false, 0, index_type);
   Status s;
   std::string value;
   DBOptions db_options;
@@ -1786,12 +1826,14 @@ TEST_F(WriteBatchWithIndexTest, SingleDeleteTest) {
       "SINGLE-DEL(D),SINGLE-DEL(D),",
       value);
 }
+}
 
 TEST_F(WriteBatchWithIndexTest, SingleDeleteDeltaIterTest) {
+for (auto index_type : all_index_types) {
   Status s;
   std::string value;
   DBOptions db_options;
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, true /* overwrite_key */);
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true /* overwrite_key */, 0, index_type);
   batch.Put("A", "a");
   batch.Put("A", "a2");
   batch.Put("B", "b");
@@ -1825,6 +1867,7 @@ TEST_F(WriteBatchWithIndexTest, SingleDeleteDeltaIterTest) {
 
   value = PrintContents(&batch, &map, nullptr);
   ASSERT_EQ("B:b3,E:ee,", value);
+}
 }
 
 }  // namespace ROCKSDB_NAMESPACE

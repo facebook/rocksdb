@@ -19,14 +19,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-TransactionBaseImpl::TransactionBaseImpl(DB* db,
-                                         const WriteOptions& write_options)
+TransactionBaseImpl::TransactionBaseImpl(
+    DB* db, const WriteOptions& write_options,
+    const rocksdb::WriteBatchEntryIndexFactory* index_factory)
     : db_(db),
       dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
-      write_batch_(cmp_, 0, true, 0),
+      write_batch_(cmp_, 0, true, 0, index_factory),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
