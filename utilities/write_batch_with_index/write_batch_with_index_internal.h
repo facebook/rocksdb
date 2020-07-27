@@ -79,15 +79,14 @@ class WriteBatchWithIndexInternal {
   static WriteBatchWithIndexInternal::Result GetFromBatch(
       const ImmutableDBOptions& ioptions, WriteBatchWithIndex* batch,
       ColumnFamilyHandle* column_family, const Slice& key,
-      MergeContext* merge_context, const Comparator* cmp,
-      std::string* value, bool overwrite_key, Status* s);
+      MergeContext* merge_context, const Comparator* cmp, std::string* value,
+      bool overwrite_key, Status* s);
 };
 
 class WriteBatchKeyExtractor {
  public:
   WriteBatchKeyExtractor(const ReadableWriteBatch* write_batch)
-      : write_batch_(write_batch) {
-  }
+      : write_batch_(write_batch) {}
 
   Slice operator()(const WriteBatchIndexEntry* entry) const;
 

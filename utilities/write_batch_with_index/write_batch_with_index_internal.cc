@@ -8,6 +8,7 @@
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 #include <unordered_map>
+
 #include "db/column_family.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -91,8 +92,8 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
 WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     const ImmutableDBOptions& immuable_db_options, WriteBatchWithIndex* batch,
     ColumnFamilyHandle* column_family, const Slice& key,
-    MergeContext* merge_context, const Comparator* cmp,
-    std::string* value, bool overwrite_key, Status* s) {
+    MergeContext* merge_context, const Comparator* cmp, std::string* value,
+    bool overwrite_key, Status* s) {
   *s = Status::OK();
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::Result::kNotFound;
@@ -234,7 +235,7 @@ Slice WriteBatchKeyExtractor::operator()(
   }
 }
 
-template<bool OverwriteKey>
+template <bool OverwriteKey>
 struct WriteBatchEntryComparator {
   int operator()(WriteBatchIndexEntry* l, WriteBatchIndexEntry* r) const {
     int cmp = c->Compare(extractor(l), extractor(r));
@@ -254,9 +255,9 @@ struct WriteBatchEntryComparator {
   const Comparator* c;
 };
 
-template<bool OverwriteKey>
+template <bool OverwriteKey>
 class WriteBatchEntrySkipListIndex : public WriteBatchEntryIndex {
-protected:
+ protected:
   typedef WriteBatchEntryComparator<OverwriteKey> EntryComparator;
   typedef SkipList<WriteBatchIndexEntry*, const EntryComparator&> Index;
   EntryComparator comparator_;
@@ -269,43 +270,30 @@ protected:
     typename Index::Iterator iter_;
 
    public:
-    virtual bool Valid() const override {
-      return iter_.Valid();
-    }
-    virtual void SeekToFirst() override {
-      iter_.SeekToFirst();
-    }
-    virtual void SeekToLast() override {
-      iter_.SeekToLast();
-    }
+    virtual bool Valid() const override { return iter_.Valid(); }
+    virtual void SeekToFirst() override { iter_.SeekToFirst(); }
+    virtual void SeekToLast() override { iter_.SeekToLast(); }
     virtual void Seek(WriteBatchIndexEntry* target) override {
       iter_.Seek(target);
     }
     virtual void SeekForPrev(WriteBatchIndexEntry* target) override {
       iter_.SeekForPrev(target);
     }
-    virtual void Next() override {
-      iter_.Next();
-    }
-    virtual void Prev() override {
-      iter_.Prev();
-    }
-    virtual WriteBatchIndexEntry* key() const override {
-      return iter_.key();
-    }
+    virtual void Next() override { iter_.Next(); }
+    virtual void Prev() override { iter_.Prev(); }
+    virtual WriteBatchIndexEntry* key() const override { return iter_.key(); }
   };
 
  public:
   WriteBatchEntrySkipListIndex(WriteBatchKeyExtractor e, const Comparator* c,
                                Arena* a)
-      : comparator_({e, c}),
-        index_(comparator_, a) {
-  }
+      : comparator_({e, c}), index_(comparator_, a) {}
 
   virtual Iterator* NewIterator() override {
     return new SkipListIterator(&index_);
   }
-  virtual void NewIterator(IteratorStorage& storage, bool /*ephemeral*/) override {
+  virtual void NewIterator(IteratorStorage& storage,
+                           bool /*ephemeral*/) override {
     static_assert(sizeof(SkipListIterator) <= sizeof storage.buffer,
                   "Need larger buffer for SkipListIterator");
     storage.iter = new (storage.buffer) SkipListIterator(&index_);
@@ -331,16 +319,17 @@ protected:
 
 WriteBatchEntryIndexContext::~WriteBatchEntryIndexContext() {}
 WriteBatchEntryIndexFactory::~WriteBatchEntryIndexFactory() {}
-WriteBatchEntryIndexContext*
-WriteBatchEntryIndexFactory::NewContext(Arena*) const { return nullptr; }
+WriteBatchEntryIndexContext* WriteBatchEntryIndexFactory::NewContext(
+    Arena*) const {
+  return nullptr;
+}
 
 const WriteBatchEntryIndexFactory* skip_list_WriteBatchEntryIndexFactory() {
   class SkipListIndexFactory : public WriteBatchEntryIndexFactory {
    public:
     WriteBatchEntryIndex* New(WriteBatchEntryIndexContext* /*ctx*/,
-                              WriteBatchKeyExtractor e,
-                              const Comparator* c, Arena* a,
-                              bool overwite_key) const override {
+                              WriteBatchKeyExtractor e, const Comparator* c,
+                              Arena* a, bool overwite_key) const override {
       if (overwite_key) {
         typedef WriteBatchEntrySkipListIndex<true> index_t;
         return new (a->AllocateAligned(sizeof(index_t))) index_t(e, c, a);

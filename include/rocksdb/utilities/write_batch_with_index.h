@@ -54,7 +54,7 @@ struct WriteEntry {
   Slice value;
 };
 
-template<class T, size_t N>
+template <class T, size_t N>
 struct WBIteratorStorage {
   ~WBIteratorStorage() {
     if (iter != nullptr) {
