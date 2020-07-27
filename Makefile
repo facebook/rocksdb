@@ -197,6 +197,7 @@ endif
 
 #-----------------------------------------------
 include src.mk
+LIB_SOURCES += ${EXTRA_LIB_SOURCES}
 
 AM_DEFAULT_VERBOSITY ?= 0
 
