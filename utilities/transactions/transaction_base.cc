@@ -21,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 TransactionBaseImpl::TransactionBaseImpl(
     DB* db, const WriteOptions& write_options,
-    const rocksdb::WriteBatchEntryIndexFactory* index_factory)
+    const WriteBatchEntryIndexFactory* index_factory)
     : db_(db),
       dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
