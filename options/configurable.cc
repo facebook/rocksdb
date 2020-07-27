@@ -481,7 +481,7 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
                                             std::string* result) {
   assert(result);
   for (auto const& opt_iter : configurable.options_) {
-    for (const auto map_iter : *(opt_iter.type_map)) {
+    for (const auto& map_iter : *(opt_iter.type_map)) {
       const auto& opt_name = map_iter.first;
       const auto& opt_info = map_iter.second;
       if (opt_info.ShouldSerialize()) {
@@ -582,14 +582,14 @@ bool ConfigurableHelper::AreEqual(const ConfigOptions& config_options,
                                   const Configurable& that_one,
                                   std::string* mismatch) {
   assert(mismatch != nullptr);
-  for (auto const o : this_one.options_) {
+  for (auto const& o : this_one.options_) {
     const auto this_offset = this_one.GetOptionsPtr(o.name);
     const auto that_offset = that_one.GetOptionsPtr(o.name);
     if (this_offset != that_offset) {
       if (this_offset == nullptr || that_offset == nullptr) {
         return false;
       } else {
-        for (const auto map_iter : *(o.type_map)) {
+        for (const auto& map_iter : *(o.type_map)) {
           if (config_options.IsCheckEnabled(map_iter.second.GetSanityLevel()) &&
               !this_one.OptionsAreEqual(config_options, map_iter.second,
                                         map_iter.first, this_offset,
