@@ -33,7 +33,7 @@ struct DBOptions;
 //   -> Convert itself into its string representation
 //   -> Dump itself to a Logger
 //   -> Compare itself to another Configurable object to see if the two objects
-// are equivalent
+// have equivalent options settings
 //
 // If a derived class calls RegisterOptions to register (by name) how its
 // options objects are to be processed, this functionality can typically be
@@ -243,6 +243,11 @@ class Configurable {
   virtual Status ValidateOptions(const DBOptions& db_opts,
                                  const ColumnFamilyOptions& cf_opts) const;
 
+  // Returns true if this object has been initialized via PrepareOptions, false
+  // otherwise. Once an object has been prepared, only mutable options may be
+  // changed.
+  virtual bool IsPrepared() const { return prepared_; }
+
  protected:
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
@@ -299,17 +304,6 @@ class Configurable {
   // Classes may override this value to change its behavior.
   virtual std::string AsString(const ConfigOptions& config_options,
                                const std::string& header) const;
-
-  // Internal method to serialize a set of options for this object.
-  // Classes may override this value to change its behavior.
-  // @param config_options Controls how the options are being serialized
-  // @param prefix String to prepend to every option being serialized
-  // @param type_map The map of options for this name
-  // @param opt_ptr Pointer to the object being configured for this option set.
-  // @param result The serailized result
-  // @return OK If all of the options in type_map were successfully serialized
-  // @return InvalidArgument If an option could not be serialized.
-
 #endif  // ROCKSDB_LITE
 
   // Registers the input name with the options and associated map.

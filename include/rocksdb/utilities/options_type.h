@@ -75,7 +75,7 @@ enum class OptionTypeFlags : uint32_t {
   kCompareExact = ConfigOptions::kSanityLevelExactMatch,
 
   kMutable = 0x0100,        // Option is mutable
-  kPointer = 0x0200,        // The option is stored as a pointer
+  kRawPointer = 0x0200,     // The option is stored as a raw pointer
   kShared = 0x0400,         // The option is stored as a shared_ptr
   kUnique = 0x0800,         // The option is stored as a unique_ptr
   kAllowNull = 0x1000,      // The option can be null
@@ -446,7 +446,7 @@ class OptionTypeInfo {
 
   bool IsUniquePtr() const { return IsEnabled(OptionTypeFlags::kUnique); }
 
-  bool IsRawPtr() const { return IsEnabled(OptionTypeFlags::kPointer); }
+  bool IsRawPtr() const { return IsEnabled(OptionTypeFlags::kRawPointer); }
 
   bool IsByName() const {
     return (verification_ == OptionVerificationType::kByName ||

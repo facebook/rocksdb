@@ -172,7 +172,7 @@ Status Configurable::ConfigureOptions(
 #ifndef ROCKSDB_LITE
   if (!config_options.ignore_unknown_options) {
     // If we are not ignoring unused, get the defaults in case we need to reset
-    GetOptionString(config_options, &curr_opts);
+    GetOptionString(config_options, &curr_opts).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
   Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
@@ -186,7 +186,7 @@ Status Configurable::ConfigureOptions(
     reset.ignore_unknown_options = true;
     reset.invoke_prepare_options = true;
     // There are some options to reset from this current error
-    ConfigureFromString(reset, curr_opts);
+    ConfigureFromString(reset, curr_opts).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
   return s;
@@ -289,15 +289,11 @@ Status ConfigurableHelper::ConfigureOptions(
     unused->insert(remaining.begin(), remaining.end());
   }
   if (config_options.ignore_unknown_options) {
-    return Status::OK();
-  } else if (!s.ok()) {
-    return s;
-  } else if (unused == nullptr && !remaining.empty()) {
-    return Status::NotFound("Could not find option: ",
-                            remaining.begin()->first);
-  } else {
-    return Status::OK();
+    s = Status::OK();
+  } else if (s.ok() && unused == nullptr && !remaining.empty()) {
+    s = Status::NotFound("Could not find option: ", remaining.begin()->first);
   }
+  return s;
 }
 
 #ifndef ROCKSDB_LITE
@@ -356,10 +352,14 @@ Status ConfigurableHelper::ConfigureSomeOptions(
     }
   }
   if (config_options.ignore_unknown_options) {
+    if (!result.ok()) result.PermitUncheckedError();
+    if (!notsup.ok()) notsup.PermitUncheckedError();
     return Status::OK();
   } else if (!result.ok()) {
+    if (!notsup.ok()) notsup.PermitUncheckedError();
     return result;
   } else if (config_options.ignore_unsupported_options) {
+    if (!notsup.ok()) notsup.PermitUncheckedError();
     return Status::OK();
   } else {
     return notsup;

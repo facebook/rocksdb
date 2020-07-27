@@ -1,4 +1,4 @@
- Prerequisites for Windows:
+# Prerequisites for Windows:
 #     This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:

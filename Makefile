@@ -548,6 +548,7 @@ PARALLEL_TEST = \
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	TESTS += folly_synchronization_distributed_mutex_test
 	PARALLEL_TEST += folly_synchronization_distributed_mutex_test
+	TESTS_PASSING_ASC = folly_synchronization_distributed_mutex_test
 endif
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
@@ -591,6 +592,7 @@ ifdef ASSERT_STATUS_CHECKED
 		merger_test \
 		mock_env_test \
 		object_registry_test \
+		configurable_test \
 		options_settable_test \
 		options_test \
 		random_test \

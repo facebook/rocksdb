@@ -169,7 +169,7 @@ class ObjectRegistry {
 
   // Creates a new static T using the input factory functions.
   // Returns OK if a new static T was successfully created
-  // Returns NotSupporte if the type/target could not be created
+  // Returns NotSupported if the type/target could not be created
   // Returns InvalidArgument if the factory return a guarded object
   //                      (meaning it is managed by a unique ptr)
   template <typename T>

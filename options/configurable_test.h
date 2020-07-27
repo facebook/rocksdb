@@ -76,7 +76,7 @@ static std::unordered_map<std::string, OptionTypeInfo> pointer_option_info = {
 #ifndef ROCKSDB_LITE
     {"pointer",
      {0, OptionType::kConfigurable, OptionVerificationType::kNormal,
-      OptionTypeFlags::kPointer}},
+      OptionTypeFlags::kRawPointer}},
 #endif  // ROCKSDB_LITE
 };
 
