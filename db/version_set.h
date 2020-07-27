@@ -1308,6 +1308,15 @@ class VersionSet {
     AppendVersion(cfd, version);
   }
 
+  struct LogReporter : public log::Reader::Reporter {
+    Status* status;
+    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
+      if (status->ok()) {
+        *status = s;
+      }
+    }
+  };
+
  protected:
   using VersionBuilderMap =
       std::unordered_map<uint32_t,
@@ -1321,15 +1330,6 @@ class VersionSet {
   friend class DumpManifestHandler;
   friend class DBImpl;
   friend class DBImplReadOnly;
-
-  struct LogReporter : public log::Reader::Reporter {
-    Status* status;
-    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
-      if (status->ok()) {
-        *status = s;
-      }
-    }
-  };
 
   void Reset();
 
