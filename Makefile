@@ -587,7 +587,7 @@ ifdef ASSERT_STATUS_CHECKED
 		slice_test \
 		statistics_test \
 		thread_local_test \
-		timed_env_test \
+		env_timed_test \
 		timer_queue_test \
 		timer_test \
 		util_merge_operators_test \
