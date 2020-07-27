@@ -1303,7 +1303,7 @@ TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
 
     FillDB(db_.get(), 0, keys_iteration);
-    bool corrupted = false;
+
     // corrupt files when copying to the backup directory
     SyncPoint::GetInstance()->SetCallBack(
         "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
@@ -1312,18 +1312,15 @@ TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
             Slice* d = reinterpret_cast<Slice*>(data);
             if (!d->empty()) {
               d->remove_suffix(1);
-              corrupted = true;
             }
           }
         });
     SyncPoint::GetInstance()->EnableProcessing();
-    Status s = backup_engine_->CreateNewBackup(db_.get());
-    if (corrupted) {
-      ASSERT_NOK(s);
-    } else {
-      // should not in this path in normal cases
-      ASSERT_OK(s);
-    }
+    // The only case that we can't detect a corruption is when the file
+    // being backed up is empty. But as keys_iteration is large, such
+    // a case shouldn't have happened and we should be able to detect
+    // the corruption.
+    ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
