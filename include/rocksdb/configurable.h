@@ -78,9 +78,12 @@ class Configurable {
 
   // Configures the options for this class based on the input parameters.
   // On successful completion, the object is updated with the settings from
-  // the opt_map.  If this method fails, an attempt is made to revert the
-  // object to original state.  Note that the revert may not be the original
-  // state but may be an equivalent.
+  // the opt_map.
+  // If this method fails, an attempt is made to revert the object to original
+  // state. Note that the revert may not be the original state but may be an
+  // equivalent. For example, if the object contains an option that is a
+  // shared_ptr, the shared_ptr may not be the original one but a copy (e.g. not
+  // the Cache object that was passed in, but a Cache object of the same size).
   //
   // The acceptable values of the name/value pairs are documented with the
   // specific class/instance.
@@ -200,8 +203,9 @@ class Configurable {
   // @param mismatch If the objects do not match, this parameter contains
   //      the name of the option that triggered the match failure.
   // @param True if the objects match, false otherwise.
-  virtual bool AreEqual(const ConfigOptions& config_options,
-                        const Configurable* other, std::string* name) const;
+  virtual bool AreEquivalent(const ConfigOptions& config_options,
+                             const Configurable* other,
+                             std::string* name) const;
 
   // Returns a pretty-printed, human-readable version of the options.
   // This method is typically used to dump the options to a log file.
@@ -254,6 +258,8 @@ class Configurable {
   bool prepared_;
   // If this class is a wrapper (has-a), this method should be
   // over-written to return the inner configurable (like an EnvWrapper).
+  // This method should NOT recurse, but should instead return the
+  // direct Inner object.
   virtual Configurable* Inner() const { return nullptr; }
 
   // Returns the raw pointer for the associated named option.
@@ -302,8 +308,8 @@ class Configurable {
 #ifndef ROCKSDB_LITE
   // Internal method to serialize options (ToString)
   // Classes may override this value to change its behavior.
-  virtual std::string AsString(const ConfigOptions& config_options,
-                               const std::string& header) const;
+  virtual std::string SerializeOptions(const ConfigOptions& config_options,
+                                       const std::string& header) const;
 #endif  // ROCKSDB_LITE
 
   // Registers the input name with the options and associated map.

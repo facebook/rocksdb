@@ -624,7 +624,8 @@ Status RocksDBOptionsParser::VerifyDBOptions(
   auto base_config = DBOptionsAsConfigurable(base_opt);
   auto file_config = DBOptionsAsConfigurable(file_opt);
   std::string mismatch;
-  if (!base_config->AreEqual(config_options, file_config.get(), &mismatch)) {
+  if (!base_config->AreEquivalent(config_options, file_config.get(),
+                                  &mismatch)) {
     const size_t kBufferSize = 2048;
     char buffer[kBufferSize];
     std::string base_value;
@@ -660,7 +661,8 @@ Status RocksDBOptionsParser::VerifyCFOptions(
   auto base_config = CFOptionsAsConfigurable(base_opt, opt_map);
   auto file_config = CFOptionsAsConfigurable(file_opt, opt_map);
   std::string mismatch;
-  if (!base_config->AreEqual(config_options, file_config.get(), &mismatch)) {
+  if (!base_config->AreEquivalent(config_options, file_config.get(),
+                                  &mismatch)) {
     std::string base_value;
     std::string file_value;
     // The options do not match
@@ -700,7 +702,7 @@ Status RocksDBOptionsParser::VerifyTableFactory(
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on TableFactory->Name()");
-    } else if (!base_tf->AreEqual(config_options, file_tf, &mismatch)) {
+    } else if (!base_tf->AreEquivalent(config_options, file_tf, &mismatch)) {
       return Status::Corruption(std::string("[RocksDBOptionsParser]:"
                                             "failed the verification on ") +
                                     base_tf->Name() + "::",

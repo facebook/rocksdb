@@ -1183,9 +1183,10 @@ bool OptionTypeInfo::AreEqual(const ConfigOptions& config_options,
       if (level < config_options.sanity_level) {
         ConfigOptions copy = config_options;
         copy.sanity_level = level;
-        matches = this_config->AreEqual(copy, that_config, &bad_name);
+        matches = this_config->AreEquivalent(copy, that_config, &bad_name);
       } else {
-        matches = this_config->AreEqual(config_options, that_config, &bad_name);
+        matches =
+            this_config->AreEquivalent(config_options, that_config, &bad_name);
       }
       if (!matches) {
         *mismatch = opt_name + "." + bad_name;

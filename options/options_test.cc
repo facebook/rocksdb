@@ -1285,6 +1285,9 @@ TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
   ASSERT_FALSE(bbto->partition_filters);
   ASSERT_OK(TableFactory::CreateFromString(config_opts, "BlockBasedTable",
                                            &cf_opts.table_factory));
+  bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>(
+      TableFactory::kBlockBasedTableOpts);
+
   ASSERT_OK(cf_opts.table_factory->ConfigureFromString(config_opts,
                                                        "no_block_cache=0;"));
   ASSERT_NE(bbto->block_cache.get(), nullptr);

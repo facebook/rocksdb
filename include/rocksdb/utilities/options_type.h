@@ -16,6 +16,9 @@
 namespace ROCKSDB_NAMESPACE {
 class OptionTypeInfo;
 
+// The underlying "class/type" of the option.
+// This enum is used to determine how the option should
+// be converted to/from strings and compared.
 enum class OptionType {
   kBoolean,
   kInt,
@@ -67,6 +70,22 @@ enum class OptionVerificationType {
                          // independently
 };
 
+// A set of modifier flags used to alter how an option is evaluated or
+// processed. These flags can be combined together (e.g. kMutable | kShared).
+// The kCompare flags can be used to control if/when options are compared.
+// If kCompareNever is set, two related options would never be compared (always
+// equal) If kCompareExact is set, the options will only be compared if the
+// sanity mode
+//                  is exact
+// kMutable       means the option can be changed after it is prepared
+// kShared        means the option is contained in a std::shared_ptr
+// kUnique        means the option is contained in a std::uniqued_ptr
+// kRawPointer    means the option is a raw pointer value.
+// kAllowNull     means that an option is allowed to be null for verification
+//                purposes.
+// kDontSerialize means this option should not be serialized and included in
+//                the string representation.
+// kDontPrepare   means do not call PrepareOptions for this pointer value.
 enum class OptionTypeFlags : uint32_t {
   kNone = 0x00,  // No flags
   kCompareDefault = 0x0,

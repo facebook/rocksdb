@@ -183,7 +183,7 @@ TEST_F(ConfigurableTest, ConfigureNestedOptionsTest) {
                                       "pointer={int=30; string=30};"));
   ASSERT_OK(base->GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy->ConfigureFromString(config_options_, opt_str));
-  ASSERT_TRUE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
 TEST_F(ConfigurableTest, GetOptionsTest) {
@@ -472,9 +472,9 @@ TEST_F(ConfigurableTest, MatchesTest) {
   ASSERT_OK(copy->ConfigureFromString(
       config_options_,
       "int=11;string=outer;unique={int=22;string=u};shared={int=33;string=s}"));
-  ASSERT_TRUE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_OK(base->ConfigureOption(config_options_, "shared", "int=44"));
-  ASSERT_FALSE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_FALSE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_EQ(mismatch, "shared.int");
   std::string c1value, c2value;
   ASSERT_OK(base->GetOption(config_options_, mismatch, &c1value));
@@ -505,7 +505,7 @@ TEST_F(ConfigurableTest, ConfigureStructTest) {
       base->ConfigureFromString(config_options_, "struct={int=10; string=10}"));
   ASSERT_OK(base->GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy->ConfigureFromString(config_options_, opt_str));
-  ASSERT_TRUE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_OK(base->GetOptionNames(config_options_, &names));
   ASSERT_EQ(names.size(), 1);
   ASSERT_EQ(*(names.begin()), "struct");
@@ -513,7 +513,7 @@ TEST_F(ConfigurableTest, ConfigureStructTest) {
       base->ConfigureFromString(config_options_, "struct={int=20; string=20}"));
   ASSERT_OK(base->GetOption(config_options_, "struct", &value));
   ASSERT_OK(copy->ConfigureOption(config_options_, "struct", value));
-  ASSERT_TRUE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
 
   ASSERT_NOK(base->ConfigureFromString(config_options_,
                                        "struct={int=10; string=10; bad=11}"));
@@ -533,10 +533,10 @@ TEST_F(ConfigurableTest, ConfigurableEnumTest) {
   std::string mismatch;
 
   ASSERT_OK(base->ConfigureFromString(config_options_, "enum=B"));
-  ASSERT_FALSE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_FALSE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_OK(base->GetOptionString(config_options_, &opts_str));
   ASSERT_OK(copy->ConfigureFromString(config_options_, opts_str));
-  ASSERT_TRUE(base->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_NOK(base->ConfigureOption(config_options_, "enum", "bad"));
   ASSERT_NOK(base->ConfigureOption(config_options_, "unknown", "bad"));
 }
@@ -584,8 +584,8 @@ TEST_F(ConfigurableTest, TestNoCompare) {
   ASSERT_OK(copy->GetOption(config_options_, "int", &cvalue));
   ASSERT_EQ(bvalue, "10");
   ASSERT_EQ(cvalue, "20");
-  ASSERT_TRUE(base->AreEqual(config_options_, copy.get(), &mismatch));
-  ASSERT_FALSE(copy->AreEqual(config_options_, base.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
 }
 #endif
 
@@ -602,7 +602,7 @@ void ConfigurableParamTest::TestConfigureOptions(
   ASSERT_OK(base->GetOptionString(config_options, &opt_str));
   ASSERT_OK(copy->ConfigureFromString(config_options, opt_str));
   ASSERT_OK(copy->GetOptionString(config_options, &opt_str));
-  ASSERT_TRUE(base->AreEqual(config_options, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options, copy.get(), &mismatch));
 
   copy.reset(factory_());
   ASSERT_OK(base->GetOptionNames(config_options, &names));
@@ -636,7 +636,7 @@ void ConfigurableParamTest::TestConfigureOptions(
     }
   }
   ASSERT_EQ(0, unused.size());
-  ASSERT_TRUE(base->AreEqual(config_options, copy.get(), &mismatch));
+  ASSERT_TRUE(base->AreEquivalent(config_options, copy.get(), &mismatch));
 }
 
 TEST_P(ConfigurableParamTest, GetDefaultOptionsTest) {
@@ -662,7 +662,7 @@ TEST_P(ConfigurableParamTest, ConfigureFromPropsTest) {
     copy_map[name] = value;
   }
   ASSERT_OK(copy->ConfigureFromMap(config_options_, copy_map));
-  ASSERT_TRUE(object_->AreEqual(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(object_->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
 static Configurable* SimpleFactory() {

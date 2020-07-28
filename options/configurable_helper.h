@@ -155,9 +155,10 @@ class ConfigurableHelper {
   // @param mismatch If the objects do not match, this parameter contains
   //      the name of the option that triggered the match failure.
   // @param True if the objects match, false otherwise.
-  static bool AreEqual(const ConfigOptions& config_options,
-                       const Configurable& this_one,
-                       const Configurable& that_one, std::string* mismatch);
+  static bool AreEquivalent(const ConfigOptions& config_options,
+                            const Configurable& this_one,
+                            const Configurable& that_one,
+                            std::string* mismatch);
 
  private:
   // Looks for the option specified by name in the RegisteredOptions.

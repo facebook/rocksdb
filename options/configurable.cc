@@ -307,8 +307,8 @@ Status ConfigurableHelper::ConfigureSomeOptions(
     const ConfigOptions& config_options, Configurable& configurable,
     const std::unordered_map<std::string, OptionTypeInfo>& type_map,
     std::unordered_map<std::string, std::string>* options, void* opt_ptr) {
-  Status result = Status::OK();
-  Status notsup = Status::OK();
+  Status result = Status::OK();  // The last non-OK result (if any)
+  Status notsup = Status::OK();  // The last NotSupported result (if any)
   std::string elem_name;
   int found = 1;
   std::unordered_set<std::string> unsupported;
@@ -388,10 +388,7 @@ Status ConfigurableHelper::ConfigureOption(
   if (opt_name == name) {
     return configurable.ParseOption(config_options, opt_info, opt_name, value,
                                     opt_ptr);
-  } else if (opt_info.IsStruct()) {
-    return configurable.ParseOption(config_options, opt_info, name, value,
-                                    opt_ptr);
-  } else if (opt_info.IsConfigurable()) {
+  } else if (opt_info.IsStruct() || opt_info.IsConfigurable()) {
     return configurable.ParseOption(config_options, opt_info, name, value,
                                     opt_ptr);
   } else {
@@ -422,7 +419,7 @@ Status Configurable::GetOptionString(const ConfigOptions& config_options,
 #ifndef ROCKSDB_LITE
 std::string Configurable::ToString(const ConfigOptions& config_options,
                                    const std::string& prefix) const {
-  std::string result = AsString(config_options, prefix);
+  std::string result = SerializeOptions(config_options, prefix);
   if (result.empty() || result.find('=') == std::string::npos) {
     return result;
   } else {
@@ -430,8 +427,8 @@ std::string Configurable::ToString(const ConfigOptions& config_options,
   }
 }
 
-std::string Configurable::AsString(const ConfigOptions& config_options,
-                                   const std::string& header) const {
+std::string Configurable::SerializeOptions(const ConfigOptions& config_options,
+                                           const std::string& header) const {
   std::string result;
   Status s = ConfigurableHelper::SerializeOptions(config_options, *this, header,
                                                   &result);
@@ -540,16 +537,17 @@ Status ConfigurableHelper::ListOptions(
 //
 //*******************************************************************************
 
-bool Configurable::AreEqual(const ConfigOptions& config_options,
-                            const Configurable* other,
-                            std::string* name) const {
+bool Configurable::AreEquivalent(const ConfigOptions& config_options,
+                                 const Configurable* other,
+                                 std::string* name) const {
   assert(name);
   name->clear();
   if (this == other || config_options.IsCheckDisabled()) {
     return true;
   } else if (other != nullptr) {
 #ifndef ROCKSDB_LITE
-    return ConfigurableHelper::AreEqual(config_options, *this, *other, name);
+    return ConfigurableHelper::AreEquivalent(config_options, *this, *other,
+                                             name);
 #else
     return true;
 #endif  // ROCKSDB_LITE
@@ -577,10 +575,10 @@ bool Configurable::OptionsAreEqual(const ConfigOptions& config_options,
   }
 }
 
-bool ConfigurableHelper::AreEqual(const ConfigOptions& config_options,
-                                  const Configurable& this_one,
-                                  const Configurable& that_one,
-                                  std::string* mismatch) {
+bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
+                                       const Configurable& this_one,
+                                       const Configurable& that_one,
+                                       std::string* mismatch) {
   assert(mismatch != nullptr);
   for (auto const& o : this_one.options_) {
     const auto this_offset = this_one.GetOptionsPtr(o.name);
