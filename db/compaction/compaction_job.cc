@@ -1470,10 +1470,8 @@ void CompactionJob::RecordCompactionIOStats() {
   CompactionReason compaction_reason =
       compact_->compaction->compaction_reason();
   if (compaction_reason == CompactionReason::kFilesMarkedForCompaction) {
-    RecordTick(stats_, COMPACT_READ_BYTES_DELETE_TRIGGERED,
-               IOSTATS(bytes_read));
-    RecordTick(stats_, COMPACT_WRITE_BYTES_DELETE_TRIGGERED,
-               IOSTATS(bytes_written));
+    RecordTick(stats_, COMPACT_READ_BYTES_MARKED, IOSTATS(bytes_read));
+    RecordTick(stats_, COMPACT_WRITE_BYTES_MARKED, IOSTATS(bytes_written));
   } else if (compaction_reason == CompactionReason::kPeriodicCompaction) {
     RecordTick(stats_, COMPACT_READ_BYTES_PERIODIC, IOSTATS(bytes_read));
     RecordTick(stats_, COMPACT_WRITE_BYTES_PERIODIC, IOSTATS(bytes_written));
