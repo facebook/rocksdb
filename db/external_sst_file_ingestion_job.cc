@@ -137,7 +137,7 @@ Status ExternalSstFileIngestionJob::Prepare(
                                nullptr);
       // CopyFile also sync the new file.
       status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+                        db_options_.use_fsync, io_tracer_);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {
