@@ -970,10 +970,6 @@ class LevelIterator final : public InternalIterator {
   void SetFileIterator(InternalIterator* iter);
   void InitFileIterator(size_t new_file_index);
 
-  // Called by both of Next() and NextAndGetResult(). Force inline.
-  void NextImpl() {
-  }
-
   const Slice& file_smallest_key(size_t file_index) {
     assert(file_index < flevel_->num_files);
     return flevel_->files[file_index].smallest_key;
