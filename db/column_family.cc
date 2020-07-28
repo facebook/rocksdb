@@ -499,7 +499,8 @@ ColumnFamilyData::ColumnFamilyData(
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
     const FileOptions& file_options, ColumnFamilySet* column_family_set,
-    BlockCacheTracer* const block_cache_tracer)
+    BlockCacheTracer* const block_cache_tracer,
+    const std::shared_ptr<IOTracer>& io_tracer)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -557,7 +558,7 @@ ColumnFamilyData::ColumnFamilyData(
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, db_options.env, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
-                                      block_cache_tracer));
+                                      block_cache_tracer, io_tracer));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
@@ -1415,12 +1416,13 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  Cache* table_cache,
                                  WriteBufferManager* _write_buffer_manager,
                                  WriteController* _write_controller,
-                                 BlockCacheTracer* const block_cache_tracer)
+                                 BlockCacheTracer* const block_cache_tracer,
+                                 const std::shared_ptr<IOTracer>& io_tracer)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
           nullptr, ColumnFamilyOptions(), *db_options, file_options, nullptr,
-          block_cache_tracer)),
+          block_cache_tracer, io_tracer)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
@@ -1428,7 +1430,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       table_cache_(table_cache),
       write_buffer_manager_(_write_buffer_manager),
       write_controller_(_write_controller),
-      block_cache_tracer_(block_cache_tracer) {
+      block_cache_tracer_(block_cache_tracer),
+      io_tracer_(io_tracer) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -1494,7 +1497,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
-      *db_options_, file_options_, this, block_cache_tracer_);
+      *db_options_, file_options_, this, block_cache_tracer_, io_tracer_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);
