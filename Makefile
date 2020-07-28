@@ -192,12 +192,12 @@ ifeq ($(filter -DROCKSDB_ASSERT_STATUS_CHECKED,$(OPT)),)
 endif
 endif
 
+$(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
+endif
+
 ifeq ($(USE_LTO), 1)
 	CXXFLAGS += -flto
 	LDFLAGS += -flto -fuse-linker-plugin
-endif
-
-$(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
 #-----------------------------------------------
