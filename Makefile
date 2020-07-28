@@ -195,6 +195,17 @@ endif
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
+# `USE_LTO=1` enables link-time optimizations. Among other things, this enables
+# more devirtualization opportunities and inlining across translation units.
+# This can save significant overhead introduced by RocksDB's pluggable
+# interfaces/internal abstractions, like in the iterator hierarchy. It works
+# better when combined with profile-guided optimizations (not currently
+# supported natively in Makefile).
+ifeq ($(USE_LTO), 1)
+	CXXFLAGS += -flto
+	LDFLAGS += -flto -fuse-linker-plugin
+endif
+
 #-----------------------------------------------
 include src.mk
 
