@@ -1104,6 +1104,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_stats_dump_period_sec(
     rocksdb_options_t*, unsigned int);
 extern ROCKSDB_LIBRARY_API unsigned int
 rocksdb_options_get_stats_dump_period_sec(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_stats_persist_period_sec(
+    rocksdb_options_t*, unsigned int);
+extern ROCKSDB_LIBRARY_API unsigned int
+rocksdb_options_get_stats_persist_period_sec(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_advise_random_on_open(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char
