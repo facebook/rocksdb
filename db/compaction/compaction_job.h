@@ -62,25 +62,23 @@ class VersionSet;
 // if needed.
 class CompactionJob {
  public:
-  CompactionJob(int job_id, Compaction* compaction,
-                const ImmutableDBOptions& db_options,
-                const FileOptions& file_options, VersionSet* versions,
-                const std::atomic<bool>* shutting_down,
-                const SequenceNumber preserve_deletes_seqnum,
-                LogBuffer* log_buffer, FSDirectory* db_directory,
-                FSDirectory* output_directory, Statistics* stats,
-                InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-                std::vector<SequenceNumber> existing_snapshots,
-                SequenceNumber earliest_write_conflict_snapshot,
-                const SnapshotChecker* snapshot_checker,
-                std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-                bool paranoid_file_checks, bool measure_io_stats,
-                const std::string& dbname,
-                CompactionJobStats* compaction_job_stats,
-                Env::Priority thread_pri,
-                const std::atomic<bool>* manual_compaction_paused = nullptr,
-                const std::string& db_id = "",
-                const std::string& db_session_id = "");
+  CompactionJob(
+      int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const FileOptions& file_options, VersionSet* versions,
+      const std::atomic<bool>* shutting_down,
+      const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
+      FSDirectory* db_directory, FSDirectory* output_directory,
+      Statistics* stats, InstrumentedMutex* db_mutex,
+      ErrorHandler* db_error_handler,
+      std::vector<SequenceNumber> existing_snapshots,
+      SequenceNumber earliest_write_conflict_snapshot,
+      const SnapshotChecker* snapshot_checker,
+      std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+      bool paranoid_file_checks, bool measure_io_stats,
+      const std::string& dbname, CompactionJobStats* compaction_job_stats,
+      Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+      const std::atomic<bool>* manual_compaction_paused = nullptr,
+      const std::string& db_id = "", const std::string& db_session_id = "");
 
   ~CompactionJob();
 
@@ -160,7 +158,7 @@ class CompactionJob {
   const FileOptions file_options_;
 
   Env* env_;
-  FileSystem* fs_;
+  FileSystemPtr fs_;
   // env_option optimized for compaction table reads
   FileOptions file_options_for_read_;
   VersionSet* versions_;

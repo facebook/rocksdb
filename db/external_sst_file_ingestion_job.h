@@ -12,6 +12,7 @@
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
+#include "env/file_system_tracer.h"
 #include "logging/event_logger.h"
 #include "options/db_options.h"
 #include "rocksdb/db.h"
@@ -76,9 +77,10 @@ class ExternalSstFileIngestionJob {
       const ImmutableDBOptions& db_options, const EnvOptions& env_options,
       SnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
-      Directories* directories, EventLogger* event_logger)
+      Directories* directories, EventLogger* event_logger,
+      const std::shared_ptr<IOTracer>& io_tracer)
       : env_(env),
-        fs_(db_options.fs.get()),
+        fs_(db_options.fs, io_tracer),
         versions_(versions),
         cfd_(cfd),
         db_options_(db_options),
@@ -167,7 +169,7 @@ class ExternalSstFileIngestionJob {
   Status SyncIngestedFile(TWritableFile* file);
 
   Env* env_;
-  FileSystem* fs_;
+  FileSystemPtr fs_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;

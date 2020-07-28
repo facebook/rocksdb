@@ -151,8 +151,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
-      fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
+      fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
       mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
@@ -197,7 +197,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       unable_to_release_oldest_log_(false),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, file_options_, seq_per_batch),
+      wal_manager_(immutable_db_options_, file_options_, io_tracer_,
+                   seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
@@ -245,7 +246,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_, &block_cache_tracer_));
+                                 &write_controller_, &block_cache_tracer_,
+                                 io_tracer_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -3931,7 +3933,7 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());
   Status s = PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name,
-                                   GetFileSystem());
+                                   fs_.get());
 
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
@@ -4278,7 +4280,7 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(
         env_, versions_.get(), cfd, immutable_db_options_, file_options_,
-        &snapshots_, arg.options, &directories_, &event_logger_);
+        &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
@@ -4552,7 +4554,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   auto cfd = cfh->cfd();
   ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
                                    immutable_db_options_, file_options_,
-                                   import_options, metadata.files);
+                                   import_options, metadata.files, io_tracer_);
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
