@@ -112,6 +112,7 @@ void WalSet::AddWals(const WalAdditions& wals) {
 }
 
 void WalSet::DeleteWal(const WalDeletion& wal) {
+  assert(wals_.find(wal.GetLogNumber()) != wals_.end());
   wals_.erase(wal.GetLogNumber());
 }
 

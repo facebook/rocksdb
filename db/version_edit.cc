@@ -629,7 +629,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           return s;
         }
 
-        wal_additions_.emplace_back(wal_addition);
+        wal_additions_.emplace_back(std::move(wal_addition));
         break;
       }
 
@@ -640,7 +640,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           return s;
         }
 
-        wal_deletions_.emplace_back(wal_deletion);
+        wal_deletions_.emplace_back(std::move(wal_deletion));
         break;
       }
 

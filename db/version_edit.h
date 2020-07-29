@@ -377,8 +377,8 @@ class VersionEdit {
   }
 
   // Add a WAL (either just created or closed).
-  void AddWal(WalNumber number, const WalMetadata& metadata = WalMetadata()) {
-    wal_additions_.emplace_back(number, metadata);
+  void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    wal_additions_.emplace_back(number, std::move(metadata));
   }
 
   // Retrieve all the added WALs.

@@ -318,13 +318,13 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
 }
 
 TEST_F(VersionEditTest, AddWalDebug) {
-  const int n = 2;
-  const std::vector<uint64_t> kLogNumbers{10, 20};
-  const std::vector<uint64_t> kBytes{100, 200};
+  constexpr int n = 2;
+  constexpr std::array<uint64_t, n> kLogNumbers{10, 20};
+  constexpr std::array<uint64_t, n> kSizeInBytes{100, 200};
 
   VersionEdit edit;
   for (int i = 0; i < n; i++) {
-    edit.AddWal(kLogNumbers[i], WalMetadata(kBytes[i]));
+    edit.AddWal(kLogNumbers[i], WalMetadata(kSizeInBytes[i]));
   }
 
   const WalAdditions& wals = edit.GetWalAdditions();
@@ -334,14 +334,14 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     const WalAddition& wal = wals[i];
     ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[i]);
-    ASSERT_EQ(wal.GetMetadata().GetSizeInBytes(), kBytes[i]);
+    ASSERT_EQ(wal.GetMetadata().GetSizeInBytes(), kSizeInBytes[i]);
   }
 
   std::string expected_str = "VersionEdit {\n";
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "  WalAddition: log_number: " << kLogNumbers[i]
-       << " size_in_bytes: " << kBytes[i] << "\n";
+       << " size_in_bytes: " << kSizeInBytes[i] << "\n";
     expected_str += ss.str();
   }
   expected_str += "  ColumnFamily: 0\n}\n";
@@ -351,7 +351,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
-       << "\"SizeInBytes\": " << kBytes[i] << "}";
+       << "\"SizeInBytes\": " << kSizeInBytes[i] << "}";
     if (i < n - 1) ss << ", ";
     expected_json += ss.str();
   }
@@ -368,8 +368,8 @@ TEST_F(VersionEditTest, DeleteWalEncodeDecode) {
 }
 
 TEST_F(VersionEditTest, DeleteWalDebug) {
-  const int n = 2;
-  const std::vector<uint64_t> kLogNumbers{10, 20};
+  constexpr int n = 2;
+  constexpr std::array<uint64_t, n> kLogNumbers{10, 20};
 
   VersionEdit edit;
   for (int i = 0; i < n; i++) {
