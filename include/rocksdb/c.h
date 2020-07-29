@@ -1555,6 +1555,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_env_set_background_threads(
     rocksdb_env_t* env, int n);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n);
+extern ROCKSDB_LIBRARY_API void rocksdb_env_set_low_priority_background_threads(
+    rocksdb_env_t* env, int n);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_env_set_bottom_priority_background_threads(rocksdb_env_t* env, int n);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_join_all_threads(
     rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_thread_pool_io_priority(rocksdb_env_t* env);
