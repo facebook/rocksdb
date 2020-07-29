@@ -467,9 +467,6 @@ Status RocksDBOptionsParser::EndSection(
       cf_opt->table_factory.reset();
       return Status::OK();
     }
-    if (!s.ok()) {
-      return s;
-    }
   } else if (section == kOptionSectionVersion) {
     for (const auto& pair : opt_map) {
       if (pair.first == "rocksdb_version") {
