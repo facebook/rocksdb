@@ -572,9 +572,11 @@ ifdef ASSERT_STATUS_CHECKED
 		dbformat_test \
 		defer_test \
 		dynamic_bloom_test \
+		env_basic_test \
+		env_test \
+		env_logger_test \
 		event_logger_test \
 		file_indexer_test \
-		folly_synchronization_distributed_mutex_test \
 		hash_table_test \
 		hash_test \
 		heap_test \
@@ -596,12 +598,17 @@ ifdef ASSERT_STATUS_CHECKED
 		slice_test \
 		statistics_test \
 		thread_local_test \
+		env_timed_test \
 		timer_queue_test \
 		timer_test \
 		util_merge_operators_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
+endif
 
 	# Enable building all unit tests, but use check_some to run only tests
 	# known to pass ASC

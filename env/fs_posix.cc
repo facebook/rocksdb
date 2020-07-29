@@ -201,7 +201,7 @@ class PosixFileSystem : public FileSystem {
                                std::unique_ptr<FSRandomAccessFile>* result,
                                IODebugContext* /*dbg*/) override {
     result->reset();
-    IOStatus s;
+    IOStatus s = IOStatus::OK();
     int fd;
     int flags = cloexec_flags(O_RDONLY, &options);
 
@@ -221,7 +221,8 @@ class PosixFileSystem : public FileSystem {
       fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
-      return IOError("While open a file for random read", fname, errno);
+      s = IOError("While open a file for random read", fname, errno);
+      return s;
     }
     SetFD_CLOEXEC(fd, &options);
 
@@ -636,50 +637,46 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus CreateDir(const std::string& name, const IOOptions& /*opts*/,
                      IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (mkdir(name.c_str(), 0755) != 0) {
-      result = IOError("While mkdir", name, errno);
+      return IOError("While mkdir", name, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus CreateDirIfMissing(const std::string& name,
                               const IOOptions& /*opts*/,
                               IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (mkdir(name.c_str(), 0755) != 0) {
       if (errno != EEXIST) {
-        result = IOError("While mkdir if missing", name, errno);
+        return IOError("While mkdir if missing", name, errno);
       } else if (!DirExists(name)) {  // Check that name is actually a
                                       // directory.
         // Message is taken from mkdir
-        result =
-            IOStatus::IOError("`" + name + "' exists but is not a directory");
+        return IOStatus::IOError("`" + name +
+                                 "' exists but is not a directory");
       }
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus DeleteDir(const std::string& name, const IOOptions& /*opts*/,
                      IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (rmdir(name.c_str()) != 0) {
-      result = IOError("file rmdir", name, errno);
+      return IOError("file rmdir", name, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus GetFileSize(const std::string& fname, const IOOptions& /*opts*/,
                        uint64_t* size, IODebugContext* /*dbg*/) override {
-    IOStatus s;
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       *size = 0;
-      s = IOError("while stat a file for size", fname, errno);
+      return IOError("while stat a file for size", fname, errno);
     } else {
       *size = sbuf.st_size;
     }
-    return s;
+    return IOStatus::OK();
   }
 
   IOStatus GetFileModificationTime(const std::string& fname,
@@ -697,24 +694,22 @@ class PosixFileSystem : public FileSystem {
   IOStatus RenameFile(const std::string& src, const std::string& target,
                       const IOOptions& /*opts*/,
                       IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (rename(src.c_str(), target.c_str()) != 0) {
-      result = IOError("While renaming a file to " + target, src, errno);
+      return IOError("While renaming a file to " + target, src, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus LinkFile(const std::string& src, const std::string& target,
                     const IOOptions& /*opts*/,
                     IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (link(src.c_str(), target.c_str()) != 0) {
       if (errno == EXDEV) {
         return IOStatus::NotSupported("No cross FS links allowed");
       }
-      result = IOError("while link file to " + target, src, errno);
+      return IOError("while link file to " + target, src, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*opts*/,
@@ -751,12 +746,11 @@ class PosixFileSystem : public FileSystem {
   IOStatus LockFile(const std::string& fname, const IOOptions& /*opts*/,
                     FileLock** lock, IODebugContext* /*dbg*/) override {
     *lock = nullptr;
-    IOStatus result;
 
     LockHoldingInfo lhi;
     int64_t current_time = 0;
     // Ignore status code as the time is only used for error message.
-    Env::Default()->GetCurrentTime(&current_time);
+    Env::Default()->GetCurrentTime(&current_time).PermitUncheckedError();
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 
@@ -784,6 +778,7 @@ class PosixFileSystem : public FileSystem {
                      fname, errno);
     }
 
+    IOStatus result = IOStatus::OK();
     int fd;
     int flags = cloexec_flags(O_RDWR | O_CREAT, nullptr);
 
@@ -861,7 +856,7 @@ class PosixFileSystem : public FileSystem {
     // Directory may already exist
     {
       IOOptions opts;
-      CreateDir(*result, opts, nullptr);
+      return CreateDirIfMissing(*result, opts, nullptr);
     }
     return IOStatus::OK();
   }
