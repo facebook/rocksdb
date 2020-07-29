@@ -222,6 +222,7 @@ LockTracker* PointLockTracker::GetTrackedLocksSinceSavePoint(
 
 PointLockStatus PointLockTracker::GetPointLockStatus(
     ColumnFamilyId column_family_id, const std::string& key) const {
+  assert(IsPointLockSupported());
   PointLockStatus status;
   auto it = tracked_keys_.find(column_family_id);
   if (it == tracked_keys_.end()) {
