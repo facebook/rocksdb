@@ -21,6 +21,7 @@ const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 enum EntryType {
   kEntryPut,
   kEntryDelete,
+  kEntryDeleteWithTimestamp,
   kEntrySingleDelete,
   kEntryMerge,
   kEntryRangeDeletion,

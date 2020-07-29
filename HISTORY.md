@@ -11,6 +11,9 @@
 ### Performance Improvements
 * Reduce thread number for multiple DB instances by re-using one global thread for statistics dumping and persisting.
 
+### Public API Change
+* Expose kTypeDeleteWithTimestamp in EntryType and update GetEntryType() accordingly.
+
 ## 6.12 (2020-07-28)
 ### Public API Change
 * Encryption file classes now exposed for inheritance in env_encryption.h
