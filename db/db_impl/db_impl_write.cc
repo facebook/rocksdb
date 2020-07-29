@@ -689,7 +689,7 @@ Status DBImpl::WriteImplWALOnly(
       InstrumentedMutexLock l(&mutex_);
       bool need_log_sync = false;
       status = PreprocessWrite(write_options, &need_log_sync, &write_context);
-      WriteStatusCheck(status);
+      WriteStatusCheckOnLocked(status);
     }
     if (!status.ok()) {
       WriteThread::WriteGroup write_group;
@@ -828,6 +828,17 @@ Status DBImpl::WriteImplWALOnly(
     *seq_used = w.sequence;
   }
   return status;
+}
+
+void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
+  // Is setting bg_error_ enough here?  This will at least stop
+  // compaction and fail any further writes.
+  // Caller must hold mutex_.
+  mutex_.AssertHeld();
+  if (immutable_db_options_.paranoid_checks && !status.ok() &&
+      !status.IsBusy() && !status.IsIncomplete()) {
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
+  }
 }
 
 void DBImpl::WriteStatusCheck(const Status& status) {
