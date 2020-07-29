@@ -382,7 +382,7 @@ class MemTableIterator : public InternalIterator {
     bool is_valid = valid_;
     if (is_valid) {
       result->key = key();
-      result->may_be_out_of_upper_bound = true;
+      result->bound_check_result = IterBoundCheck::kUnknown;
       result->value_prepared = true;
     }
     return is_valid;
