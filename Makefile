@@ -131,11 +131,12 @@ endif
 # Figure out optimize level.
 ifneq ($(DEBUG_LEVEL), 2)
 ifeq ($(LITE), 0)
-	OPT += -O2
+	OPTIMIZE_LEVEL ?= -O2
 else
-	OPT += -Os
+	OPTIMIZE_LEVEL ?= -Os
 endif
 endif
+OPT += $(OPTIMIZE_LEVEL)
 
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
