@@ -3845,6 +3845,8 @@ void rocksdb_env_set_low_priority_background_threads(rocksdb_env_t* env,
   env->rep->SetBackgroundThreads(n, Env::LOW);
 }
 
+void rocksdb_env_default(rocksdb_env_t* env) { env->rep->Env::Default(); }
+
 void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
   env->rep->WaitForJoin();
 }
