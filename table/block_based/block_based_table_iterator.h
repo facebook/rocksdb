@@ -99,11 +99,11 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-
   inline IterBoundCheck UpperBoundCheckResult() override {
     if (is_out_of_bound_) {
       return IterBoundCheck::kOutOfBound;
-    } else if (block_upper_bound_check_ == BlockUpperBound::kUpperBoundBeyondCurBlock) {
+    } else if (block_upper_bound_check_ ==
+               BlockUpperBound::kUpperBoundBeyondCurBlock) {
       assert(!is_out_of_bound_);
       return IterBoundCheck::kInbound;
     } else {

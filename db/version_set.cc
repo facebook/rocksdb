@@ -948,7 +948,7 @@ class LevelIterator final : public InternalIterator {
     } else {
       return IterBoundCheck::kUnknown;
     }
-    }
+  }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
     pinned_iters_mgr_ = pinned_iters_mgr;
