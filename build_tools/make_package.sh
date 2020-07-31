@@ -103,7 +103,7 @@ function main() {
   gem_install fpm
 
   make static_lib
-  make install INSTALL_PATH=package
+  make install DESTDIR=package PREFIX=""
 
   cd package
 
