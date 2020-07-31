@@ -205,6 +205,14 @@ enum Tickers : uint32_t {
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
   FLUSH_WRITE_BYTES,    // Bytes written during flush
 
+  // Compaction read and write statistics broken down by CompactionReason
+  COMPACT_READ_BYTES_MARKED,
+  COMPACT_READ_BYTES_PERIODIC,
+  COMPACT_READ_BYTES_TTL,
+  COMPACT_WRITE_BYTES_MARKED,
+  COMPACT_WRITE_BYTES_PERIODIC,
+  COMPACT_WRITE_BYTES_TTL,
+
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
   NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,

@@ -377,6 +377,16 @@ class MemTableIterator : public InternalIterator {
     iter_->Next();
     valid_ = iter_->Valid();
   }
+  bool NextAndGetResult(IterateResult* result) override {
+    Next();
+    bool is_valid = valid_;
+    if (is_valid) {
+      result->key = key();
+      result->may_be_out_of_upper_bound = true;
+      result->value_prepared = true;
+    }
+    return is_valid;
+  }
   void Prev() override {
     PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
