@@ -574,58 +574,65 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kConfigurable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a BlockBasedTableFactory
-          [](const ConfigOptions& opts, const std::string& /*name*/,
+          [](const ConfigOptions& opts, const std::string& name,
              const std::string& value, char* addr) {
-            // Nested options
-            BlockBasedTableOptions table_opts;
+            BlockBasedTableOptions* old_opts = nullptr;
             auto table_factory =
                 reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
             if (table_factory->get() != nullptr) {
-              auto* old_opts =
+              old_opts =
                   table_factory->get()->GetOptions<BlockBasedTableOptions>(
                       TableFactory::kBlockBasedTableOpts);
+            }
+            if (name == "block_based_table_factory") {
+              std::unique_ptr<TableFactory> new_factory;
               if (old_opts != nullptr) {
-                table_opts = *old_opts;
+                new_factory.reset(NewBlockBasedTableFactory(*old_opts));
+              } else {
+                new_factory.reset(NewBlockBasedTableFactory());
               }
+              Status s = new_factory->ConfigureFromString(opts, value);
+              if (s.ok()) {
+                table_factory->reset(new_factory.release());
+              }
+              return s;
+            } else if (old_opts != nullptr) {
+              return table_factory->get()->ConfigureOption(opts, name, value);
+            } else {
+              return Status::NotFound("Mismatched table option: ", name);
             }
-            std::unique_ptr<TableFactory> new_factory(
-                NewBlockBasedTableFactory(table_opts));
-            ConfigOptions copy = opts;
-            copy.invoke_prepare_options = true;
-            Status s = new_factory->ConfigureFromString(copy, value);
-            if (s.ok()) {
-              table_factory->reset(new_factory.release());
-            }
-            return s;
           }}},
         {"plain_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
           OptionType::kConfigurable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
-          // Parses the input value and creates a BlockBasedTableFactory
-          [](const ConfigOptions& opts, const std::string& /*name*/,
+          // Parses the input value and creates a PlainTableFactory
+          [](const ConfigOptions& opts, const std::string& name,
              const std::string& value, char* addr) {
-            // Nested options
-            PlainTableOptions table_opts;
+            PlainTableOptions* old_opts = nullptr;
             auto table_factory =
                 reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
             if (table_factory->get() != nullptr) {
-              auto* old_opts =
-                  table_factory->get()->GetOptions<PlainTableOptions>(
-                      TableFactory::kPlainTableOpts);
+              old_opts = table_factory->get()->GetOptions<PlainTableOptions>(
+                  TableFactory::kPlainTableOpts);
+            }
+            if (name == "plain_table_factory") {
+              std::unique_ptr<TableFactory> new_factory;
               if (old_opts != nullptr) {
-                table_opts = *old_opts;
+                new_factory.reset(NewPlainTableFactory(*old_opts));
+              } else {
+                new_factory.reset(NewPlainTableFactory());
               }
+              Status s = new_factory->ConfigureFromString(opts, value);
+              if (s.ok()) {
+                table_factory->reset(new_factory.release());
+              }
+              return s;
+            } else if (old_opts != nullptr) {
+              return table_factory->get()->ConfigureOption(opts, name, value);
+            } else {
+              return Status::NotFound("Mismatched table option: ", name);
             }
-            std::unique_ptr<TableFactory> new_factory(
-                NewPlainTableFactory(table_opts));
-            ConfigOptions copy = opts;
-            copy.invoke_prepare_options = true;
-            Status s = new_factory->ConfigureFromString(copy, value);
-            if (s.ok()) {
-              table_factory->reset(new_factory.release());
-            }
-            return s;
           }}},
         {"compaction_filter",
          {offset_of(&ColumnFamilyOptions::compaction_filter),
