@@ -1302,28 +1302,28 @@ TEST_F(OptionsTest, MutableTableOptions) {
       TableFactory::kBlockBasedTableOpts);
   ASSERT_NE(bbto, nullptr);
   ASSERT_FALSE(bbtf->IsPrepared());
-  ASSERT_OK(
-      bbtf->ConfigureOption(config_options, "read_amp_bytes_per_bit", "4"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
-  ASSERT_EQ(bbto->read_amp_bytes_per_bit, 4);
+  ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   ASSERT_TRUE(bbtf->IsPrepared());
-  ASSERT_NOK(
-      bbtf->ConfigureOption(config_options, "read_amp_bytes_per_bit", "8"));
+  ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
+  ASSERT_EQ(bbto->block_align, true);
+  ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "2048"));
-  ASSERT_EQ(bbto->read_amp_bytes_per_bit, 4);
+  ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 2048);
 
   ColumnFamilyOptions cf_opts;
   cf_opts.table_factory = bbtf;
   ASSERT_NOK(GetColumnFamilyOptionsFromString(
-      config_options, cf_opts,
-      "block_based_table_factory.read_amp_bytes_per_bit=8", &cf_opts));
+      config_options, cf_opts, "block_based_table_factory.block_align=false",
+      &cf_opts));
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, cf_opts, "block_based_table_factory.block_size=8192",
       &cf_opts));
-  ASSERT_EQ(bbto->read_amp_bytes_per_bit, 4);
+  ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 8192);
 }
 
