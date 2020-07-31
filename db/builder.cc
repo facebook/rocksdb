@@ -247,8 +247,9 @@ Status BuildTable(
       // No matter whether use_direct_io_for_flush_and_compaction is true,
       // we will regrad this verification as user reads since the goal is
       // to cache it here for further user reads
+      ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          ReadOptions(), file_options, internal_comparator, *meta,
+          read_options, file_options, internal_comparator, *meta,
           nullptr /* range_del_agg */,
           mutable_cf_options.prefix_extractor.get(), nullptr,
           (internal_stats == nullptr) ? nullptr
