@@ -167,9 +167,10 @@ TEST_P(CacheTest, UsageTest) {
   for (int i = 1; i < 100; ++i) {
     std::string key(i, 'a');
     auto kv_size = key.size() + 5;
-    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size, dumbDeleter));
-    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                                    dumbDeleter));
+    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
+                            dumbDeleter));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    kv_size, dumbDeleter));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
     ASSERT_LT(usage, precise_cache->GetUsage());
@@ -185,8 +186,8 @@ TEST_P(CacheTest, UsageTest) {
     auto key = ToString(i);
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
                             dumbDeleter));
-    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                                    dumbDeleter));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    key.size() + 5, dumbDeleter));
   }
 
   // the usage should be close to the capacity
@@ -215,11 +216,12 @@ TEST_P(CacheTest, PinnedUsageTest) {
     auto kv_size = key.size() + 5;
     Cache::Handle* handle;
     Cache::Handle* handle_in_precise_cache;
-    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size, dumbDeleter,
-                            &handle));
+    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
+                            dumbDeleter, &handle));
     assert(handle);
-    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                                    dumbDeleter, &handle_in_precise_cache));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    kv_size, dumbDeleter,
+                                    &handle_in_precise_cache));
     assert(handle_in_precise_cache);
     pinned_usage += kv_size;
     ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
@@ -256,8 +258,8 @@ TEST_P(CacheTest, PinnedUsageTest) {
     auto key = ToString(i);
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
                             dumbDeleter));
-    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                                    dumbDeleter));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    key.size() + 5, dumbDeleter));
   }
   ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
   ASSERT_EQ(precise_cache_pinned_usage, precise_cache->GetPinnedUsage());
