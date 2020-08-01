@@ -385,7 +385,14 @@ class VersionEdit {
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
   // VersionEdits with WAL addition shouldn't contain other types of edits.
-  bool IsWalAddition() const { return !wal_additions_.empty(); }
+  bool IsWalAddition() const {
+#ifndef NDEBUG
+    if (!wal_additions_.empty()) {
+      assert(NumEntries() == wal_additions_.size());
+    }
+#endif
+    return !wal_additions_.empty();
+  }
 
   // Delete a WAL (either directly deleted or archived).
   void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
@@ -394,7 +401,14 @@ class VersionEdit {
   const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
 
   // VersionEdits with WAL deletion shouldn't contain other types of edits.
-  bool IsWalDeletion() const { return !wal_deletions_.empty(); }
+  bool IsWalDeletion() const {
+#ifndef NDEBUG
+    if (!wal_deletions_.empty()) {
+      assert(NumEntries() == wal_deletions_.size());
+    }
+#endif
+    return !wal_deletions_.empty();
+  }
 
   // Number of edits
   size_t NumEntries() const {
