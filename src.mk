@@ -67,7 +67,7 @@ LIB_SOURCES =                                                   \
   db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
   db/wal_manager.cc                                             \
-  db/wal_version.cc                                             \
+  db/wal_edit.cc                                             \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \

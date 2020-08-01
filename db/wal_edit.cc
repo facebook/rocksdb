@@ -3,7 +3,7 @@
 // COPYING file in the root directory) and Apache 2.0 License
 // (found in the LICENSE.Apache file in the root directory).
 
-#include "db/wal_version.h"
+#include "db/wal_edit.h"
 
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
