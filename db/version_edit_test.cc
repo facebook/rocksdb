@@ -312,7 +312,12 @@ TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
 TEST_F(VersionEditTest, AddWalEncodeDecode) {
   VersionEdit edit;
   for (uint64_t log_number = 1; log_number <= 20; log_number++) {
-    edit.AddWal(log_number, WalMetadata(rand() % 100));
+    WalMetadata meta(rand() % 100);
+    bool has_size = rand() % 2 == 0;
+    if (has_size) {
+      meta.SetSizeInBytes(rand() % 1000);
+    }
+    edit.AddWal(log_number, meta);
   }
   TestEncodeDecode(edit);
 }

@@ -16,6 +16,8 @@ namespace {
 enum class WalAdditionTag : uint32_t {
   // Indicates that there are no more tags.
   kTerminate = 1,
+  // Size in bytes.
+  kSize = 2,
   // Add tags in the future, such as checksum?
 };
 
@@ -23,7 +25,12 @@ enum class WalAdditionTag : uint32_t {
 
 void WalAddition::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
-  PutVarint64(dst, metadata_.GetSizeInBytes());
+
+  if (metadata_.HasSize()) {
+    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kSize));
+    PutVarint64(dst, metadata_.GetSizeInBytes());
+  }
+
   PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kTerminate));
 }
 
@@ -34,23 +41,31 @@ Status WalAddition::DecodeFrom(Slice* src) {
     return Status::Corruption(class_name, "Error decoding WAL log number");
   }
 
-  uint64_t size = 0;
-  if (!GetVarint64(src, &size)) {
-    return Status::Corruption(class_name, "Error decoding WAL file size");
-  }
-  metadata_.SetSizeInBytes(size);
-
   while (true) {
-    uint32_t tag = 0;
-    if (!GetVarint32(src, &tag)) {
+    uint32_t tag_value = 0;
+    if (!GetVarint32(src, &tag_value)) {
       return Status::Corruption(class_name, "Error decoding tag");
     }
-    if (tag == static_cast<uint32_t>(WalAdditionTag::kTerminate)) {
-      break;
+    WalAdditionTag tag = static_cast<WalAdditionTag>(tag_value);
+    switch (tag) {
+      case WalAdditionTag::kSize: {
+        uint64_t size = 0;
+        if (!GetVarint64(src, &size)) {
+          return Status::Corruption(class_name, "Error decoding WAL file size");
+        }
+        metadata_.SetSizeInBytes(size);
+        break;
+      }
+      // TODO: process future tags such as checksum.
+      case WalAdditionTag::kTerminate:
+        return Status::OK();
+      default: {
+        std::stringstream ss;
+        ss << "Unknown tag " << tag_value;
+        return Status::Corruption(class_name, ss.str());
+      }
     }
-    // TODO: process future tags such as checksum.
   }
-  return Status::OK();
 }
 
 JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal) {
