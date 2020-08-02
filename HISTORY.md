@@ -245,6 +245,9 @@
 ### Others
 * Error in prefetching partitioned index blocks will not be swallowed. It will fail the query and return the IOError users.
 
+* Fixed an issue where the `BaseDeltaIterator` returned by `WriteBatchWithIndex::NewIteratorFromBase` did not correctly respect `ReadOptions::iterate_upper_bound`.
+
+
 ## 6.12 (2020-07-28)
 ### Public API Change
 * Encryption file classes now exposed for inheritance in env_encryption.h
