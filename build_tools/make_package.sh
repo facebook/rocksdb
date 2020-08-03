@@ -102,7 +102,6 @@ function main() {
   fi
   gem_install fpm
 
-  export FPM_OUTPUT="rpm"
   make static_lib
   LIBDIR=/usr/lib
   if [[ $FPM_OUTPUT = "rpm" ]]; then
