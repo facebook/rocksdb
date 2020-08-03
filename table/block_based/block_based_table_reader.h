@@ -113,6 +113,7 @@ class BlockBasedTable : public TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
+  // @param read_options Must outlive the returned iterator.
   // @param skip_filters Disables loading/accessing the filter block
   // compaction_readahead_size: its value will only be used if caller =
   // kCompaction.
