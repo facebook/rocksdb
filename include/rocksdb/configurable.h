@@ -212,13 +212,19 @@ class Configurable {
   // Classes should override this method
   virtual std::string GetPrintableOptions() const { return ""; }
 
-  // Initializes the options and makes sures the settings are valid/consistent
-  // This method may be called as part of Configure (if invoke_prepare_options
-  // is set), or may be invoked separately. Classes must override this method to
-  // provide any implementation-specific initialization, such as opening log
-  // files or setting up cache parameters. Implementations should be idempotent
-  // (e.g. don't re-open the log file or restart the cache), as there is the
-  // potential this method can be called multiple times.
+  // Validates that the settings are valid/consistent and performs any object
+  // initialization required by this object.  This method may be called as part
+  // of Configure (if invoke_prepare_options is set), or may be invoked
+  // separately.
+  //
+  // Once an object has been prepared, non-mutable options can no longer be
+  // updated.
+  //
+  // Classes must override this method to provide any implementation-specific
+  // initialization, such as opening log files or setting up cache parameters.
+  // Implementations should be idempotent (e.g. don't re-open the log file or
+  // reconfigure the cache), as there is the potential this method can be called
+  // more than once.
   //
   // By default, this method will also prepare all nested (Inner and
   // OptionType::kConfigurable) objects.
@@ -263,10 +269,15 @@ class Configurable {
   virtual Configurable* Inner() const { return nullptr; }
 
   // Returns the raw pointer for the associated named option.
-  // Classes may override this method to provide further specialization.
+  // The name is typically the name of an option registered via the
+  // Classes may override this method to provide further specialization (such as
+  // returning a sub-option)
+  //
   // The default implemntation looks at the registered options.  If the
   // input name matches that of a registered option, the pointer registered
   // with that name is returned.
+  // e.g,, RegisterOptions("X", &my_ptr, ...); GetOptionsPtr("X") returns
+  // "my_ptr"
   virtual const void* GetOptionsPtr(const std::string& name) const;
 
   virtual Status ParseStringOptions(const ConfigOptions& config_options,
@@ -314,10 +325,21 @@ class Configurable {
 
   // Registers the input name with the options and associated map.
   // When classes register their options in this manner, most of the
-  // functionality (excluding unknown options and validate/sanitize) is
+  // functionality (excluding unknown options and validate/prepare) is
   // implemented by the base class.
   //
-  // @param name    The name of this option (@see GetOptionsPtr)
+  // This method should be called in the class constructor to register the
+  // option set for this object.  For example, to register the options
+  // associated with the BlockBasedTableFactory, the constructor calls this
+  // method passing in:
+  // - the name of the options ("BlockBasedTableOptions");
+  // - the options object (the BlockBasedTableOptions object for this object;
+  // - the options type map for the BlockBasedTableOptions.
+  // This registration allows the Configurable class to process the option
+  // values associated with the BlockBasedTableOptions without further code in
+  // the derived class.
+  //
+  // @param name    The name of this set of options (@see GetOptionsPtr)
   // @param opt_ptr Pointer to the options to associate with this name
   // @param opt_map Options map that controls how this option is configured.
   void RegisterOptions(
@@ -328,6 +350,9 @@ class Configurable {
   virtual std::string GetOptionName(const std::string& long_name) const;
 
  private:
+  // Contains the collection of options (name, opt_ptr, opt_map) associated with
+  // this object. This collection is typically set in the constructor of the
+  // Configurable option via
   std::vector<RegisteredOptions> options_;
 };
 }  // namespace ROCKSDB_NAMESPACE

@@ -301,7 +301,13 @@ Status ConfigurableHelper::ConfigureOptions(
  * Updates the object with the named-value property values, returning OK on
  * succcess. Any properties that were found are removed from the options list;
  * upon return only options that were not found in this opt_map remain.
- * Returns OK if the properties were successfully updated, N
+
+ * Returns:
+ * -  OK if ignore_unknown_options is set
+ * - InvalidArgument, if any option was invalid
+ * - NotSupported, if any option is unsupported and ignore_unsupported_options
+ is OFF
+ * - OK, if no option was invalid or not supported (or ignored)
  */
 Status ConfigurableHelper::ConfigureSomeOptions(
     const ConfigOptions& config_options, Configurable& configurable,
