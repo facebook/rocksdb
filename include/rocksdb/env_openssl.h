@@ -161,8 +161,8 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
 // on disk.
 class OpenSSLEnv : public EnvWrapper {
  public:
-  using WriteKey = std::pair<ShaDescription,
-                             std::shared_ptr<const CTREncryptionProviderV2>>;
+  using WriteKey =
+      std::pair<ShaDescription, std::shared_ptr<const CTREncryptionProviderV2>>;
   using ReadKeys =
       std::map<ShaDescription, std::shared_ptr<const CTREncryptionProviderV2>>;
 
@@ -277,7 +277,7 @@ class OpenSSLEnv : public EnvWrapper {
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.  Prefer OpenSSLEnv::Default().
 Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
-                       OpenSSLEnv::WriteKey encrypt_write);
+                   OpenSSLEnv::WriteKey encrypt_write);
 
 #endif  // ROCKSDB_LITE
 

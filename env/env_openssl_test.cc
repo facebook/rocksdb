@@ -463,10 +463,8 @@ static uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
 std::shared_ptr<const CTREncryptionProviderV2> openssl_provider_ctr(
     new CTREncryptionProviderV2(KeyName, key256, 32));
 
-static OpenSSLEnv::ReadKeys encrypt_readers = {
-    {KeyDesc, openssl_provider_ctr}};
-static OpenSSLEnv::WriteKey encrypt_writer = {KeyDesc,
-                                                  openssl_provider_ctr};
+static OpenSSLEnv::ReadKeys encrypt_readers = {{KeyDesc, openssl_provider_ctr}};
+static OpenSSLEnv::WriteKey encrypt_writer = {KeyDesc, openssl_provider_ctr};
 
 static std::unique_ptr<Env> openssl_env(new NormalizingEnvWrapper(
     OpenSSLEnv::Default(encrypt_readers, encrypt_writer)));

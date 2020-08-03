@@ -405,14 +405,13 @@ Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
 Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
-                       OpenSSLEnv::WriteKey encrypt_write) {
+                   OpenSSLEnv::WriteKey encrypt_write) {
   Env* ret_env{base_env};
   OpenSSLEnv* new_env{nullptr};
 
   if (Env::Default() == base_env) {
     // use safer static construction so libcrypto is synchronously loaded
-    new_env =
-        (OpenSSLEnv*)OpenSSLEnv::Default(encrypt_read, encrypt_write);
+    new_env = (OpenSSLEnv*)OpenSSLEnv::Default(encrypt_read, encrypt_write);
   } else if (nullptr != base_env) {
     new_env = new OpenSSLEnv(base_env, encrypt_read, encrypt_write);
   }
@@ -426,16 +425,14 @@ Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
   return ret_env;
 }
 
-OpenSSLEnv::OpenSSLEnv(Env* base_env,
-                               OpenSSLEnv::ReadKeys encrypt_read,
-                               OpenSSLEnv::WriteKey encrypt_write)
+OpenSSLEnv::OpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
+                       OpenSSLEnv::WriteKey encrypt_write)
     : EnvWrapper(base_env), valid_(false) {
   init();
   SetKeys(encrypt_read, encrypt_write);
 }
 
-OpenSSLEnv::OpenSSLEnv(Env* base_env)
-    : EnvWrapper(base_env), valid_(false) {
+OpenSSLEnv::OpenSSLEnv(Env* base_env) : EnvWrapper(base_env), valid_(false) {
   init();
 }
 
@@ -454,7 +451,7 @@ void OpenSSLEnv::init() {
 }
 
 void OpenSSLEnv::SetKeys(OpenSSLEnv::ReadKeys encrypt_read,
-                             OpenSSLEnv::WriteKey encrypt_write) {
+                         OpenSSLEnv::WriteKey encrypt_write) {
   WriteLock lock(&key_lock);
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
@@ -496,7 +493,7 @@ Status OpenSSLEnv::ReadSeqEncryptionPrefix(
                          (char*)&prefix_buffer);
         if (status.ok() && sizeof(PrefixVersion0) == prefix_slice.size()) {
           ShaDescription desc(prefix_buffer.key_description_,
-                               sizeof(prefix_buffer.key_description_));
+                              sizeof(prefix_buffer.key_description_));
 
           ReadLock lock(&key_lock);
           auto it = encrypt_read_.find(desc);
@@ -544,7 +541,7 @@ Status OpenSSLEnv::ReadRandEncryptionPrefix(
                          (char*)&prefix_buffer);
         if (status.ok() && sizeof(PrefixVersion0) == prefix_slice.size()) {
           ShaDescription desc(prefix_buffer.key_description_,
-                               sizeof(prefix_buffer.key_description_));
+                              sizeof(prefix_buffer.key_description_));
 
           ReadLock lock(&key_lock);
           auto it = encrypt_read_.find(desc);
@@ -639,9 +636,9 @@ Status OpenSSLEnv::WriteRandEncryptionPrefix(
 }
 
 // NewSequentialFile opens a file for sequential reading.
-Status OpenSSLEnv::NewSequentialFile(
-    const std::string& fname, std::unique_ptr<SequentialFile>* result,
-    const EnvOptions& options) {
+Status OpenSSLEnv::NewSequentialFile(const std::string& fname,
+                                     std::unique_ptr<SequentialFile>* result,
+                                     const EnvOptions& options) {
   result->reset();
   if (options.use_mmap_reads || options.use_direct_reads) {
     return Status::InvalidArgument();
@@ -711,8 +708,8 @@ Status OpenSSLEnv::NewRandomAccessFile(
 
 // NewWritableFile opens a file for sequential writing.
 Status OpenSSLEnv::NewWritableFile(const std::string& fname,
-                                       std::unique_ptr<WritableFile>* result,
-                                       const EnvOptions& options) {
+                                   std::unique_ptr<WritableFile>* result,
+                                   const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -758,8 +755,8 @@ Status OpenSSLEnv::NewWritableFile(const std::string& fname,
 //
 // The returned file will only be accessed by one thread at a time.
 Status OpenSSLEnv::ReopenWritableFile(const std::string& fname,
-                                          std::unique_ptr<WritableFile>* result,
-                                          const EnvOptions& options) {
+                                      std::unique_ptr<WritableFile>* result,
+                                      const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -799,9 +796,9 @@ Status OpenSSLEnv::ReopenWritableFile(const std::string& fname,
 
 // Reuse an existing file by renaming it and opening it as writable.
 Status OpenSSLEnv::ReuseWritableFile(const std::string& fname,
-                                         const std::string& old_fname,
-                                         std::unique_ptr<WritableFile>* result,
-                                         const EnvOptions& options) {
+                                     const std::string& old_fname,
+                                     std::unique_ptr<WritableFile>* result,
+                                     const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -846,8 +843,8 @@ Status OpenSSLEnv::ReuseWritableFile(const std::string& fname,
 //
 // The returned file will only be accessed by one thread at a time.
 Status OpenSSLEnv::NewRandomRWFile(const std::string& fname,
-                                       std::unique_ptr<RandomRWFile>* result,
-                                       const EnvOptions& options) {
+                                   std::unique_ptr<RandomRWFile>* result,
+                                   const EnvOptions& options) {
   Status status;
   result->reset();
 
@@ -931,8 +928,7 @@ Status OpenSSLEnv::GetChildrenFileAttributes(
 }
 
 // Store the size of fname in *file_size.
-Status OpenSSLEnv::GetFileSize(const std::string& fname,
-                                   uint64_t* file_size) {
+Status OpenSSLEnv::GetFileSize(const std::string& fname, uint64_t* file_size) {
   Status status;
   status = EnvWrapper::GetFileSize(fname, file_size);
 
@@ -961,8 +957,8 @@ Status OpenSSLEnv::GetEncryptionProvider(
 
   if (status.ok()) {
     std::unique_ptr<BlockAccessCipherStream> stream;
-    status = OpenSSLEnv::ReadSeqEncryptionPrefix(underlying.get(), provider,
-                                                     stream);
+    status =
+        OpenSSLEnv::ReadSeqEncryptionPrefix(underlying.get(), provider, stream);
   }
 
   return status;
@@ -977,7 +973,7 @@ Env* OpenSSLEnv::Default() {
 }
 
 Env* OpenSSLEnv::Default(OpenSSLEnv::ReadKeys encrypt_read,
-                             OpenSSLEnv::WriteKey encrypt_write) {
+                         OpenSSLEnv::WriteKey encrypt_write) {
   OpenSSLEnv* default_env = (OpenSSLEnv*)Default();
   default_env->SetKeys(encrypt_read, encrypt_write);
   return default_env;
