@@ -9,13 +9,13 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/env_encrypt2.h"
+#include "rocksdb/env_openssl.h"
 
 #include <algorithm>
 #include <cctype>
 #include <iostream>
 
-#include "env/env_encrypt2_impl.h"
+#include "env/env_openssl_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/aligned_buffer.h"
@@ -34,8 +34,8 @@ static void do_nothing(EVP_CIPHER_CTX*){};
 thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>
     aes_context(nullptr, &do_nothing);
 
-Sha1Description::Sha1Description(const std::string& key_desc_str) {
-  EncryptedEnvV2::Default();  // ensure libcryto available
+ShaDescription::ShaDescription(const std::string& key_desc_str) {
+  OpenSSLEnv::Default();  // ensure libcryto available
   bool good = {true};
   int ret_val;
   unsigned len;
@@ -66,7 +66,7 @@ Sha1Description::Sha1Description(const std::string& key_desc_str) {
 }
 
 AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
-  EncryptedEnvV2::Default();  // ensure libcryto available
+  OpenSSLEnv::Default();  // ensure libcryto available
   memset(key, 0, EVP_MAX_KEY_LENGTH);
 
   // simple parse:  must be 64 characters long and hexadecimal values
@@ -270,7 +270,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
 Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
                                                 char* prefix,
                                                 size_t prefixLength) const {
-  EncryptedEnvV2::Default();  // ensure libcryto available
+  OpenSSLEnv::Default();  // ensure libcryto available
   Status s;
   if (crypto_shared->IsValid()) {
     if (sizeof(PrefixVersion0) <= prefixLength) {
@@ -404,17 +404,17 @@ Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
-Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
-                       EncryptedEnvV2::WriteKey encrypt_write) {
+Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
+                       OpenSSLEnv::WriteKey encrypt_write) {
   Env* ret_env{base_env};
-  EncryptedEnvV2* new_env{nullptr};
+  OpenSSLEnv* new_env{nullptr};
 
   if (Env::Default() == base_env) {
     // use safer static construction so libcrypto is synchronously loaded
     new_env =
-        (EncryptedEnvV2*)EncryptedEnvV2::Default(encrypt_read, encrypt_write);
+        (OpenSSLEnv*)OpenSSLEnv::Default(encrypt_read, encrypt_write);
   } else if (nullptr != base_env) {
-    new_env = new EncryptedEnvV2(base_env, encrypt_read, encrypt_write);
+    new_env = new OpenSSLEnv(base_env, encrypt_read, encrypt_write);
   }
 
   // warning, dynamic loading of libcrypto could be delayed ... making this
@@ -426,20 +426,20 @@ Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
   return ret_env;
 }
 
-EncryptedEnvV2::EncryptedEnvV2(Env* base_env,
-                               EncryptedEnvV2::ReadKeys encrypt_read,
-                               EncryptedEnvV2::WriteKey encrypt_write)
+OpenSSLEnv::OpenSSLEnv(Env* base_env,
+                               OpenSSLEnv::ReadKeys encrypt_read,
+                               OpenSSLEnv::WriteKey encrypt_write)
     : EnvWrapper(base_env), valid_(false) {
   init();
   SetKeys(encrypt_read, encrypt_write);
 }
 
-EncryptedEnvV2::EncryptedEnvV2(Env* base_env)
+OpenSSLEnv::OpenSSLEnv(Env* base_env)
     : EnvWrapper(base_env), valid_(false) {
   init();
 }
 
-void EncryptedEnvV2::init() {
+void OpenSSLEnv::init() {
   if (crypto_shared) {
     crypto_ = crypto_shared;
   } else {
@@ -453,14 +453,14 @@ void EncryptedEnvV2::init() {
   }
 }
 
-void EncryptedEnvV2::SetKeys(EncryptedEnvV2::ReadKeys encrypt_read,
-                             EncryptedEnvV2::WriteKey encrypt_write) {
+void OpenSSLEnv::SetKeys(OpenSSLEnv::ReadKeys encrypt_read,
+                             OpenSSLEnv::WriteKey encrypt_write) {
   WriteLock lock(&key_lock);
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
 }
 
-bool EncryptedEnvV2::IsWriteEncrypted() const {
+bool OpenSSLEnv::IsWriteEncrypted() const {
   ReadLock lock(&key_lock);
   bool ret_flag = (nullptr != encrypt_write_.second);
   return ret_flag;
@@ -471,7 +471,7 @@ bool EncryptedEnvV2::IsWriteEncrypted() const {
 //  (because there is not common base class for the file types
 //
 template <class TypeFile>
-Status EncryptedEnvV2::ReadSeqEncryptionPrefix(
+Status OpenSSLEnv::ReadSeqEncryptionPrefix(
     TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
@@ -495,7 +495,7 @@ Status EncryptedEnvV2::ReadSeqEncryptionPrefix(
         status = f->Read(sizeof(PrefixVersion0), &prefix_slice,
                          (char*)&prefix_buffer);
         if (status.ok() && sizeof(PrefixVersion0) == prefix_slice.size()) {
-          Sha1Description desc(prefix_buffer.key_description_,
+          ShaDescription desc(prefix_buffer.key_description_,
                                sizeof(prefix_buffer.key_description_));
 
           ReadLock lock(&key_lock);
@@ -520,7 +520,7 @@ Status EncryptedEnvV2::ReadSeqEncryptionPrefix(
 }
 
 template <class TypeFile>
-Status EncryptedEnvV2::ReadRandEncryptionPrefix(
+Status OpenSSLEnv::ReadRandEncryptionPrefix(
     TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
@@ -543,7 +543,7 @@ Status EncryptedEnvV2::ReadRandEncryptionPrefix(
         status = f->Read(sizeof(marker), sizeof(PrefixVersion0), &prefix_slice,
                          (char*)&prefix_buffer);
         if (status.ok() && sizeof(PrefixVersion0) == prefix_slice.size()) {
-          Sha1Description desc(prefix_buffer.key_description_,
+          ShaDescription desc(prefix_buffer.key_description_,
                                sizeof(prefix_buffer.key_description_));
 
           ReadLock lock(&key_lock);
@@ -567,7 +567,7 @@ Status EncryptedEnvV2::ReadRandEncryptionPrefix(
 }
 
 template <class TypeFile>
-Status EncryptedEnvV2::WriteSeqEncryptionPrefix(
+Status OpenSSLEnv::WriteSeqEncryptionPrefix(
     TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
@@ -603,7 +603,7 @@ Status EncryptedEnvV2::WriteSeqEncryptionPrefix(
 }
 
 template <class TypeFile>
-Status EncryptedEnvV2::WriteRandEncryptionPrefix(
+Status OpenSSLEnv::WriteRandEncryptionPrefix(
     TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
@@ -639,7 +639,7 @@ Status EncryptedEnvV2::WriteRandEncryptionPrefix(
 }
 
 // NewSequentialFile opens a file for sequential reading.
-Status EncryptedEnvV2::NewSequentialFile(
+Status OpenSSLEnv::NewSequentialFile(
     const std::string& fname, std::unique_ptr<SequentialFile>* result,
     const EnvOptions& options) {
   result->reset();
@@ -676,7 +676,7 @@ Status EncryptedEnvV2::NewSequentialFile(
 }
 
 // NewRandomAccessFile opens a file for random read access.
-Status EncryptedEnvV2::NewRandomAccessFile(
+Status OpenSSLEnv::NewRandomAccessFile(
     const std::string& fname, std::unique_ptr<RandomAccessFile>* result,
     const EnvOptions& options) {
   result->reset();
@@ -710,7 +710,7 @@ Status EncryptedEnvV2::NewRandomAccessFile(
 }
 
 // NewWritableFile opens a file for sequential writing.
-Status EncryptedEnvV2::NewWritableFile(const std::string& fname,
+Status OpenSSLEnv::NewWritableFile(const std::string& fname,
                                        std::unique_ptr<WritableFile>* result,
                                        const EnvOptions& options) {
   Status status;
@@ -757,7 +757,7 @@ Status EncryptedEnvV2::NewWritableFile(const std::string& fname,
 // returns non-OK.
 //
 // The returned file will only be accessed by one thread at a time.
-Status EncryptedEnvV2::ReopenWritableFile(const std::string& fname,
+Status OpenSSLEnv::ReopenWritableFile(const std::string& fname,
                                           std::unique_ptr<WritableFile>* result,
                                           const EnvOptions& options) {
   Status status;
@@ -798,7 +798,7 @@ Status EncryptedEnvV2::ReopenWritableFile(const std::string& fname,
 }
 
 // Reuse an existing file by renaming it and opening it as writable.
-Status EncryptedEnvV2::ReuseWritableFile(const std::string& fname,
+Status OpenSSLEnv::ReuseWritableFile(const std::string& fname,
                                          const std::string& old_fname,
                                          std::unique_ptr<WritableFile>* result,
                                          const EnvOptions& options) {
@@ -845,7 +845,7 @@ Status EncryptedEnvV2::ReuseWritableFile(const std::string& fname,
 // *result and returns OK.  On failure returns non-OK.
 //
 // The returned file will only be accessed by one thread at a time.
-Status EncryptedEnvV2::NewRandomRWFile(const std::string& fname,
+Status OpenSSLEnv::NewRandomRWFile(const std::string& fname,
                                        std::unique_ptr<RandomRWFile>* result,
                                        const EnvOptions& options) {
   Status status;
@@ -909,7 +909,7 @@ Status EncryptedEnvV2::NewRandomRWFile(const std::string& fname,
 //         NotFound if "dir" does not exist, the calling process does not have
 //                  permission to access "dir", or if "dir" is invalid.
 //         IOError if an IO Error was encountered
-Status EncryptedEnvV2::GetChildrenFileAttributes(
+Status OpenSSLEnv::GetChildrenFileAttributes(
     const std::string& dir, std::vector<FileAttributes>* result) {
   auto status = EnvWrapper::GetChildrenFileAttributes(dir, result);
   if (status.ok()) {
@@ -931,7 +931,7 @@ Status EncryptedEnvV2::GetChildrenFileAttributes(
 }
 
 // Store the size of fname in *file_size.
-Status EncryptedEnvV2::GetFileSize(const std::string& fname,
+Status OpenSSLEnv::GetFileSize(const std::string& fname,
                                    uint64_t* file_size) {
   Status status;
   status = EnvWrapper::GetFileSize(fname, file_size);
@@ -949,7 +949,7 @@ Status EncryptedEnvV2::GetFileSize(const std::string& fname,
   return status;
 }
 
-Status EncryptedEnvV2::GetEncryptionProvider(
+Status OpenSSLEnv::GetEncryptionProvider(
     const std::string& fname,
     std::shared_ptr<const CTREncryptionProviderV2>& provider) {
   std::unique_ptr<SequentialFile> underlying;
@@ -961,24 +961,24 @@ Status EncryptedEnvV2::GetEncryptionProvider(
 
   if (status.ok()) {
     std::unique_ptr<BlockAccessCipherStream> stream;
-    status = EncryptedEnvV2::ReadSeqEncryptionPrefix(underlying.get(), provider,
+    status = OpenSSLEnv::ReadSeqEncryptionPrefix(underlying.get(), provider,
                                                      stream);
   }
 
   return status;
 }
 
-Env* EncryptedEnvV2::Default() {
+Env* OpenSSLEnv::Default() {
   // the rational for this routine is to help force the static
   //  loading of UnixLibCrypto before other routines start
   //  using the encryption code.
-  static EncryptedEnvV2 default_env(Env::Default());
+  static OpenSSLEnv default_env(Env::Default());
   return &default_env;
 }
 
-Env* EncryptedEnvV2::Default(EncryptedEnvV2::ReadKeys encrypt_read,
-                             EncryptedEnvV2::WriteKey encrypt_write) {
-  EncryptedEnvV2* default_env = (EncryptedEnvV2*)Default();
+Env* OpenSSLEnv::Default(OpenSSLEnv::ReadKeys encrypt_read,
+                             OpenSSLEnv::WriteKey encrypt_write) {
+  OpenSSLEnv* default_env = (OpenSSLEnv*)Default();
   default_env->SetKeys(encrypt_read, encrypt_write);
   return default_env;
 }

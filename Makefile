@@ -1456,10 +1456,10 @@ cache_simulator_test: $(OBJ_DIR)/utilities/simulator_cache/cache_simulator_test.
 sim_cache_test: $(OBJ_DIR)/utilities/simulator_cache/sim_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-env_encrypt2_test: $(OBJ_DIR)/env/env_encrypt2_test.o $(TEST_LIBRARY) $(LIBRARY)
+env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-env_mirror_test: $(OBJ_DIR)/utilities/env_mirror_test.o $(TEST_LIBRARY) $(LIBRARY)
+env_openssl_test: $(OBJ_DIR)/env/env_openssl_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 env_timed_test: $(OBJ_DIR)/utilities/env_timed_test.o $(TEST_LIBRARY) $(LIBRARY)

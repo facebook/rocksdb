@@ -32,21 +32,21 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
-struct Sha1Description {
+struct ShaDescription {
   uint8_t desc[EVP_MAX_MD_SIZE];
   bool valid;
 
-  Sha1Description() : valid(false) { memset(desc, 0, EVP_MAX_MD_SIZE); }
+  ShaDescription() : valid(false) { memset(desc, 0, EVP_MAX_MD_SIZE); }
 
-  Sha1Description(const Sha1Description& rhs) { *this = rhs; }
+  ShaDescription(const ShaDescription& rhs) { *this = rhs; }
 
-  Sha1Description& operator=(const Sha1Description& rhs) {
+  ShaDescription& operator=(const ShaDescription& rhs) {
     memcpy(desc, rhs.desc, sizeof(desc));
     valid = rhs.valid;
     return *this;
   }
 
-  Sha1Description(uint8_t* desc_in, size_t desc_len) : valid(false) {
+  ShaDescription(uint8_t* desc_in, size_t desc_len) : valid(false) {
     memset(desc, 0, EVP_MAX_MD_SIZE);
     if (desc_len <= EVP_MAX_MD_SIZE) {
       memcpy(desc, desc_in, desc_len);
@@ -54,21 +54,21 @@ struct Sha1Description {
     }
   }
 
-  Sha1Description(const std::string& key_desc_str);
+  ShaDescription(const std::string& key_desc_str);
 
   // see AesCtrKey destructor below.  This data is not really
   //  essential to clear, but trying to set pattern for future work.
   // goal is to explicitly remove desc from memory once no longer needed
-  ~Sha1Description() {
+  ~ShaDescription() {
     memset(desc, 0, EVP_MAX_MD_SIZE);
     valid = false;
   }
 
-  bool operator<(const Sha1Description& rhs) const {
+  bool operator<(const ShaDescription& rhs) const {
     return memcmp(desc, rhs.desc, EVP_MAX_MD_SIZE) < 0;
   }
 
-  bool operator==(const Sha1Description& rhs) const {
+  bool operator==(const ShaDescription& rhs) const {
     return 0 == memcmp(desc, rhs.desc, EVP_MAX_MD_SIZE) && valid == rhs.valid;
   }
 
@@ -120,7 +120,7 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
 
   CTREncryptionProviderV2(const CTREncryptionProvider&&) = delete;
 
-  CTREncryptionProviderV2(const Sha1Description& key_desc_in,
+  CTREncryptionProviderV2(const ShaDescription& key_desc_in,
                           const AesCtrKey& key_in)
       : valid_(false), key_desc_(key_desc_in), key_(key_in) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
@@ -148,65 +148,30 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
       uint8_t code_version, const uint8_t nonce[]) const;
 
   bool Valid() const { return valid_; };
-  const Sha1Description& key_desc() const { return key_desc_; };
+  const ShaDescription& key_desc() const { return key_desc_; };
   const AesCtrKey& key() const { return key_; };
 
  protected:
   bool valid_;
-  Sha1Description key_desc_;
+  ShaDescription key_desc_;
   AesCtrKey key_;
 };
 
-class EncryptedWritableFileV2 : public EncryptedWritableFile {
- public:
-  // Default ctor. Prefix is assumed to be written already.
-  EncryptedWritableFileV2(std::unique_ptr<WritableFile>&& f,
-                          std::unique_ptr<BlockAccessCipherStream>&& s,
-                          size_t prefix_length)
-      : EncryptedWritableFile(std::move(f), std::move(s), prefix_length) {}
-
-  Status Append(const Slice& data) override;
-
-  Status PositionedAppend(const Slice& data, uint64_t offset) override;
-
-  // Indicates the upper layers if the current WritableFile implementation
-  // uses direct IO.
-  bool use_direct_io() const override { return false; };
-};
-
-// A file abstraction for random reading and writing.
-class EncryptedRandomRWFileV2 : public EncryptedRandomRWFile {
- protected:
- public:
-  EncryptedRandomRWFileV2(std::unique_ptr<RandomRWFile>&& f,
-                          std::unique_ptr<BlockAccessCipherStream>&& s,
-                          size_t prefixLength)
-      : EncryptedRandomRWFile(std::move(f), std::move(s), prefixLength) {}
-
-  // Indicates if the class makes use of direct I/OF
-  // If false you must pass aligned buffer to Write()
-  bool use_direct_io() const override { return false; };
-
-  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when use_direct_io() returns true.
-  Status Write(uint64_t offset, const Slice& data) override;
-};
-
-// EncryptedEnvV2 implements an Env wrapper that adds encryption to files stored
+// OpenSSLEnv implements an Env wrapper that adds encryption to files stored
 // on disk.
-class EncryptedEnvV2 : public EnvWrapper {
+class OpenSSLEnv : public EnvWrapper {
  public:
-  using WriteKey = std::pair<Sha1Description,
+  using WriteKey = std::pair<ShaDescription,
                              std::shared_ptr<const CTREncryptionProviderV2>>;
   using ReadKeys =
-      std::map<Sha1Description, std::shared_ptr<const CTREncryptionProviderV2>>;
+      std::map<ShaDescription, std::shared_ptr<const CTREncryptionProviderV2>>;
 
   static Env* Default();
   static Env* Default(ReadKeys encrypt_read, WriteKey encrypt_write);
 
-  EncryptedEnvV2(Env* base_env);
+  OpenSSLEnv(Env* base_env);
 
-  EncryptedEnvV2(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
+  OpenSSLEnv(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
 
   bool IsWriteEncrypted() const;
 
@@ -310,9 +275,9 @@ class EncryptedEnvV2 : public EnvWrapper {
 };
 
 // Returns an Env that encrypts data when stored on disk and decrypts data when
-// read from disk.  Prefer EncryptedEnvV2::Default().
-Env* NewEncryptedEnvV2(Env* base_env, EncryptedEnvV2::ReadKeys encrypt_read,
-                       EncryptedEnvV2::WriteKey encrypt_write);
+// read from disk.  Prefer OpenSSLEnv::Default().
+Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
+                       OpenSSLEnv::WriteKey encrypt_write);
 
 #endif  // ROCKSDB_LITE
 

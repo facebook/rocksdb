@@ -10,7 +10,7 @@
 
 #include "openssl/aes.h"
 #include "openssl/evp.h"
-#include "rocksdb/env_encrypt2.h"
+#include "rocksdb/env_openssl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -73,6 +73,41 @@ class AESBlockAccessCipherStream : public BlockAccessCipherStream {
   AesCtrKey key_;
   uint8_t code_version_;
   uint8_t nonce_[AES_BLOCK_SIZE];
+};
+
+class EncryptedWritableFileV2 : public EncryptedWritableFile {
+ public:
+  // Default ctor. Prefix is assumed to be written already.
+  EncryptedWritableFileV2(std::unique_ptr<WritableFile>&& f,
+                          std::unique_ptr<BlockAccessCipherStream>&& s,
+                          size_t prefix_length)
+      : EncryptedWritableFile(std::move(f), std::move(s), prefix_length) {}
+
+  Status Append(const Slice& data) override;
+
+  Status PositionedAppend(const Slice& data, uint64_t offset) override;
+
+  // Indicates the upper layers if the current WritableFile implementation
+  // uses direct IO.
+  bool use_direct_io() const override { return false; };
+};
+
+// A file abstraction for random reading and writing.
+class EncryptedRandomRWFileV2 : public EncryptedRandomRWFile {
+ protected:
+ public:
+  EncryptedRandomRWFileV2(std::unique_ptr<RandomRWFile>&& f,
+                          std::unique_ptr<BlockAccessCipherStream>&& s,
+                          size_t prefixLength)
+      : EncryptedRandomRWFile(std::move(f), std::move(s), prefixLength) {}
+
+  // Indicates if the class makes use of direct I/OF
+  // If false you must pass aligned buffer to Write()
+  bool use_direct_io() const override { return false; };
+
+  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+  // Pass aligned buffer when use_direct_io() returns true.
+  Status Write(uint64_t offset, const Slice& data) override;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "env/env_encrypt2_impl.h"
+#include "env/env_openssl_impl.h"
 #include "rocksdb/options.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testharness.h"
@@ -12,10 +12,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class EnvEncrypt2_Sha1 {};
+class EnvOpenssl_Sha1 {};
 
-TEST(EnvEncrypt2_Sha1, Default) {
-  Sha1Description desc;
+TEST(EnvOpenssl_Sha1, Default) {
+  ShaDescription desc;
 
   ASSERT_FALSE(desc.IsValid());
   for (size_t idx = 0; idx < sizeof(desc.desc); ++idx) {
@@ -23,8 +23,8 @@ TEST(EnvEncrypt2_Sha1, Default) {
   }
 }
 
-TEST(EnvEncrypt2_Sha1, Constructors) {
-  Sha1Description desc;
+TEST(EnvOpenssl_Sha1, Constructors) {
+  ShaDescription desc;
 
   // verify we know size of desc.desc
   ASSERT_TRUE(64 == sizeof(desc.desc));
@@ -34,38 +34,38 @@ TEST(EnvEncrypt2_Sha1, Constructors) {
     bytes[idx] = idx + 1;
   }
 
-  Sha1Description desc_bad1(bytes, 128);
+  ShaDescription desc_bad1(bytes, 128);
   ASSERT_FALSE(desc_bad1.IsValid());
 
-  Sha1Description desc_bad2(bytes, 65);
+  ShaDescription desc_bad2(bytes, 65);
   ASSERT_FALSE(desc_bad2.IsValid());
 
-  Sha1Description desc_good1(bytes, 64);
+  ShaDescription desc_good1(bytes, 64);
   ASSERT_TRUE(desc_good1.IsValid());
   ptr = (uint8_t*)memchr(desc_good1.desc, 0, 64);
   ASSERT_TRUE(nullptr == ptr);
 
-  Sha1Description desc_good2(bytes, 63);
+  ShaDescription desc_good2(bytes, 63);
   ASSERT_TRUE(desc_good2.IsValid());
   ptr = (uint8_t*)memchr(desc_good2.desc, 0, 64);
   ASSERT_TRUE(&desc_good2.desc[63] == ptr);
 
-  Sha1Description desc_good3(bytes, 1);
+  ShaDescription desc_good3(bytes, 1);
   ASSERT_TRUE(desc_good3.IsValid());
   ptr = (uint8_t*)memchr(desc_good3.desc, 0, 64);
   ASSERT_TRUE(&desc_good3.desc[1] == ptr);
 
-  Sha1Description desc_good4(bytes, 0);
+  ShaDescription desc_good4(bytes, 0);
   ASSERT_TRUE(desc_good4.IsValid());
   ptr = (uint8_t*)memchr(desc_good4.desc, 0, 64);
   ASSERT_TRUE(&desc_good4.desc[0] == ptr);
 
-  Sha1Description desc_str1("");
+  ShaDescription desc_str1("");
   ASSERT_FALSE(desc_str1.IsValid());
 
   uint8_t md2[] = {0x35, 0x6a, 0x19, 0x2b, 0x79, 0x13, 0xb0, 0x4c, 0x54, 0x57,
                    0x4d, 0x18, 0xc2, 0x8d, 0x46, 0xe6, 0x39, 0x54, 0x28, 0xab};
-  Sha1Description desc_str2("1");
+  ShaDescription desc_str2("1");
   ASSERT_TRUE(desc_str2.IsValid());
   ASSERT_TRUE(0 == memcmp(md2, desc_str2.desc, sizeof(md2)));
   for (size_t idx = sizeof(md2); idx < sizeof(desc_str2.desc); ++idx) {
@@ -74,7 +74,7 @@ TEST(EnvEncrypt2_Sha1, Constructors) {
 
   uint8_t md3[] = {0x7b, 0x52, 0x00, 0x9b, 0x64, 0xfd, 0x0a, 0x2a, 0x49, 0xe6,
                    0xd8, 0xa9, 0x39, 0x75, 0x30, 0x77, 0x79, 0x2b, 0x05, 0x54};
-  Sha1Description desc_str3("12");
+  ShaDescription desc_str3("12");
   ASSERT_TRUE(desc_str3.IsValid());
   ASSERT_TRUE(0 == memcmp(md3, desc_str3.desc, sizeof(md3)));
   for (size_t idx = sizeof(md3); idx < sizeof(desc_str3.desc); ++idx) {
@@ -82,11 +82,11 @@ TEST(EnvEncrypt2_Sha1, Constructors) {
   }
 }
 
-TEST(EnvEncrypt2_Sha1, Copy) {
+TEST(EnvOpenssl_Sha1, Copy) {
   // assignment
   uint8_t md1[] = {0xdb, 0x8a, 0xc1, 0xc2, 0x59, 0xeb, 0x89, 0xd4, 0xa1, 0x31,
                    0xb2, 0x53, 0xba, 0xcf, 0xca, 0x5f, 0x31, 0x9d, 0x54, 0xf2};
-  Sha1Description desc1("HelloWorld"), desc2;
+  ShaDescription desc1("HelloWorld"), desc2;
   ASSERT_TRUE(desc1.IsValid());
   ASSERT_FALSE(desc2.IsValid());
 
@@ -105,10 +105,10 @@ TEST(EnvEncrypt2_Sha1, Copy) {
   // copy constructor
   uint8_t md3[] = {0x17, 0x09, 0xcc, 0x51, 0x65, 0xf5, 0x50, 0x4d, 0x46, 0xde,
                    0x2f, 0x3a, 0x7a, 0xff, 0x57, 0x45, 0x20, 0x8a, 0xed, 0x44};
-  Sha1Description desc3("A little be longer title for a key");
+  ShaDescription desc3("A little be longer title for a key");
   ASSERT_TRUE(desc3.IsValid());
 
-  Sha1Description desc4(desc3);
+  ShaDescription desc4(desc3);
   ASSERT_TRUE(desc3.IsValid());
   ASSERT_TRUE(desc4.IsValid());
   ASSERT_TRUE(0 == memcmp(md3, desc3.desc, sizeof(md3)));
@@ -121,9 +121,9 @@ TEST(EnvEncrypt2_Sha1, Copy) {
   }
 }
 
-class EnvEncrypt2_Key {};
+class EnvOpenssl_Key {};
 
-TEST(EnvEncrypt2_Key, Default) {
+TEST(EnvOpenssl_Key, Default) {
   AesCtrKey key;
 
   ASSERT_FALSE(key.IsValid());
@@ -132,7 +132,7 @@ TEST(EnvEncrypt2_Key, Default) {
   }
 }
 
-TEST(EnvEncrypt2_Key, Constructors) {
+TEST(EnvOpenssl_Key, Constructors) {
   AesCtrKey key;
 
   // verify we know size of key.key
@@ -191,7 +191,7 @@ TEST(EnvEncrypt2_Key, Constructors) {
   ASSERT_TRUE(0 == memcmp(key4, key_str4.key, sizeof(key4)));
 }
 
-TEST(EnvEncrypt2_Key, Copy) {
+TEST(EnvOpenssl_Key, Copy) {
   // assignment
   uint8_t data1[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                      0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
@@ -222,9 +222,9 @@ TEST(EnvEncrypt2_Key, Copy) {
   ASSERT_TRUE(0 == memcmp(data3, key4.key, sizeof(data3)));
 }
 
-class EnvEncrypt2_Provider {};
+class EnvOpenssl_Provider {};
 
-TEST(EnvEncrypt2_Provider, NistExamples) {
+TEST(EnvOpenssl_Provider, NistExamples) {
   uint8_t key[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                    0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
@@ -316,7 +316,7 @@ TEST(EnvEncrypt2_Provider, NistExamples) {
   ASSERT_TRUE(0 == memcmp(plain4, block, sizeof(block)));
 }
 
-TEST(EnvEncrypt2_Provider, NistSingleCall) {
+TEST(EnvOpenssl_Provider, NistSingleCall) {
   uint8_t key[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                    0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
@@ -357,7 +357,7 @@ TEST(EnvEncrypt2_Provider, NistSingleCall) {
   ASSERT_TRUE(0 == memcmp(cypher1, output, sizeof(output)));
 }
 
-TEST(EnvEncrypt2_Provider, BigEndianAdd) {
+TEST(EnvOpenssl_Provider, BigEndianAdd) {
   uint8_t nounce1[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   uint8_t expect1[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -427,7 +427,7 @@ class EnvBasicTestWithParam : public testing::Test,
   std::string test_dir_;
 
   EnvBasicTestWithParam() : env_(GetParam()) {
-    test_dir_ = test::PerThreadDBPath(env_, "env_encrypt2_test");
+    test_dir_ = test::PerThreadDBPath(env_, "env_openssl_test");
   }
 
   void SetUp() { env_->CreateDirIfMissing(test_dir_); }
@@ -451,7 +451,7 @@ class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
 // next statements run env test against encrypt_2 code.
 static std::string KeyName = {"A key name"};
-static Sha1Description KeyDesc(KeyName);
+static ShaDescription KeyDesc(KeyName);
 
 // this key is from
 // https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf,
@@ -460,19 +460,19 @@ static uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                            0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                            0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
                            0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-std::shared_ptr<const CTREncryptionProviderV2> encrypt2_provider_ctr(
+std::shared_ptr<const CTREncryptionProviderV2> openssl_provider_ctr(
     new CTREncryptionProviderV2(KeyName, key256, 32));
 
-static EncryptedEnvV2::ReadKeys encrypt_readers = {
-    {KeyDesc, encrypt2_provider_ctr}};
-static EncryptedEnvV2::WriteKey encrypt_writer = {KeyDesc,
-                                                  encrypt2_provider_ctr};
+static OpenSSLEnv::ReadKeys encrypt_readers = {
+    {KeyDesc, openssl_provider_ctr}};
+static OpenSSLEnv::WriteKey encrypt_writer = {KeyDesc,
+                                                  openssl_provider_ctr};
 
-static std::unique_ptr<Env> encrypt2_env(new NormalizingEnvWrapper(
-    EncryptedEnvV2::Default(encrypt_readers, encrypt_writer)));
+static std::unique_ptr<Env> openssl_env(new NormalizingEnvWrapper(
+    OpenSSLEnv::Default(encrypt_readers, encrypt_writer)));
 
-INSTANTIATE_TEST_CASE_P(EncryptedEnvV2, EnvBasicTestWithParam,
-                        ::testing::Values(encrypt2_env.get()));
+INSTANTIATE_TEST_CASE_P(OpenSSLEnv, EnvBasicTestWithParam,
+                        ::testing::Values(openssl_env.get()));
 
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
@@ -702,7 +702,7 @@ class SstWriterBug : public testing::Test {
   Env* env_default_ = Env::Default();
 
   SstWriterBug() {
-    test_dir_ = test::PerThreadDBPath(env_default_, "env_encrypt2_test");
+    test_dir_ = test::PerThreadDBPath(env_default_, "env_openssl_test");
   }
 
   void SetUp() { env_default_->CreateDirIfMissing(test_dir_); }
