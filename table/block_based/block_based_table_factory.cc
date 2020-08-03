@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 
+#include "options/configurable_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -376,8 +377,9 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   InitializeOptions();
-  RegisterOptions(kBlockBasedTableOpts, &table_options_,
-                  &block_based_table_type_info);
+  ConfigurableHelper::RegisterOptions(*this, kBlockBasedTableOpts,
+                                      &table_options_,
+                                      &block_based_table_type_info);
 }
 
 void BlockBasedTableFactory::InitializeOptions() {

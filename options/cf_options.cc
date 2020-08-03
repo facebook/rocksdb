@@ -677,8 +677,9 @@ class ConfigurableMutableCFOptions : public Configurable {
  public:
   ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
     mutable_ = mcf;
-    RegisterOptions(OptionsHelper::kMutableCFOptionsName, &mutable_,
-                    &cf_mutable_options_type_info);
+    ConfigurableHelper::RegisterOptions(
+        *this, OptionsHelper::kMutableCFOptionsName, &mutable_,
+        &cf_mutable_options_type_info);
   }
 
  protected:
@@ -693,8 +694,9 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
         immutable_(opts),
         cf_options_(opts),
         opt_map_(map) {
-    RegisterOptions(OptionsHelper::kCFOptionsName, &immutable_,
-                    &cf_immutable_options_type_info);
+    ConfigurableHelper::RegisterOptions(*this, OptionsHelper::kCFOptionsName,
+                                        &immutable_,
+                                        &cf_immutable_options_type_info);
   }
 
  protected:

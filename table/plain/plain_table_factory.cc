@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "db/dbformat.h"
+#include "options/configurable_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/utilities/options_type.h"
@@ -51,7 +52,8 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
 
 PlainTableFactory::PlainTableFactory(const PlainTableOptions& options)
     : table_options_(options) {
-  RegisterOptions(kPlainTableOpts, &table_options_, &plain_table_type_info);
+  ConfigurableHelper::RegisterOptions(*this, kPlainTableOpts, &table_options_,
+                                      &plain_table_type_info);
 }
 
 Status PlainTableFactory::NewTableReader(

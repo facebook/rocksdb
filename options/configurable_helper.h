@@ -160,6 +160,29 @@ class ConfigurableHelper {
                             const Configurable& that_one,
                             std::string* mismatch);
 
+  // Registers the input name with the options and associated map.
+  // When classes register their options in this manner, most of the
+  // functionality (excluding unknown options and validate/prepare) is
+  // implemented by the base class.
+  //
+  // This method should be called in the class constructor to register the
+  // option set for this object.  For example, to register the options
+  // associated with the BlockBasedTableFactory, the constructor calls this
+  // method passing in:
+  // - the name of the options ("BlockBasedTableOptions");
+  // - the options object (the BlockBasedTableOptions object for this object;
+  // - the options type map for the BlockBasedTableOptions.
+  // This registration allows the Configurable class to process the option
+  // values associated with the BlockBasedTableOptions without further code in
+  // the derived class.
+  //
+  // @param name    The name of this set of options (@see GetOptionsPtr)
+  // @param opt_ptr Pointer to the options to associate with this name
+  // @param opt_map Options map that controls how this option is configured.
+  static void RegisterOptions(
+      Configurable& configurable, const std::string& name, void* opt_ptr,
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
+
  private:
   // Looks for the option specified by name in the RegisteredOptions.
   // This method traverses the types in the input options vector.  If an entry

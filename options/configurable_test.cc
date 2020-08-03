@@ -14,6 +14,7 @@
 #include <cstring>
 #include <unordered_map>
 
+#include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "rocksdb/configurable.h"
@@ -61,15 +62,18 @@ class SimpleConfigurable : public TestConfigurable<Configurable> {
       : TestConfigurable(name, mode, map) {
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(SimpleConfigurable::Create("Unique" + name_));
-      RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
+      ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
+                                          &unique_option_info);
     }
     if ((mode & TestConfigMode::kSharedMode) != 0) {
       shared_.reset(SimpleConfigurable::Create("Shared" + name_));
-      RegisterOptions(name_ + "Shared", &shared_, &shared_option_info);
+      ConfigurableHelper::RegisterOptions(*this, name_ + "Shared", &shared_,
+                                          &shared_option_info);
     }
     if ((mode & TestConfigMode::kRawPtrMode) != 0) {
       pointer_ = SimpleConfigurable::Create("Pointer" + name_);
-      RegisterOptions(name_ + "Pointer", &pointer_, &pointer_option_info);
+      ConfigurableHelper::RegisterOptions(*this, name_ + "Pointer", &pointer_,
+                                          &pointer_option_info);
     }
   }
 
@@ -87,7 +91,8 @@ class WrappedConfigurable : public SimpleConfigurable {
   WrappedConfigurable(const std::string& name, unsigned char mode,
                       const std::shared_ptr<Configurable>& t)
       : SimpleConfigurable(name, mode, &simple_option_info), inner_(t) {
-    RegisterOptions("WrappedOptions", &inner_, &wrapped_option_info);
+    ConfigurableHelper::RegisterOptions(*this, "WrappedOptions", &inner_,
+                                        &wrapped_option_info);
   }
 
  protected:
@@ -268,15 +273,19 @@ class ValidatedConfigurable : public SimpleConfigurable {
       : SimpleConfigurable(name, TestConfigMode::kDefaultMode),
         validated(false),
         prepared(0) {
-    RegisterOptions("Validated", &validated, &validated_option_info);
-    RegisterOptions("Prepared", &prepared, &prepared_option_info);
+    ConfigurableHelper::RegisterOptions(*this, "Validated", &validated,
+                                        &validated_option_info);
+    ConfigurableHelper::RegisterOptions(*this, "Prepared", &prepared,
+                                        &prepared_option_info);
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(new ValidatedConfigurable(
           "Unique" + name_, TestConfigMode::kDefaultMode, false));
       if (dont_prepare) {
-        RegisterOptions(name_ + "Unique", &unique_, &dont_prepare_option_info);
+        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
+                                            &dont_prepare_option_info);
       } else {
-        RegisterOptions(name_ + "Unique", &unique_, &unique_option_info);
+        ConfigurableHelper::RegisterOptions(*this, name_ + "Unique", &unique_,
+                                            &unique_option_info);
       }
     }
   }

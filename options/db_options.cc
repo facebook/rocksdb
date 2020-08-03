@@ -425,8 +425,9 @@ class MutableDBConfigurable : public Configurable {
  public:
   MutableDBConfigurable(const MutableDBOptions& mdb) {
     mutable_ = mdb;
-    RegisterOptions(OptionsHelper::kMutableDBOptionsName, &mutable_,
-                    &db_mutable_options_type_info);
+    ConfigurableHelper::RegisterOptions(
+        *this, OptionsHelper::kMutableDBOptionsName, &mutable_,
+        &db_mutable_options_type_info);
   }
 
  protected:
@@ -446,8 +447,9 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       copy.env = Env::Default();
       immutable_ = ImmutableDBOptions(copy);
     }
-    RegisterOptions(OptionsHelper::kImmutableDBOptionsName, &immutable_,
-                    &db_immutable_options_type_info);
+    ConfigurableHelper::RegisterOptions(
+        *this, OptionsHelper::kImmutableDBOptionsName, &immutable_,
+        &db_immutable_options_type_info);
   }
 
  protected:
