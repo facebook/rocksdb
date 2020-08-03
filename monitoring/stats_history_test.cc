@@ -28,7 +28,12 @@ namespace ROCKSDB_NAMESPACE {
 
 class StatsHistoryTest : public DBTestBase {
  public:
-  StatsHistoryTest() : DBTestBase("/stats_history_test") {}
+  StatsHistoryTest()
+      : DBTestBase("/stats_history_test"),
+        mock_env_(new MockTimeEnv(Env::Default())) {}
+
+ protected:
+  std::unique_ptr<MockTimeEnv> mock_env_;
 };
 
 class SafeMockTimeEnv : public MockTimeEnv {
@@ -58,25 +63,36 @@ class SafeMockTimeEnv : public MockTimeEnv {
 #ifndef ROCKSDB_LITE
 
 TEST_F(StatsHistoryTest, RunStatsDumpPeriodSec) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
-  options.stats_dump_period_sec = 5;
+  options.stats_dump_period_sec = kPeriodSec;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   int counter = 0;
   SyncPoint::GetInstance()->SetCallBack("DBImpl::DumpStats:1",
                                         [&](void* /*arg*/) { counter++; });
   Reopen(options);
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
-  dbfull()->TEST_WaitForDumpStatsRun([&] { mock_env->set_current_time(5); });
+
+  // Wait for the first stats persist to finish, as the initial delay could be
+  // different.
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   ASSERT_GE(counter, 1);
 
-  // Test cacel job through SetOptions
+  // Test cancel job through SetOptions
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "0"}}));
   int old_val = counter;
-  for (int i = 6; i < 20; ++i) {
-    dbfull()->TEST_WaitForDumpStatsRun([&] { mock_env->set_current_time(i); });
+  for (int i = 1; i < 20; ++i) {
+    mock_env->set_current_time(i + mock_time_sec);
   }
   ASSERT_EQ(counter, old_val);
   Close();
@@ -84,24 +100,39 @@ TEST_F(StatsHistoryTest, RunStatsDumpPeriodSec) {
 
 // Test persistent stats background thread scheduling and cancelling
 TEST_F(StatsHistoryTest, StatsPersistScheduling) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
-  options.stats_persist_period_sec = 5;
+  options.stats_persist_period_sec = kPeriodSec;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   int counter = 0;
   SyncPoint::GetInstance()->SetCallBack("DBImpl::PersistStats:Entry",
                                         [&](void* /*arg*/) { counter++; });
   Reopen(options);
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+
+  // Wait for the first stats persist to finish, as the initial delay could be
+  // different.
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   ASSERT_GE(counter, 1);
 
   // Test cacel job through SetOptions
-  ASSERT_TRUE(dbfull()->TEST_IsPersistentStatsEnabled());
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
-  ASSERT_FALSE(dbfull()->TEST_IsPersistentStatsEnabled());
+  int old_val = counter;
+  mock_time_sec += kPeriodSec * 2;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+  ASSERT_EQ(counter, old_val);
+
   Close();
 }
 
@@ -119,45 +150,55 @@ TEST_F(StatsHistoryTest, PersistentStatsFreshInstall) {
   Reopen(options);
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+
+  dbfull()->TEST_WaitForStatsDumpRun([&] { mock_env->set_current_time(5); });
   ASSERT_GE(counter, 1);
   Close();
 }
 
 // TODO(Zhongyi): Move persistent stats related tests to a separate file
 TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
-  options.stats_persist_period_sec = 5;
+  options.stats_persist_period_sec = kPeriodSec;
   options.statistics = CreateDBStatistics();
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
-  int mock_time = 1;
+  // make sure the first stats persist to finish
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
   // Wait for stats persist to finish
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0 /*start_time*/, 6 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec + 1, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   // disabled stats snapshots
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_persist_period_sec", "0"}}));
   size_t stats_count = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
     auto stats_map = stats_iter->GetStatsMap();
-    ASSERT_EQ(stats_iter->GetStatsTime(), 5);
+    ASSERT_EQ(stats_iter->GetStatsTime(), mock_time_sec);
     stats_count += stats_map.size();
   }
   ASSERT_GT(stats_count, 0);
   // Wait a bit and verify no more stats are found
-  for (mock_time = 6; mock_time < 20; ++mock_time) {
-    dbfull()->TEST_WaitForPersistStatsRun(
-        [&] { mock_env->set_current_time(mock_time); });
+  for (; mock_time_sec < 30; ++mock_time_sec) {
+    dbfull()->TEST_WaitForStatsDumpRun(
+        [&] { mock_env->set_current_time(mock_time_sec); });
   }
-  db_->GetStatsHistory(0 /*start_time*/, 20 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_new = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -168,12 +209,14 @@ TEST_F(StatsHistoryTest, GetStatsHistoryInMemory) {
 }
 
 TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
+  constexpr int kPeriodSec = 1;
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
-  options.stats_persist_period_sec = 1;
+  options.stats_persist_period_sec = kPeriodSec;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
 
   CreateColumnFamilies({"pikachu"}, options);
@@ -195,11 +238,10 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   ASSERT_OK(Flush());
   ASSERT_OK(Delete("sol"));
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  int mock_time = 1;
   // Wait for stats persist to finish
-  for (; mock_time < 5; ++mock_time) {
-    dbfull()->TEST_WaitForPersistStatsRun(
-        [&] { mock_env->set_current_time(mock_time); });
+  for (mock_time_sec = 1; mock_time_sec < kPeriodSec; mock_time_sec++) {
+    dbfull()->TEST_WaitForStatsDumpRun(
+        [&] { mock_env->set_current_time(mock_time_sec); });
   }
 
   // second round of ops
@@ -213,12 +255,14 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   delete iterator;
   ASSERT_OK(Flush());
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  for (; mock_time < 10; ++mock_time) {
-    dbfull()->TEST_WaitForPersistStatsRun(
-        [&] { mock_env->set_current_time(mock_time); });
+
+  for (; mock_time_sec < 10; mock_time_sec++) {
+    dbfull()->TEST_WaitForStatsDumpRun(
+        [&] { mock_env->set_current_time(mock_time_sec); });
   }
+
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0 /*start_time*/, 10 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, 10, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
   int slice_count = 0;
@@ -233,12 +277,14 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   // capping memory cost at 13000 bytes since one slice is around 10000~13000
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "13000"}}));
   ASSERT_EQ(13000, dbfull()->GetDBOptions().stats_history_buffer_size);
+
   // Wait for stats persist to finish
-  for (; mock_time < 20; ++mock_time) {
-    dbfull()->TEST_WaitForPersistStatsRun(
-        [&] { mock_env->set_current_time(mock_time); });
+  for (; mock_time_sec < 20; mock_time_sec++) {
+    dbfull()->TEST_WaitForStatsDumpRun(
+        [&] { mock_env->set_current_time(mock_time_sec); });
   }
-  db_->GetStatsHistory(0 /*start_time*/, 20 /*end_time*/, &stats_iter);
+
+  db_->GetStatsHistory(0, 20, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
   slice_count = 0;
@@ -268,33 +314,48 @@ int countkeys(Iterator* iter) {
 }
 
 TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
-  options.stats_persist_period_sec = 5;
+  options.stats_persist_period_sec = kPeriodSec;
   options.statistics = CreateDBStatistics();
   options.persist_stats_to_disk = true;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(Get("foo"), "bar");
 
+  // Wait for the first stats persist to finish, as the initial delay could be
+  // different.
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
   // Wait for stats persist to finish
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
   auto iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   int key_count1 = countkeys(iter);
   delete iter;
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(10); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   int key_count2 = countkeys(iter);
   delete iter;
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(15); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   int key_count3 = countkeys(iter);
@@ -303,15 +364,15 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
   ASSERT_GE(key_count3, key_count2);
   ASSERT_EQ(key_count3 - key_count2, key_count2 - key_count1);
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0 /*start_time*/, 16 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec + 1, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count = 0;
   int slice_count = 0;
   int non_zero_count = 0;
-  for (int i = 1; stats_iter->Valid(); stats_iter->Next(), i++) {
+  for (int i = 2; stats_iter->Valid(); stats_iter->Next(), i++) {
     slice_count++;
     auto stats_map = stats_iter->GetStatsMap();
-    ASSERT_EQ(stats_iter->GetStatsTime(), 5 * i);
+    ASSERT_EQ(stats_iter->GetStatsTime(), kPeriodSec * i - 1);
     for (auto& stat : stats_map) {
       if (stat.second != 0) {
         non_zero_count++;
@@ -324,7 +385,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
   ASSERT_EQ(stats_count, key_count3 - 2);
   // verify reopen will not cause data loss
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  db_->GetStatsHistory(0 /*start_time*/, 16 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec + 1, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   size_t stats_count_reopen = 0;
   int slice_count_reopen = 0;
@@ -339,6 +400,7 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
     }
     stats_count_reopen += stats_map.size();
   }
+
   ASSERT_EQ(non_zero_count, non_zero_count_recover);
   ASSERT_EQ(slice_count, slice_count_reopen);
   ASSERT_EQ(stats_count, stats_count_reopen);
@@ -348,52 +410,69 @@ TEST_F(StatsHistoryTest, GetStatsHistoryFromDisk) {
 // Test persisted stats matches the value found in options.statistics and
 // the stats value retains after DB reopen
 TEST_F(StatsHistoryTest, PersitentStatsVerifyValue) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
-  options.stats_persist_period_sec = 5;
+  options.stats_persist_period_sec = kPeriodSec;
   options.statistics = CreateDBStatistics();
   options.persist_stats_to_disk = true;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   std::map<std::string, uint64_t> stats_map_before;
   ASSERT_TRUE(options.statistics->getTickerMap(&stats_map_before));
-  mock_env->set_current_time(0);  // in seconds
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   CreateColumnFamilies({"pikachu"}, options);
   ASSERT_OK(Put("foo", "bar"));
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(Get("foo"), "bar");
 
+  // Wait for the first stats persist to finish, as the initial delay could be
+  // different.
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
   // Wait for stats persist to finish
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   auto iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   countkeys(iter);
   delete iter;
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(10); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   countkeys(iter);
   delete iter;
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(15); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   countkeys(iter);
   delete iter;
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(20); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
 
   std::map<std::string, uint64_t> stats_map_after;
   ASSERT_TRUE(options.statistics->getTickerMap(&stats_map_after));
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0 /*start_time*/, 21 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec + 1, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   std::string sample = "rocksdb.num.iterator.deleted";
   uint64_t recovered_value = 0;
-  for (int i = 1; stats_iter->Valid(); stats_iter->Next(), ++i) {
+  for (int i = 2; stats_iter->Valid(); stats_iter->Next(), ++i) {
     auto stats_map = stats_iter->GetStatsMap();
-    ASSERT_EQ(stats_iter->GetStatsTime(), 5 * i);
+    ASSERT_EQ(stats_iter->GetStatsTime(), kPeriodSec * i - 1);
     for (const auto& stat : stats_map) {
       if (sample.compare(stat.first) == 0) {
         recovered_value += stat.second;
@@ -404,12 +483,12 @@ TEST_F(StatsHistoryTest, PersitentStatsVerifyValue) {
 
   // test stats value retains after recovery
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  db_->GetStatsHistory(0 /*start_time*/, 21 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec + 1, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   uint64_t new_recovered_value = 0;
-  for (int i = 1; stats_iter->Valid(); stats_iter->Next(), i++) {
+  for (int i = 2; stats_iter->Valid(); stats_iter->Next(), i++) {
     auto stats_map = stats_iter->GetStatsMap();
-    ASSERT_EQ(stats_iter->GetStatsTime(), 5 * i);
+    ASSERT_EQ(stats_iter->GetStatsTime(), kPeriodSec * i - 1);
     for (const auto& stat : stats_map) {
       if (sample.compare(stat.first) == 0) {
         new_recovered_value += stat.second;
@@ -426,13 +505,15 @@ TEST_F(StatsHistoryTest, PersitentStatsVerifyValue) {
 // TODO(Zhongyi): add test for different format versions
 
 TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
-  options.stats_persist_period_sec = 5;
+  options.stats_persist_period_sec = kPeriodSec;
   options.statistics = CreateDBStatistics();
   options.persist_stats_to_disk = true;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   ASSERT_OK(TryReopen(options));
   CreateColumnFamilies({"one", "two", "three"}, options);
@@ -442,7 +523,15 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   CreateColumnFamilies({"four"}, options);
   ReopenWithColumnFamilies({"default", "one", "two", "three", "four"}, options);
   ASSERT_EQ(Get(2, "foo"), "bar");
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+
+  // make sure the first stats persist to finish
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   auto iter =
       db_->NewIterator(ReadOptions(), dbfull()->PersistentStatsColumnFamily());
   int key_count = countkeys(iter);
@@ -451,7 +540,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   uint64_t num_write_wal = 0;
   std::string sample = "rocksdb.write.wal";
   std::unique_ptr<StatsHistoryIterator> stats_iter;
-  db_->GetStatsHistory(0 /*start_time*/, 5 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   for (; stats_iter->Valid(); stats_iter->Next()) {
     auto stats_map = stats_iter->GetStatsMap();
@@ -487,7 +576,7 @@ TEST_F(StatsHistoryTest, PersistentStatsCreateColumnFamilies) {
   ASSERT_NOK(db_->CreateColumnFamily(cf_opts, kPersistentStatsColumnFamilyName,
                                      &handle));
   // verify stats is not affected by prior failed CF creation
-  db_->GetStatsHistory(0 /*start_time*/, 5 /*end_time*/, &stats_iter);
+  db_->GetStatsHistory(0, mock_time_sec, &stats_iter);
   ASSERT_TRUE(stats_iter != nullptr);
   num_write_wal = 0;
   for (; stats_iter->Valid(); stats_iter->Next()) {
@@ -525,17 +614,26 @@ TEST_F(StatsHistoryTest, PersistentStatsReadOnly) {
 }
 
 TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
+  constexpr int kPeriodSec = 5;
   Options options;
   options.create_if_missing = true;
   options.write_buffer_size = 1024 * 1024 * 10;  // 10 Mb
-  options.stats_persist_period_sec = 5;
+  options.stats_persist_period_sec = kPeriodSec;
   options.statistics = CreateDBStatistics();
   options.persist_stats_to_disk = true;
   std::unique_ptr<SafeMockTimeEnv> mock_env(new SafeMockTimeEnv(env_));
-  mock_env->set_current_time(0);  // in seconds
+  int mock_time_sec = 0;
+  mock_env->set_current_time(mock_time_sec);
   options.env = mock_env.get();
   CreateColumnFamilies({"pikachu"}, options);
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  // Wait for the first stats persist to finish, as the initial delay could be
+  // different.
+  mock_time_sec += kPeriodSec - 1;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
+
   ColumnFamilyData* cfd_default =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
           ->cfd();
@@ -551,7 +649,10 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   ASSERT_EQ("v0", Get("foo"));
   ASSERT_OK(Put(1, "Eevee", "v0"));
   ASSERT_EQ("v0", Get(1, "Eevee"));
-  dbfull()->TEST_WaitForPersistStatsRun([&] { mock_env->set_current_time(5); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   // writing to all three cf, flush default cf
   // LogNumbers: default: 14, stats: 4, pikachu: 4
   ASSERT_OK(Flush());
@@ -574,8 +675,10 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   ASSERT_OK(Put("bar2", "v2"));
   ASSERT_EQ("v2", Get("bar2"));
   ASSERT_EQ("v2", Get("foo2"));
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(10); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   // writing to default and stats cf, flushing default cf
   // LogNumbers: default: 19, stats: 19, pikachu: 19
   ASSERT_OK(Flush());
@@ -588,8 +691,10 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   ASSERT_EQ("v3", Get("foo3"));
   ASSERT_OK(Put(1, "Jolteon", "v3"));
   ASSERT_EQ("v3", Get(1, "Jolteon"));
-  dbfull()->TEST_WaitForPersistStatsRun(
-      [&] { mock_env->set_current_time(15); });
+
+  mock_time_sec += kPeriodSec;
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env->set_current_time(mock_time_sec); });
   // writing to all three cf, flushing test cf
   // LogNumbers: default: 19, stats: 19, pikachu: 22
   ASSERT_OK(Flush(1));
