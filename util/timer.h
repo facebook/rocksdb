@@ -15,6 +15,7 @@
 
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -56,6 +57,7 @@ class Timer {
     InstrumentedMutexLock l(&mutex_);
     heap_.push(fn_info.get());
     map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
+    cond_var_.Signal();
   }
 
   void Cancel(const std::string& fn_name) {
@@ -112,6 +114,7 @@ class Timer {
     while (running_) {
       if (heap_.empty()) {
         // wait
+        TEST_SYNC_POINT("Timer::Run::Waiting");
         cond_var_.Wait();
         continue;
       }

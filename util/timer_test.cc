@@ -237,6 +237,49 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   ASSERT_EQ(count2, 5);
 }
 
+TEST_F(TimerTest, AddAfterStartTest) {
+  const int kIterations = 5;
+  uint64_t time_counter = 0;
+  InstrumentedMutex mutex;
+  InstrumentedCondVar test_cv(&mutex);
+
+  // wait timer to running and then add a new task
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"Timer::Run::Waiting", "TimerTest:AddAfterStartTest:1"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  mock_env_->set_current_time(0);
+  Timer timer(mock_env_.get());
+
+  ASSERT_TRUE(timer.Start());
+
+  TEST_SYNC_POINT("TimerTest:AddAfterStartTest:1");
+  int count = 0;
+  timer.Add(
+      [&] {
+        InstrumentedMutexLock l(&mutex);
+        count++;
+        if (count >= kIterations) {
+          test_cv.SignalAll();
+        }
+      },
+      "fn_sch_test", 1 * kSecond, 1 * kSecond);
+
+  // Wait for execution to finish
+  {
+    InstrumentedMutexLock l(&mutex);
+    while (count < kIterations) {
+      time_counter += kSecond;
+      mock_env_->set_current_time(time_counter);
+      test_cv.TimedWait(time_counter);
+    }
+  }
+
+  ASSERT_TRUE(timer.Shutdown());
+
+  ASSERT_EQ(5, count);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
