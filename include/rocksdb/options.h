@@ -1283,7 +1283,8 @@ struct ReadOptions {
   // block cache?
   // Callers may wish to set this field to false for bulk scans.
   // This would help not to the change eviction order of existing items in the
-  // block cache. Default: true
+  // block cache.
+  // Default: true
   bool fill_cache;
 
   // Specify to create a tailing iterator -- a special iterator that has a
@@ -1304,6 +1305,7 @@ struct ReadOptions {
   // If true when calling Get(), we also skip prefix bloom when reading from
   // block based table. It provides a way to read existing data after
   // changing implementation of prefix extractor.
+  // Default: false
   bool total_order_seek;
 
   // When true, by default use total_order_seek = true, and RocksDB can
@@ -1311,6 +1313,7 @@ struct ReadOptions {
   // from total_order_seek, based on seek key, and iterator upper bound.
   // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // Default: false
   bool auto_prefix_mode;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
@@ -1366,6 +1369,7 @@ struct ReadOptions {
   // only the most recent version visible to timestamp is returned.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
+  // Default: nullptr
   const Slice* timestamp;
   const Slice* iter_start_ts;
 
