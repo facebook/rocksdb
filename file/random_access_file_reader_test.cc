@@ -26,7 +26,6 @@ class RandomAccessFileReaderTest : public testing::Test {
     fs_ = FileSystem::Default();
     test_dir_ = test::PerThreadDBPath("random_access_file_reader_test");
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
-    ComputeAndSetAlignment();
   }
 
   void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
@@ -55,25 +54,13 @@ class RandomAccessFileReaderTest : public testing::Test {
     }
   }
 
-  size_t alignment() const { return alignment_; }
-
  private:
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
-  size_t alignment_;
 
   std::string Path(const std::string& fname) {
     return test_dir_ + "/" + fname;
-  }
-
-  void ComputeAndSetAlignment() {
-    std::string f = "get_alignment";
-    Write(f, "");
-    std::unique_ptr<RandomAccessFileReader> r;
-    Read(f, FileOptions(), &r);
-    alignment_ = r->file()->GetRequiredBufferAlignment();
-    EXPECT_OK(fs_->DeleteFile(Path(f), IOOptions(), nullptr));
   }
 };
 
@@ -83,7 +70,7 @@ class RandomAccessFileReaderTest : public testing::Test {
 TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   std::string fname = "read-direct-io";
   Random rand(0);
-  std::string content = rand.RandomString(static_cast<int>(alignment()));
+  std::string content = rand.RandomString(kDefaultPageSize);
   Write(fname, content);
 
   FileOptions opts;
@@ -92,8 +79,9 @@ TEST_F(RandomAccessFileReaderTest, ReadDirectIO) {
   Read(fname, opts, &r);
   ASSERT_TRUE(r->use_direct_io());
 
-  size_t offset = alignment() / 2;
-  size_t len = alignment() / 3;
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
+  size_t offset = page_size / 2;
+  size_t len = page_size / 3;
   Slice result;
   AlignedBuf buf;
   for (bool for_compaction : {true, false}) {
@@ -116,7 +104,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   // Creates a file with 3 pages.
   std::string fname = "multi-read-direct-io";
   Random rand(0);
-  std::string content = rand.RandomString(3 * static_cast<int>(alignment()));
+  std::string content = rand.RandomString(3 * kDefaultPageSize);
   Write(fname, content);
 
   FileOptions opts;
@@ -124,6 +112,8 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
   std::unique_ptr<RandomAccessFileReader> r;
   Read(fname, opts, &r);
   ASSERT_TRUE(r->use_direct_io());
+
+  const size_t page_size = r->file()->GetRequiredBufferAlignment();
 
   {
     // Reads 2 blocks in the 1st page.
@@ -135,12 +125,12 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 2nd block:    xx
     FSReadRequest r0;
     r0.offset = 0;
-    r0.len = alignment() / 4;
+    r0.len = page_size / 4;
     r0.scratch = nullptr;
 
     FSReadRequest r1;
-    r1.offset = alignment() / 2;
-    r1.len = alignment() / 2;
+    r1.offset = page_size / 2;
+    r1.len = page_size / 2;
     r1.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
@@ -156,7 +146,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
     ASSERT_EQ(aligned_r.offset, 0);
-    ASSERT_EQ(aligned_r.len, alignment());
+    ASSERT_EQ(aligned_r.len, page_size);
   }
 
   {
@@ -173,17 +163,17 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 3rd block:        x
     FSReadRequest r0;
     r0.offset = 0;
-    r0.len = alignment() / 4;
+    r0.len = page_size / 4;
     r0.scratch = nullptr;
 
     FSReadRequest r1;
-    r1.offset = alignment() / 2;
-    r1.len = alignment();
+    r1.offset = page_size / 2;
+    r1.len = page_size;
     r1.scratch = nullptr;
 
     FSReadRequest r2;
-    r2.offset = 2 * alignment() - alignment() / 4;
-    r2.len = alignment() / 4;
+    r2.offset = 2 * page_size - page_size / 4;
+    r2.len = page_size / 4;
     r2.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
@@ -200,7 +190,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
     ASSERT_EQ(aligned_r.offset, 0);
-    ASSERT_EQ(aligned_r.len, 2 * alignment());
+    ASSERT_EQ(aligned_r.len, 2 * page_size);
   }
 
   {
@@ -216,18 +206,18 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 2nd block:      xx
     // 3rd block:          xx
     FSReadRequest r0;
-    r0.offset = alignment() / 4;
-    r0.len = alignment() / 2;
+    r0.offset = page_size / 4;
+    r0.len = page_size / 2;
     r0.scratch = nullptr;
 
     FSReadRequest r1;
-    r1.offset = alignment() + alignment() / 4;
-    r1.len = alignment() / 2;
+    r1.offset = page_size + page_size / 4;
+    r1.len = page_size / 2;
     r1.scratch = nullptr;
 
     FSReadRequest r2;
-    r2.offset = 2 * alignment() + alignment() / 4;
-    r2.len = alignment() / 2;
+    r2.offset = 2 * page_size + page_size / 4;
+    r2.len = page_size / 2;
     r2.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
@@ -244,7 +234,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
     ASSERT_EQ(aligned_r.offset, 0);
-    ASSERT_EQ(aligned_r.len, 3 * alignment());
+    ASSERT_EQ(aligned_r.len, 3 * page_size);
   }
 
   {
@@ -258,13 +248,13 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // 1st block:  xx
     // 2nd block:          xx
     FSReadRequest r0;
-    r0.offset = alignment() / 4;
-    r0.len = alignment() / 2;
+    r0.offset = page_size / 4;
+    r0.len = page_size / 2;
     r0.scratch = nullptr;
 
     FSReadRequest r1;
-    r1.offset = 2 * alignment() + alignment() / 4;
-    r1.len = alignment() / 2;
+    r1.offset = 2 * page_size + page_size / 4;
+    r1.len = page_size / 2;
     r1.scratch = nullptr;
 
     std::vector<FSReadRequest> reqs;
@@ -281,9 +271,9 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     const FSReadRequest& aligned_r0 = aligned_reqs[0];
     const FSReadRequest& aligned_r1 = aligned_reqs[1];
     ASSERT_EQ(aligned_r0.offset, 0);
-    ASSERT_EQ(aligned_r0.len, alignment());
-    ASSERT_EQ(aligned_r1.offset, 2 * alignment());
-    ASSERT_EQ(aligned_r1.len, alignment());
+    ASSERT_EQ(aligned_r0.len, page_size);
+    ASSERT_EQ(aligned_r1.offset, 2 * page_size);
+    ASSERT_EQ(aligned_r1.len, page_size);
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();

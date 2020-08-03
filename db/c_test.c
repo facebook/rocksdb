@@ -1672,6 +1672,9 @@ int main(int argc, char** argv) {
     rocksdb_options_set_stats_dump_period_sec(o, 18);
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(o));
 
+    rocksdb_options_set_stats_persist_period_sec(o, 5);
+    CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(o));
+
     rocksdb_options_set_advise_random_on_open(o, 1);
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(o));
 
@@ -1825,6 +1828,7 @@ int main(int argc, char** argv) {
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(copy));
     CheckCondition(1 == rocksdb_options_get_skip_log_error_on_recovery(copy));
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(copy));
+    CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(copy));
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(copy));
     CheckCondition(3 ==
                    rocksdb_options_get_access_hint_on_compaction_start(copy));
@@ -2111,6 +2115,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_stats_dump_period_sec(copy, 218);
     CheckCondition(218 == rocksdb_options_get_stats_dump_period_sec(copy));
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(o));
+
+    rocksdb_options_set_stats_persist_period_sec(copy, 600);
+    CheckCondition(600 == rocksdb_options_get_stats_persist_period_sec(copy));
+    CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(o));
 
     rocksdb_options_set_advise_random_on_open(copy, 0);
     CheckCondition(0 == rocksdb_options_get_advise_random_on_open(copy));

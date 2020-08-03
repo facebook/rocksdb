@@ -7,12 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/compaction/compaction.h"
+
 #include <cinttypes>
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction/compaction.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/sst_partitioner.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
@@ -329,6 +331,8 @@ bool Compaction::IsTrivialMove() const {
 
   // assert inputs_.size() == 1
 
+  std::unique_ptr<SstPartitioner> partitioner = CreateSstPartitioner();
+
   for (const auto& file : inputs_.front().files) {
     std::vector<FileMetaData*> file_grand_parents;
     if (output_level_ + 1 >= number_levels_) {
@@ -340,6 +344,13 @@ bool Compaction::IsTrivialMove() const {
         file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
     if (compaction_size > max_compaction_bytes_) {
       return false;
+    }
+
+    if (partitioner.get() != nullptr) {
+      if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
+                                         file->largest.user_key())) {
+        return false;
+      }
     }
   }
 
@@ -523,6 +534,21 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
+      context);
+}
+
+std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
+  if (!immutable_cf_options_.sst_partitioner_factory) {
+    return nullptr;
+  }
+
+  SstPartitioner::Context context;
+  context.is_full_compaction = is_full_compaction_;
+  context.is_manual_compaction = is_manual_compaction_;
+  context.output_level = output_level_;
+  context.smallest_user_key = smallest_user_key_;
+  context.largest_user_key = largest_user_key_;
+  return immutable_cf_options_.sst_partitioner_factory->CreatePartitioner(
       context);
 }
 

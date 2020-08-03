@@ -46,6 +46,7 @@
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -949,6 +950,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
   const auto& c_iter_stats = c_iter->iter_stats();
 
+  std::unique_ptr<SstPartitioner> partitioner =
+      sub_compact->compaction->output_level() == 0
+          ? nullptr
+          : sub_compact->compaction->CreateSstPartitioner();
+  std::string last_key_for_partitioner;
+
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
@@ -1006,20 +1013,29 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         "CompactionJob::Run():PausingManualCompaction:2",
         reinterpret_cast<void*>(
             const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
+    if (partitioner.get()) {
+      last_key_for_partitioner.assign(c_iter->user_key().data_,
+                                      c_iter->user_key().size_);
+    }
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
     }
-    if (!output_file_ended && c_iter->Valid() &&
-        sub_compact->compaction->output_level() != 0 &&
-        sub_compact->ShouldStopBefore(c_iter->key(),
-                                      sub_compact->current_output_file_size) &&
-        sub_compact->builder != nullptr) {
-      // (2) this key belongs to the next file. For historical reasons, the
-      // iterator status after advancing will be given to
-      // FinishCompactionOutputFile().
-      input_status = input->status();
-      output_file_ended = true;
+    if (!output_file_ended && c_iter->Valid()) {
+      if (((partitioner.get() &&
+            partitioner->ShouldPartition(PartitionerRequest(
+                last_key_for_partitioner, c_iter->user_key(),
+                sub_compact->current_output_file_size)) == kRequired) ||
+           (sub_compact->compaction->output_level() != 0 &&
+            sub_compact->ShouldStopBefore(
+                c_iter->key(), sub_compact->current_output_file_size))) &&
+          sub_compact->builder != nullptr) {
+        // (2) this key belongs to the next file. For historical reasons, the
+        // iterator status after advancing will be given to
+        // FinishCompactionOutputFile().
+        input_status = input->status();
+        output_file_ended = true;
+      }
     }
     if (output_file_ended) {
       const Slice* next_key = nullptr;
@@ -1493,10 +1509,22 @@ Status CompactionJob::InstallCompactionResults(
 
 void CompactionJob::RecordCompactionIOStats() {
   RecordTick(stats_, COMPACT_READ_BYTES, IOSTATS(bytes_read));
+  RecordTick(stats_, COMPACT_WRITE_BYTES, IOSTATS(bytes_written));
+  CompactionReason compaction_reason =
+      compact_->compaction->compaction_reason();
+  if (compaction_reason == CompactionReason::kFilesMarkedForCompaction) {
+    RecordTick(stats_, COMPACT_READ_BYTES_MARKED, IOSTATS(bytes_read));
+    RecordTick(stats_, COMPACT_WRITE_BYTES_MARKED, IOSTATS(bytes_written));
+  } else if (compaction_reason == CompactionReason::kPeriodicCompaction) {
+    RecordTick(stats_, COMPACT_READ_BYTES_PERIODIC, IOSTATS(bytes_read));
+    RecordTick(stats_, COMPACT_WRITE_BYTES_PERIODIC, IOSTATS(bytes_written));
+  } else if (compaction_reason == CompactionReason::kTtl) {
+    RecordTick(stats_, COMPACT_READ_BYTES_TTL, IOSTATS(bytes_read));
+    RecordTick(stats_, COMPACT_WRITE_BYTES_TTL, IOSTATS(bytes_written));
+  }
   ThreadStatusUtil::IncreaseThreadOperationProperty(
       ThreadStatus::COMPACTION_BYTES_READ, IOSTATS(bytes_read));
   IOSTATS_RESET(bytes_read);
-  RecordTick(stats_, COMPACT_WRITE_BYTES, IOSTATS(bytes_written));
   ThreadStatusUtil::IncreaseThreadOperationProperty(
       ThreadStatus::COMPACTION_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
