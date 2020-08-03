@@ -116,25 +116,56 @@ std::string WalDeletion::DebugString() const {
   return oss.str();
 }
 
-void WalSet::AddWal(const WalAddition& wal) {
-  wals_[wal.GetLogNumber()] = wal.GetMetadata();
-}
-
-void WalSet::AddWals(const WalAdditions& wals) {
-  for (const WalAddition& wal : wals) {
-    AddWal(wal);
+Status WalSet::AddWal(const WalAddition& wal) {
+  if (wal.GetMetadata().HasSize()) {
+    // The WAL must exist without size.
+    if (wals_.find(wal.GetLogNumber()) == wals_.end()) {
+      std::stringstream ss;
+      ss << "WAL " << wal.GetLogNumber() << " is not created before closing";
+      return Status::Corruption("WalSet", ss.str());
+    }
+    if (wals_[wal.GetLogNumber()].HasSize()) {
+      std::stringstream ss;
+      ss << "WAL " << wal.GetLogNumber() << " is closed more than once";
+      return Status::Corruption("WalSet", ss.str());
+    }
+  } else {
+    // The WAL must not exist beforehand.
+    if (wals_.find(wal.GetLogNumber()) != wals_.end()) {
+      std::stringstream ss;
+      ss << "WAL " << wal.GetLogNumber() << " is created more than once";
+      return Status::Corruption("WalSet", ss.str());
+    }
   }
+  wals_[wal.GetLogNumber()] = wal.GetMetadata();
+  return Status::OK();
 }
 
-void WalSet::DeleteWal(const WalDeletion& wal) {
+Status WalSet::AddWals(const WalAdditions& wals) {
+  Status s;
+  for (const WalAddition& wal : wals) {
+    s = AddWal(wal);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  return s;
+}
+
+Status WalSet::DeleteWal(const WalDeletion& wal) {
   assert(wals_.find(wal.GetLogNumber()) != wals_.end());
   wals_.erase(wal.GetLogNumber());
 }
 
-void WalSet::DeleteWals(const WalDeletions& wals) {
+Status WalSet::DeleteWals(const WalDeletions& wals) {
+  Status s;
   for (const WalDeletion& wal : wals) {
-    DeleteWal(wal);
+    s = DeleteWal(wal);
+    if (!s.ok()) {
+      break;
+    }
   }
+  return s;
 }
 
 void WalSet::Reset() { wals_.clear(); }

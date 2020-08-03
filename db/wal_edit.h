@@ -108,14 +108,19 @@ using WalDeletions = std::vector<WalDeletion>;
 class WalSet {
  public:
   // Add WAL(s).
+  // If the WAL has size, it means the WAL is closed,
+  // then there must be an existing WAL without size that is added
+  // when creating the WAL, otherwise, return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  void AddWal(const WalAddition& wal);
-  void AddWals(const WalAdditions& wals);
+  Status AddWal(const WalAddition& wal);
+  Status AddWals(const WalAdditions& wals);
 
   // Delete WAL(s).
+  // The WAL to be deleted must exist, otherwise,
+  // return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  void DeleteWal(const WalDeletion& wal);
-  void DeleteWals(const WalDeletions& wals);
+  Status DeleteWal(const WalDeletion& wal);
+  Status DeleteWals(const WalDeletions& wals);
 
   // Resets the internal state.
   void Reset();
