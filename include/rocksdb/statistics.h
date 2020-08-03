@@ -179,9 +179,15 @@ enum Tickers : uint32_t {
   BLOOM_FILTER_PREFIX_CHECKED,
   BLOOM_FILTER_PREFIX_USEFUL,
 
-  // Number of times we had to reseek inside an iteration to skip
-  // over large number of keys with same userkey.
+  // Number of times we had to reseek inside an iteration. This could be due to
+  // range deletion (see below stat), or seeking over many versions of the same
+  // user key.
   NUMBER_OF_RESEEKS_IN_ITERATION,
+
+  // Number of times we had to reseek inside an iteration, specifically to skip
+  // after or before a range of keys covered by a range deletion in a newer LSM
+  // component.
+  NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION,
 
   // Record the number of calls to GetUpadtesSince. Useful to keep track of
   // transaction log iterator refreshes

@@ -855,6 +855,148 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
+  struct TestCase {
+    const Comparator* comparator;
+    std::vector<std::string> table_keys;
+    std::vector<Range> range_del;
+    std::vector<std::string> expected_keys;
+  };
+
+  std::vector<TestCase> test_cases = {
+      // Range tombstone covers the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"a", "d"}},
+          {},
+      },
+      // Range tombstone overlaps the start of the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"", "b"}},
+          {"b", "c"},
+      },
+      // Empty range tombstone start key and empty key.
+      {
+          BytewiseComparator(),
+          {"", "b", "c"},
+          {{"", "b"}},
+          {"b", "c"},
+      },
+      // Range tombstone overlaps the end of the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"c", "d"}},
+          {"a", "b"},
+      },
+      // Range tombstones overlap both the start and the end of the
+      // sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"", "b"}, {"c", "d"}},
+          {"b"},
+      },
+      // Range tombstone overlaps the middle of the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c"},
+          {{"b", "c"}},
+          {"a", "c"},
+      },
+      // Multiple range tombstones overlapping the sstable.
+      {
+          BytewiseComparator(),
+          {"a", "b", "c", "d", "e"},
+          {{"b", "c"}, {"d", "e"}},
+          {"a", "c", "e"},
+      },
+      // Reverse comparator with empty range tombstone end key.
+      {
+          ReverseBytewiseComparator(),
+          {"b", "a", ""},
+          {{"a", ""}, {"b", "a"}},
+          {""},
+      },
+  };
+  for (auto tc : test_cases) {
+    Options options = CurrentOptions();
+    options.comparator = tc.comparator;
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    DestroyAndReopen(options);
+
+    for (auto key : tc.table_keys) {
+      db_->Put(WriteOptions(), key, "");
+    }
+
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+    for (auto d : tc.range_del) {
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), d.start,
+                       d.limit);
+    }
+
+    uint64_t prev_range_del_reseeks =
+        TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> keys;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        keys.emplace_back(iter->key().ToString());
+      }
+      ASSERT_EQ(tc.expected_keys, keys);
+      uint64_t range_del_reseeks =
+          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+      ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
+      prev_range_del_reseeks = range_del_reseeks;
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      std::vector<std::string> keys;
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        keys.emplace_back(iter->key().ToString());
+      }
+      std::reverse(keys.begin(), keys.end());
+      ASSERT_EQ(tc.expected_keys, keys);
+      uint64_t range_del_reseeks =
+          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+      ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
+      prev_range_del_reseeks = range_del_reseeks;
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      for (auto key : tc.expected_keys) {
+        iter->Seek(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key());
+      }
+      uint64_t range_del_reseeks =
+          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+      ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
+      prev_range_del_reseeks = range_del_reseeks;
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+      for (auto key : tc.expected_keys) {
+        iter->SeekForPrev(key);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(key, iter->key());
+      }
+      uint64_t range_del_reseeks =
+          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+      ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
+      prev_range_del_reseeks = range_del_reseeks;
+    }
+  }
+}
+
 #ifndef ROCKSDB_UBSAN_RUN
 TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   db_->Put(WriteOptions(), "key", "val");
