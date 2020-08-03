@@ -41,17 +41,18 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 GetContext::GetContext(
     const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
     Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, std::string* timestamp, bool* value_found,
-    MergeContext* merge_context, bool do_merge,
-    SequenceNumber* _max_covering_tombstone_seq, Env* env, SequenceNumber* seq,
-    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id)
+    SequenceNumber snapshot_seq, PinnableSlice* pinnable_val,
+    std::string* timestamp, bool* value_found, MergeContext* merge_context,
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq, Env* env,
+    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
+    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
       statistics_(statistics),
       state_(init_state),
       user_key_(user_key),
+      snapshot_seq_(snapshot_seq),
       pinnable_val_(pinnable_val),
       timestamp_(timestamp),
       value_found_(value_found),
@@ -74,14 +75,15 @@ GetContext::GetContext(
 GetContext::GetContext(
     const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
     Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
-    bool do_merge, SequenceNumber* _max_covering_tombstone_seq, Env* env,
-    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
-    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
+    SequenceNumber snapshot_seq, PinnableSlice* pinnable_val, bool* value_found,
+    MergeContext* merge_context, bool do_merge,
+    SequenceNumber* _max_covering_tombstone_seq, Env* env, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
+    bool* is_blob_index, uint64_t tracing_get_id)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
-                 pinnable_val, nullptr, value_found, merge_context, do_merge,
-                 _max_covering_tombstone_seq, env, seq, _pinned_iters_mgr,
-                 callback, is_blob_index, tracing_get_id) {}
+                 snapshot_seq, pinnable_val, nullptr, value_found,
+                 merge_context, do_merge, _max_covering_tombstone_seq, env, seq,
+                 _pinned_iters_mgr, callback, is_blob_index, tracing_get_id) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -220,6 +222,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     *matched = true;
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
+      return true;  // to continue to the next seq
+    }
+
+    if (ucmp_->timestamp_size() > 0 && snapshot_seq_ < parsed_key.sequence) {
       return true;  // to continue to the next seq
     }
 

@@ -16,6 +16,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Forward declaration
+enum ValueType : unsigned char;
+
 // A helper class useful for DBImpl::Get()
 class LookupKey {
  public:
@@ -40,6 +43,9 @@ class LookupKey {
   Slice user_key() const {
     return Slice(kstart_, static_cast<size_t>(end_ - kstart_ - 8));
   }
+
+  // Return sequence number and value type
+  SequenceNumber sequence(ValueType* type) const;
 
  private:
   // We construct a char array of the form:

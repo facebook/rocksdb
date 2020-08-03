@@ -669,6 +669,13 @@ static bool SaveValue(void* arg, const char* entry) {
     if (!s->CheckCallback(seq)) {
       return true;  // to continue to the next seq
     }
+    if (ts_sz > 0) {
+      assert(s->key);
+      SequenceNumber seq_ub = s->key->sequence(/*type=*/nullptr);
+      if (seq_ub < seq) {
+        return true;  // to continue to the next seq
+      }
+    }
 
     s->seq = seq;
 

@@ -38,8 +38,8 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value) {
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, key, value, nullptr, nullptr,
-                         nullptr, true, nullptr, nullptr);
+                         GetContext::kNotFound, key, kMaxSequenceNumber, value,
+                         nullptr, nullptr, nullptr, true, nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
   files_.files[FindFile(key)].fd.table_reader->Get(options, lkey.internal_key(),
                                                    &get_context, nullptr);
@@ -71,8 +71,9 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
       PinnableSlice pinnable_val;
       std::string& value = (*values)[idx];
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                             GetContext::kNotFound, keys[idx], &pinnable_val,
-                             nullptr, nullptr, nullptr, true, nullptr, nullptr);
+                             GetContext::kNotFound, keys[idx],
+                             kMaxSequenceNumber, &pinnable_val, nullptr,
+                             nullptr, nullptr, true, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       r->Get(options, lkey.internal_key(), &get_context, nullptr);
       value.assign(pinnable_val.data(), pinnable_val.size());
