@@ -47,6 +47,69 @@ TEST(WalSet, Overwrite) {
   ASSERT_EQ(wals.GetWals().at(kNumber).GetSizeInBytes(), kBytes);
 }
 
+TEST(WalSet, CreateTwice) {
+  constexpr WalNumber kNumber = 100;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  Status s = wals.AddWal(WalAddition(kNumber));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is created more than once") !=
+              std::string::npos);
+}
+
+TEST(WalSet, CloseTwice) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 200;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
+  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes)));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is closed more than once") !=
+              std::string::npos);
+}
+
+TEST(WalSet, CloseBeforeCreate) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 200;
+  WalSet wals;
+  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes)));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is not created before closing") !=
+              std::string::npos);
+}
+
+TEST(WalSet, CreateAfterClose) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 200;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
+  Status s = wals.AddWal(WalAddition(kNumber));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is created more than once") !=
+              std::string::npos);
+}
+
+TEST(WalSet, DeleteNonExistingWal) {
+  constexpr WalNumber kNonExistingNumber = 100;
+  WalSet wals;
+  Status s = wals.DeleteWal(WalDeletion(kNonExistingNumber));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 must exist before deletion") !=
+              std::string::npos);
+}
+
+TEST(WalSet, DeleteNonClosedWal) {
+  constexpr WalNumber kNonExistingNumber = 100;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNonExistingNumber)));
+  Status s = wals.DeleteWal(WalDeletion(kNonExistingNumber));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 must be closed before deletion") !=
+              std::string::npos);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
