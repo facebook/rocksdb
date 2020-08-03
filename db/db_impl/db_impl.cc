@@ -2832,7 +2832,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       read_options.snapshot != nullptr ? false : allow_refresh);
 
   InternalIterator* internal_iter = NewInternalIterator(
-      *db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(),
+      db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(),
       db_iter->GetRangeDelAggregator(), snapshot,
       /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);

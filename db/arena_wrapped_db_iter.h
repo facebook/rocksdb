@@ -41,7 +41,7 @@ class ArenaWrappedDBIter : public Iterator {
   virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
     return db_iter_->GetRangeDelAggregator();
   }
-  const ReadOptions* GetReadOptions() { return &read_options_; }
+  const ReadOptions& GetReadOptions() { return read_options_; }
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
