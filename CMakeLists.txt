@@ -95,7 +95,7 @@ if(MSVC)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
-  if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+  if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD" AND NOT CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
     # FreeBSD has jemalloc as default malloc
     # but it does not have all the jemalloc files in include/...
     set(WITH_JEMALLOC ON)
@@ -107,6 +107,7 @@ else()
     endif()
   endif()
 
+  set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
     option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
@@ -114,15 +115,17 @@ else()
     if(gflags_FOUND)
       if(TARGET ${GFLAGS_TARGET})
         # Config with GFLAGS_TARGET available since gflags 2.2.0
-        list(APPEND THIRDPARTY_LIBS ${GFLAGS_TARGET})
+        set(GFLAGS_LIB ${GFLAGS_TARGET})
       else()
         # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
-        list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIBRARIES})
+        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
       endif()
     else()
       find_package(gflags REQUIRED)
-      list(APPEND THIRDPARTY_LIBS gflags::gflags)
+        set(GFLAGS_LIB gflags::gflags)
     endif()
+    include_directories(${GFLAGS_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
     add_definitions(-DGFLAGS=1)
   endif()
 
@@ -448,6 +451,8 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
   add_definitions(-DOS_SOLARIS)
+elseif(CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
+  add_definitions(-DOS_GNU_KFREEBSD)
 elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   add_definitions(-DOS_FREEBSD)
 elseif(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
@@ -506,7 +511,11 @@ if(HAVE_PTHREAD_MUTEX_ADAPTIVE_NP)
 endif()
 
 include(CheckCXXSymbolExists)
-check_cxx_symbol_exists(malloc_usable_size malloc.h HAVE_MALLOC_USABLE_SIZE)
+if(CMAKE_SYSTEM_NAME MATCHES "^FreeBSD")
+  check_cxx_symbol_exists(malloc_usable_size malloc_np.h HAVE_MALLOC_USABLE_SIZE)
+else()
+  check_cxx_symbol_exists(malloc_usable_size malloc.h HAVE_MALLOC_USABLE_SIZE)
+endif()
 if(HAVE_MALLOC_USABLE_SIZE)
   add_definitions(-DROCKSDB_MALLOC_USABLE_SIZE)
 endif()
@@ -539,6 +548,9 @@ set(SOURCES
         db/blob/blob_file_addition.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
+        db/blob/blob_log_format.cc
+        db/blob/blob_log_reader.cc
+        db/blob/blob_log_writer.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -550,6 +562,7 @@ set(SOURCES
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
         db/compaction/compaction_picker_universal.cc
+        db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/db_impl.cc
@@ -689,6 +702,7 @@ set(SOURCES
         table/plain/plain_table_index.cc
         table/plain/plain_table_key_coding.cc
         table/plain/plain_table_reader.cc
+        table/sst_file_dumper.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
         table/table_properties.cc
@@ -730,9 +744,6 @@ set(SOURCES
         utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
-        utilities/blob_db/blob_log_reader.cc
-        utilities/blob_db/blob_log_writer.cc
-        utilities/blob_db/blob_log_format.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
@@ -741,6 +752,8 @@ set(SOURCES
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
+        utilities/fault_injection_env.cc
+        utilities/fault_injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators/bytesxor.cc
@@ -976,12 +989,22 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 endif()
 
-if(WITH_TESTS)
+option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
+
+if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
+endif()
+  
+if(WITH_TESTS)
   set(TESTS
+        db/db_basic_test.cc
+        env/env_basic_test.cc
+  )
+  if(WITH_ALL_TESTS)
+    list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
@@ -996,7 +1019,6 @@ if(WITH_TESTS)
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
-        db/db_basic_test.cc
         db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
@@ -1059,7 +1081,6 @@ if(WITH_TESTS)
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
-        env/env_basic_test.cc
         env/env_test.cc
         env/io_posix_test.cc
         env/mock_env_test.cc
@@ -1142,7 +1163,8 @@ if(WITH_TESTS)
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
-  )
+    )
+  endif()
   if(WITH_LIBRADOS)
     list(APPEND TESTS utilities/env_librados_test.cc)
   endif()
@@ -1155,8 +1177,6 @@ if(WITH_TESTS)
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
-      test_util/fault_injection_test_env.cc
-      test_util/fault_injection_test_fs.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
@@ -1182,7 +1202,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${GFLAGS_LIB} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1219,37 +1239,37 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(cache_bench
     cache/cache_bench.cc)
   target_link_libraries(cache_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(memtablerep_bench
     memtable/memtablerep_bench.cc)
   target_link_libraries(memtablerep_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(range_del_aggregator_bench
     db/range_del_aggregator_bench.cc)
   target_link_libraries(range_del_aggregator_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(table_reader_bench
     table/table_reader_bench.cc)
   target_link_libraries(table_reader_bench
-    ${ROCKSDB_LIB} testharness)
+    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
   add_executable(filter_bench
     util/filter_bench.cc)
   target_link_libraries(filter_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
   add_executable(hash_table_bench
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench
-    ${ROCKSDB_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
@@ -1262,4 +1282,9 @@ if(WITH_TOOLS)
   add_subdirectory(db_stress_tool)
   add_custom_target(tools
     DEPENDS ${tool_deps})
+endif()
+
+option(WITH_EXAMPLES "build with examples" OFF)
+if(WITH_EXAMPLES)
+  add_subdirectory(examples)
 endif()

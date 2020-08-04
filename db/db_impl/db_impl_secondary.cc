@@ -388,7 +388,7 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
   Iterator* result = nullptr;
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
@@ -415,10 +415,10 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
-  auto internal_iter =
-      NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot,
-                          /* allow_unprepared_value */ true);
+  auto internal_iter = NewInternalIterator(
+      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
+      db_iter->GetRangeDelAggregator(), snapshot,
+      /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -642,7 +642,7 @@ Status DB::OpenAsSecondary(
     *dbptr = impl;
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(
-          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
+          static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
     }
   } else {
     for (auto h : *handles) {

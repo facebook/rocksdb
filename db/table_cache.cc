@@ -13,6 +13,7 @@
 #include "db/range_tombstone_fragmenter.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
+#include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
@@ -92,21 +93,29 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 }
 
 Status TableCache::GetTableReader(
-    const FileOptions& file_options,
+    const ReadOptions& ro, const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
     std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
-    bool prefetch_index_and_filter_in_cache) {
+    bool prefetch_index_and_filter_in_cache,
+    size_t max_file_size_for_l0_meta_pin) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
-  Status s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
-                                               nullptr);
+  FileOptions fopts = file_options;
+  Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+  if (s.ok()) {
+    s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
+  }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
-    s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file, nullptr);
+    s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+    if (s.ok()) {
+      s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
+                                            nullptr);
+    }
     RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   }
 
@@ -121,10 +130,12 @@ Status TableCache::GetTableReader(
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
+        ro,
         TableReaderOptions(ioptions_, prefix_extractor, file_options,
                            internal_comparator, skip_filters, immortal_tables_,
                            false /* force_direct_prefetch */, level,
-                           fd.largest_seqno, block_cache_tracer_),
+                           fd.largest_seqno, block_cache_tracer_,
+                           max_file_size_for_l0_meta_pin),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -139,14 +150,15 @@ void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
   cache_->Erase(key);
 }
 
-Status TableCache::FindTable(const FileOptions& file_options,
+Status TableCache::FindTable(const ReadOptions& ro,
+                             const FileOptions& file_options,
                              const InternalKeyComparator& internal_comparator,
                              const FileDescriptor& fd, Cache::Handle** handle,
                              const SliceTransform* prefix_extractor,
                              const bool no_io, bool record_read_stats,
                              HistogramImpl* file_read_hist, bool skip_filters,
-                             int level,
-                             bool prefetch_index_and_filter_in_cache) {
+                             int level, bool prefetch_index_and_filter_in_cache,
+                             size_t max_file_size_for_l0_meta_pin) {
   PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
   Status s;
   uint64_t number = fd.GetNumber();
@@ -167,10 +179,11 @@ Status TableCache::FindTable(const FileOptions& file_options,
     }
 
     std::unique_ptr<TableReader> table_reader;
-    s = GetTableReader(file_options, internal_comparator, fd,
+    s = GetTableReader(ro, file_options, internal_comparator, fd,
                        false /* sequential mode */, record_read_stats,
                        file_read_hist, &table_reader, prefix_extractor,
-                       skip_filters, level, prefetch_index_and_filter_in_cache);
+                       skip_filters, level, prefetch_index_and_filter_in_cache,
+                       max_file_size_for_l0_meta_pin);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -194,6 +207,7 @@ InternalIterator* TableCache::NewIterator(
     RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
+    size_t max_file_size_for_l0_meta_pin,
     const InternalKey* smallest_compaction_key,
     const InternalKey* largest_compaction_key, bool allow_unprepared_value) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
@@ -208,10 +222,12 @@ InternalIterator* TableCache::NewIterator(
   auto& fd = file_meta.fd;
   table_reader = fd.table_reader;
   if (table_reader == nullptr) {
-    s = FindTable(file_options, icomparator, fd, &handle, prefix_extractor,
-                  options.read_tier == kBlockCacheTier /* no_io */,
-                  !for_compaction /* record_read_stats */, file_read_hist,
-                  skip_filters, level);
+    s = FindTable(
+        options, file_options, icomparator, fd, &handle, prefix_extractor,
+        options.read_tier == kBlockCacheTier /* no_io */,
+        !for_compaction /* record_read_stats */, file_read_hist, skip_filters,
+        level, true /* prefetch_index_and_filter_in_cache */,
+        max_file_size_for_l0_meta_pin);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(handle);
     }
@@ -282,7 +298,7 @@ Status TableCache::GetRangeTombstoneIterator(
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
   if (t == nullptr) {
-    s = FindTable(file_options_, internal_comparator, fd, &handle);
+    s = FindTable(options, file_options_, internal_comparator, fd, &handle);
     if (s.ok()) {
       t = GetTableReaderFromHandle(handle);
     }
@@ -372,7 +388,7 @@ Status TableCache::Get(const ReadOptions& options,
                        GetContext* get_context,
                        const SliceTransform* prefix_extractor,
                        HistogramImpl* file_read_hist, bool skip_filters,
-                       int level) {
+                       int level, size_t max_file_size_for_l0_meta_pin) {
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
@@ -397,10 +413,12 @@ Status TableCache::Get(const ReadOptions& options,
   Cache::Handle* handle = nullptr;
   if (!done && s.ok()) {
     if (t == nullptr) {
-      s = FindTable(
-          file_options_, internal_comparator, fd, &handle, prefix_extractor,
-          options.read_tier == kBlockCacheTier /* no_io */,
-          true /* record_read_stats */, file_read_hist, skip_filters, level);
+      s = FindTable(options, file_options_, internal_comparator, fd, &handle,
+                    prefix_extractor,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    true /* record_read_stats */, file_read_hist, skip_filters,
+                    level, true /* prefetch_index_and_filter_in_cache */,
+                    max_file_size_for_l0_meta_pin);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
       }
@@ -498,8 +516,8 @@ Status TableCache::MultiGet(const ReadOptions& options,
   if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
       s = FindTable(
-          file_options_, internal_comparator, fd, &handle, prefix_extractor,
-          options.read_tier == kBlockCacheTier /* no_io */,
+          options, file_options_, internal_comparator, fd, &handle,
+          prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
           true /* record_read_stats */, file_read_hist, skip_filters, level);
       TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
       if (s.ok()) {
@@ -583,8 +601,8 @@ Status TableCache::GetTableProperties(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(file_options, internal_comparator, fd, &table_handle,
-                prefix_extractor, no_io);
+  s = FindTable(ReadOptions(), file_options, internal_comparator, fd,
+                &table_handle, prefix_extractor, no_io);
   if (!s.ok()) {
     return s;
   }
@@ -607,8 +625,8 @@ size_t TableCache::GetMemoryUsageByTableReader(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(file_options, internal_comparator, fd, &table_handle,
-                prefix_extractor, true);
+  s = FindTable(ReadOptions(), file_options, internal_comparator, fd,
+                &table_handle, prefix_extractor, true);
   if (!s.ok()) {
     return 0;
   }
@@ -632,8 +650,8 @@ uint64_t TableCache::ApproximateOffsetOf(
   Cache::Handle* table_handle = nullptr;
   if (table_reader == nullptr) {
     const bool for_compaction = (caller == TableReaderCaller::kCompaction);
-    Status s = FindTable(file_options_, internal_comparator, fd, &table_handle,
-                         prefix_extractor, false /* no_io */,
+    Status s = FindTable(ReadOptions(), file_options_, internal_comparator, fd,
+                         &table_handle, prefix_extractor, false /* no_io */,
                          !for_compaction /* record_read_stats */);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(table_handle);
@@ -659,8 +677,8 @@ uint64_t TableCache::ApproximateSize(
   Cache::Handle* table_handle = nullptr;
   if (table_reader == nullptr) {
     const bool for_compaction = (caller == TableReaderCaller::kCompaction);
-    Status s = FindTable(file_options_, internal_comparator, fd, &table_handle,
-                         prefix_extractor, false /* no_io */,
+    Status s = FindTable(ReadOptions(), file_options_, internal_comparator, fd,
+                         &table_handle, prefix_extractor, false /* no_io */,
                          !for_compaction /* record_read_stats */);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(table_handle);

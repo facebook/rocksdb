@@ -61,7 +61,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.bytes_per_sync = mutable_db_options.bytes_per_sync;
   options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
   options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
-  options.max_subcompactions = immutable_db_options.max_subcompactions;
+  options.max_subcompactions = mutable_db_options.max_subcompactions;
   options.max_background_flushes = mutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
@@ -146,6 +146,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.file_checksum_gen_factory =
       immutable_db_options.file_checksum_gen_factory;
   options.best_efforts_recovery = immutable_db_options.best_efforts_recovery;
+  options.max_bgerror_resume_count =
+      immutable_db_options.max_bgerror_resume_count;
+  options.bgerror_resume_retry_interval =
+      immutable_db_options.bgerror_resume_retry_interval;
   return options;
 }
 
@@ -656,7 +660,7 @@ Status GetStringFromStruct(
     std::string* opt_string) {
   assert(opt_string);
   opt_string->clear();
-  for (const auto iter : type_info) {
+  for (const auto& iter : type_info) {
     const auto& opt_info = iter.second;
     // If the option is no longer used in rocksdb and marked as deprecated,
     // we skip it in the serialization.
@@ -930,7 +934,7 @@ Status GetTableFactoryFromMap(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<TableFactory>* table_factory) {
   Status s;
-  if (factory_name == BlockBasedTableFactory().Name()) {
+  if (factory_name == BlockBasedTableFactory::kName) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(
         config_options, BlockBasedTableOptions(), opt_map, &bbt_opt);
@@ -939,7 +943,7 @@ Status GetTableFactoryFromMap(
     }
     table_factory->reset(new BlockBasedTableFactory(bbt_opt));
     return s;
-  } else if (factory_name == PlainTableFactory().Name()) {
+  } else if (factory_name == PlainTableFactory::kName) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(config_options, PlainTableOptions(),
                                     opt_map, &pt_opt);

@@ -9,7 +9,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/utilities/backupable_db.h"
+
 #include <stdlib.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -33,7 +36,7 @@
 #include "port/port.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "table/sst_file_dumper.h"
 #include "test_util/sync_point.h"
 #include "util/channel.h"
 #include "util/coding.h"
@@ -42,6 +45,22 @@
 #include "utilities/checkpoint/checkpoint_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+namespace {
+inline uint32_t ChecksumHexToInt32(const std::string& checksum_hex) {
+  std::string checksum_str;
+  Slice(checksum_hex).DecodeHex(&checksum_str);
+  return EndianSwapValue(DecodeFixed32(checksum_str.c_str()));
+}
+inline std::string ChecksumStrToHex(const std::string& checksum_str) {
+  return Slice(checksum_str).ToString(true);
+}
+inline std::string ChecksumInt32ToHex(const uint32_t& checksum_value) {
+  std::string checksum_str;
+  PutFixed32(&checksum_str, EndianSwapValue(checksum_value));
+  return ChecksumStrToHex(checksum_str);
+}
+}  // namespace
 
 void BackupStatistics::IncrementNumberSuccessBackup() {
   number_success_backup++;
@@ -125,9 +144,15 @@ class BackupEngineImpl : public BackupEngine {
                                wal_dir);
   }
 
-  Status VerifyBackup(BackupID backup_id) override;
+  Status VerifyBackup(BackupID backup_id,
+                      bool verify_with_checksum = false) override;
 
   Status Initialize();
+
+  // Obtain the naming option for backup table files
+  BackupTableNameOption GetTableNamingOption() const {
+    return options_.share_files_with_checksum_naming;
+  }
 
  private:
   void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
@@ -140,8 +165,14 @@ class BackupEngineImpl : public BackupEngine {
       std::unordered_map<std::string, uint64_t>* result);
 
   struct FileInfo {
-    FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum)
-      : refs(0), filename(fname), size(sz), checksum_value(checksum) {}
+    FileInfo(const std::string& fname, uint64_t sz, const std::string& checksum,
+             const std::string& id = "", const std::string& sid = "")
+        : refs(0),
+          filename(fname),
+          size(sz),
+          checksum_hex(checksum),
+          db_id(id),
+          db_session_id(sid) {}
 
     FileInfo(const FileInfo&) = delete;
     FileInfo& operator=(const FileInfo&) = delete;
@@ -149,7 +180,14 @@ class BackupEngineImpl : public BackupEngine {
     int refs;
     const std::string filename;
     const uint64_t size;
-    const uint32_t checksum_value;
+    const std::string checksum_hex;
+    // DB identities
+    // db_id is obtained for potential usage in the future but not used
+    // currently
+    const std::string db_id;
+    // db_session_id appears in the backup SST filename if the table naming
+    // option is kOptionalChecksumAndDbSessionId
+    const std::string db_session_id;
   };
 
   class BackupMeta {
@@ -259,6 +297,7 @@ class BackupEngineImpl : public BackupEngine {
   inline std::string GetPrivateDirRel() const {
     return "private";
   }
+  inline std::string GetSharedDirRel() const { return "shared"; }
   inline std::string GetSharedChecksumDirRel() const {
     return "shared_checksum";
   }
@@ -272,7 +311,7 @@ class BackupEngineImpl : public BackupEngine {
   inline std::string GetSharedFileRel(const std::string& file = "",
                                       bool tmp = false) const {
     assert(file.size() == 0 || file[0] != '/');
-    return std::string("shared/") + (tmp ? "." : "") + file +
+    return GetSharedDirRel() + "/" + (tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
   inline std::string GetSharedFileWithChecksumRel(const std::string& file = "",
@@ -281,14 +320,29 @@ class BackupEngineImpl : public BackupEngine {
     return GetSharedChecksumDirRel() + "/" + (tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
-  inline std::string GetSharedFileWithChecksum(const std::string& file,
-                                               const uint32_t checksum_value,
-                                               const uint64_t file_size) const {
+  inline bool UseSessionId(const std::string& sid) const {
+    return GetTableNamingOption() == kOptionalChecksumAndDbSessionId &&
+           !sid.empty();
+  }
+  inline std::string GetSharedFileWithChecksum(
+      const std::string& file, bool has_checksum,
+      const std::string& checksum_hex, const uint64_t file_size,
+      const std::string& db_session_id) const {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
-    return file_copy.insert(file_copy.find_last_of('.'),
-                            "_" + ROCKSDB_NAMESPACE::ToString(checksum_value) +
-                                "_" + ROCKSDB_NAMESPACE::ToString(file_size));
+    if (UseSessionId(db_session_id)) {
+      if (has_checksum) {
+        return file_copy.insert(file_copy.find_last_of('.'),
+                                "_" + checksum_hex + "_" + db_session_id);
+      } else {
+        return file_copy.insert(file_copy.find_last_of('.'),
+                                "_" + db_session_id);
+      }
+    } else {
+      return file_copy.insert(file_copy.find_last_of('.'),
+                              "_" + ToString(ChecksumHexToInt32(checksum_hex)) +
+                                  "_" + ToString(file_size));
+    }
   }
   inline std::string GetFileFromChecksumFile(const std::string& file) const {
     assert(file.size() == 0 || file[0] != '/');
@@ -311,22 +365,28 @@ class BackupEngineImpl : public BackupEngine {
   //
   // @param src If non-empty, the file is copied from this pathname.
   // @param contents If non-empty, the file will be created with these contents.
-  Status CopyOrCreateFile(const std::string& src, const std::string& dst,
-                          const std::string& contents, Env* src_env,
-                          Env* dst_env, const EnvOptions& src_env_options,
-                          bool sync, RateLimiter* rate_limiter,
-                          uint64_t* size = nullptr,
-                          uint32_t* checksum_value = nullptr,
-                          uint64_t size_limit = 0,
-                          std::function<void()> progress_callback = []() {});
+  Status CopyOrCreateFile(
+      const std::string& src, const std::string& dst,
+      const std::string& contents, Env* src_env, Env* dst_env,
+      const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
+      uint64_t* size = nullptr, std::string* checksum_hex = nullptr,
+      uint64_t size_limit = 0,
+      std::function<void()> progress_callback = []() {});
 
   Status CalculateChecksum(const std::string& src, Env* src_env,
                            const EnvOptions& src_env_options,
-                           uint64_t size_limit, uint32_t* checksum_value);
+                           uint64_t size_limit, std::string* checksum_hex);
+
+  // Obtain db_id and db_session_id from the table properties of file_path
+  Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
+                             const std::string& file_path, std::string* db_id,
+                             std::string* db_session_id);
 
   struct CopyOrCreateResult {
     uint64_t size;
-    uint32_t checksum_value;
+    std::string checksum_hex;
+    std::string db_id;
+    std::string db_session_id;
     Status status;
   };
 
@@ -345,6 +405,11 @@ class BackupEngineImpl : public BackupEngine {
     uint64_t size_limit;
     std::promise<CopyOrCreateResult> result;
     std::function<void()> progress_callback;
+    bool verify_checksum_after_work;
+    std::string src_checksum_func_name;
+    std::string src_checksum_hex;
+    std::string db_id;
+    std::string db_session_id;
 
     CopyOrCreateWorkItem()
         : src_path(""),
@@ -355,7 +420,12 @@ class BackupEngineImpl : public BackupEngine {
           src_env_options(),
           sync(false),
           rate_limiter(nullptr),
-          size_limit(0) {}
+          size_limit(0),
+          verify_checksum_after_work(false),
+          src_checksum_func_name(kUnknownFileChecksumFuncName),
+          src_checksum_hex(""),
+          db_id(""),
+          db_session_id("") {}
 
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
@@ -376,14 +446,24 @@ class BackupEngineImpl : public BackupEngine {
       size_limit = o.size_limit;
       result = std::move(o.result);
       progress_callback = std::move(o.progress_callback);
+      verify_checksum_after_work = o.verify_checksum_after_work;
+      src_checksum_func_name = std::move(o.src_checksum_func_name);
+      src_checksum_hex = std::move(o.src_checksum_hex);
+      db_id = std::move(o.db_id);
+      db_session_id = std::move(o.db_session_id);
       return *this;
     }
 
-    CopyOrCreateWorkItem(std::string _src_path, std::string _dst_path,
-                         std::string _contents, Env* _src_env, Env* _dst_env,
-                         EnvOptions _src_env_options, bool _sync,
-                         RateLimiter* _rate_limiter, uint64_t _size_limit,
-                         std::function<void()> _progress_callback = []() {})
+    CopyOrCreateWorkItem(
+        std::string _src_path, std::string _dst_path, std::string _contents,
+        Env* _src_env, Env* _dst_env, EnvOptions _src_env_options, bool _sync,
+        RateLimiter* _rate_limiter, uint64_t _size_limit,
+        std::function<void()> _progress_callback = []() {},
+        bool _verify_checksum_after_work = false,
+        const std::string& _src_checksum_func_name =
+            kUnknownFileChecksumFuncName,
+        const std::string& _src_checksum_hex = "",
+        const std::string& _db_id = "", const std::string& _db_session_id = "")
         : src_path(std::move(_src_path)),
           dst_path(std::move(_dst_path)),
           contents(std::move(_contents)),
@@ -393,7 +473,12 @@ class BackupEngineImpl : public BackupEngine {
           sync(_sync),
           rate_limiter(_rate_limiter),
           size_limit(_size_limit),
-          progress_callback(_progress_callback) {}
+          progress_callback(_progress_callback),
+          verify_checksum_after_work(_verify_checksum_after_work),
+          src_checksum_func_name(_src_checksum_func_name),
+          src_checksum_hex(_src_checksum_hex),
+          db_id(_db_id),
+          db_session_id(_db_session_id) {}
   };
 
   struct BackupAfterCopyOrCreateWorkItem {
@@ -445,12 +530,11 @@ class BackupEngineImpl : public BackupEngine {
 
   struct RestoreAfterCopyOrCreateWorkItem {
     std::future<CopyOrCreateResult> result;
-    uint32_t checksum_value;
-    RestoreAfterCopyOrCreateWorkItem()
-      : checksum_value(0) {}
+    std::string checksum_hex;
+    RestoreAfterCopyOrCreateWorkItem() : checksum_hex("") {}
     RestoreAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
-                                     uint32_t _checksum_value)
-        : result(std::move(_result)), checksum_value(_checksum_value) {}
+                                     const std::string& _checksum_hex)
+        : result(std::move(_result)), checksum_hex(_checksum_hex) {}
     RestoreAfterCopyOrCreateWorkItem(RestoreAfterCopyOrCreateWorkItem&& o)
         ROCKSDB_NOEXCEPT {
       *this = std::move(o);
@@ -459,7 +543,7 @@ class BackupEngineImpl : public BackupEngine {
     RestoreAfterCopyOrCreateWorkItem& operator=(
         RestoreAfterCopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
       result = std::move(o.result);
-      checksum_value = o.checksum_value;
+      checksum_hex = std::move(o.checksum_hex);
       return *this;
     }
   };
@@ -492,7 +576,9 @@ class BackupEngineImpl : public BackupEngine {
       uint64_t size_bytes, uint64_t size_limit = 0,
       bool shared_checksum = false,
       std::function<void()> progress_callback = []() {},
-      const std::string& contents = std::string());
+      const std::string& contents = std::string(),
+      const std::string& src_checksum_func_name = kUnknownFileChecksumFuncName,
+      const std::string& src_checksum_str = kUnknownFileChecksum);
 
   // backup state data
   BackupID latest_backup_id_;
@@ -644,6 +730,9 @@ Status BackupEngineImpl::Initialize() {
       continue;
     }
     assert(backups_.find(backup_id) == backups_.end());
+    // Insert all the (backup_id, BackupMeta) that will be loaded later
+    // The loading performed later will check whether there are corrupt backups
+    // and move the corrupt backups to corrupt_backups_
     backups_.insert(std::make_pair(
         backup_id, std::unique_ptr<BackupMeta>(new BackupMeta(
                        GetBackupMetaFile(backup_id, false /* tmp */),
@@ -667,7 +756,11 @@ Status BackupEngineImpl::Initialize() {
       return s;
     }
   } else {  // Load data from storage
+    // abs_path_to_size: maps absolute paths of files in backup directory to
+    // their corresponding sizes
     std::unordered_map<std::string, uint64_t> abs_path_to_size;
+    // Insert files and their sizes in backup sub-directories (shared and
+    // shared_checksum) to abs_path_to_size
     for (const auto& rel_dir :
          {GetSharedFileRel(), GetSharedFileWithChecksumRel()}) {
       const auto abs_dir = GetAbsolutePath(rel_dir);
@@ -687,6 +780,8 @@ Status BackupEngineImpl::Initialize() {
         break;
       }
 
+      // Insert files and their sizes in backup sub-directories
+      // (private/backup_id) to abs_path_to_size
       InsertPathnameToSizeBytes(
           GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
@@ -764,8 +859,38 @@ Status BackupEngineImpl::Initialize() {
             work_item.src_path, work_item.dst_path, work_item.contents,
             work_item.src_env, work_item.dst_env, work_item.src_env_options,
             work_item.sync, work_item.rate_limiter, &result.size,
-            &result.checksum_value, work_item.size_limit,
+            &result.checksum_hex, work_item.size_limit,
             work_item.progress_callback);
+        result.db_id = work_item.db_id;
+        result.db_session_id = work_item.db_session_id;
+        if (result.status.ok() && work_item.verify_checksum_after_work) {
+          // unknown checksum function name implies no db table file checksum in
+          // db manifest; work_item.verify_checksum_after_work being true means
+          // backup engine has calculated its crc32c checksum for the table
+          // file; therefore, we are able to compare the checksums.
+          if (work_item.src_checksum_func_name ==
+                  kUnknownFileChecksumFuncName ||
+              work_item.src_checksum_func_name == kDbFileChecksumFuncName) {
+            if (work_item.src_checksum_hex != result.checksum_hex) {
+              std::string checksum_info(
+                  "Expected checksum is " + work_item.src_checksum_hex +
+                  " while computed checksum is " + result.checksum_hex);
+              result.status =
+                  Status::Corruption("Checksum mismatch after copying to " +
+                                     work_item.dst_path + ": " + checksum_info);
+            }
+          } else {
+            std::string checksum_function_info(
+                "Existing checksum function is " +
+                work_item.src_checksum_func_name +
+                " while provided checksum function is " +
+                kBackupFileChecksumFuncName);
+            ROCKS_LOG_INFO(
+                options_.info_log,
+                "Unable to verify checksum after copying to %s: %s\n",
+                work_item.dst_path.c_str(), checksum_function_info.c_str());
+          }
+        }
         work_item.result.set_value(std::move(result));
       }
     });
@@ -847,6 +972,15 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     CheckpointImpl checkpoint(db);
     uint64_t sequence_number = 0;
     DBOptions db_options = db->GetDBOptions();
+    FileChecksumGenFactory* db_checksum_factory =
+        db_options.file_checksum_gen_factory.get();
+    const std::string kFileChecksumGenFactoryName =
+        "FileChecksumGenCrc32cFactory";
+    bool compare_checksum =
+        db_checksum_factory != nullptr &&
+                db_checksum_factory->Name() == kFileChecksumGenFactoryName
+            ? true
+            : false;
     EnvOptions src_raw_env_options(db_options);
     s = checkpoint.CreateCustomCheckpoint(
         db_options,
@@ -857,7 +991,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
           return Status::NotSupported();
         } /* link_file_cb */,
         [&](const std::string& src_dirname, const std::string& fname,
-            uint64_t size_limit_bytes, FileType type) {
+            uint64_t size_limit_bytes, FileType type,
+            const std::string& checksum_func_name,
+            const std::string& checksum_val) {
           if (type == kLogFile && !options_.backup_log_files) {
             return Status::OK();
           }
@@ -895,7 +1031,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                 fname, src_env_options, rate_limiter, size_bytes,
                 size_limit_bytes,
                 options_.share_files_with_checksum && type == kTableFile,
-                options.progress_callback);
+                options.progress_callback, "" /* contents */,
+                checksum_func_name, checksum_val);
           }
           return st;
         } /* copy_file_cb */,
@@ -908,7 +1045,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
               0 /* size_limit */, false /* shared_checksum */,
               options.progress_callback, contents);
         } /* create_file_cb */,
-        &sequence_number, options.flush_before_backup ? 0 : port::kMaxUint64);
+        &sequence_number, options.flush_before_backup ? 0 : port::kMaxUint64,
+        compare_checksum);
     if (s.ok()) {
       new_backup->SetSequenceNumber(sequence_number);
     }
@@ -920,14 +1058,13 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     auto result = item.result.get();
     item_status = result.status;
     if (item_status.ok() && item.shared && item.needed_to_copy) {
-      item_status = item.backup_env->RenameFile(item.dst_path_tmp,
-                                                item.dst_path);
+      item_status =
+          item.backup_env->RenameFile(item.dst_path_tmp, item.dst_path);
     }
     if (item_status.ok()) {
-      item_status = new_backup.get()->AddFile(
-              std::make_shared<FileInfo>(item.dst_relative,
-                                         result.size,
-                                         result.checksum_value));
+      item_status = new_backup.get()->AddFile(std::make_shared<FileInfo>(
+          item.dst_relative, result.size, result.checksum_hex, result.db_id,
+          result.db_session_id));
     }
     if (!item_status.ok()) {
       s = item_status;
@@ -1194,17 +1331,19 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
   Status s;
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
   for (const auto& file_info : backup->GetFiles()) {
-    const std::string &file = file_info->filename;
+    const std::string& file = file_info->filename;
     std::string dst;
     // 1. extract the filename
     size_t slash = file.find_last_of('/');
-    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>
+    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
+    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
     // or private/<number>/<file>
     assert(slash != std::string::npos);
     dst = file.substr(slash + 1);
 
     // if the file was in shared_checksum, extract the real file name
-    // in this case the file is <number>_<checksum>_<size>.<type>
+    // in this case the file is <number>_<checksum>_<size>.<type>,
+    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
     if (file.substr(0, slash) == GetSharedChecksumDirRel()) {
       dst = GetFileFromChecksumFile(dst);
     }
@@ -1214,7 +1353,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     FileType type;
     bool ok = ParseFileName(dst, &number, &type);
     if (!ok) {
-      return Status::Corruption("Backup corrupted");
+      return Status::Corruption("Backup corrupted: Fail to parse filename " +
+                                dst);
     }
     // 3. Construct the final path
     // kLogFile lives in wal_dir and all the rest live in db_dir
@@ -1228,8 +1368,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
         EnvOptions() /* src_env_options */, false, rate_limiter,
         0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
-        copy_or_create_work_item.result.get_future(),
-        file_info->checksum_value);
+        copy_or_create_work_item.result.get_future(), file_info->checksum_hex);
     files_to_copy_or_create_.write(std::move(copy_or_create_work_item));
     restore_items_to_finish.push_back(
         std::move(after_copy_or_create_work_item));
@@ -1244,7 +1383,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     if (!item_status.ok()) {
       s = item_status;
       break;
-    } else if (item.checksum_value != result.checksum_value) {
+    } else if (item.checksum_hex != result.checksum_hex) {
       s = Status::Corruption("Checksum check failed");
       break;
     }
@@ -1255,7 +1394,9 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
   return s;
 }
 
-Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
+Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
+                                      bool verify_with_checksum) {
+  // Check if backup_id is corrupted, or valid and registered
   assert(initialized_);
   auto corrupt_itr = corrupt_backups_.find(backup_id);
   if (corrupt_itr != corrupt_backups_.end()) {
@@ -1274,6 +1415,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
 
   ROCKS_LOG_INFO(options_.info_log, "Verifying backup id %u\n", backup_id);
 
+  // Find all existing backup files belong to backup_id
   std::unordered_map<std::string, uint64_t> curr_abs_path_to_size;
   for (const auto& rel_dir : {GetPrivateFileRel(backup_id), GetSharedFileRel(),
                               GetSharedFileWithChecksumRel()}) {
@@ -1281,13 +1423,36 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
     InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size);
   }
 
+  // For all files registered in backup
   for (const auto& file_info : backup->GetFiles()) {
     const auto abs_path = GetAbsolutePath(file_info->filename);
+    // check existence of the file
     if (curr_abs_path_to_size.find(abs_path) == curr_abs_path_to_size.end()) {
       return Status::NotFound("File missing: " + abs_path);
     }
+    // verify file size
     if (file_info->size != curr_abs_path_to_size[abs_path]) {
-      return Status::Corruption("File corrupted: " + abs_path);
+      std::string size_info("Expected file size is " +
+                            ToString(file_info->size) +
+                            " while found file size is " +
+                            ToString(curr_abs_path_to_size[abs_path]));
+      return Status::Corruption("File corrupted: File size mismatch for " +
+                                abs_path + ": " + size_info);
+    }
+    if (verify_with_checksum) {
+      // verify file checksum
+      std::string checksum_hex;
+      ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
+                     abs_path.c_str());
+      CalculateChecksum(abs_path, backup_env_, EnvOptions(), 0 /* size_limit */,
+                        &checksum_hex);
+      if (file_info->checksum_hex != checksum_hex) {
+        std::string checksum_info(
+            "Expected checksum is " + file_info->checksum_hex +
+            " while computed checksum is " + checksum_hex);
+        return Status::Corruption("File corrupted: Checksum mismatch for " +
+                                  abs_path + ": " + checksum_info);
+      }
     }
   }
   return Status::OK();
@@ -1296,7 +1461,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
 Status BackupEngineImpl::CopyOrCreateFile(
     const std::string& src, const std::string& dst, const std::string& contents,
     Env* src_env, Env* dst_env, const EnvOptions& src_env_options, bool sync,
-    RateLimiter* rate_limiter, uint64_t* size, uint32_t* checksum_value,
+    RateLimiter* rate_limiter, uint64_t* size, std::string* checksum_hex,
     uint64_t size_limit, std::function<void()> progress_callback) {
   assert(src.empty() != contents.empty());
   Status s;
@@ -1308,9 +1473,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   if (size != nullptr) {
     *size = 0;
   }
-  if (checksum_value != nullptr) {
-    *checksum_value = 0;
-  }
+  uint32_t checksum_value = 0;
 
   // Check if size limit is set. if not, set it to very big number
   if (size_limit == 0) {
@@ -1351,6 +1514,10 @@ Status BackupEngineImpl::CopyOrCreateFile(
       data = contents;
     }
     size_limit -= data.size();
+    TEST_SYNC_POINT_CALLBACK(
+        "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+        (src.length() > 4 && src.rfind(".sst") == src.length() - 4) ? &data
+                                                                    : nullptr);
 
     if (!s.ok()) {
       return s;
@@ -1359,9 +1526,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
     if (size != nullptr) {
       *size += data.size();
     }
-    if (checksum_value != nullptr) {
-      *checksum_value =
-          crc32c::Extend(*checksum_value, data.data(), data.size());
+    if (checksum_hex != nullptr) {
+      checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
     }
     s = dest_writer->Append(data);
     if (rate_limiter != nullptr) {
@@ -1374,6 +1540,11 @@ Status BackupEngineImpl::CopyOrCreateFile(
       progress_callback();
     }
   } while (s.ok() && contents.empty() && data.size() > 0 && size_limit > 0);
+
+  // Convert uint32_t checksum to hex checksum
+  if (checksum_hex != nullptr) {
+    checksum_hex->assign(ChecksumInt32ToHex(checksum_value));
+  }
 
   if (s.ok() && sync) {
     s = dest_writer->Sync(false);
@@ -1392,27 +1563,75 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     const std::string& fname, const EnvOptions& src_env_options,
     RateLimiter* rate_limiter, uint64_t size_bytes, uint64_t size_limit,
     bool shared_checksum, std::function<void()> progress_callback,
-    const std::string& contents) {
+    const std::string& contents, const std::string& src_checksum_func_name,
+    const std::string& src_checksum_str) {
   assert(!fname.empty() && fname[0] == '/');
   assert(contents.empty() != src_dir.empty());
 
   std::string dst_relative = fname.substr(1);
   std::string dst_relative_tmp;
   Status s;
-  uint32_t checksum_value = 0;
+  std::string checksum_hex;
+  std::string db_id;
+  std::string db_session_id;
+  // whether the checksum for a table file is available
+  bool has_checksum = false;
 
+  // Whenever a default checksum function name is passed in, we will compares
+  // the corresponding checksum values after copying. Note that only table files
+  // may have a known checksum function name passed in.
+  //
+  // If no default checksum function name is passed in and db session id is not
+  // available, we will calculate the checksum *before* copying in two cases
+  // (we always calcuate checksums when copying or creating for any file types):
+  // a) share_files_with_checksum is true and file type is table;
+  // b) share_table_files is true and the file exists already.
+  //
+  // Step 0: Check if default checksum function name is passed in
+  if (kDbFileChecksumFuncName == src_checksum_func_name) {
+    if (src_checksum_str == kUnknownFileChecksum) {
+      return Status::Aborted("Unknown checksum value for " + fname);
+    }
+    checksum_hex = ChecksumStrToHex(src_checksum_str);
+    has_checksum = true;
+  }
+
+  // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
-    // add checksum and file length to the file name
-    s = CalculateChecksum(src_dir + fname, db_env_, src_env_options, size_limit,
-                          &checksum_value);
-    if (!s.ok()) {
-      return s;
+    if (GetTableNamingOption() == kOptionalChecksumAndDbSessionId) {
+      // Prepare db_session_id to add to the file name
+      // Ignore the returned status
+      // In the failed cases, db_id and db_session_id will be empty
+      GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, &db_id,
+                          &db_session_id);
+    }
+    // Calculate checksum if checksum and db session id are not available.
+    // If db session id is available, we will not calculate the checksum
+    // since the session id should suffice to avoid file name collision in
+    // the shared_checksum directory.
+    if (!has_checksum && db_session_id.empty()) {
+      s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
+                            size_limit, &checksum_hex);
+      if (!s.ok()) {
+        return s;
+      }
+      has_checksum = true;
     }
     if (size_bytes == port::kMaxUint64) {
       return Status::NotFound("File missing: " + src_dir + fname);
     }
-    dst_relative =
-        GetSharedFileWithChecksum(dst_relative, checksum_value, size_bytes);
+    // dst_relative depends on the following conditions:
+    // 1) the naming scheme is kOptionalChecksumAndDbSessionId,
+    // 2) db_session_id is not empty,
+    // 3) checksum is available in the DB manifest.
+    // If 1,2,3) are satisfied, then dst_relative will be of the form:
+    // shared_checksum/<file_number>_<checksum>_<db_session_id>.sst
+    // If 1,2) are satisfied, then dst_relative will be of the form:
+    // shared_checksum/<file_number>_<db_session_id>.sst
+    // Otherwise, dst_relative is of the form
+    // shared_checksum/<file_number>_<checksum>_<size>.sst
+    dst_relative = GetSharedFileWithChecksum(
+        dst_relative, has_checksum, checksum_hex, size_bytes, db_session_id);
     dst_relative_tmp = GetSharedFileWithChecksumRel(dst_relative, true);
     dst_relative = GetSharedFileWithChecksumRel(dst_relative, false);
   } else if (shared) {
@@ -1436,6 +1655,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     copy_dest_path = &final_dest_path;
   }
 
+  // Step 2: Determine whether to copy or not
   // if it's shared, we also need to check if it exists -- if it does, no need
   // to copy it again.
   bool need_to_copy = true;
@@ -1445,6 +1665,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   bool file_exists = false;
   if (shared && !same_path) {
+    // Should be in shared directory but not a live path, check existence in
+    // shared directory
     Status exist = backup_env_->FileExists(final_dest_path);
     if (exist.ok()) {
       file_exists = true;
@@ -1461,11 +1683,43 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   } else if (shared && (same_path || file_exists)) {
     need_to_copy = false;
     if (shared_checksum) {
-      ROCKS_LOG_INFO(options_.info_log,
-                     "%s already present, with checksum %u and size %" PRIu64,
-                     fname.c_str(), checksum_value, size_bytes);
+      if (backuped_file_infos_.find(dst_relative) ==
+              backuped_file_infos_.end() &&
+          !same_path) {
+        // file exists but not referenced
+        ROCKS_LOG_INFO(
+            options_.info_log,
+            "%s already present, but not referenced by any backup. We will "
+            "overwrite the file.",
+            fname.c_str());
+        need_to_copy = true;
+        backup_env_->DeleteFile(final_dest_path);
+      } else {
+        // file exists and referenced
+        if (!has_checksum) {
+          s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
+                                size_limit, &checksum_hex);
+          if (!s.ok()) {
+            return s;
+          }
+          has_checksum = true;
+        }
+        if (UseSessionId(db_session_id)) {
+          ROCKS_LOG_INFO(options_.info_log,
+                         "%s already present, with checksum %s, size %" PRIu64
+                         " and DB session identity %s",
+                         fname.c_str(), checksum_hex.c_str(), size_bytes,
+                         db_session_id.c_str());
+        } else {
+          ROCKS_LOG_INFO(
+              options_.info_log,
+              "%s already present, with checksum %s and size %" PRIu64,
+              fname.c_str(), checksum_hex.c_str(), size_bytes);
+        }
+      }
     } else if (backuped_file_infos_.find(dst_relative) ==
-               backuped_file_infos_.end() && !same_path) {
+                   backuped_file_infos_.end() &&
+               !same_path) {
       // file already exists, but it's not referenced by any backup. overwrite
       // the file
       ROCKS_LOG_INFO(
@@ -1479,19 +1733,27 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // the file is present and referenced by a backup
       ROCKS_LOG_INFO(options_.info_log,
                      "%s already present, calculate checksum", fname.c_str());
-      s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
-                            size_limit, &checksum_value);
+      if (!has_checksum) {
+        s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
+                              size_limit, &checksum_hex);
+        if (!s.ok()) {
+          return s;
+        }
+        has_checksum = true;
+      }
     }
   }
   live_dst_paths.insert(final_dest_path);
 
+  // Step 3: Add work item
   if (!contents.empty() || need_to_copy) {
     ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
                    copy_dest_path->c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         src_dir.empty() ? "" : src_dir + fname, *copy_dest_path, contents,
         db_env_, backup_env_, src_env_options, options_.sync, rate_limiter,
-        size_limit, progress_callback);
+        size_limit, progress_callback, has_checksum, src_checksum_func_name,
+        checksum_hex, db_id, db_session_id);
     BackupAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), shared, need_to_copy,
         backup_env_, temp_dest_path, final_dest_path, dst_relative);
@@ -1506,7 +1768,9 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     CopyOrCreateResult result;
     result.status = s;
     result.size = size_bytes;
-    result.checksum_value = checksum_value;
+    result.checksum_hex = std::move(checksum_hex);
+    result.db_id = std::move(db_id);
+    result.db_session_id = std::move(db_session_id);
     promise_result.set_value(std::move(result));
   }
   return s;
@@ -1515,8 +1779,11 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
                                            const EnvOptions& src_env_options,
                                            uint64_t size_limit,
-                                           uint32_t* checksum_value) {
-  *checksum_value = 0;
+                                           std::string* checksum_hex) {
+  if (checksum_hex == nullptr) {
+    return Status::Aborted("Checksum pointer is null");
+  }
+  uint32_t checksum_value = 0;
   if (size_limit == 0) {
     size_limit = std::numeric_limits<uint64_t>::max();
   }
@@ -1545,10 +1812,66 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
     }
 
     size_limit -= data.size();
-    *checksum_value = crc32c::Extend(*checksum_value, data.data(), data.size());
+    checksum_value = crc32c::Extend(checksum_value, data.data(), data.size());
   } while (data.size() > 0 && size_limit > 0);
 
+  checksum_hex->assign(ChecksumInt32ToHex(checksum_value));
+
   return s;
+}
+
+Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
+                                             const EnvOptions& src_env_options,
+                                             const std::string& file_path,
+                                             std::string* db_id,
+                                             std::string* db_session_id) {
+  assert(db_id != nullptr || db_session_id != nullptr);
+
+  Options options;
+  options.env = src_env;
+  SstFileDumper sst_reader(options, file_path,
+                           2 * 1024 * 1024
+                           /* readahead_size */,
+                           false /* verify_checksum */, false /* output_hex */,
+                           false /* decode_blob_index */, src_env_options,
+                           true /* silent */);
+
+  const TableProperties* table_properties = nullptr;
+  std::shared_ptr<const TableProperties> tp;
+  Status s = sst_reader.getStatus();
+
+  if (s.ok()) {
+    // Try to get table properties from the table reader of sst_reader
+    if (!sst_reader.ReadTableProperties(&tp).ok()) {
+      // Try to use table properites from the initialization of sst_reader
+      table_properties = sst_reader.GetInitTableProperties();
+    } else {
+      table_properties = tp.get();
+    }
+  } else {
+    ROCKS_LOG_INFO(options_.info_log, "Failed to read %s: %s",
+                   file_path.c_str(), s.ToString().c_str());
+    return s;
+  }
+
+  if (table_properties != nullptr) {
+    if (db_id != nullptr) {
+      db_id->assign(table_properties->db_id);
+    }
+    if (db_session_id != nullptr) {
+      db_session_id->assign(table_properties->db_session_id);
+      if (db_session_id->empty()) {
+        s = Status::NotFound("DB session identity not found in " + file_path);
+        ROCKS_LOG_INFO(options_.info_log, "%s", s.ToString().c_str());
+        return s;
+      }
+    }
+    return Status::OK();
+  } else {
+    s = Status::Corruption("Table properties missing in " + file_path);
+    ROCKS_LOG_INFO(options_.info_log, "%s", s.ToString().c_str());
+    return s;
+  }
 }
 
 void BackupEngineImpl::DeleteChildren(const std::string& dir,
@@ -1720,7 +2043,7 @@ Status BackupEngineImpl::BackupMeta::AddFile(
       return Status::Corruption("In memory metadata insertion error");
     }
   } else {
-    if (itr->second->checksum_value != file_info->checksum_value) {
+    if (itr->second->checksum_hex != file_info->checksum_hex) {
       return Status::Corruption(
           "Checksum mismatch for existing backup file. Delete old backups and "
           "try again.");
@@ -1814,6 +2137,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   for (uint32_t i = 0; s.ok() && i < num_files; ++i) {
     auto line = GetSliceUntil(&data, '\n');
+    // filename is relative, i.e., shared/number.sst,
+    // shared_checksum/number.sst, or private/backup_id/number.sst
     std::string filename = GetSliceUntil(&line, ' ').ToString();
 
     uint64_t size;
@@ -1848,7 +2173,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                 " in " + meta_filename_);
     }
 
-    files.emplace_back(new FileInfo(filename, size, checksum_value));
+    files.emplace_back(
+        new FileInfo(filename, size, ChecksumInt32ToHex(checksum_value)));
   }
 
   if (s.ok() && data.size() > 0) {
@@ -1891,7 +2217,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
         Slice(app_metadata_).ToString(/* hex */ true);
 
     // +1 to accommodate newline character
-    size_t hex_meta_strlen = kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
+    size_t hex_meta_strlen =
+        kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
     if (hex_meta_strlen >= buf_size) {
       return Status::Corruption("Buffer too small to fit backup metadata");
     }
@@ -1926,8 +2253,10 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     // use crc32c for now, switch to something else if needed
     // WART: The checksums are crc32c, not original crc32
 
-    size_t newlen = len + file->filename.length() + snprintf(writelen_temp,
-      sizeof(writelen_temp), " crc32 %u\n", file->checksum_value);
+    size_t newlen =
+        len + file->filename.length() +
+        snprintf(writelen_temp, sizeof(writelen_temp), " crc32 %u\n",
+                 ChecksumHexToInt32(file->checksum_hex));
     const char *const_write = writelen_temp;
     if (newlen >= buf_size) {
       backup_meta_file->Append(Slice(buf.get(), len));
@@ -1987,8 +2316,9 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
     return backup_engine_->RestoreDBFromLatestBackup(options, db_dir, wal_dir);
   }
 
-  Status VerifyBackup(BackupID backup_id) override {
-    return backup_engine_->VerifyBackup(backup_id);
+  Status VerifyBackup(BackupID backup_id,
+                      bool verify_with_checksum = false) override {
+    return backup_engine_->VerifyBackup(backup_id, verify_with_checksum);
   }
 
   Status Initialize() { return backup_engine_->Initialize(); }

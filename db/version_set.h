@@ -627,13 +627,19 @@ class Version {
  public:
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, const FileOptions& soptions,
+  // @param read_options Must outlive any iterator built by
+  // `merger_iter_builder`.
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo).
+  void AddIterators(const ReadOptions& read_options,
+                    const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
                     RangeDelAggregator* range_del_agg,
                     bool allow_unprepared_value);
 
-  void AddIteratorsForLevel(const ReadOptions&, const FileOptions& soptions,
+  // @param read_options Must outlive any iterator built by
+  // `merger_iter_builder`.
+  void AddIteratorsForLevel(const ReadOptions& read_options,
+                            const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg,
                             bool allow_unprepared_value);
@@ -803,6 +809,8 @@ class Version {
   int refs_;                    // Number of live refs to this version
   const FileOptions file_options_;
   const MutableCFOptions mutable_cf_options_;
+  // Cached value to avoid recomputing it on every read.
+  const size_t max_file_size_for_l0_meta_pin_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
@@ -960,8 +968,9 @@ class VersionSet {
                  bool read_only = false, std::string* db_id = nullptr);
 
   Status TryRecover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                    bool read_only, std::string* db_id,
-                    bool* has_missing_table_file);
+                    bool read_only,
+                    const std::vector<std::string>& files_in_dbname,
+                    std::string* db_id, bool* has_missing_table_file);
 
   // Try to recover the version set to the most recent consistent state
   // recorded in the specified manifest.
@@ -1022,8 +1031,23 @@ class VersionSet {
     return next_file_number_.fetch_add(n);
   }
 
+// TSAN failure is suppressed in most sequence read/write functions when
+// clang is used, because it would show a warning of conflcit for those
+// updates. Since we haven't figured out a correctnes violation caused
+// by those sharing, we suppress them for now to keep the build clean.
+#if defined(__clang__)
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define SUPPRESS_TSAN __attribute__((no_sanitize("thread")))
+#endif  // __has_feature(thread_sanitizer)
+#endif  // efined(__has_feature)
+#endif  // defined(__clang__)
+#ifndef SUPPRESS_TSAN
+#define SUPPRESS_TSAN
+#endif  // SUPPRESS_TSAN
+
   // Return the last sequence number.
-  uint64_t LastSequence() const {
+  SUPPRESS_TSAN uint64_t LastSequence() const {
     return last_sequence_.load(std::memory_order_acquire);
   }
 
@@ -1033,12 +1057,12 @@ class VersionSet {
   }
 
   // Note: memory_order_acquire must be sufficient.
-  uint64_t LastPublishedSequence() const {
+  SUPPRESS_TSAN uint64_t LastPublishedSequence() const {
     return last_published_sequence_.load(std::memory_order_seq_cst);
   }
 
   // Set the last sequence number to s.
-  void SetLastSequence(uint64_t s) {
+  SUPPRESS_TSAN void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
@@ -1046,7 +1070,7 @@ class VersionSet {
   }
 
   // Note: memory_order_release must be sufficient
-  void SetLastPublishedSequence(uint64_t s) {
+  SUPPRESS_TSAN void SetLastPublishedSequence(uint64_t s) {
     assert(s >= last_published_sequence_);
     last_published_sequence_.store(s, std::memory_order_seq_cst);
   }
@@ -1102,8 +1126,10 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
+  // @param read_options Must outlive the returned iterator.
   InternalIterator* MakeInputIterator(
-      const Compaction* c, RangeDelAggregator* range_del_agg,
+      const ReadOptions& read_options, const Compaction* c,
+      RangeDelAggregator* range_del_agg,
       const FileOptions& file_options_compactions);
 
   // Add all files listed in any live version to *live_table_files and
@@ -1157,12 +1183,25 @@ class VersionSet {
   static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
   // Get the IO Status returned by written Manifest.
-  IOStatus io_status() const { return io_status_; }
+  const IOStatus& io_status() const { return io_status_; }
 
-  // Set the IO Status to OK. Called before Manifest write if needed.
-  void SetIOStatusOK() { io_status_ = IOStatus::OK(); }
+  void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
+    assert(cfd);
+
+    const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+    Version* const version =
+        new Version(cfd, this, file_options_, mutable_cf_options);
+
+    constexpr bool update_stats = false;
+    version->PrepareApply(mutable_cf_options, update_stats);
+    AppendVersion(cfd, version);
+  }
 
  protected:
+  using VersionBuilderMap =
+      std::unordered_map<uint32_t,
+                         std::unique_ptr<BaseReferencedVersionBuilder>>;
+
   struct ManifestWriter;
 
   friend class Version;
@@ -1174,7 +1213,9 @@ class VersionSet {
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
     virtual void Corruption(size_t /*bytes*/, const Status& s) override {
-      if (this->status->ok()) *this->status = s;
+      if (status->ok()) {
+        *status = s;
+      }
     }
   };
 
@@ -1197,7 +1238,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      log::Writer* log);
+      log::Writer* log, IOStatus& io_s);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1205,13 +1246,14 @@ class VersionSet {
                                        const VersionEdit* edit);
 
   Status ReadAndRecover(
-      log::Reader* reader, AtomicGroupReadBuffer* read_buffer,
+      log::Reader& reader, AtomicGroupReadBuffer* read_buffer,
       const std::unordered_map<std::string, ColumnFamilyOptions>&
           name_to_options,
       std::unordered_map<int, std::string>& column_families_not_found,
       std::unordered_map<
           uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      VersionEditParams* version_edit, std::string* db_id = nullptr);
+      Status* log_read_status, VersionEditParams* version_edit,
+      std::string* db_id = nullptr);
 
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
@@ -1340,8 +1382,7 @@ class ReactiveVersionSet : public VersionSet {
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
 
  private:
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      active_version_builders_;
+  VersionBuilderMap active_version_builders_;
   AtomicGroupReadBuffer read_buffer_;
   // Number of version edits to skip by ReadAndApply at the beginning of a new
   // MANIFEST created by primary.

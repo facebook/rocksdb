@@ -31,17 +31,16 @@ namespace {
 // PickCompaction().
 class UniversalCompactionBuilder {
  public:
-  UniversalCompactionBuilder(const ImmutableCFOptions& ioptions,
-                             const InternalKeyComparator* icmp,
-                             const std::string& cf_name,
-                             const MutableCFOptions& mutable_cf_options,
-                             VersionStorageInfo* vstorage,
-                             UniversalCompactionPicker* picker,
-                             LogBuffer* log_buffer)
+  UniversalCompactionBuilder(
+      const ImmutableCFOptions& ioptions, const InternalKeyComparator* icmp,
+      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      UniversalCompactionPicker* picker, LogBuffer* log_buffer)
       : ioptions_(ioptions),
         icmp_(icmp),
         cf_name_(cf_name),
         mutable_cf_options_(mutable_cf_options),
+        mutable_db_options_(mutable_db_options),
         vstorage_(vstorage),
         picker_(picker),
         log_buffer_(log_buffer) {}
@@ -115,6 +114,7 @@ class UniversalCompactionBuilder {
   std::vector<SortedRun> sorted_runs_;
   const std::string& cf_name_;
   const MutableCFOptions& mutable_cf_options_;
+  const MutableDBOptions& mutable_db_options_;
   VersionStorageInfo* vstorage_;
   UniversalCompactionPicker* picker_;
   LogBuffer* log_buffer_;
@@ -277,11 +277,11 @@ bool UniversalCompactionPicker::NeedsCompaction(
 
 Compaction* UniversalCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer,
-    SequenceNumber /* earliest_memtable_seqno */) {
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer, SequenceNumber /* earliest_memtable_seqno */) {
   UniversalCompactionBuilder builder(ioptions_, icmp_, cf_name,
-                                     mutable_cf_options, vstorage, this,
-                                     log_buffer);
+                                     mutable_cf_options, mutable_db_options,
+                                     vstorage, this, log_buffer);
   return builder.PickCompaction();
 }
 
@@ -730,8 +730,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
     compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
   return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
-      output_level,
+      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
+      std::move(inputs), output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       LLONG_MAX, path_id,
@@ -944,8 +944,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   uint32_t path_id =
       GetPathId(ioptions_, mutable_cf_options_, estimated_total_size);
   return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
-      output_level,
+      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
+      std::move(inputs), output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
@@ -1014,8 +1014,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
   // compaction_options_universal.compression_size_percent,
   // because we always compact all the files, so always compress.
   return new Compaction(
-      vstorage_, ioptions_, mutable_cf_options_, std::move(inputs),
-      output_level,
+      vstorage_, ioptions_, mutable_cf_options_, mutable_db_options_,
+      std::move(inputs), output_level,
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       LLONG_MAX, path_id,

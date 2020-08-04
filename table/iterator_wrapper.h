@@ -89,6 +89,13 @@ class IteratorWrapperBase {
     valid_ = iter_->NextAndGetResult(&result_);
     assert(!valid_ || iter_->status().ok());
   }
+  bool NextAndGetResult(IterateResult* result) {
+    assert(iter_);
+    valid_ = iter_->NextAndGetResult(&result_);
+    *result = result_;
+    assert(!valid_ || iter_->status().ok());
+    return valid_;
+  }
   void Prev() {
     assert(iter_);
     iter_->Prev();

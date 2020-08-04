@@ -44,7 +44,7 @@ class OptionsUtilTest : public testing::Test {
 };
 
 bool IsBlockBasedTableFactory(TableFactory* tf) {
-  return tf->Name() == BlockBasedTableFactory().Name();
+  return tf->Name() == BlockBasedTableFactory::kName;
 }
 
 TEST_F(OptionsUtilTest, SaveAndLoad) {
@@ -170,7 +170,9 @@ class DummyTableFactory : public TableFactory {
 
   const char* Name() const override { return "DummyTableFactory"; }
 
+  using TableFactory::NewTableReader;
   Status NewTableReader(
+      const ReadOptions& /*ro*/,
       const TableReaderOptions& /*table_reader_options*/,
       std::unique_ptr<RandomAccessFileReader>&& /*file*/,
       uint64_t /*file_size*/, std::unique_ptr<TableReader>* /*table_reader*/,

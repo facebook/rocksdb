@@ -448,7 +448,7 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   }
 
   // point to sub-index, need to do a binary search
-  uint32_t upper_bound;
+  uint32_t upper_bound = 0;
   const char* base_ptr =
       index_.GetSubIndexBasePtrAndUpperBound(prefix_index_offset, &upper_bound);
   uint32_t low = 0;

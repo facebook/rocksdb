@@ -10,6 +10,7 @@
 #include "options/db_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -30,6 +31,12 @@ extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
 
 extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
 
+extern IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory, std::string* file_checksum,
+    std::string* file_checksum_func_name,
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads);
+
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
                                          IOOptions& opts) {
   if (!env) {
@@ -46,4 +53,7 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
   return IOStatus::OK();
 }
 
+// Test method to delete the input directory and all of its contents.
+// This method is destructive and is meant for use only in tests!!!
+Status DestroyDir(Env* env, const std::string& dir);
 }  // namespace ROCKSDB_NAMESPACE

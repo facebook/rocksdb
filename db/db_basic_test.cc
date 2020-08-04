@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstring>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
@@ -14,10 +16,11 @@
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
-#include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -41,6 +44,56 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   delete db2;
 }
 
+TEST_F(DBBasicTest, UniqueSession) {
+  Options options = CurrentOptions();
+  std::string sid1, sid2, sid3, sid4;
+
+  db_->GetDbSessionId(sid1);
+  Reopen(options);
+  db_->GetDbSessionId(sid2);
+  ASSERT_OK(Put("foo", "v1"));
+  db_->GetDbSessionId(sid4);
+  Reopen(options);
+  db_->GetDbSessionId(sid3);
+
+  ASSERT_NE(sid1, sid2);
+  ASSERT_NE(sid1, sid3);
+  ASSERT_NE(sid2, sid3);
+
+  ASSERT_EQ(sid2, sid4);
+
+#ifndef ROCKSDB_LITE
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  db_->GetDbSessionId(sid1);
+  // Test uniqueness between readonly open (sid1) and regular open (sid3)
+  ASSERT_NE(sid1, sid3);
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  db_->GetDbSessionId(sid2);
+  ASSERT_EQ("v1", Get("foo"));
+  db_->GetDbSessionId(sid3);
+
+  ASSERT_NE(sid1, sid2);
+
+  ASSERT_EQ(sid2, sid3);
+#endif  // ROCKSDB_LITE
+
+  CreateAndReopenWithCF({"goku"}, options);
+  db_->GetDbSessionId(sid1);
+  ASSERT_OK(Put("bar", "e1"));
+  db_->GetDbSessionId(sid2);
+  ASSERT_EQ("e1", Get("bar"));
+  db_->GetDbSessionId(sid3);
+  ReopenWithColumnFamilies({"default", "goku"}, options);
+  db_->GetDbSessionId(sid4);
+
+  ASSERT_EQ(sid1, sid2);
+  ASSERT_EQ(sid2, sid3);
+
+  ASSERT_NE(sid1, sid4);
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
@@ -48,19 +101,35 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
+  auto verify_one_iter = [&](Iterator* iter) {
+    int count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ++count;
+    }
+    // Always expect two keys: "foo" and "bar"
+    ASSERT_EQ(count, 2);
+  };
+
+  auto verify_all_iters = [&]() {
+    Iterator* iter = db_->NewIterator(ReadOptions());
+    verify_one_iter(iter);
+    delete iter;
+
+    std::vector<Iterator*> iters;
+    ASSERT_OK(db_->NewIterators(ReadOptions(),
+                                {dbfull()->DefaultColumnFamily()}, &iters));
+    ASSERT_EQ(static_cast<uint64_t>(1), iters.size());
+    verify_one_iter(iters[0]);
+    delete iters[0];
+  };
+
   auto options = CurrentOptions();
   assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  int count = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
-    ++count;
-  }
-  ASSERT_EQ(count, 2);
-  delete iter;
+  verify_all_iters();
   Close();
 
   // Reopen and flush memtable.
@@ -71,6 +140,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
+  verify_all_iters();
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
@@ -1057,7 +1127,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   }
 
   int get_sv_count = 0;
-  ROCKSDB_NAMESPACE::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
@@ -1075,7 +1145,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
         }
         if (get_sv_count == 11) {
           for (int i = 0; i < 8; ++i) {
-            auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+            auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
                             db->GetColumnFamilyHandle(i))
                             ->cfd();
             ASSERT_EQ(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
@@ -1126,9 +1196,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[1]) + "_2");
 
   for (int cf = 0; cf < 8; ++cf) {
-    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
-                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(cf))
-                    ->cfd();
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(
+            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(cf))
+            ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVObsolete);
   }
@@ -1188,9 +1259,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
               "cf" + std::to_string(j) + "_val" + std::to_string(retries));
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
-                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(i))
-                    ->cfd();
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(
+            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(i))
+            ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }
@@ -1207,7 +1279,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 
   int get_sv_count = 0;
-  ROCKSDB_NAMESPACE::DBImpl* db = reinterpret_cast<DBImpl*>(db_);
+  ROCKSDB_NAMESPACE::DBImpl* db = static_cast_with_check<DBImpl>(db_);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::MultiGet::AfterRefSV", [&](void* /*arg*/) {
         if (++get_sv_count == 2) {
@@ -1219,7 +1291,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
         }
         if (get_sv_count == 8) {
           for (int i = 0; i < 8; ++i) {
-            auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+            auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
                             db->GetColumnFamilyHandle(i))
                             ->cfd();
             ASSERT_TRUE(
@@ -1247,9 +1319,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
     ASSERT_EQ(values[j], "cf" + std::to_string(j) + "_val");
   }
   for (int i = 0; i < 8; ++i) {
-    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
-                    reinterpret_cast<DBImpl*>(db_)->GetColumnFamilyHandle(i))
-                    ->cfd();
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(
+            static_cast_with_check<DBImpl>(db_)->GetColumnFamilyHandle(i))
+            ->cfd();
     ASSERT_NE(cfd->TEST_GetLocalSV()->Get(), SuperVersion::kSVInUse);
   }
 }
@@ -1985,7 +2058,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   for (int i = 0; i < 100; ++i) {
     // Make the value compressible. A purely random string doesn't compress
     // and the resultant data block will not be compressed
-    std::string value(RandomString(&rnd, 128) + zero_str);
+    std::string value(rnd.RandomString(128) + zero_str);
     assert(Put(Key(i), value) == Status::OK());
   }
   Flush();
@@ -2199,6 +2272,35 @@ TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
   }
 }
 
+TEST_F(DBBasicTest, RecoverWithNoManifest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Flush());
+  Close();
+  {
+    // Delete all MANIFEST.
+    std::vector<std::string> files;
+    ASSERT_OK(env_->GetChildren(dbname_, &files));
+    for (const auto& file : files) {
+      uint64_t number = 0;
+      FileType type = kLogFile;
+      if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
+        ASSERT_OK(env_->DeleteFile(dbname_ + "/" + file));
+      }
+    }
+  }
+  options.best_efforts_recovery = true;
+  options.create_if_missing = false;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  options.create_if_missing = true;
+  Reopen(options);
+  // Since no MANIFEST exists, best-efforts recovery creates a new, empty db.
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+}
+
 TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -2238,6 +2340,33 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   ASSERT_FALSE(iter->Valid());
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(DBBasicTest, ManifestChecksumMismatch) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("bar", "value"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogWriter::EmitPhysicalRecord:BeforeEncodeChecksum", [&](void* arg) {
+        auto* crc = reinterpret_cast<uint32_t*>(arg);
+        *crc = *crc + 1;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  Status s = db_->Put(write_opts, "foo", "value");
+  ASSERT_OK(s);
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  ASSERT_OK(Put("foo", "value1"));
+  ASSERT_OK(Flush());
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+}
 
 class DBBasicTestMultiGet : public DBTestBase {
  public:
@@ -2319,7 +2448,7 @@ class DBBasicTestMultiGet : public DBTestBase {
       for (int i = 0; i < 100; ++i) {
         // Make the value compressible. A purely random string doesn't compress
         // and the resultant data block will not be compressed
-        values_.emplace_back(RandomString(&rnd, 128) + zero_str);
+        values_.emplace_back(rnd.RandomString(128) + zero_str);
         assert(((num_cfs == 1) ? Put(Key(i), values_[i])
                                : Put(cf, Key(i), values_[i])) == Status::OK());
       }
@@ -2331,7 +2460,7 @@ class DBBasicTestMultiGet : public DBTestBase {
 
       for (int i = 0; i < 100; ++i) {
         // block cannot gain space by compression
-        uncompressable_values_.emplace_back(RandomString(&rnd, 256) + '\0');
+        uncompressable_values_.emplace_back(rnd.RandomString(256) + '\0');
         std::string tmp_key = "a" + Key(i);
         assert(((num_cfs == 1) ? Put(tmp_key, uncompressable_values_[i])
                                : Put(cf, tmp_key, uncompressable_values_[i])) ==
@@ -2695,132 +2824,176 @@ INSTANTIATE_TEST_CASE_P(ParallelIO, DBBasicTestWithParallelIO,
                                            ::testing::Bool(), ::testing::Bool(),
                                            ::testing::Values(1, 4)));
 
+// Forward declaration
+class DeadlineFS;
+
+class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
+ public:
+  DeadlineRandomAccessFile(DeadlineFS& fs, SpecialEnv* env,
+                           std::unique_ptr<FSRandomAccessFile>& file)
+      : FSRandomAccessFileWrapper(file.get()),
+        fs_(fs),
+        file_(std::move(file)),
+        env_(env) {}
+
+  IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
+
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override;
+
+ private:
+  DeadlineFS& fs_;
+  std::unique_ptr<FSRandomAccessFile> file_;
+  SpecialEnv* env_;
+};
+
+class DeadlineFS : public FileSystemWrapper {
+ public:
+  explicit DeadlineFS(SpecialEnv* env)
+      : FileSystemWrapper(FileSystem::Default()),
+        delay_idx_(0),
+        deadline_(std::chrono::microseconds::zero()),
+        env_(env),
+        timedout_(false),
+        ignore_deadline_(false) {}
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
+    std::unique_ptr<FSRandomAccessFile> file;
+    IOStatus s;
+
+    s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    result->reset(new DeadlineRandomAccessFile(*this, env_, file));
+
+    int delay;
+    const std::chrono::microseconds deadline = GetDeadline();
+    if (deadline.count()) {
+      AssertDeadline(deadline, opts.io_options);
+    }
+    if (ShouldDelay(&delay, &s)) {
+      env_->SleepForMicroseconds(delay);
+    }
+    return s;
+  }
+
+  // Set a vector of {IO counter, delay in microseconds, return status} tuples
+  // that control when to inject a delay and duration of the delay
+  void SetDelaySequence(
+      const std::chrono::microseconds deadline,
+      const std::vector<std::tuple<int, int, IOStatus>>&& seq) {
+    int total_delay = 0;
+    for (auto& seq_iter : seq) {
+      // Ensure no individual delay is > 500ms
+      ASSERT_LT(std::get<1>(seq_iter), 500000);
+      total_delay += std::get<1>(seq_iter);
+    }
+    // ASSERT total delay is < 1s. This is mainly to keep the test from
+    // timing out in CI test frameworks
+    ASSERT_LT(total_delay, 1000000);
+    delay_seq_ = seq;
+    delay_idx_ = 0;
+    io_count_ = 0;
+    deadline_ = deadline;
+    timedout_ = false;
+  }
+
+  // Increment the IO counter and return a delay in microseconds
+  bool ShouldDelay(int* delay, IOStatus* s) {
+    if (!ignore_deadline_ && delay_idx_ < delay_seq_.size() &&
+        std::get<0>(delay_seq_[delay_idx_]) == io_count_++) {
+      *delay = std::get<1>(delay_seq_[delay_idx_]);
+      *s = std::get<2>(delay_seq_[delay_idx_]);
+      delay_idx_++;
+      timedout_ = true;
+      return true;
+    }
+    *s = IOStatus::OK();
+    return false;
+  }
+
+  const std::chrono::microseconds GetDeadline() {
+    return ignore_deadline_ ? std::chrono::microseconds::zero() : deadline_;
+  }
+
+  bool TimedOut() { return timedout_; }
+
+  void IgnoreDeadline(bool ignore) { ignore_deadline_ = ignore; }
+
+  void AssertDeadline(const std::chrono::microseconds deadline,
+                      const IOOptions& opts) const {
+    // Give a leeway of +- 10us as it can take some time for the Get/
+    // MultiGet call to reach here, in order to avoid false alarms
+    std::chrono::microseconds now =
+        std::chrono::microseconds(env_->NowMicros());
+    if (deadline - now != opts.timeout) {
+      ASSERT_EQ(deadline - now, opts.timeout);
+    }
+  }
+
+ private:
+  std::vector<std::tuple<int, int, IOStatus>> delay_seq_;
+  size_t delay_idx_;
+  int io_count_;
+  std::chrono::microseconds deadline_;
+  SpecialEnv* env_;
+  bool timedout_;
+  bool ignore_deadline_;
+};
+
+IOStatus DeadlineRandomAccessFile::Read(uint64_t offset, size_t len,
+                                        const IOOptions& opts, Slice* result,
+                                        char* scratch,
+                                        IODebugContext* dbg) const {
+  int delay;
+  const std::chrono::microseconds deadline = fs_.GetDeadline();
+  IOStatus s;
+  if (deadline.count()) {
+    fs_.AssertDeadline(deadline, opts);
+  }
+  if (fs_.ShouldDelay(&delay, &s)) {
+    env_->SleepForMicroseconds(delay);
+  }
+  if (s.ok()) {
+    s = FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
+                                        dbg);
+  }
+  return s;
+}
+
+IOStatus DeadlineRandomAccessFile::MultiRead(FSReadRequest* reqs,
+                                             size_t num_reqs,
+                                             const IOOptions& options,
+                                             IODebugContext* dbg) {
+  int delay;
+  const std::chrono::microseconds deadline = fs_.GetDeadline();
+  IOStatus s;
+  if (deadline.count()) {
+    fs_.AssertDeadline(deadline, options);
+  }
+  if (fs_.ShouldDelay(&delay, &s)) {
+    env_->SleepForMicroseconds(delay);
+  }
+  if (s.ok()) {
+    s = FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
+  }
+  return s;
+}
+
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature
 class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
  public:
   DBBasicTestMultiGetDeadline()
-      : DBBasicTestMultiGet("db_basic_test_multiget_deadline" /*Test dir*/,
-                             10 /*# of column families*/,
-                             false /*compressed cache enabled*/,
-                             true /*uncompressed cache enabled*/,
-                             true /*compression enabled*/,
-                             true /*ReadOptions.fill_cache*/,
-                             1 /*# of parallel compression threads*/) {}
-
-  // Forward declaration
-  class DeadlineFS;
-
-  class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
-   public:
-    DeadlineRandomAccessFile(DeadlineFS& fs, SpecialEnv* env,
-                             std::unique_ptr<FSRandomAccessFile>& file)
-        : FSRandomAccessFileWrapper(file.get()),
-          fs_(fs),
-          file_(std::move(file)),
-          env_(env) {}
-
-    IOStatus Read(uint64_t offset, size_t len, const IOOptions& opts,
-          Slice* result, char* scratch, IODebugContext* dbg) const override {
-      int delay;
-      const std::chrono::microseconds deadline = fs_.GetDeadline();
-      if (deadline.count()) {
-        AssertDeadline(deadline, opts);
-      }
-      if (fs_.ShouldDelay(&delay)) {
-        env_->SleepForMicroseconds(delay);
-      }
-      return FSRandomAccessFileWrapper::Read(offset, len, opts, result, scratch,
-                                             dbg);
-    }
-
-    IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-          const IOOptions& options, IODebugContext* dbg) override {
-      int delay;
-      const std::chrono::microseconds deadline = fs_.GetDeadline();
-      if (deadline.count()) {
-        AssertDeadline(deadline, options);
-      }
-      if (fs_.ShouldDelay(&delay)) {
-        env_->SleepForMicroseconds(delay);
-      }
-      return FSRandomAccessFileWrapper::MultiRead(reqs, num_reqs, options, dbg);
-    }
-
-   private:
-    void AssertDeadline(const std::chrono::microseconds deadline,
-                        const IOOptions& opts) const {
-      // Give a leeway of +- 10us as it can take some time for the Get/
-      // MultiGet call to reach here, in order to avoid false alarms
-      std::chrono::microseconds now =
-          std::chrono::microseconds(env_->NowMicros());
-      ASSERT_EQ(deadline - now, opts.timeout);
-    }
-    DeadlineFS& fs_;
-    std::unique_ptr<FSRandomAccessFile> file_;
-    SpecialEnv* env_;
-  };
-
-  class DeadlineFS : public FileSystemWrapper {
-   public:
-    DeadlineFS(SpecialEnv* env)
-        : FileSystemWrapper(FileSystem::Default()),
-          delay_idx_(0),
-          deadline_(std::chrono::microseconds::zero()),
-          env_(env) {}
-    ~DeadlineFS() = default;
-
-    IOStatus NewRandomAccessFile(const std::string& fname,
-                                 const FileOptions& opts,
-                                 std::unique_ptr<FSRandomAccessFile>* result,
-                                 IODebugContext* dbg) override {
-      std::unique_ptr<FSRandomAccessFile> file;
-      IOStatus s;
-
-      s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
-      result->reset(new DeadlineRandomAccessFile(*this, env_, file));
-      return s;
-    }
-
-    // Set a vector of {IO counter, delay in microseconds} pairs that control
-    // when to inject a delay and duration of the delay
-    void SetDelaySequence(const std::chrono::microseconds deadline,
-                          const std::vector<std::pair<int, int>>&& seq) {
-      int total_delay = 0;
-      for (auto& seq_iter : seq) {
-        // Ensure no individual delay is > 500ms
-        ASSERT_LT(seq_iter.second, 500000);
-        total_delay += seq_iter.second;
-      }
-      // ASSERT total delay is < 1s. This is mainly to keep the test from
-      // timing out in CI test frameworks
-      ASSERT_LT(total_delay, 1000000);
-      delay_seq_ = seq;
-      delay_idx_ = 0;
-      io_count_ = 0;
-      deadline_ = deadline;
-    }
-
-    // Increment the IO counter and return a delay in microseconds
-    bool ShouldDelay(int* delay) {
-      if (delay_idx_ < delay_seq_.size() &&
-          delay_seq_[delay_idx_].first == io_count_++) {
-        *delay = delay_seq_[delay_idx_].second;
-        delay_idx_++;
-        return true;
-      }
-      return false;
-    }
-
-    const std::chrono::microseconds GetDeadline() { return deadline_; }
-
-   private:
-    std::vector<std::pair<int, int>> delay_seq_;
-    size_t delay_idx_;
-    int io_count_;
-    std::chrono::microseconds deadline_;
-    SpecialEnv* env_;
-  };
+      : DBBasicTestMultiGet(
+            "db_basic_test_multiget_deadline" /*Test dir*/,
+            10 /*# of column families*/, false /*compressed cache enabled*/,
+            true /*uncompressed cache enabled*/, true /*compression enabled*/,
+            true /*ReadOptions.fill_cache*/,
+            1 /*# of parallel compression threads*/) {}
 
   inline void CheckStatus(std::vector<Status>& statuses, size_t num_ok) {
     for (size_t i = 0; i < statuses.size(); ++i) {
@@ -2834,8 +3007,7 @@ class DBBasicTestMultiGetDeadline : public DBBasicTestMultiGet {
 };
 
 TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
-  std::shared_ptr<DBBasicTestMultiGetDeadline::DeadlineFS> fs(
-      new DBBasicTestMultiGetDeadline::DeadlineFS(env_));
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
   env_->SetTimeElapseOnlySleep(&options);
@@ -2866,7 +3038,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   ReadOptions ro;
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
   // Delay the first IO by 200ms
-  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
 
   std::vector<Status> statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
   // The first key is successful because we check after the lookup, but
@@ -2891,7 +3064,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
     keys[i] = Slice(key_str[i].data(), key_str[i].size());
   }
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
   statuses = dbfull()->MultiGet(ro, cfs, keys, &values);
   CheckStatus(statuses, 3);
 
@@ -2905,7 +3079,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{0, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{0, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 2);
@@ -2920,7 +3095,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{2, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{2, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 6);
@@ -2934,7 +3110,8 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{3, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{3, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, keys.size(), cfs.data(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 8);
@@ -2960,10 +3137,131 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   statuses.clear();
   statuses.resize(keys.size());
   ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
-  fs->SetDelaySequence(ro.deadline, {{1, 20000}});
+  fs->SetDelaySequence(
+      ro.deadline, {std::tuple<int, int, IOStatus>{1, 20000, IOStatus::OK()}});
   dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 64);
+  Close();
+}
+
+TEST_F(DBBasicTest, ManifestWriteFailure) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:AfterSyncManifest", [&](void* arg) {
+        ASSERT_NE(nullptr, arg);
+        auto* s = reinterpret_cast<Status*>(arg);
+        ASSERT_OK(*s);
+        // Manually overwrite return status
+        *s = Status::IOError();
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put("key", "value"));
+  ASSERT_NOK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+}
+
+TEST_F(DBBasicTest, PointLookupDeadline) {
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
+  // properly for the DB that's opened by the DBTestBase constructor.
+  Close();
+  for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+    if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
+      continue;
+    }
+    option_config_ = option_config;
+    Options options = CurrentOptions();
+    if (options.use_direct_reads) {
+      continue;
+    }
+    options.env = env.get();
+    options.disable_auto_compactions = true;
+    Cache* block_cache = nullptr;
+    env_->SetTimeElapseOnlySleep(&options);
+    // Fileter block reads currently don't cause the request to get
+    // aborted on a read timeout, so its possible those block reads
+    // may get issued even if the deadline is past
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTable::Get:BeforeFilterMatch",
+        [&](void* /*arg*/) { fs->IgnoreDeadline(true); });
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTable::Get:AfterFilterMatch",
+        [&](void* /*arg*/) { fs->IgnoreDeadline(false); });
+    // DB open will create table readers unless we reduce the table cache
+    // capacity.
+    // SanitizeOptions will set max_open_files to minimum of 20. Table cache
+    // is allocated with max_open_files - 10 as capacity. So override
+    // max_open_files to 11 so table cache capacity will become 1. This will
+    // prevent file open during DB open and force the file to be opened
+    // during MultiGet
+    SyncPoint::GetInstance()->SetCallBack(
+        "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+          int* max_open_files = (int*)arg;
+          *max_open_files = 11;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Reopen(options);
+
+    if (options.table_factory &&
+        !strcmp(options.table_factory->Name(),
+                BlockBasedTableFactory::kName.c_str())) {
+      BlockBasedTableFactory* bbtf =
+          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
+      block_cache = bbtf->table_options().block_cache.get();
+    }
+
+    Random rnd(301);
+    for (int i = 0; i < 400; ++i) {
+      std::string key = "k" + ToString(i);
+      Put(key, rnd.RandomString(100));
+    }
+    Flush();
+
+    bool timedout = true;
+    // A timeout will be forced when the IO counter reaches this value
+    int io_deadline_trigger = 0;
+    // Keep incrementing io_deadline_trigger and call Get() until there is an
+    // iteration that doesn't cause a timeout. This ensures that we cover
+    // all file reads in the point lookup path that can potentially timeout
+    // and cause the Get() to fail.
+    while (timedout) {
+      ReadOptions ro;
+      ro.deadline = std::chrono::microseconds{env->NowMicros() + 10000};
+      fs->SetDelaySequence(
+          ro.deadline, {std::tuple<int, int, IOStatus>{
+                           io_deadline_trigger, 20000, IOStatus::TimedOut()}});
+
+      block_cache->SetCapacity(0);
+      block_cache->SetCapacity(1048576);
+
+      std::string value;
+      Status s = dbfull()->Get(ro, "k50", &value);
+      if (fs->TimedOut()) {
+        ASSERT_EQ(s, Status::TimedOut());
+      } else {
+        timedout = false;
+        ASSERT_OK(s);
+      }
+      io_deadline_trigger++;
+    }
+    // Reset the delay sequence in order to avoid false alarms during Reopen
+    fs->SetDelaySequence(std::chrono::microseconds::zero(), {});
+  }
   Close();
 }
 

@@ -4,42 +4,42 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_log_writer.h"
+#include "db/blob/blob_log_writer.h"
 
 #include <cstdint>
 #include <string>
 
+#include "db/blob/blob_log_format.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
-#include "utilities/blob_db/blob_log_format.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
 
-Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
-               Statistics* statistics, uint64_t log_number, uint64_t bpsync,
-               bool use_fs, uint64_t boffset)
+BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
+                             Env* env, Statistics* statistics,
+                             uint64_t log_number, bool use_fs, uint64_t boffset)
     : dest_(std::move(dest)),
       env_(env),
       statistics_(statistics),
       log_number_(log_number),
       block_offset_(boffset),
-      bytes_per_sync_(bpsync),
-      next_sync_offset_(0),
       use_fsync_(use_fs),
       last_elem_type_(kEtNone) {}
 
-Status Writer::Sync() {
+Status BlobLogWriter::Sync() {
+  TEST_SYNC_POINT("BlobLogWriter::Sync");
+
   StopWatch sync_sw(env_, statistics_, BLOB_DB_BLOB_FILE_SYNC_MICROS);
   Status s = dest_->Sync(use_fsync_);
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_SYNCED);
   return s;
 }
 
-Status Writer::WriteHeader(BlobLogHeader& header) {
+Status BlobLogWriter::WriteHeader(BlobLogHeader& header) {
   assert(block_offset_ == 0);
   assert(last_elem_type_ == kEtNone);
   std::string str;
@@ -56,7 +56,7 @@ Status Writer::WriteHeader(BlobLogHeader& header) {
   return s;
 }
 
-Status Writer::AppendFooter(BlobLogFooter& footer) {
+Status BlobLogWriter::AppendFooter(BlobLogFooter& footer) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
@@ -66,7 +66,10 @@ Status Writer::AppendFooter(BlobLogFooter& footer) {
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
-    s = dest_->Close();
+    s = Sync();
+    if (s.ok()) {
+      s = dest_->Close();
+    }
     dest_.reset();
   }
 
@@ -76,9 +79,9 @@ Status Writer::AppendFooter(BlobLogFooter& footer) {
   return s;
 }
 
-Status Writer::AddRecord(const Slice& key, const Slice& val,
-                         uint64_t expiration, uint64_t* key_offset,
-                         uint64_t* blob_offset) {
+Status BlobLogWriter::AddRecord(const Slice& key, const Slice& val,
+                                uint64_t expiration, uint64_t* key_offset,
+                                uint64_t* blob_offset) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
@@ -89,8 +92,8 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
   return s;
 }
 
-Status Writer::AddRecord(const Slice& key, const Slice& val,
-                         uint64_t* key_offset, uint64_t* blob_offset) {
+Status BlobLogWriter::AddRecord(const Slice& key, const Slice& val,
+                                uint64_t* key_offset, uint64_t* blob_offset) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
@@ -101,8 +104,8 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
   return s;
 }
 
-void Writer::ConstructBlobHeader(std::string* buf, const Slice& key,
-                                 const Slice& val, uint64_t expiration) {
+void BlobLogWriter::ConstructBlobHeader(std::string* buf, const Slice& key,
+                                        const Slice& val, uint64_t expiration) {
   BlobLogRecord record;
   record.key = key;
   record.value = val;
@@ -110,9 +113,10 @@ void Writer::ConstructBlobHeader(std::string* buf, const Slice& key,
   record.EncodeHeaderTo(buf);
 }
 
-Status Writer::EmitPhysicalRecord(const std::string& headerbuf,
-                                  const Slice& key, const Slice& val,
-                                  uint64_t* key_offset, uint64_t* blob_offset) {
+Status BlobLogWriter::EmitPhysicalRecord(const std::string& headerbuf,
+                                         const Slice& key, const Slice& val,
+                                         uint64_t* key_offset,
+                                         uint64_t* blob_offset) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_BLOB_FILE_WRITE_MICROS);
   Status s = dest_->Append(Slice(headerbuf));
   if (s.ok()) {
@@ -134,6 +138,5 @@ Status Writer::EmitPhysicalRecord(const std::string& headerbuf,
   return s;
 }
 
-}  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

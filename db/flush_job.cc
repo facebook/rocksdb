@@ -97,8 +97,11 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats,
                    const bool sync_output_directory, const bool write_manifest,
-                   Env::Priority thread_pri)
+                   Env::Priority thread_pri, const std::string& db_id,
+                   const std::string& db_session_id)
     : dbname_(dbname),
+      db_id_(db_id),
+      db_session_id_(db_session_id),
       cfd_(cfd),
       db_options_(db_options),
       mutable_cf_options_(mutable_cf_options),
@@ -393,7 +396,8 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, &io_s, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
-          creation_time, oldest_key_time, write_hint, current_time);
+          creation_time, oldest_key_time, write_hint, current_time, db_id_,
+          db_session_id_);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }

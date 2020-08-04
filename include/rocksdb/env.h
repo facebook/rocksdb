@@ -61,6 +61,13 @@ class FileSystem;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
+enum class CpuPriority {
+  kIdle = 0,
+  kLow = 1,
+  kNormal = 2,
+  kHigh = 3,
+};
+
 // Options while opening a file to read/write
 struct EnvOptions {
   // Construct with default Options
@@ -473,6 +480,13 @@ class Env {
 
   // Lower IO priority for threads from the specified pool.
   virtual void LowerThreadPoolIOPriority(Priority /*pool*/ = LOW) {}
+
+  // Lower CPU priority for threads from the specified pool.
+  virtual Status LowerThreadPoolCPUPriority(Priority /*pool*/,
+                                            CpuPriority /*pri*/) {
+    return Status::NotSupported(
+        "Env::LowerThreadPoolCPUPriority(Priority, CpuPriority) not supported");
+  }
 
   // Lower CPU priority for threads from the specified pool.
   virtual void LowerThreadPoolCPUPriority(Priority /*pool*/ = LOW) {}
@@ -1355,12 +1369,16 @@ class EnvWrapper : public Env {
     return target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {

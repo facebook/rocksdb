@@ -467,6 +467,11 @@ DEFINE_bool(partition_index, false, "Partition index blocks");
 
 DEFINE_bool(index_with_first_key, false, "Include first key in the index");
 
+DEFINE_bool(
+    optimize_filters_for_memory,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
+    "Minimize memory footprint of filters");
+
 DEFINE_int64(
     index_shortening_mode, 2,
     "mode to shorten index: 0 for no shortening; 1 for only shortening "
@@ -679,6 +684,11 @@ DEFINE_int32(level0_file_num_compaction_trigger,
              ROCKSDB_NAMESPACE::Options().level0_file_num_compaction_trigger,
              "Number of files in level-0"
              " when compactions start");
+
+DEFINE_uint64(periodic_compaction_seconds,
+              ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
+              "Files older than this will be picked up for compaction and"
+              " rewritten to the same level");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value <= 0 || value>=100) {
@@ -3821,6 +3831,8 @@ class Benchmark {
         default:
           fprintf(stderr, "Unknown key shortening mode\n");
       }
+      block_based_options.optimize_filters_for_memory =
+          FLAGS_optimize_filters_for_memory;
       block_based_options.index_shortening = index_shortening;
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
@@ -3955,6 +3967,7 @@ class Benchmark {
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
+    options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
 
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;

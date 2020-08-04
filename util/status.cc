@@ -134,7 +134,7 @@ std::string Status::ToString() const {
   std::string result(type);
   if (subcode_ != kNone) {
     uint32_t index = static_cast<int32_t>(subcode_);
-    assert(sizeof(msgs) > index);
+    assert(sizeof(msgs) / sizeof(msgs[0]) > index);
     result.append(msgs[index]);
   }
 

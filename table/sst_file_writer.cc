@@ -237,12 +237,22 @@ Status SstFileWriter::Open(const std::string& file_path) {
     r->column_family_name = "";
     cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   }
-
+  // SstFileWriter is used to create sst files that can be added to database
+  // later. Therefore, no real db_id and db_session_id are associated with it.
+  // Here we mimic the way db_session_id behaves by resetting the db_session_id
+  // every time SstFileWriter is used, and in this case db_id is set to be "SST
+  // Writer".
+  std::string db_session_id = r->ioptions.env->GenerateUniqueId();
+  if (!db_session_id.empty() && db_session_id.back() == '\n') {
+    db_session_id.pop_back();
+  }
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type,
       sample_for_compression, compression_opts, r->skip_filters,
-      r->column_family_name, unknown_level);
+      r->column_family_name, unknown_level, 0 /* creation_time */,
+      0 /* oldest_key_time */, 0 /* target_file_size */,
+      0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
       r->env_options, r->ioptions.env, nullptr /* stats */,

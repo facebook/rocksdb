@@ -71,9 +71,9 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
                                CachableEntry<Block>&& filter_block);
 
   static std::unique_ptr<FilterBlockReader> Create(
-      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-      bool use_cache, bool prefetch, bool pin,
-      BlockCacheLookupContext* lookup_context);
+      const BlockBasedTable* table, const ReadOptions& ro,
+      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+      bool pin, BlockCacheLookupContext* lookup_context);
 
   bool IsBlockBased() override { return false; }
   bool KeyMayMatch(const Slice& key, const SliceTransform* prefix_extractor,
@@ -130,7 +130,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
                          uint64_t block_offset, BlockHandle filter_handle,
                          bool no_io, BlockCacheLookupContext* lookup_context,
                          FilterManyFunction filter_function) const;
-  void CacheDependencies(bool pin) override;
+  void CacheDependencies(const ReadOptions& ro, bool pin) override;
 
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;

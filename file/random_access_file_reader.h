@@ -11,10 +11,12 @@
 #include <atomic>
 #include <sstream>
 #include <string>
+
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
@@ -23,6 +25,17 @@ class Statistics;
 class HistogramImpl;
 
 using AlignedBuf = std::unique_ptr<char[]>;
+
+// Align the request r according to alignment and return the aligned result.
+FSReadRequest Align(const FSReadRequest& r, size_t alignment);
+
+// Try to merge src to dest if they have overlap.
+//
+// Each request represents an inclusive interval [offset, offset + len].
+// If the intervals have overlap, update offset and len to represent the
+// merged interval, and return true.
+// Otherwise, do nothing and return false.
+bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:
@@ -33,14 +46,15 @@ using AlignedBuf = std::unique_ptr<char[]>;
 class RandomAccessFileReader {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileReadFinish(uint64_t offset, size_t length,
-                              const FileOperationInfo::TimePoint& start_ts,
-                              const FileOperationInfo::TimePoint& finish_ts,
-                              const Status& status) const {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+  void NotifyOnFileReadFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const Status& status) const {
+    FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
+                           finish_ts, status);
     info.offset = offset;
     info.length = length;
-    info.status = status;
 
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
@@ -132,7 +146,7 @@ class RandomAccessFileReader {
 
   FSRandomAccessFile* file() { return file_.get(); }
 
-  std::string file_name() const { return file_name_; }
+  const std::string& file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 

@@ -281,7 +281,7 @@ std::string Footer::ToString() const {
   return result;
 }
 
-Status ReadFooterFromFile(RandomAccessFileReader* file,
+Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           FilePrefetchBuffer* prefetch_buffer,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number) {
@@ -300,15 +300,20 @@ Status ReadFooterFromFile(RandomAccessFileReader* file,
           ? static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
           : 0;
   Status s;
+  // TODO: Need to pass appropriate deadline to TryReadFromCache(). Right now,
+  // there is no readahead for point lookups, so TryReadFromCache will fail if
+  // the required data is not in the prefetch buffer. Once deadline is enabled
+  // for iterator, TryReadFromCache might do a readahead. Revisit to see if we
+  // need to pass a timeout at that point
   if (prefetch_buffer == nullptr ||
-      !prefetch_buffer->TryReadFromCache(read_offset, Footer::kMaxEncodedLength,
-                                         &footer_input)) {
+      !prefetch_buffer->TryReadFromCache(
+          IOOptions(), read_offset, Footer::kMaxEncodedLength, &footer_input)) {
     if (file->use_direct_io()) {
-      s = file->Read(IOOptions(), read_offset, Footer::kMaxEncodedLength,
+      s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, nullptr, &internal_buf);
     } else {
       footer_buf.reserve(Footer::kMaxEncodedLength);
-      s = file->Read(IOOptions(), read_offset, Footer::kMaxEncodedLength,
+      s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, &footer_buf[0], nullptr);
     }
     if (!s.ok()) return s;

@@ -52,6 +52,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
@@ -126,9 +127,7 @@ class CompactionJobStatsTest : public testing::Test,
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options) {
@@ -797,7 +796,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     }
 
     ASSERT_OK(Flush(1));
-    reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
+    static_cast_with_check<DBImpl>(db_)->TEST_WaitForCompact();
 
     stats_checker->set_verify_next_comp_io_stats(true);
     std::atomic<bool> first_prepare_write(true);
@@ -1012,7 +1011,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
         &rnd, start_key, start_key + key_base - 1,
         kKeySize, kValueSize, key_interval,
         compression_ratio, 1);
-    reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
+    static_cast_with_check<DBImpl>(db_)->TEST_WaitForCompact();
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }

@@ -13,10 +13,10 @@
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -89,7 +89,7 @@ TEST_F(DBFlushTest, SyncFail) {
   CreateAndReopenWithCF({"pikachu"}, options);
   Put("key", "value");
   auto* cfd =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
   FlushOptions flush_options;
   flush_options.wait = false;
@@ -379,9 +379,9 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
       DBImpl* db_impl = static_cast_with_check<DBImpl>(db);
       InstrumentedMutex* mutex = db_impl->mutex();
       mutex->Lock();
-      auto* cfd =
-          reinterpret_cast<ColumnFamilyHandleImpl*>(db->DefaultColumnFamily())
-              ->cfd();
+      auto* cfd = static_cast_with_check<ColumnFamilyHandleImpl>(
+                      db->DefaultColumnFamily())
+                      ->cfd();
       ASSERT_LT(seq, cfd->imm()->current()->GetEarliestSequenceNumber());
       mutex->Unlock();
     }

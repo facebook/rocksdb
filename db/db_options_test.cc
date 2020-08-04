@@ -39,7 +39,7 @@ class DBOptionsTest : public DBTestBase {
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : db_options_type_info) {
+    for (const auto& opt : db_options_type_info) {
       if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
@@ -57,7 +57,7 @@ class DBOptionsTest : public DBTestBase {
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : cf_options_type_info) {
+    for (const auto& opt : cf_options_type_info) {
       if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
@@ -493,8 +493,7 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   Random rnd(1044);
   const auto value_size = size_t(1024);
-  std::string value;
-  test::RandomString(&rnd, value_size, &value);
+  std::string value = rnd.RandomString(value_size);
 
   Options options;
   options.create_if_missing = true;
@@ -715,7 +714,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -746,7 +745,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -778,7 +777,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -842,7 +841,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
