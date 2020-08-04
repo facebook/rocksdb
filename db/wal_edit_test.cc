@@ -16,11 +16,19 @@ TEST(WalSet, AddDeleteReset) {
   WalSet wals;
   ASSERT_TRUE(wals.GetWals().empty());
 
+  // Create WAL 1 - 10.
   for (WalNumber log_number = 1; log_number <= 10; log_number++) {
     wals.AddWal(WalAddition(log_number));
   }
   ASSERT_EQ(wals.GetWals().size(), 10);
 
+  // Close WAL 1 - 5.
+  for (WalNumber log_number = 1; log_number <= 5; log_number++) {
+    wals.AddWal(WalAddition(log_number, WalMetadata(100)));
+  }
+  ASSERT_EQ(wals.GetWals().size(), 10);
+
+  // Delete WAL 1 - 5.
   for (WalNumber log_number = 1; log_number <= 5; log_number++) {
     wals.DeleteWal(WalDeletion(log_number));
   }
