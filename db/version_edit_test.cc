@@ -324,8 +324,8 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
 
 TEST_F(VersionEditTest, AddWalDebug) {
   constexpr int n = 2;
-  constexpr std::array<uint64_t, n> kLogNumbers{10, 20};
-  constexpr std::array<uint64_t, n> kSizeInBytes{100, 200};
+  constexpr std::array<uint64_t, n> kLogNumbers{{10, 20}};
+  constexpr std::array<uint64_t, n> kSizeInBytes{{100, 200}};
 
   VersionEdit edit;
   for (int i = 0; i < n; i++) {
