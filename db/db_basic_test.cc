@@ -3273,9 +3273,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
       std::string value;
       Status s = dbfull()->Get(ro, "k50", &value);
       if (fs->TimedOut()) {
-        if (s != Status::TimedOut()) {
-          ASSERT_EQ(s, Status::TimedOut());
-        }
+        ASSERT_EQ(s, Status::TimedOut());
       } else {
         timedout = false;
         ASSERT_OK(s);
