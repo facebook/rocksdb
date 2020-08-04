@@ -243,8 +243,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
 }
 
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
-  const int kNumKeysPerFile = 128;
-  const uint64_t kMaxKey = 1024;
+  constexpr int kNumKeysPerFile = 128;
+  constexpr uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -314,6 +314,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
     for (it->Seek(Key1(0)), key = 0; it->Valid(); it->Next(), ++count, ++key) {
       CheckIterEntry(it.get(), Key1(key), kTypeDeletionWithTimestamp, Slice(),
                      write_ts);
+      // Skip key@ts=3 and land on tombstone key@ts=5
       it->Next();
     }
     ASSERT_EQ(kMaxKey + 1, count);
@@ -374,9 +375,11 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
     SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
     uint64_t key = kMinKey;
     for (iter->Seek(Key1(kMinKey)); iter->Valid(); iter->Next()) {
-      CheckIterEntry(iter.get(), Key1(key), expected_seq,
-                     (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
-                     "value" + std::to_string(i + 1), write_ts_list[i + 1]);
+      CheckIterEntry(
+          iter.get(), Key1(key), expected_seq,
+          (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
+          (key % 2) ? "value" + std::to_string(i + 1) : std::string(),
+          write_ts_list[i + 1]);
       ++key;
       --expected_seq;
     }
@@ -389,7 +392,6 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   for (size_t i = 0; i < read_ts_list.size(); ++i) {
     Slice read_ts = read_ts_list[i];
     Slice read_ts_lb = read_ts_lb_list[i];
-    (void)read_ts_lb;
     read_opts.timestamp = &read_ts;
     read_opts.iter_start_ts = &read_ts_lb;
     read_opts.iter_start_seqnum = start_seqs[i] + 1;
