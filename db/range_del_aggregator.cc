@@ -164,7 +164,7 @@ ForwardRangeDelIterator::ForwardRangeDelIterator(
       active_iters_(EndKeyMinComparator(icmp)),
       inactive_iters_(StartKeyMinComparator(icmp)) {}
 
-bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+void ForwardRangeDelIterator::AdvanceTo(const ParsedInternalKey& parsed) {
   // Move active iterators that end before parsed.
   while (!active_iters_.empty() &&
          icmp_->Compare((*active_iters_.top())->end_key(), parsed) <= 0) {
@@ -186,10 +186,41 @@ bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
+}
 
+bool ForwardRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  AdvanceTo(parsed);
   return active_seqnums_.empty()
              ? false
              : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+PartialRangeTombstoneEndpoint ForwardRangeDelIterator::GetEndpoint(
+    const ParsedInternalKey& parsed) {
+  AdvanceTo(parsed);
+  if (!active_iters_.empty() && !inactive_iters_.empty()) {
+    ParsedInternalKey endpoint_parsed;
+    if (icmp_->Compare(inactive_iters_.top()->start_key(),
+                       (*active_iters_.top())->end_key()) < 0) {
+      endpoint_parsed = inactive_iters_.top()->start_key();
+    } else {
+      endpoint_parsed = (*active_iters_.top())->end_key();
+    }
+    return PartialRangeTombstoneEndpoint(
+        &endpoint_parsed, RangeDelPositioningMode::kForwardTraversal,
+        (*active_seqnums_.begin())->seq());
+  } else if (!active_iters_.empty()) {
+    ParsedInternalKey endpoint_parsed = (*active_iters_.top())->end_key();
+    return PartialRangeTombstoneEndpoint(
+        &endpoint_parsed, RangeDelPositioningMode::kForwardTraversal,
+        (*active_seqnums_.begin())->seq());
+  } else if (!inactive_iters_.empty()) {
+    ParsedInternalKey endpoint_parsed = inactive_iters_.top()->start_key();
+    return PartialRangeTombstoneEndpoint(
+        &endpoint_parsed, RangeDelPositioningMode::kForwardTraversal, 0);
+  }
+  return PartialRangeTombstoneEndpoint(
+      nullptr, RangeDelPositioningMode::kForwardTraversal, 0);
 }
 
 void ForwardRangeDelIterator::Invalidate() {
@@ -207,7 +238,7 @@ ReverseRangeDelIterator::ReverseRangeDelIterator(
       active_iters_(StartKeyMaxComparator(icmp)),
       inactive_iters_(EndKeyMaxComparator(icmp)) {}
 
-bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+void ReverseRangeDelIterator::AdvanceTo(const ParsedInternalKey& parsed) {
   // Move active iterators that start after parsed.
   while (!active_iters_.empty() &&
          icmp_->Compare(parsed, (*active_iters_.top())->start_key()) < 0) {
@@ -229,10 +260,41 @@ bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
+}
 
+bool ReverseRangeDelIterator::ShouldDelete(const ParsedInternalKey& parsed) {
+  AdvanceTo(parsed);
   return active_seqnums_.empty()
              ? false
              : (*active_seqnums_.begin())->seq() > parsed.sequence;
+}
+
+PartialRangeTombstoneEndpoint ReverseRangeDelIterator::GetEndpoint(
+    const ParsedInternalKey& parsed) {
+  AdvanceTo(parsed);
+  if (!active_iters_.empty() && !inactive_iters_.empty()) {
+    ParsedInternalKey endpoint_parsed;
+    if (icmp_->Compare(inactive_iters_.top()->end_key(),
+                       (*active_iters_.top())->start_key()) < 0) {
+      endpoint_parsed = (*active_iters_.top())->start_key();
+    } else {
+      endpoint_parsed = inactive_iters_.top()->end_key();
+    }
+    return PartialRangeTombstoneEndpoint(
+        &endpoint_parsed, RangeDelPositioningMode::kBackwardTraversal,
+        (*active_seqnums_.begin())->seq());
+  } else if (!active_iters_.empty()) {
+    ParsedInternalKey endpoint_parsed = (*active_iters_.top())->start_key();
+    return PartialRangeTombstoneEndpoint(
+        &endpoint_parsed, RangeDelPositioningMode::kBackwardTraversal,
+        (*active_seqnums_.begin())->seq());
+  } else if (!inactive_iters_.empty()) {
+    ParsedInternalKey endpoint_parsed = inactive_iters_.top()->end_key();
+    return PartialRangeTombstoneEndpoint(
+        &endpoint_parsed, RangeDelPositioningMode::kBackwardTraversal, 0);
+  }
+  return PartialRangeTombstoneEndpoint(
+      nullptr, RangeDelPositioningMode::kBackwardTraversal, 0);
 }
 
 void ReverseRangeDelIterator::Invalidate() {
@@ -242,6 +304,28 @@ void ReverseRangeDelIterator::Invalidate() {
   inactive_iters_.clear();
 }
 
+void RangeDelAggregator::StripeRep::MoveForward(const ParsedInternalKey& parsed) {
+  InvalidateReverseIter();
+
+  // Pick up previously unseen iterators.
+  for (auto it = std::next(iters_.begin(), forward_iter_.UnusedIdx());
+       it != iters_.end(); ++it, forward_iter_.IncUnusedIdx()) {
+    auto& iter = *it;
+    forward_iter_.AddNewIter(iter.get(), parsed);
+  }
+}
+
+void RangeDelAggregator::StripeRep::MoveBackward(const ParsedInternalKey& parsed) {
+  InvalidateForwardIter();
+
+  // Pick up previously unseen iterators.
+  for (auto it = std::next(iters_.begin(), reverse_iter_.UnusedIdx());
+       it != iters_.end(); ++it, reverse_iter_.IncUnusedIdx()) {
+    auto& iter = *it;
+    reverse_iter_.AddNewIter(iter.get(), parsed);
+  }
+}
+
 bool RangeDelAggregator::StripeRep::ShouldDelete(
     const ParsedInternalKey& parsed, RangeDelPositioningMode mode) {
   if (!InStripe(parsed.sequence) || IsEmpty()) {
@@ -249,30 +333,36 @@ bool RangeDelAggregator::StripeRep::ShouldDelete(
   }
   switch (mode) {
     case RangeDelPositioningMode::kForwardTraversal:
-      InvalidateReverseIter();
-
-      // Pick up previously unseen iterators.
-      for (auto it = std::next(iters_.begin(), forward_iter_.UnusedIdx());
-           it != iters_.end(); ++it, forward_iter_.IncUnusedIdx()) {
-        auto& iter = *it;
-        forward_iter_.AddNewIter(iter.get(), parsed);
-      }
-
+      MoveForward(parsed);
       return forward_iter_.ShouldDelete(parsed);
     case RangeDelPositioningMode::kBackwardTraversal:
-      InvalidateForwardIter();
-
-      // Pick up previously unseen iterators.
-      for (auto it = std::next(iters_.begin(), reverse_iter_.UnusedIdx());
-           it != iters_.end(); ++it, reverse_iter_.IncUnusedIdx()) {
-        auto& iter = *it;
-        reverse_iter_.AddNewIter(iter.get(), parsed);
-      }
-
+      MoveBackward(parsed);
       return reverse_iter_.ShouldDelete(parsed);
     default:
       assert(false);
       return false;
+  }
+}
+
+PartialRangeTombstoneEndpoint RangeDelAggregator::StripeRep::GetEndpoint(
+    const Slice& key, RangeDelPositioningMode mode) {
+  ParsedInternalKey parsed_key;
+  if (!ParseInternalKey(key, &parsed_key)) {
+    assert(false);
+    return PartialRangeTombstoneEndpoint(
+        nullptr, static_cast<RangeDelPositioningMode>(0), 0);
+  }
+  switch (mode) {
+    case RangeDelPositioningMode::kForwardTraversal:
+      MoveForward(parsed_key);
+      return forward_iter_.GetEndpoint(parsed_key);
+    case RangeDelPositioningMode::kBackwardTraversal:
+      MoveBackward(parsed_key);
+      return reverse_iter_.GetEndpoint(parsed_key);
+    default:
+      assert(false);
+      return PartialRangeTombstoneEndpoint(
+          nullptr, static_cast<RangeDelPositioningMode>(0), 0);
   }
 }
 
@@ -330,6 +420,11 @@ bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
   return rep_.ShouldDelete(parsed, mode);
 }
 
+PartialRangeTombstoneEndpoint ReadRangeDelAggregator::GetEndpoint(
+    const Slice& key, RangeDelPositioningMode mode) {
+  return rep_.GetEndpoint(key, mode);
+}
+
 bool ReadRangeDelAggregator::IsRangeOverlapped(const Slice& start,
                                                const Slice& end) {
   InvalidateRangeDelMapPositions();
@@ -370,6 +465,14 @@ bool CompactionRangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
     return false;
   }
   return it->second.ShouldDelete(parsed, mode);
+}
+
+PartialRangeTombstoneEndpoint CompactionRangeDelAggregator::GetEndpoint(
+    const Slice& /* key */, RangeDelPositioningMode /* mode */) {
+  // This is a bit tricky to preserve snapshot correctness. For now, leave the
+  // optimization unimplemented for compaction.
+  return PartialRangeTombstoneEndpoint(
+      nullptr, static_cast<RangeDelPositioningMode>(0), 0);
 }
 
 namespace {
