@@ -104,7 +104,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   inline bool MayBeOutOfUpperBound() override {
     assert(Valid());
-    return !data_block_within_upper_bound_;
+    return block_upper_bound_check_ !=
+           BlockUpperBound::kUpperBoundBeyondCurBlock;
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -134,6 +135,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       block_iter_.Invalidate(Status::OK());
       block_iter_points_to_real_block_ = false;
     }
+    block_upper_bound_check_ = BlockUpperBound::kUnknown;
   }
 
   void SavePrevIndexValue() {
@@ -148,6 +150,34 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   enum class IterDirection {
     kForward,
     kBackward,
+  };
+  // This enum indicates whether the upper bound falls into current block
+  // or beyond.
+  //   +-------------+
+  //   |  cur block  |       <-- (1)
+  //   +-------------+
+  //                         <-- (2)
+  //  --- <boundary key> ---
+  //                         <-- (3)
+  //   +-------------+
+  //   |  next block |       <-- (4)
+  //        ......
+  //
+  // When the block is smaller than <boundary key>, kUpperBoundInCurBlock
+  // is the value to use. The examples are (1) or (2) in the graph. It means
+  // all keys in the next block or beyond will be out of bound. Keys within
+  // the current block may or may not be out of bound.
+  // When the block is larger or equal to <boundary key>,
+  // kUpperBoundBeyondCurBlock is to be used. The examples are (3) and (4)
+  // in the graph. It means that all keys in the current block is within the
+  // upper bound and keys in the next block may or may not be within the uppder
+  // bound.
+  // If the boundary key hasn't been checked against the upper bound,
+  // kUnknown can be used.
+  enum class BlockUpperBound {
+    kUpperBoundInCurBlock,
+    kUpperBoundBeyondCurBlock,
+    kUnknown,
   };
 
   const BlockBasedTable* table_;
@@ -169,8 +199,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool block_iter_points_to_real_block_;
   // See InternalIteratorBase::IsOutOfBound().
   bool is_out_of_bound_ = false;
-  // Whether current data block being fully within iterate upper bound.
-  bool data_block_within_upper_bound_ = false;
+  // How current data block's boundary key with the next block is compared with
+  // iterate upper bound.
+  BlockUpperBound block_upper_bound_check_ = BlockUpperBound::kUnknown;
   // True if we're standing at the first key of a block, and we haven't loaded
   // that block yet. A call to PrepareValue() will trigger loading the block.
   bool is_at_first_key_from_index_ = false;

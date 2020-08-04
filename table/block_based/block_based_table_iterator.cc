@@ -300,7 +300,8 @@ void BlockBasedTableIterator::FindBlockForward() {
     // Whether next data block is out of upper bound, if there is one.
     const bool next_block_is_out_of_bound =
         read_options_.iterate_upper_bound != nullptr &&
-        block_iter_points_to_real_block_ && !data_block_within_upper_bound_;
+        block_iter_points_to_real_block_ &&
+        block_upper_bound_check_ == BlockUpperBound::kUpperBoundInCurBlock;
     assert(!next_block_is_out_of_bound ||
            user_comparator_.CompareWithoutTimestamp(
                *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
@@ -358,7 +359,9 @@ void BlockBasedTableIterator::FindKeyBackward() {
 }
 
 void BlockBasedTableIterator::CheckOutOfBound() {
-  if (read_options_.iterate_upper_bound != nullptr && Valid()) {
+  if (read_options_.iterate_upper_bound != nullptr &&
+      block_upper_bound_check_ != BlockUpperBound::kUpperBoundBeyondCurBlock &&
+      Valid()) {
     is_out_of_bound_ =
         user_comparator_.CompareWithoutTimestamp(
             *read_options_.iterate_upper_bound, /*a_has_ts=*/false, user_key(),
@@ -369,11 +372,12 @@ void BlockBasedTableIterator::CheckOutOfBound() {
 void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
   if (read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_) {
-    data_block_within_upper_bound_ =
-        (user_comparator_.CompareWithoutTimestamp(
-             *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
-             index_iter_->user_key(),
-             /*b_has_ts=*/true) > 0);
+    block_upper_bound_check_ = (user_comparator_.CompareWithoutTimestamp(
+                                    *read_options_.iterate_upper_bound,
+                                    /*a_has_ts=*/false, index_iter_->user_key(),
+                                    /*b_has_ts=*/true) > 0)
+                                   ? BlockUpperBound::kUpperBoundBeyondCurBlock
+                                   : BlockUpperBound::kUpperBoundInCurBlock;
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

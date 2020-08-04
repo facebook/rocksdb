@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug fixes
+* Fix a performance regression introduced in 6.4 that makes a upper bound check for every Next() even if keys are within a data block that is within the upper bound.
+
 
 ## 6.12 (2020-07-28)
 ### Public API Change
