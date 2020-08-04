@@ -49,7 +49,7 @@ TEST(WalSet, Overwrite) {
   constexpr uint64_t kBytes = 200;
   WalSet wals;
   wals.AddWal(WalAddition(kNumber));
-  ASSERT_TRUE(!wals.GetWals().at(kNumber).HasSize());
+  ASSERT_FALSE(wals.GetWals().at(kNumber).HasSize());
   wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes)));
   ASSERT_TRUE(wals.GetWals().at(kNumber).HasSize());
   ASSERT_EQ(wals.GetWals().at(kNumber).GetSizeInBytes(), kBytes);

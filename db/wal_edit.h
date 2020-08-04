@@ -51,7 +51,7 @@ class WalAddition {
 
   explicit WalAddition(WalNumber number) : number_(number), metadata_() {}
 
-  explicit WalAddition(WalNumber number, WalMetadata meta)
+  WalAddition(WalNumber number, WalMetadata meta)
       : number_(number), metadata_(std::move(meta)) {}
 
   WalNumber GetLogNumber() const { return number_; }
