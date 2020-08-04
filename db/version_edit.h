@@ -386,11 +386,7 @@ class VersionEdit {
 
   // VersionEdits with WAL addition shouldn't contain other types of edits.
   bool IsWalAddition() const {
-#ifndef NDEBUG
-    if (!wal_additions_.empty()) {
-      assert(NumEntries() == wal_additions_.size());
-    }
-#endif
+    assert(wal_additions_.empty() || NumEntries() == wal_additions_.size());
     return !wal_additions_.empty();
   }
 
@@ -402,11 +398,7 @@ class VersionEdit {
 
   // VersionEdits with WAL deletion shouldn't contain other types of edits.
   bool IsWalDeletion() const {
-#ifndef NDEBUG
-    if (!wal_deletions_.empty()) {
-      assert(NumEntries() == wal_deletions_.size());
-    }
-#endif
+    assert(wal_deletions_.empty() || NumEntries() == wal_deletions_.size());
     return !wal_deletions_.empty();
   }
 

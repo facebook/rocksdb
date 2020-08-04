@@ -117,27 +117,29 @@ std::string WalDeletion::DebugString() const {
 }
 
 Status WalSet::AddWal(const WalAddition& wal) {
+  auto it = wals_.lower_bound(wal.GetLogNumber());
   if (wal.GetMetadata().HasSize()) {
     // The WAL must exist without size.
-    if (wals_.find(wal.GetLogNumber()) == wals_.end()) {
+    if (it == wals_.end() || it->first != wal.GetLogNumber()) {
       std::stringstream ss;
       ss << "WAL " << wal.GetLogNumber() << " is not created before closing";
       return Status::Corruption("WalSet", ss.str());
     }
-    if (wals_[wal.GetLogNumber()].HasSize()) {
+    if (it->second.HasSize()) {
       std::stringstream ss;
       ss << "WAL " << wal.GetLogNumber() << " is closed more than once";
       return Status::Corruption("WalSet", ss.str());
     }
+    it->second = wal.GetMetadata();
   } else {
     // The WAL must not exist beforehand.
-    if (wals_.find(wal.GetLogNumber()) != wals_.end()) {
+    if (it != wals_.end() && it->first == wal.GetLogNumber()) {
       std::stringstream ss;
       ss << "WAL " << wal.GetLogNumber() << " is created more than once";
       return Status::Corruption("WalSet", ss.str());
     }
+    wals_[wal.GetLogNumber()] = wal.GetMetadata();
   }
-  wals_[wal.GetLogNumber()] = wal.GetMetadata();
   return Status::OK();
 }
 
@@ -153,18 +155,19 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWal(const WalDeletion& wal) {
+  auto it = wals_.lower_bound(wal.GetLogNumber());
   // The WAL must exist and has been closed.
-  if (wals_.find(wal.GetLogNumber()) == wals_.end()) {
+  if (it == wals_.end() || it->first != wal.GetLogNumber()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
     return Status::Corruption("WalSet", ss.str());
   }
-  if (!wals_[wal.GetLogNumber()].HasSize()) {
+  if (!it->second.HasSize()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber() << " must be closed before deletion";
     return Status::Corruption("WalSet", ss.str());
   }
-  wals_.erase(wal.GetLogNumber());
+  wals_.erase(it);
   return Status::OK();
 }
 
