@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "port/port.h"
+#include "monitoring/instrumented_mutex.h"
 #include "rocksdb/env.h"
 #include "util/mutexlock.h"
 
@@ -53,13 +53,13 @@ class Timer {
         env_->NowMicros() + start_after_us,
         repeat_every_us));
 
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     heap_.push(fn_info.get());
     map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
   }
 
   void Cancel(const std::string& fn_name) {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
 
     auto it = map_.find(fn_name);
     if (it != map_.end()) {
@@ -70,13 +70,13 @@ class Timer {
   }
 
   void CancelAll() {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     CancelAllWithLock();
   }
 
   // Start the Timer
   bool Start() {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     if (running_) {
       return false;
     }
@@ -89,7 +89,7 @@ class Timer {
   // Shutdown the Timer
   bool Shutdown() {
     {
-      MutexLock l(&mutex_);
+      InstrumentedMutexLock l(&mutex_);
       if (!running_) {
         return false;
       }
@@ -107,7 +107,7 @@ class Timer {
  private:
 
   void Run() {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
 
     while (running_) {
       if (heap_.empty()) {
@@ -204,8 +204,8 @@ class Timer {
   Env* const env_;
   // This mutex controls both the heap_ and the map_. It needs to be held for
   // making any changes in them.
-  port::Mutex mutex_;
-  port::CondVar cond_var_;
+  InstrumentedMutex mutex_;
+  InstrumentedCondVar cond_var_;
   std::unique_ptr<port::Thread> thread_;
   bool running_;
 

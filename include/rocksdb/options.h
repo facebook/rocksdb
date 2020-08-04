@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <limits>
 #include <memory>
 #include <string>
@@ -18,9 +19,11 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -50,33 +53,6 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
-
-// DB contents are stored in a set of blocks, each of which holds a
-// sequence of key,value pairs.  Each block may be compressed before
-// being stored in a file.  The following enum describes which
-// compression method (if any) is used to compress a block.
-enum CompressionType : unsigned char {
-  // NOTE: do not change the values of existing entries, as these are
-  // part of the persistent format on disk.
-  kNoCompression = 0x0,
-  kSnappyCompression = 0x1,
-  kZlibCompression = 0x2,
-  kBZip2Compression = 0x3,
-  kLZ4Compression = 0x4,
-  kLZ4HCCompression = 0x5,
-  kXpressCompression = 0x6,
-  kZSTD = 0x7,
-
-  // Only use kZSTDNotFinalCompression if you have to use ZSTD lib older than
-  // 0.8.0 or consider a possibility of downgrading the service or copying
-  // the database files to another service running with an older version of
-  // RocksDB that doesn't have kZSTD. Otherwise, you should use kZSTD. We will
-  // eventually remove the option from the public API.
-  kZSTDNotFinalCompression = 0x40,
-
-  // kDisableCompressionOption is used to disable some compression options.
-  kDisableCompressionOption = 0xff,
-};
 
 struct Options;
 struct DbPath;
@@ -307,6 +283,15 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter = nullptr;
+
+  // If non-nullptr, use the specified factory for a function to determine the
+  // partitioning of sst files. This helps compaction to split the files
+  // on interesting boundaries (key prefixes) to make propagation of sst
+  // files less write amplifying (covering the whole key space).
+  // THE FEATURE IS STILL EXPERIMENTAL
+  //
+  // Default: nullptr
+  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -558,6 +543,8 @@ struct DBOptions {
   // concurrently perform a compaction job by breaking it into multiple,
   // smaller ones that are run simultaneously.
   // Default: 1 (i.e. no subcompactions)
+  //
+  // Dynamically changeable through SetDBOptions() API.
   uint32_t max_subcompactions = 1;
 
   // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
@@ -1270,7 +1257,8 @@ struct ReadOptions {
   // block cache?
   // Callers may wish to set this field to false for bulk scans.
   // This would help not to the change eviction order of existing items in the
-  // block cache. Default: true
+  // block cache.
+  // Default: true
   bool fill_cache;
 
   // Specify to create a tailing iterator -- a special iterator that has a
@@ -1291,6 +1279,7 @@ struct ReadOptions {
   // If true when calling Get(), we also skip prefix bloom when reading from
   // block based table. It provides a way to read existing data after
   // changing implementation of prefix extractor.
+  // Default: false
   bool total_order_seek;
 
   // When true, by default use total_order_seek = true, and RocksDB can
@@ -1298,6 +1287,7 @@ struct ReadOptions {
   // from total_order_seek, based on seek key, and iterator upper bound.
   // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // Default: false
   bool auto_prefix_mode;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
@@ -1353,6 +1343,7 @@ struct ReadOptions {
   // only the most recent version visible to timestamp is returned.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
+  // Default: nullptr
   const Slice* timestamp;
   const Slice* iter_start_ts;
 

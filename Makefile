@@ -195,6 +195,17 @@ endif
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
+# `USE_LTO=1` enables link-time optimizations. Among other things, this enables
+# more devirtualization opportunities and inlining across translation units.
+# This can save significant overhead introduced by RocksDB's pluggable
+# interfaces/internal abstractions, like in the iterator hierarchy. It works
+# better when combined with profile-guided optimizations (not currently
+# supported natively in Makefile).
+ifeq ($(USE_LTO), 1)
+	CXXFLAGS += -flto
+	LDFLAGS += -flto -fuse-linker-plugin
+endif
+
 #-----------------------------------------------
 include src.mk
 
@@ -561,9 +572,11 @@ ifdef ASSERT_STATUS_CHECKED
 		dbformat_test \
 		defer_test \
 		dynamic_bloom_test \
+		env_basic_test \
+		env_test \
+		env_logger_test \
 		event_logger_test \
 		file_indexer_test \
-		folly_synchronization_distributed_mutex_test \
 		hash_table_test \
 		hash_test \
 		heap_test \
@@ -585,12 +598,17 @@ ifdef ASSERT_STATUS_CHECKED
 		slice_test \
 		statistics_test \
 		thread_local_test \
+		env_timed_test \
 		timer_queue_test \
 		timer_test \
 		util_merge_operators_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
+
+ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
+endif
 
 	# Enable building all unit tests, but use check_some to run only tests
 	# known to pass ASC
@@ -981,6 +999,14 @@ asan_crash_test: clean
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
+whitebox_asan_crash_test: clean
+	COMPILE_WITH_ASAN=1 $(MAKE) whitebox_crash_test
+	$(MAKE) clean
+
+blackbox_asan_crash_test: clean
+	COMPILE_WITH_ASAN=1 $(MAKE) blackbox_crash_test
+	$(MAKE) clean
+
 asan_crash_test_with_atomic_flush: clean
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test_with_atomic_flush
 	$(MAKE) clean
@@ -999,6 +1025,14 @@ ubsan_check: clean
 
 ubsan_crash_test: clean
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
+	$(MAKE) clean
+
+whitebox_ubsan_crash_test: clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) whitebox_crash_test
+	$(MAKE) clean
+
+blackbox_ubsan_crash_test: clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) blackbox_crash_test
 	$(MAKE) clean
 
 ubsan_crash_test_with_atomic_flush: clean

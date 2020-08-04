@@ -294,6 +294,7 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
     NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
 
   Options opts = CurrentOptions();
+  opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.table_properties_collector_factories.emplace_back(compact_on_del);
 
   if(GetParam() == "kCompactionStyleUniversal") {
@@ -364,6 +365,8 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_MARKED));
+  ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_MARKED));
 }
 
 INSTANTIATE_TEST_CASE_P(

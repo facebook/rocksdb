@@ -1364,9 +1364,12 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   }
 }
 
-InternalIterator* DBImpl::NewInternalIterator(
-    Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
-    ColumnFamilyHandle* column_family, bool allow_unprepared_value) {
+InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
+                                              Arena* arena,
+                                              RangeDelAggregator* range_del_agg,
+                                              SequenceNumber sequence,
+                                              ColumnFamilyHandle* column_family,
+                                              bool allow_unprepared_value) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
@@ -1378,9 +1381,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   mutex_.Lock();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
-  ReadOptions roptions;
-  return NewInternalIterator(roptions, cfd, super_version, arena, range_del_agg,
-                             sequence, allow_unprepared_value);
+  return NewInternalIterator(read_options, cfd, super_version, arena,
+                             range_del_agg, sequence, allow_unprepared_value);
 }
 
 void DBImpl::SchedulePurge() {
@@ -2829,10 +2831,10 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       sv->version_number, read_callback, this, cfd, allow_blob,
       read_options.snapshot != nullptr ? false : allow_refresh);
 
-  InternalIterator* internal_iter =
-      NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot,
-                          /* allow_unprepared_value */ true);
+  InternalIterator* internal_iter = NewInternalIterator(
+      db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(),
+      db_iter->GetRangeDelAggregator(), snapshot,
+      /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
 
   return db_iter;

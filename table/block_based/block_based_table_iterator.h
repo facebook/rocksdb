@@ -18,6 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // compaction_readahead_size: its value will only be used if for_compaction =
   // true
+  // @param read_options Must outlive this iterator.
  public:
   BlockBasedTableIterator(
       const BlockBasedTable* table, const ReadOptions& read_options,
@@ -25,21 +26,20 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
-      size_t compaction_readahead_size = 0,
-      bool allow_unprepared_value = false)
+      size_t compaction_readahead_size = 0, bool allow_unprepared_value = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
-        allow_unprepared_value_(allow_unprepared_value),
         index_iter_(std::move(index_iter)),
         pinned_iters_mgr_(nullptr),
-        block_iter_points_to_real_block_(false),
-        check_filter_(check_filter),
-        need_upper_bound_check_(need_upper_bound_check),
         prefix_extractor_(prefix_extractor),
         lookup_context_(caller),
-        block_prefetcher_(compaction_readahead_size) {}
+        block_prefetcher_(compaction_readahead_size),
+        allow_unprepared_value_(allow_unprepared_value),
+        block_iter_points_to_real_block_(false),
+        check_filter_(check_filter),
+        need_upper_bound_check_(need_upper_bound_check) {}
 
   ~BlockBasedTableIterator() {}
 
@@ -151,14 +151,19 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   };
 
   const BlockBasedTable* table_;
-  const ReadOptions read_options_;
+  const ReadOptions& read_options_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;
-  const bool allow_unprepared_value_;
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   DataBlockIter block_iter_;
+  const SliceTransform* prefix_extractor_;
+  uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
+  BlockCacheLookupContext lookup_context_;
 
+  BlockPrefetcher block_prefetcher_;
+
+  const bool allow_unprepared_value_;
   // True if block_iter_ is initialized and points to the same block
   // as index iterator.
   bool block_iter_points_to_real_block_;
@@ -172,11 +177,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
-  const SliceTransform* prefix_extractor_;
-  uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
-  BlockCacheLookupContext lookup_context_;
-
-  BlockPrefetcher block_prefetcher_;
 
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target);

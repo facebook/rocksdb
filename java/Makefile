@@ -63,6 +63,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.SstFileReader\
 	org.rocksdb.SstFileReaderIterator\
+	org.rocksdb.SstPartitionerFactory\
+	org.rocksdb.SstPartitionerFixedPrefixFactory\
 	org.rocksdb.Statistics\
 	org.rocksdb.ThreadStatus\
 	org.rocksdb.TimedEnv\
@@ -165,6 +167,7 @@ JAVA_TESTS = \
 	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.SstFileReaderTest\
+	org.rocksdb.SstPartitionerTest\
 	org.rocksdb.TableFilterTest\
 	org.rocksdb.TimedEnvTest\
 	org.rocksdb.TransactionTest\

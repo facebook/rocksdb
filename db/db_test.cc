@@ -2210,7 +2210,10 @@ TEST_F(DBTest, SnapshotFiles) {
 
     // copy these files to a new snapshot directory
     std::string snapdir = dbname_ + ".snapdir/";
-    ASSERT_OK(env_->CreateDirIfMissing(snapdir));
+    if (env_->FileExists(snapdir).ok()) {
+      ASSERT_OK(DestroyDir(env_, snapdir));
+    }
+    ASSERT_OK(env_->CreateDir(snapdir));
 
     for (size_t i = 0; i < files.size(); i++) {
       // our clients require that GetLiveFiles returns

@@ -2720,6 +2720,16 @@ unsigned int rocksdb_options_get_stats_dump_period_sec(rocksdb_options_t* opt) {
   return opt->rep.stats_dump_period_sec;
 }
 
+void rocksdb_options_set_stats_persist_period_sec(rocksdb_options_t* opt,
+                                                  unsigned int v) {
+  opt->rep.stats_persist_period_sec = v;
+}
+
+unsigned int rocksdb_options_get_stats_persist_period_sec(
+    rocksdb_options_t* opt) {
+  return opt->rep.stats_persist_period_sec;
+}
+
 void rocksdb_options_set_advise_random_on_open(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.advise_random_on_open = v;
@@ -3821,8 +3831,18 @@ void rocksdb_env_set_background_threads(rocksdb_env_t* env, int n) {
   env->rep->SetBackgroundThreads(n);
 }
 
+void rocksdb_env_set_bottom_priority_background_threads(rocksdb_env_t* env,
+                                                        int n) {
+  env->rep->SetBackgroundThreads(n, Env::BOTTOM);
+}
+
 void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n) {
   env->rep->SetBackgroundThreads(n, Env::HIGH);
+}
+
+void rocksdb_env_set_low_priority_background_threads(rocksdb_env_t* env,
+                                                     int n) {
+  env->rep->SetBackgroundThreads(n, Env::LOW);
 }
 
 void rocksdb_env_join_all_threads(rocksdb_env_t* env) {

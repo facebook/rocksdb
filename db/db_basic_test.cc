@@ -101,19 +101,35 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
+  auto verify_one_iter = [&](Iterator* iter) {
+    int count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ++count;
+    }
+    // Always expect two keys: "foo" and "bar"
+    ASSERT_EQ(count, 2);
+  };
+
+  auto verify_all_iters = [&]() {
+    Iterator* iter = db_->NewIterator(ReadOptions());
+    verify_one_iter(iter);
+    delete iter;
+
+    std::vector<Iterator*> iters;
+    ASSERT_OK(db_->NewIterators(ReadOptions(),
+                                {dbfull()->DefaultColumnFamily()}, &iters));
+    ASSERT_EQ(static_cast<uint64_t>(1), iters.size());
+    verify_one_iter(iters[0]);
+    delete iters[0];
+  };
+
   auto options = CurrentOptions();
   assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  int count = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
-    ++count;
-  }
-  ASSERT_EQ(count, 2);
-  delete iter;
+  verify_all_iters();
   Close();
 
   // Reopen and flush memtable.
@@ -124,6 +140,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
+  verify_all_iters();
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 

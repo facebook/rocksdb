@@ -89,6 +89,16 @@ if test -z "$CXX"; then
     fi
 fi
 
+if test -z "$AR"; then
+    if [ -x "$(command -v gcc-ar)" ]; then
+        AR=gcc-ar
+    elif [ -x "$(command -v llvm-ar)" ]; then
+        AR=llvm-ar
+    else
+        AR=ar
+    fi
+fi
+
 # Detect OS
 if test -z "$TARGET_OS"; then
     TARGET_OS=`uname -s`
@@ -756,6 +766,7 @@ ROCKSDB_PATCH=`build_tools/version.sh patch`
 
 echo "CC=$CC" >> "$OUTPUT"
 echo "CXX=$CXX" >> "$OUTPUT"
+echo "AR=$AR" >> "$OUTPUT"
 echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"

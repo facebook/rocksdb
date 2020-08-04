@@ -977,6 +977,60 @@ TEST_F(DBCompactionTest, UserKeyCrossFile2) {
   ASSERT_EQ("NOT_FOUND", Get("3"));
 }
 
+TEST_F(DBCompactionTest, CompactionSstPartitioner) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(4));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("aaaa1", "A");
+  Put("bbbb1", "B");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("aaaa1", "A2");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A2", Get("aaaa1"));
+  ASSERT_EQ("B", Get("bbbb1"));
+}
+
+TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 1;
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(4));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("aaaa1", "A");
+  Put("bbbb1", "B");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact(true);
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A", Get("aaaa1"));
+  ASSERT_EQ("B", Get("bbbb1"));
+}
+
 TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
@@ -5277,6 +5331,108 @@ TEST_P(DBCompactionTestWithParam,
   for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(value2, Get(Key(i)));
   }
+}
+
+TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  bool has_compaction = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 10);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 10);
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+
+  has_compaction = false;
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_subcompactions", "2"}}));
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 2);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+}
+
+TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  bool has_compaction = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 10);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+  has_compaction = false;
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_subcompactions", "2"}}));
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 2);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
 }
 
 #endif // !defined(ROCKSDB_LITE)

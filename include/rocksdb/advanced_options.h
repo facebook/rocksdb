@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
@@ -17,7 +18,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
-enum CompressionType : unsigned char;
 class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;

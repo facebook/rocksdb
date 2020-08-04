@@ -11,7 +11,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "rocksdb/compaction_job_stats.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 
@@ -24,7 +26,6 @@ class DB;
 class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
-enum CompressionType : unsigned char;
 
 enum class TableFileCreationReason {
   kFlush,
