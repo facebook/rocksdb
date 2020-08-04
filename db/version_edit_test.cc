@@ -374,7 +374,7 @@ TEST_F(VersionEditTest, DeleteWalEncodeDecode) {
 
 TEST_F(VersionEditTest, DeleteWalDebug) {
   constexpr int n = 2;
-  constexpr std::array<uint64_t, n> kLogNumbers{10, 20};
+  constexpr std::array<uint64_t, n> kLogNumbers{{10, 20}};
 
   VersionEdit edit;
   for (int i = 0; i < n; i++) {
