@@ -165,6 +165,7 @@ Status WalSet::DeleteWal(const WalDeletion& wal) {
     return Status::Corruption("WalSet", ss.str());
   }
   wals_.erase(wal.GetLogNumber());
+  return Status::OK();
 }
 
 Status WalSet::DeleteWals(const WalDeletions& wals) {
