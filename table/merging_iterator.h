@@ -10,6 +10,7 @@
 #pragma once
 
 #include "db/dbformat.h"
+#include "db/range_del_aggregator.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -41,7 +42,8 @@ class MergeIteratorBuilder {
   // comparator: the comparator used in merging comparator
   // arena: where the merging iterator needs to be allocated from.
   explicit MergeIteratorBuilder(const InternalKeyComparator* comparator,
-                                Arena* arena, bool prefix_seek_mode = false);
+                                Arena* arena, bool prefix_seek_mode = false,
+                                RangeDelAggregator* range_del_agg = nullptr);
   ~MergeIteratorBuilder();
 
   // Add iter to the merging iterator.

@@ -38,14 +38,15 @@ class MergingIterator : public InternalIterator {
  public:
   MergingIterator(const InternalKeyComparator* comparator,
                   InternalIterator** children, int n, bool is_arena_mode,
-                  bool prefix_seek_mode)
+                  bool prefix_seek_mode, RangeDelAggregator* range_del_agg)
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
         direction_(kForward),
         minHeap_(comparator_),
         prefix_seek_mode_(prefix_seek_mode),
-        pinned_iters_mgr_(nullptr) {
+        pinned_iters_mgr_(nullptr),
+        range_del_agg_(range_del_agg) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
@@ -317,6 +318,8 @@ class MergingIterator : public InternalIterator {
   std::unique_ptr<MergerMaxIterHeap> maxHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
 
+  RangeDelAggregator* const range_del_agg_;
+
   // In forward direction, process a child that is not in the min heap.
   // If valid, add to the min heap. Otherwise, check status.
   void AddToMinHeapOrCheckStatus(IteratorWrapper*);
@@ -428,20 +431,24 @@ InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
     return list[0];
   } else {
     if (arena == nullptr) {
-      return new MergingIterator(cmp, list, n, false, prefix_seek_mode);
+      return new MergingIterator(cmp, list, n, false, prefix_seek_mode,
+                                 nullptr /* range_del_agg */);
     } else {
       auto mem = arena->AllocateAligned(sizeof(MergingIterator));
-      return new (mem) MergingIterator(cmp, list, n, true, prefix_seek_mode);
+      return new (mem) MergingIterator(cmp, list, n, true, prefix_seek_mode,
+                                       nullptr /* range_del_agg */);
     }
   }
 }
 
 MergeIteratorBuilder::MergeIteratorBuilder(
-    const InternalKeyComparator* comparator, Arena* a, bool prefix_seek_mode)
+    const InternalKeyComparator* comparator, Arena* a,
+    bool prefix_seek_mode /* = false */,
+    RangeDelAggregator* range_del_agg /* = nullptr */)
     : first_iter(nullptr), use_merging_iter(false), arena(a) {
   auto mem = arena->AllocateAligned(sizeof(MergingIterator));
-  merge_iter =
-      new (mem) MergingIterator(comparator, nullptr, 0, true, prefix_seek_mode);
+  merge_iter = new (mem) MergingIterator(comparator, nullptr, 0, true,
+                                         prefix_seek_mode, range_del_agg);
 }
 
 MergeIteratorBuilder::~MergeIteratorBuilder() {
