@@ -643,6 +643,8 @@ Status WriteUnpreparedTxn::CommitInternal() {
 Status WriteUnpreparedTxn::WriteRollbackKeys(
     const LockTracker& lock_tracker, WriteBatchWithIndex* rollback_batch,
     ReadCallback* callback, const ReadOptions& roptions) {
+  // This assertion can be removed when range lock is supported.
+  assert(lock_tracker.IsPointLockSupported());
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
   auto WriteRollbackKey = [&](const std::string& key, uint32_t cfid) {
     const auto& cf_handle = cf_map.at(cfid);
@@ -668,21 +670,19 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
     return Status::OK();
   };
 
-  if (lock_tracker.IsPointLockSupported()) {
-    std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
-        lock_tracker.GetColumnFamilyIterator());
-    assert(cf_it != nullptr);
-    while (cf_it->HasNext()) {
-      ColumnFamilyId cf = cf_it->Next();
-      std::unique_ptr<LockTracker::KeyIterator> key_it(
-          lock_tracker.GetKeyIterator(cf));
-      assert(key_it != nullptr);
-      while (key_it->HasNext()) {
-        const std::string& key = key_it->Next();
-        auto s = WriteRollbackKey(key, cf);
-        if (!s.ok()) {
-          return s;
-        }
+  std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
+      lock_tracker.GetColumnFamilyIterator());
+  assert(cf_it != nullptr);
+  while (cf_it->HasNext()) {
+    ColumnFamilyId cf = cf_it->Next();
+    std::unique_ptr<LockTracker::KeyIterator> key_it(
+        lock_tracker.GetKeyIterator(cf));
+    assert(key_it != nullptr);
+    while (key_it->HasNext()) {
+      const std::string& key = key_it->Next();
+      auto s = WriteRollbackKey(key, cf);
+      if (!s.ok()) {
+        return s;
       }
     }
   }
