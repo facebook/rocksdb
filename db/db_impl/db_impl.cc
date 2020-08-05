@@ -150,6 +150,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
+      io_tracer_(std::make_shared<IOTracer>()),
       fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
@@ -3043,6 +3044,20 @@ FileSystem* DB::GetFileSystem() const {
 FileSystem* DBImpl::GetFileSystem() const {
   return immutable_db_options_.fs.get();
 }
+
+#ifndef ROCKSDB_LITE
+
+Status DBImpl::StartIOTrace(Env* env, const TraceOptions& trace_options,
+                            std::unique_ptr<TraceWriter>&& trace_writer) {
+  return io_tracer_->StartIOTrace(env, trace_options, std::move(trace_writer));
+}
+
+Status DBImpl::EndIOTrace() {
+  io_tracer_->EndIOTrace();
+  return Status::OK();
+}
+
+#endif  // ROCKSDB_LITE
 
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);

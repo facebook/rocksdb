@@ -617,6 +617,7 @@ set(SOURCES
         env/env_encryption.cc
         env/env_hdfs.cc
         env/file_system.cc
+        env/file_system_tracer.cc
         env/mock_env.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
@@ -719,6 +720,7 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
+        trace_replay/io_tracer.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -995,7 +997,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
-  
+
 if(WITH_TESTS)
   set(TESTS
         db/db_basic_test.cc

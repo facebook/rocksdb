@@ -55,6 +55,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "trace_replay/io_tracer.h"
 #include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/hash.h"
@@ -444,6 +445,13 @@ class DBImpl : public DB {
 
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override;
+
+  using DB::StartIOTrace;
+  Status StartIOTrace(Env* env, const TraceOptions& options,
+                      std::unique_ptr<TraceWriter>&& trace_writer) override;
+
+  using DB::EndIOTrace;
+  Status EndIOTrace() override;
 
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
@@ -1003,6 +1011,7 @@ class DBImpl : public DB {
   bool own_info_log_;
   const DBOptions initial_db_options_;
   Env* const env_;
+  std::shared_ptr<IOTracer> io_tracer_;
   std::shared_ptr<FileSystem> fs_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;

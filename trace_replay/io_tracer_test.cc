@@ -31,7 +31,7 @@ class IOTracerTest : public testing::Test {
     EXPECT_OK(env_->DeleteDir(test_path_));
   }
 
-  std::string GetFileOperation(uint32_t id) {
+  std::string GetFileOperation(uint64_t id) {
     id = id % 4;
     switch (id) {
       case 0:
@@ -42,13 +42,15 @@ class IOTracerTest : public testing::Test {
         return "FileSize";
       case 3:
         return "DeleteDir";
+      default:
+        assert(false);
     }
-    assert(false);
+    return "";
   }
 
-  void WriteIOOp(IOTraceWriter* writer, uint32_t nrecords) {
+  void WriteIOOp(IOTraceWriter* writer, uint64_t nrecords) {
     assert(writer);
-    for (uint32_t i = 0; i < nrecords; i++) {
+    for (uint64_t i = 0; i < nrecords; i++) {
       IOTraceRecord record;
       record.trace_type = TraceType::kIOLenAndOffset;
       record.file_operation = GetFileOperation(i);
@@ -100,8 +102,8 @@ TEST_F(IOTracerTest, AtomicWrite) {
     IOTraceReader reader(std::move(trace_reader));
     IOTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     // Read record and verify data.
     IOTraceRecord access_record;
     ASSERT_OK(reader.ReadIOOp(&access_record));
@@ -162,8 +164,8 @@ TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
     IOTraceReader reader(std::move(trace_reader));
     IOTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
 
     IOTraceRecord access_record;
     ASSERT_OK(reader.ReadIOOp(&access_record));
@@ -196,8 +198,8 @@ TEST_F(IOTracerTest, AtomicMultipleWrites) {
     IOTraceReader reader(std::move(trace_reader));
     IOTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     // Read 10 records.
     VerifyIOOp(&reader, 10);
     // Read one more and record and it should report error.

@@ -25,7 +25,7 @@ struct IOTraceRecord {
   std::string io_status;
   // Required fields for read.
   std::string file_name;
-  size_t len = 0;
+  uint64_t len = 0;
   uint64_t offset = 0;
   uint64_t file_size = 0;
 

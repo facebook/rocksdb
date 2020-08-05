@@ -72,9 +72,6 @@ class FileSystemPtr {
         fs_tracer_(
             std::make_shared<FileSystemTracingWrapper>(fs_, io_tracer_)) {}
 
-  explicit FileSystemPtr(std::shared_ptr<FileSystem> fs)
-      : fs_(fs), io_tracer_(nullptr), fs_tracer_(nullptr) {}
-
   std::shared_ptr<FileSystem> operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
       return fs_tracer_;
