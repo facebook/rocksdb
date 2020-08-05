@@ -11,10 +11,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-}  // anonymous namespace
-
 void WalAddition::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
 
