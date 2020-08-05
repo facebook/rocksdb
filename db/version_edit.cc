@@ -21,65 +21,6 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-// Tag numbers for serialized VersionEdit.  These numbers are written to
-// disk and should not be changed. The number should be forward compatible so
-// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
-// between Tag and kTagSafeIgnoreMask field.
-enum Tag : uint32_t {
-  kComparator = 1,
-  kLogNumber = 2,
-  kNextFileNumber = 3,
-  kLastSequence = 4,
-  kCompactPointer = 5,
-  kDeletedFile = 6,
-  kNewFile = 7,
-  // 8 was used for large value refs
-  kPrevLogNumber = 9,
-  kMinLogNumberToKeep = 10,
-
-  // these are new formats divergent from open source leveldb
-  kNewFile2 = 100,
-  kNewFile3 = 102,
-  kNewFile4 = 103,      // 4th (the latest) format version of adding files
-  kColumnFamily = 200,  // specify column family for version edit
-  kColumnFamilyAdd = 201,
-  kColumnFamilyDrop = 202,
-  kMaxColumnFamily = 203,
-
-  kInAtomicGroup = 300,
-
-  // Mask for an unidentified tag from the future which can be safely ignored.
-  kTagSafeIgnoreMask = 1 << 13,
-
-  // Forward compatible (aka ignorable) records
-  kDbId,
-  kBlobFileAddition,
-  kBlobFileGarbage,
-  kWalAddition,
-  kWalDeletion,
-};
-
-enum NewFileCustomTag : uint32_t {
-  kTerminate = 1,  // The end of customized fields
-  kNeedCompaction = 2,
-  // Since Manifest is not entirely forward-compatible, we currently encode
-  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
-  // when manifest becomes forward-comptabile.
-  kMinLogNumberToKeepHack = 3,
-  kOldestBlobFileNumber = 4,
-  kOldestAncesterTime = 5,
-  kFileCreationTime = 6,
-  kFileChecksum = 7,
-  kFileChecksumFuncName = 8,
-
-  // If this bit for the custom tag is set, opening DB should fail if
-  // we don't know this field.
-  kCustomTagNonSafeIgnoreMask = 1 << 6,
-
-  // Forward incompatible (aka unignorable) fields
-  kPathId,
-};
-
 }  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {

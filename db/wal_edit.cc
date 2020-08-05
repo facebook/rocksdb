@@ -13,14 +13,6 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-enum class WalAdditionTag : uint32_t {
-  // Indicates that there are no more tags.
-  kTerminate = 1,
-  // Size in bytes.
-  kSize = 2,
-  // Add tags in the future, such as checksum?
-};
-
 }  // anonymous namespace
 
 void WalAddition::EncodeTo(std::string* dst) const {

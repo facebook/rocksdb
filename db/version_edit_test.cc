@@ -322,6 +322,108 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
   TestEncodeDecode(edit);
 }
 
+TEST_F(VersionEditTest, AddWalDecodeBadLogNumber) {
+  std::string encoded;
+  PutVarint32(&encoded, Tag::kWalAddition);
+
+  {
+    // No log number.
+    VersionEdit edit;
+    Status s = edit.DecodeFrom(encoded);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("Error decoding WAL log number") !=
+                std::string::npos)
+        << s.ToString();
+  }
+
+  {
+    // log number should be varint64,
+    // but we only encode 128 which is not a valid representation of varint64.
+    char c = static_cast<char>(128);
+    encoded.append(1, c);
+    VersionEdit edit;
+    Status s = edit.DecodeFrom(encoded);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("Error decoding WAL log number") !=
+                std::string::npos)
+        << s.ToString();
+  }
+}
+
+TEST_F(VersionEditTest, AddWalDecodeBadTag) {
+  constexpr WalNumber kLogNumber = 100;
+  constexpr uint64_t kSizeInBytes = 100;
+
+  std::string encoded_without_tag;
+  PutVarint32(&encoded_without_tag, Tag::kWalAddition);
+  PutVarint64(&encoded_without_tag, kLogNumber);
+
+  {
+    // No tag.
+    VersionEdit edit;
+    Status s = edit.DecodeFrom(encoded_without_tag);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("Error decoding tag") != std::string::npos)
+        << s.ToString();
+  }
+
+  {
+    // Only has size tag, no terminate tag.
+    std::string encoded_with_size = encoded_without_tag;
+    PutVarint32(&encoded_with_size,
+                static_cast<uint32_t>(WalAdditionTag::kSize));
+    PutVarint64(&encoded_with_size, kSizeInBytes);
+    VersionEdit edit;
+    Status s = edit.DecodeFrom(encoded_with_size);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("Error decoding tag") != std::string::npos)
+        << s.ToString();
+  }
+
+  {
+    // Only has terminate tag.
+    std::string encoded_with_terminate = encoded_without_tag;
+    PutVarint32(&encoded_with_terminate,
+                static_cast<uint32_t>(WalAdditionTag::kTerminate));
+    VersionEdit edit;
+    ASSERT_OK(edit.DecodeFrom(encoded_with_terminate));
+    auto& wal_addition = edit.GetWalAdditions()[0];
+    ASSERT_EQ(wal_addition.GetLogNumber(), kLogNumber);
+    ASSERT_FALSE(wal_addition.GetMetadata().HasSize());
+  }
+}
+
+TEST_F(VersionEditTest, AddWalDecodeNoSize) {
+  constexpr WalNumber kLogNumber = 100;
+
+  std::string encoded;
+  PutVarint32(&encoded, Tag::kWalAddition);
+  PutVarint64(&encoded, kLogNumber);
+  PutVarint32(&encoded, static_cast<uint32_t>(WalAdditionTag::kSize));
+  // No real size after the size tag.
+
+  {
+    // Without terminate tag.
+    VersionEdit edit;
+    Status s = edit.DecodeFrom(encoded);
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("Error decoding WAL file size") !=
+                std::string::npos)
+        << s.ToString();
+  }
+
+  {
+    // With terminate tag.
+    PutVarint32(&encoded, static_cast<uint32_t>(WalAdditionTag::kTerminate));
+    VersionEdit edit;
+    Status s = edit.DecodeFrom(encoded);
+    ASSERT_TRUE(s.IsCorruption());
+    // The terminate tag is misunderstood as the size.
+    ASSERT_TRUE(s.ToString().find("Error decoding tag") != std::string::npos)
+        << s.ToString();
+  }
+}
+
 TEST_F(VersionEditTest, AddWalDebug) {
   constexpr int n = 2;
   constexpr std::array<uint64_t, n> kLogNumbers{{10, 20}};
