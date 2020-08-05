@@ -223,11 +223,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
-    assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
+    assert(iterate_upper_bound_ == nullptr ||
+           iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound ||
            user_comparator_.CompareWithoutTimestamp(
                ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
                /*b_has_ts=*/false) < 0);
-    if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
+    if (iterate_upper_bound_ != nullptr &&
+        iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound &&
         user_comparator_.CompareWithoutTimestamp(
             ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
             /*b_has_ts=*/false) >= 0) {

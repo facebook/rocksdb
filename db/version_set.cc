@@ -942,9 +942,12 @@ class LevelIterator final : public InternalIterator {
     return may_be_out_of_lower_bound_ && file_iter_.MayBeOutOfLowerBound();
   }
 
-  inline bool MayBeOutOfUpperBound() override {
-    assert(Valid());
-    return file_iter_.MayBeOutOfUpperBound();
+  inline IterBoundCheck UpperBoundCheckResult() override {
+    if (Valid()) {
+      return file_iter_.UpperBoundCheckResult();
+    } else {
+      return IterBoundCheck::kUnknown;
+    }
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
@@ -1148,7 +1151,7 @@ bool LevelIterator::NextAndGetResult(IterateResult* result) {
     is_valid = Valid();
     if (is_valid) {
       result->key = key();
-      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      result->bound_check_result = file_iter_.UpperBoundCheckResult();
       // Ideally, we should return the real file_iter_.value_prepared but the
       // information is not here. It would casue an extra PrepareValue()
       // for the first key of a file.
@@ -1168,7 +1171,8 @@ bool LevelIterator::SkipEmptyFileForward() {
   bool seen_empty_file = false;
   while (file_iter_.iter() == nullptr ||
          (!file_iter_.Valid() && file_iter_.status().ok() &&
-          !file_iter_.iter()->IsOutOfBound())) {
+          file_iter_.iter()->UpperBoundCheckResult() !=
+              IterBoundCheck::kOutOfBound)) {
     seen_empty_file = true;
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {

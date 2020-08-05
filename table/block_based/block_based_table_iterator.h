@@ -99,13 +99,16 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
-  // Whether iterator invalidated for being out of bound.
-  bool IsOutOfBound() override { return is_out_of_bound_; }
-
-  inline bool MayBeOutOfUpperBound() override {
-    assert(Valid());
-    return block_upper_bound_check_ !=
-           BlockUpperBound::kUpperBoundBeyondCurBlock;
+  inline IterBoundCheck UpperBoundCheckResult() override {
+    if (is_out_of_bound_) {
+      return IterBoundCheck::kOutOfBound;
+    } else if (block_upper_bound_check_ ==
+               BlockUpperBound::kUpperBoundBeyondCurBlock) {
+      assert(!is_out_of_bound_);
+      return IterBoundCheck::kInbound;
+    } else {
+      return IterBoundCheck::kUnknown;
+    }
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {
