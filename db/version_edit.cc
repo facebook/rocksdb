@@ -21,63 +21,6 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
-// Tag numbers for serialized VersionEdit.  These numbers are written to
-// disk and should not be changed. The number should be forward compatible so
-// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
-// between Tag and kTagSafeIgnoreMask field.
-enum Tag : uint32_t {
-  kComparator = 1,
-  kLogNumber = 2,
-  kNextFileNumber = 3,
-  kLastSequence = 4,
-  kCompactPointer = 5,
-  kDeletedFile = 6,
-  kNewFile = 7,
-  // 8 was used for large value refs
-  kPrevLogNumber = 9,
-  kMinLogNumberToKeep = 10,
-
-  // these are new formats divergent from open source leveldb
-  kNewFile2 = 100,
-  kNewFile3 = 102,
-  kNewFile4 = 103,      // 4th (the latest) format version of adding files
-  kColumnFamily = 200,  // specify column family for version edit
-  kColumnFamilyAdd = 201,
-  kColumnFamilyDrop = 202,
-  kMaxColumnFamily = 203,
-
-  kInAtomicGroup = 300,
-
-  // Mask for an unidentified tag from the future which can be safely ignored.
-  kTagSafeIgnoreMask = 1 << 13,
-
-  // Forward compatible (aka ignorable) records
-  kDbId,
-  kBlobFileAddition,
-  kBlobFileGarbage,
-};
-
-enum NewFileCustomTag : uint32_t {
-  kTerminate = 1,  // The end of customized fields
-  kNeedCompaction = 2,
-  // Since Manifest is not entirely forward-compatible, we currently encode
-  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
-  // when manifest becomes forward-comptabile.
-  kMinLogNumberToKeepHack = 3,
-  kOldestBlobFileNumber = 4,
-  kOldestAncesterTime = 5,
-  kFileCreationTime = 6,
-  kFileChecksum = 7,
-  kFileChecksumFuncName = 8,
-
-  // If this bit for the custom tag is set, opening DB should fail if
-  // we don't know this field.
-  kCustomTagNonSafeIgnoreMask = 1 << 6,
-
-  // Forward incompatible (aka unignorable) fields
-  kPathId,
-};
-
 }  // anonymous namespace
 
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
@@ -150,6 +93,8 @@ void VersionEdit::Clear() {
   new_files_.clear();
   blob_file_additions_.clear();
   blob_file_garbages_.clear();
+  wal_additions_.clear();
+  wal_deletions_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -282,6 +227,16 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   for (const auto& blob_file_garbage : blob_file_garbages_) {
     PutVarint32(dst, kBlobFileGarbage);
     blob_file_garbage.EncodeTo(dst);
+  }
+
+  for (const auto& wal_addition : wal_additions_) {
+    PutVarint32(dst, kWalAddition);
+    wal_addition.EncodeTo(dst);
+  }
+
+  for (const auto& wal_deletion : wal_deletions_) {
+    PutVarint32(dst, kWalDeletion);
+    wal_deletion.EncodeTo(dst);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -608,6 +563,28 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kWalAddition: {
+        WalAddition wal_addition;
+        const Status s = wal_addition.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_additions_.emplace_back(std::move(wal_addition));
+        break;
+      }
+
+      case kWalDeletion: {
+        WalDeletion wal_deletion;
+        const Status s = wal_deletion.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_deletions_.emplace_back(std::move(wal_deletion));
+        break;
+      }
+
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
           if (!msg) {
@@ -748,6 +725,16 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(blob_file_garbage.DebugString());
   }
 
+  for (const auto& wal_addition : wal_additions_) {
+    r.append("\n  WalAddition: ");
+    r.append(wal_addition.DebugString());
+  }
+
+  for (const auto& wal_deletion : wal_deletions_) {
+    r.append("\n  WalDeletion: ");
+    r.append(wal_deletion.DebugString());
+  }
+
   r.append("\n  ColumnFamily: ");
   AppendNumberTo(&r, column_family_);
   if (is_column_family_add_) {
@@ -852,6 +839,34 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     for (const auto& blob_file_garbage : blob_file_garbages_) {
       jw.StartArrayedObject();
       jw << blob_file_garbage;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!wal_additions_.empty()) {
+    jw << "WalAdditions";
+
+    jw.StartArray();
+
+    for (const auto& wal_addition : wal_additions_) {
+      jw.StartArrayedObject();
+      jw << wal_addition;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!wal_deletions_.empty()) {
+    jw << "WalDeletions";
+
+    jw.StartArray();
+
+    for (const auto& wal_deletion : wal_deletions_) {
+      jw.StartArrayedObject();
+      jw << wal_deletion;
       jw.EndArrayedObject();
     }
 
