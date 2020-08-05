@@ -438,7 +438,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
 
   const WalAdditions& wals = edit.GetWalAdditions();
 
-  ASSERT_TRUE(edit.IsWalAddition());
+  ASSERT_TRUE(edit.HasWalAddition());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalAddition& wal = wals[i];
@@ -487,7 +487,7 @@ TEST_F(VersionEditTest, DeleteWalDebug) {
 
   const WalDeletions& wals = edit.GetWalDeletions();
 
-  ASSERT_TRUE(edit.IsWalDeletion());
+  ASSERT_TRUE(edit.HasWalDeletion());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalDeletion& wal = wals[i];
