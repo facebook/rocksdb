@@ -339,7 +339,9 @@ TEST_F(VersionEditTest, AddWalDecodeBadLogNumber) {
   {
     // log number should be varint64,
     // but we only encode 128 which is not a valid representation of varint64.
-    char c = static_cast<char>(128);
+    char c = 0;
+    unsigned char* ptr = reinterpret_cast<unsigned char*>(&c);
+    *ptr = 128;
     encoded.append(1, c);
     VersionEdit edit;
     Status s = edit.DecodeFrom(encoded);
