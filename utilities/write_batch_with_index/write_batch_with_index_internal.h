@@ -67,7 +67,7 @@ class BaseDeltaIterator : public Iterator {
   std::unique_ptr<Iterator> base_iterator_;
   std::unique_ptr<WBWIIterator> delta_iterator_;
   const Comparator* comparator_;  // not owned
-  const Slice* iterate_upper_bound_;
+  const ReadOptions* read_options_;  // not owned
 };
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.

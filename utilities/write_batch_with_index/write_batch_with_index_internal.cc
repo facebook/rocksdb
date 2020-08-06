@@ -30,8 +30,7 @@ BaseDeltaIterator::BaseDeltaIterator(Iterator* base_iterator,
       base_iterator_(base_iterator),
       delta_iterator_(delta_iterator),
       comparator_(comparator),
-      iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
-                                        : nullptr) {}
+      read_options_(read_options) {}
 
 bool BaseDeltaIterator::Valid() const {
   return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
@@ -273,8 +272,8 @@ void BaseDeltaIterator::UpdateCurrent() {
         // Finished
         return;
       }
-      if (iterate_upper_bound_) {
-        if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >= 0) {
+      if (read_options_ != nullptr && read_options_->iterate_upper_bound != nullptr) {
+        if (comparator_->Compare(delta_entry.key, *(read_options_->iterate_upper_bound)) >= 0) {
           // out of upper bound -> finished.
           return;
         }
