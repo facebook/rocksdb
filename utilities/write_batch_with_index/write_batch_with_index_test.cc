@@ -505,14 +505,36 @@ typedef std::map<std::string, std::string> KVMap;
 
 class KVIter : public Iterator {
  public:
-  explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  bool Valid() const override { return iter_ != map_->end(); }
+  explicit KVIter(const KVMap* map, const Comparator* comparator = nullptr,
+                  ReadOptions* read_options = nullptr)
+      : map_(map),
+        iter_(map_->end()),
+        comparator_(comparator),
+        read_options_(read_options) {}
+  bool Valid() const override {
+    return iter_ != map_->end() && IsWithinBounds();
+  }
   void SeekToFirst() override { iter_ = map_->begin(); }
   void SeekToLast() override {
     if (map_->empty()) {
       iter_ = map_->end();
     } else {
-      iter_ = map_->find(map_->rbegin()->first);
+      if (read_options_ != nullptr &&
+          read_options_->iterate_upper_bound != nullptr) {
+
+        // we can seek to before the iterate_upper_bound
+
+        // NOTE: std::map::lower_bound is equivalent to RocksDB's `iterate_upper_bound`
+        iter_ = map_->lower_bound(read_options_->iterate_upper_bound->ToString());
+        if (iter_ != map_->begin()) {
+          // lower_bound gives us the first element not
+          // less than the `iterate_upper_bound` so we have
+          // to move back one, unless we are already at the beginning of the map
+          iter_--;
+        }
+      } else {
+        iter_ = map_->find(map_->rbegin()->first);
+      }
     }
   }
   void Seek(const Slice& k) override {
@@ -531,13 +553,34 @@ class KVIter : public Iterator {
     --iter_;
   }
 
-  Slice key() const override { return iter_->first; }
+  Slice key() const override {
+    assert(Valid());
+    return iter_->first;
+  }
   Slice value() const override { return iter_->second; }
   Status status() const override { return Status::OK(); }
 
  private:
   const KVMap* const map_;
   KVMap::const_iterator iter_;
+  const Comparator* comparator_;
+  const ReadOptions* read_options_;
+
+  bool IsWithinBounds() const {
+    if (read_options_ != nullptr) {
+      // TODO(AR) should this only be used when moving backward?
+      if (read_options_->iterate_lower_bound != nullptr) {
+        return comparator_->Compare(iter_->first, *(read_options_->iterate_lower_bound)) >= 0;
+      }
+
+      // TODO(AR) should this only be used when moving forward?
+      if (read_options_->iterate_upper_bound != nullptr) {
+        return comparator_->Compare(iter_->first, *(read_options_->iterate_upper_bound)) < 0;
+      }
+    }
+    
+    return true;
+  }
 };
 
 void AssertIter(Iterator* iter, const std::string& key,
