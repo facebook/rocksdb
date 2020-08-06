@@ -271,7 +271,7 @@ Status BuildTable(
         }
         s = it->status();
         if (s.ok() && check_hash != paranoid_hash) {
-          s = Status::Corruption("Paraniod checksums do not match");
+          s = Status::Corruption("Paranoid checksums do not match");
         }
       }
     }

@@ -702,7 +702,7 @@ Status CompactionJob::Run() {
           }
           s = iter->status();
           if (s.ok() && hash != files_output[file_idx]->paranoid_hash) {
-            s = Status::Corruption("Paraniod checksums do not match");
+            s = Status::Corruption("Paranoid checksums do not match");
           }
         }
 
