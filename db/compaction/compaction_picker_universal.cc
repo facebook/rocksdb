@@ -859,7 +859,8 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       FileMetaData* f = vstorage_->LevelFiles(0)[loop];
       if (f->marked_for_compaction) {
         start_level_inputs.files.push_back(f);
-        start_index = static_cast<int>(loop);  // Consider this as the first candidate.
+        start_index =
+            static_cast<int>(loop);  // Consider this as the first candidate.
         break;
       }
     }
