@@ -41,7 +41,8 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
   }
 
   // See whether we need to enlarge the buffer to avoid the flush
-  if (buf_.Capacity() - buf_.CurrentSize() < left) {
+  size_t total = left + buf_.CurrentSize();
+  if (buf_.Capacity() < total && max_buffer_size_ >= total) {
     for (size_t cap = buf_.Capacity();
          cap < max_buffer_size_;  // There is still room to increase
          cap *= 2) {
@@ -56,37 +57,25 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
     }
   }
 
-  // Flush only when buffered I/O
-  if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
-    if (buf_.CurrentSize() > 0) {
+  while (left > 0) {
+    size_t appended = buf_.Append(src, left);
+    left -= appended;
+    src += appended;
+
+    if (left > 0) {
       s = Flush();
       if (!s.ok()) {
-        return s;
+        break;
       }
     }
-    assert(buf_.CurrentSize() == 0);
-  }
-
-  // We never write directly to disk with direct I/O on.
-  // or we simply use it for its original purpose to accumulate many small
-  // chunks
-  if (use_direct_io() || (buf_.Capacity() >= left)) {
-    while (left > 0) {
-      size_t appended = buf_.Append(src, left);
-      left -= appended;
-      src += appended;
-
-      if (left > 0) {
-        s = Flush();
-        if (!s.ok()) {
-          break;
-        }
+    if (!use_direct_io() && left >= buf_.Capacity()) {
+      assert(buf_.CurrentSize() == 0);
+      s = WriteBuffered(src, left);
+      if (s.ok()) {
+        s = IncrementalSync();
       }
+      left = 0;
     }
-  } else {
-    // Writing directly to file bypassing the buffer
-    assert(buf_.CurrentSize() == 0);
-    s = WriteBuffered(src, left);
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
@@ -250,31 +239,8 @@ IOStatus WritableFileWriter::Flush() {
     return s;
   }
 
-  // sync OS cache to disk for every bytes_per_sync_
-  // TODO: give log file and sst file different options (log
-  // files could be potentially cached in OS for their whole
-  // life time, thus we might not want to flush at all).
-
-  // We try to avoid sync to the last 1MB of data. For two reasons:
-  // (1) avoid rewrite the same page that is modified later.
-  // (2) for older version of OS, write can block while writing out
-  //     the page.
-  // Xfs does neighbor page flushing outside of the specified ranges. We
-  // need to make sure sync range is far from the write offset.
-  if (!use_direct_io() && bytes_per_sync_) {
-    const uint64_t kBytesNotSyncRange =
-        1024 * 1024;                                // recent 1MB is not synced.
-    const uint64_t kBytesAlignWhenSync = 4 * 1024;  // Align 4KB.
-    if (filesize_ > kBytesNotSyncRange) {
-      uint64_t offset_sync_to = filesize_ - kBytesNotSyncRange;
-      offset_sync_to -= offset_sync_to % kBytesAlignWhenSync;
-      assert(offset_sync_to >= last_sync_size_);
-      if (offset_sync_to > 0 &&
-          offset_sync_to - last_sync_size_ >= bytes_per_sync_) {
-        s = RangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
-        last_sync_size_ = offset_sync_to;
-      }
-    }
+  if (!use_direct_io()) {
+    IncrementalSync();
   }
 
   return s;
@@ -352,6 +318,33 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   }
 #endif
   SetPerfLevel(prev_perf_level);
+  return s;
+}
+
+IOStatus WritableFileWriter::IncrementalSync() {
+  // TODO: give log file and sst file different options (log
+  // files could be potentially cached in OS for their whole
+  // life time, thus we might not want to flush at all).
+
+  // We try to avoid sync to the last 1MB of data. For two reasons:
+  // (1) avoid rewrite the same page that is modified later.
+  // (2) for older version of OS, write can block while writing out
+  //     the page.
+  // Xfs does neighbor page flushing outside of the specified ranges. We
+  // need to make sure sync range is far from the write offset.
+  const uint64_t kBytesNotSyncRange = 1024 * 1024;  // recent 1MB is not synced.
+  const uint64_t kBytesAlignWhenSync = 4 * 1024;    // Align 4KB.
+  IOStatus s;
+  if (bytes_per_sync_ && filesize_ > kBytesNotSyncRange) {
+    uint64_t offset_sync_to = filesize_ - kBytesNotSyncRange;
+    offset_sync_to -= offset_sync_to % kBytesAlignWhenSync;
+    assert(offset_sync_to >= last_sync_size_);
+    if (offset_sync_to > 0 &&
+        offset_sync_to - last_sync_size_ >= bytes_per_sync_) {
+      s = RangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
+      last_sync_size_ = offset_sync_to;
+    }
+  }
   return s;
 }
 

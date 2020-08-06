@@ -242,6 +242,8 @@ class WritableFileWriter {
 #endif  // !ROCKSDB_LITE
   // Normal write
   IOStatus WriteBuffered(const char* data, size_t size);
+  // sync OS cache to disk for every bytes_per_sync_
+  IOStatus IncrementalSync();
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
   IOStatus SyncInternal(bool use_fsync);
 };
