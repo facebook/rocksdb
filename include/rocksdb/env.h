@@ -136,6 +136,9 @@ struct EnvOptions {
 
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
+
+  // If true, then try to use hard link to copy the file
+  bool use_hardlink = false;
 };
 
 class Env {

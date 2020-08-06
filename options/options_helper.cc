@@ -150,6 +150,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_bgerror_resume_count;
   options.bgerror_resume_retry_interval =
       immutable_db_options.bgerror_resume_retry_interval;
+  options.use_hardlink = mutable_db_options.use_hardlink;
   return options;
 }
 

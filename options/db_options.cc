@@ -394,6 +394,10 @@ std::unordered_map<std::string, OptionTypeInfo>
             }
             return s;
           }}},
+        {"use_hardlink",
+         {offsetof(struct DBOptions, use_hardlink), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableDBOptions, use_hardlink)}},
 };
 #endif  // ROCKSDB_LITE
 
@@ -651,7 +655,8 @@ MutableDBOptions::MutableDBOptions()
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
       compaction_readahead_size(0),
-      max_background_flushes(-1) {}
+      max_background_flushes(-1),
+      use_hardlink(false) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -672,7 +677,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes) {}
+      max_background_flushes(options.max_background_flushes),
+      use_hardlink(options.use_hardlink) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -716,7 +722,9 @@ void MutableDBOptions::Dump(Logger* log) const {
                    "      Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
                    compaction_readahead_size);
   ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
-                          max_background_flushes);
+                   max_background_flushes);
+  ROCKS_LOG_HEADER(log, "                 Options.use_hardlink: %d",
+                   use_hardlink);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

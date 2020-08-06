@@ -794,6 +794,10 @@ struct DBOptions {
   // Default: false
   bool use_adaptive_mutex = false;
 
+  // If true, then use hardlink to create or copy the file
+  // Default: false
+  bool use_hardlink = false;
+
   // Create DBOptions with default values for all fields
   DBOptions();
   // Create DBOptions from Options

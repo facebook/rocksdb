@@ -1469,6 +1469,11 @@ Status BackupEngineImpl::CopyOrCreateFile(
   std::unique_ptr<SequentialFile> src_file;
   EnvOptions dst_env_options;
   dst_env_options.use_mmap_writes = false;
+
+  if (src_env_options.use_hardlink) {
+    s = src_env->LinkFile(src, dst);
+    if (s.ok()) return s;
+  }
   // TODO:(gzh) maybe use direct reads/writes here if possible
   if (size != nullptr) {
     *size = 0;
