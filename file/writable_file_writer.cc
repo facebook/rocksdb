@@ -65,7 +65,7 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
     if (left > 0) {
       s = Flush();
       if (!s.ok()) {
-        break;
+        return s;
       }
     }
     if (!use_direct_io() && left >= buf_.Capacity()) {
@@ -240,7 +240,7 @@ IOStatus WritableFileWriter::Flush() {
   }
 
   if (!use_direct_io()) {
-    IncrementalSync();
+    s = IncrementalSync();
   }
 
   return s;
