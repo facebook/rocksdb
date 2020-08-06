@@ -59,6 +59,7 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
 
   while (left > 0) {
     size_t appended = buf_.Append(src, left);
+    filesize_ += appended;
     left -= appended;
     src += appended;
 
@@ -72,16 +73,14 @@ IOStatus WritableFileWriter::Append(const Slice& data) {
       assert(buf_.CurrentSize() == 0);
       s = WriteBuffered(src, left);
       if (s.ok()) {
+        filesize_ += left;
         s = IncrementalSync();
       }
-      left = 0;
+      break;
     }
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
-  if (s.ok()) {
-    filesize_ += data.size();
-  }
   return s;
 }
 
@@ -235,11 +234,7 @@ IOStatus WritableFileWriter::Flush() {
 #endif
   }
 
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (!use_direct_io()) {
+  if (s.ok() && !use_direct_io()) {
     s = IncrementalSync();
   }
 
