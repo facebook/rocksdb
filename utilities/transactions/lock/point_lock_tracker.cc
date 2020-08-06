@@ -72,7 +72,7 @@ void PointLockTracker::Track(const PointLockRequest& r) {
     it->second.num_writes++;
   }
 
-  it->second.exclusive |= r.exclusive;
+  it->second.exclusive = it->second.exclusive || r.exclusive;
 }
 
 UntrackStatus PointLockTracker::Untrack(const PointLockRequest& r) {

@@ -29,7 +29,7 @@ struct TrackedKeyInfo {
     assert(seq <= info.seq);
     num_reads += info.num_reads;
     num_writes += info.num_writes;
-    exclusive |= info.exclusive;
+    exclusive = exclusive || info.exclusive;
   }
 };
 
