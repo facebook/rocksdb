@@ -212,7 +212,7 @@ class WriteUnpreparedTxn : public WritePreparedTxn {
   friend class WriteUnpreparedTxnDB;
 
   const std::map<SequenceNumber, size_t>& GetUnpreparedSequenceNumbers();
-  Status WriteRollbackKeys(const TransactionKeyMap& tracked_keys,
+  Status WriteRollbackKeys(const LockTracker& tracked_keys,
                            WriteBatchWithIndex* rollback_batch,
                            ReadCallback* callback, const ReadOptions& roptions);
 

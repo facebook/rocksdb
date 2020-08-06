@@ -91,7 +91,7 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
 }
 
 PessimisticTransaction::~PessimisticTransaction() {
-  txn_db_impl_->UnLock(this, &GetTrackedKeys());
+  txn_db_impl_->UnLock(this, *tracked_locks_);
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
   }
@@ -101,7 +101,7 @@ PessimisticTransaction::~PessimisticTransaction() {
 }
 
 void PessimisticTransaction::Clear() {
-  txn_db_impl_->UnLock(this, &GetTrackedKeys());
+  txn_db_impl_->UnLock(this, *tracked_locks_);
   TransactionBaseImpl::Clear();
 }
 
@@ -132,8 +132,8 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
     : PessimisticTransaction(txn_db, write_options, txn_options){};
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
-  TransactionKeyMap keys_to_unlock;
-  Status s = LockBatch(batch, &keys_to_unlock);
+  std::unique_ptr<LockTracker> keys_to_unlock(NewLockTracker());
+  Status s = LockBatch(batch, keys_to_unlock.get());
 
   if (!s.ok()) {
     return s;
@@ -164,7 +164,7 @@ Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
     s = Status::InvalidArgument("Transaction is not in state for commit.");
   }
 
-  txn_db_impl_->UnLock(this, &keys_to_unlock);
+  txn_db_impl_->UnLock(this, *keys_to_unlock);
 
   return s;
 }
@@ -446,12 +446,14 @@ Status PessimisticTransaction::RollbackToSavePoint() {
     return Status::InvalidArgument("Transaction is beyond state for rollback.");
   }
 
-  // Unlock any keys locked since last transaction
-  const std::unique_ptr<TransactionKeyMap>& keys =
-      GetTrackedKeysSinceSavePoint();
-
-  if (keys) {
-    txn_db_impl_->UnLock(this, keys.get());
+  if (save_points_ != nullptr && !save_points_->empty()) {
+    // Unlock any keys locked since last transaction
+    auto& save_point_tracker = *save_points_->top().new_locks_;
+    std::unique_ptr<LockTracker> t(
+        tracked_locks_->GetTrackedLocksSinceSavePoint(save_point_tracker));
+    if (t) {
+      txn_db_impl_->UnLock(this, *t);
+    }
   }
 
   return TransactionBaseImpl::RollbackToSavePoint();
@@ -460,7 +462,7 @@ Status PessimisticTransaction::RollbackToSavePoint() {
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
 Status PessimisticTransaction::LockBatch(WriteBatch* batch,
-                                         TransactionKeyMap* keys_to_unlock) {
+                                         LockTracker* keys_to_unlock) {
   class Handler : public WriteBatch::Handler {
    public:
     // Sorted map of column_family_id to sorted set of keys.
@@ -516,8 +518,13 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
       if (!s.ok()) {
         break;
       }
-      TrackKey(keys_to_unlock, cfh_id, std::move(key), kMaxSequenceNumber,
-               false, true /* exclusive */);
+      PointLockRequest r;
+      r.column_family_id = cfh_id;
+      r.key = key;
+      r.seq = kMaxSequenceNumber;
+      r.read_only = false;
+      r.exclusive = true;
+      keys_to_unlock->Track(r);
     }
 
     if (!s.ok()) {
@@ -526,7 +533,7 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
   }
 
   if (!s.ok()) {
-    txn_db_impl_->UnLock(this, keys_to_unlock);
+    txn_db_impl_->UnLock(this, *keys_to_unlock);
   }
 
   return s;
@@ -548,28 +555,9 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   }
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
-  bool previously_locked;
-  bool lock_upgrade = false;
-
-  // lock this key if this transactions hasn't already locked it
-  SequenceNumber tracked_at_seq = kMaxSequenceNumber;
-
-  const auto& tracked_keys = GetTrackedKeys();
-  const auto tracked_keys_cf = tracked_keys.find(cfh_id);
-  if (tracked_keys_cf == tracked_keys.end()) {
-    previously_locked = false;
-  } else {
-    auto iter = tracked_keys_cf->second.find(key_str);
-    if (iter == tracked_keys_cf->second.end()) {
-      previously_locked = false;
-    } else {
-      if (!iter->second.exclusive && exclusive) {
-        lock_upgrade = true;
-      }
-      previously_locked = true;
-      tracked_at_seq = iter->second.seq;
-    }
-  }
+  PointLockStatus status = tracked_locks_->GetPointLockStatus(cfh_id, key_str);
+  bool previously_locked = status.locked;
+  bool lock_upgrade = previously_locked && exclusive && !status.exclusive;
 
   // Lock this key if this transactions hasn't already locked it or we require
   // an upgrade.
@@ -585,6 +573,8 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   // any writes since this transaction's snapshot.
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
+  SequenceNumber tracked_at_seq =
+      status.locked ? status.seq : kMaxSequenceNumber;
   if (!do_validate || snapshot_ == nullptr) {
     if (assume_tracked && !previously_locked) {
       s = Status::InvalidArgument(
@@ -614,15 +604,13 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
       if (!s.ok()) {
         // Failed to validate key
-        if (!previously_locked) {
-          // Unlock key we just locked
-          if (lock_upgrade) {
-            s = txn_db_impl_->TryLock(this, cfh_id, key_str,
-                                      false /* exclusive */);
-            assert(s.ok());
-          } else {
-            txn_db_impl_->UnLock(this, cfh_id, key.ToString());
-          }
+        // Unlock key we just locked
+        if (lock_upgrade) {
+          s = txn_db_impl_->TryLock(this, cfh_id, key_str,
+                                    false /* exclusive */);
+          assert(s.ok());
+        } else if (!previously_locked) {
+          txn_db_impl_->UnLock(this, cfh_id, key.ToString());
         }
       }
     }
@@ -645,10 +633,11 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
       TrackKey(cfh_id, key_str, tracked_at_seq, read_only, exclusive);
     } else {
 #ifndef NDEBUG
-      assert(tracked_keys_cf->second.count(key_str) > 0);
-      const auto& info = tracked_keys_cf->second.find(key_str)->second;
-      assert(info.seq <= tracked_at_seq);
-      assert(info.exclusive == exclusive);
+      PointLockStatus lock_status =
+          tracked_locks_->GetPointLockStatus(cfh_id, key_str);
+      assert(lock_status.locked);
+      assert(lock_status.seq <= tracked_at_seq);
+      assert(lock_status.exclusive == exclusive);
 #endif
     }
   }
