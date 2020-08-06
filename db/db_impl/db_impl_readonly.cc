@@ -219,7 +219,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (cfd == nullptr) {
-        s = Status::InvalidArgument("Column family not found: ", cf.name);
+        s = Status::InvalidArgument("Column family not found", cf.name);
         break;
       }
       handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
