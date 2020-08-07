@@ -560,6 +560,8 @@ ifdef ASSERT_STATUS_CHECKED
 	TESTS_PASSING_ASC = \
 		arena_test \
 		autovector_test \
+		cache_test \
+		lru_cache_test \
 		blob_file_addition_test \
 		blob_file_garbage_test \
 		bloom_test \
@@ -571,6 +573,7 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		defer_test \
+		filename_test \
 		dynamic_bloom_test \
 		env_basic_test \
 		env_test \
@@ -599,6 +602,7 @@ ifdef ASSERT_STATUS_CHECKED
 		statistics_test \
 		thread_local_test \
 		env_timed_test \
+		filelock_test \
 		timer_queue_test \
 		timer_test \
 		util_merge_operators_test \
