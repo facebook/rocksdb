@@ -2849,7 +2849,7 @@ class DeadlineRandomAccessFile : public FSRandomAccessFileWrapper {
 
 class DeadlineFS : public FileSystemWrapper {
  public:
-  // The error_on_delay paramater specifies whether a IOStatus::TimedOut()
+  // The error_on_delay parameter specifies whether a IOStatus::TimedOut()
   // status should be returned after delaying the IO to exceed the timeout,
   // or to simply delay but return success anyway. The latter mimics the
   // behavior of PosixFileSystem, which does not enforce any timeout
@@ -3288,7 +3288,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
 }
 
 TEST_P(DBBasicTestDeadline, IteratorDeadline) {
-  std::shared_ptr<DeadlineFS> fs(new DeadlineFS(env_, true));
+  std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_, true);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   bool set_deadline = std::get<0>(GetParam());
   bool set_timeout = std::get<1>(GetParam());
