@@ -2708,10 +2708,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
   }
-  if (read_options.deadline != std::chrono::microseconds::zero()) {
-    return NewErrorIterator(
-        Status::NotSupported("ReadOptions deadline is not supported"));
-  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
