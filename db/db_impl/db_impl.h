@@ -1555,6 +1555,10 @@ class DBImpl : public DB {
                                 SequenceNumber* last_sequence, size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
+  // Caller must hold mutex_.
+  void WriteStatusCheckOnLocked(const Status& status);
+
+  // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void WriteStatusCheck(const Status& status);
 
   // Used by WriteImpl to update bg_error_ when IO error happens, e.g., write
