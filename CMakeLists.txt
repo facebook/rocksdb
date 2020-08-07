@@ -562,6 +562,7 @@ set(SOURCES
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
         db/compaction/compaction_picker_universal.cc
+        db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/db_impl.cc
@@ -606,6 +607,7 @@ set(SOURCES
         db/version_edit.cc
         db/version_edit_handler.cc
         db/version_set.cc
+        db/wal_edit.cc
         db/wal_manager.cc
         db/write_batch.cc
         db/write_batch_base.cc
@@ -616,6 +618,7 @@ set(SOURCES
         env/env_encryption.cc
         env/env_hdfs.cc
         env/file_system.cc
+        env/file_system_tracer.cc
         env/mock_env.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
@@ -718,6 +721,7 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
+        trace_replay/io_tracer.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -751,6 +755,8 @@ set(SOURCES
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
+        utilities/fault_injection_env.cc
+        utilities/fault_injection_fs.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators/bytesxor.cc
@@ -772,6 +778,8 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/transactions/lock/lock_tracker.cc
+        utilities/transactions/lock/point_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -986,11 +994,14 @@ endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
 
-if(WITH_TESTS)
+if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
+endif()
+
+if(WITH_TESTS)
   set(TESTS
         db/db_basic_test.cc
         env/env_basic_test.cc
@@ -1070,6 +1081,7 @@ if(WITH_TESTS)
         db/version_edit_test.cc
         db/version_set_test.cc
         db/wal_manager_test.cc
+        db/wal_edit_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
@@ -1169,8 +1181,6 @@ if(WITH_TESTS)
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
-      test_util/fault_injection_test_env.cc
-      test_util/fault_injection_test_fs.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()

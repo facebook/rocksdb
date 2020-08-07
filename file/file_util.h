@@ -45,12 +45,22 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
 
   if (ro.deadline.count()) {
     std::chrono::microseconds now = std::chrono::microseconds(env->NowMicros());
-    if (now > ro.deadline) {
+    // Ensure there is atleast 1us available. We don't want to pass a value of
+    // 0 as that means no timeout
+    if (now >= ro.deadline) {
       return IOStatus::TimedOut("Deadline exceeded");
     }
     opts.timeout = ro.deadline - now;
   }
+
+  if (ro.io_timeout.count() &&
+      (!opts.timeout.count() || ro.io_timeout < opts.timeout)) {
+    opts.timeout = ro.io_timeout;
+  }
   return IOStatus::OK();
 }
 
+// Test method to delete the input directory and all of its contents.
+// This method is destructive and is meant for use only in tests!!!
+Status DestroyDir(Env* env, const std::string& dir);
 }  // namespace ROCKSDB_NAMESPACE

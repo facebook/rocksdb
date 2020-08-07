@@ -61,7 +61,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.bytes_per_sync = mutable_db_options.bytes_per_sync;
   options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
   options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
-  options.max_subcompactions = immutable_db_options.max_subcompactions;
+  options.max_subcompactions = mutable_db_options.max_subcompactions;
   options.max_background_flushes = mutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
@@ -146,6 +146,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.file_checksum_gen_factory =
       immutable_db_options.file_checksum_gen_factory;
   options.best_efforts_recovery = immutable_db_options.best_efforts_recovery;
+  options.max_bgerror_resume_count =
+      immutable_db_options.max_bgerror_resume_count;
+  options.bgerror_resume_retry_interval =
+      immutable_db_options.bgerror_resume_retry_interval;
   return options;
 }
 
@@ -930,7 +934,7 @@ Status GetTableFactoryFromMap(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<TableFactory>* table_factory) {
   Status s;
-  if (factory_name == BlockBasedTableFactory().Name()) {
+  if (factory_name == BlockBasedTableFactory::kName) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(
         config_options, BlockBasedTableOptions(), opt_map, &bbt_opt);
@@ -939,7 +943,7 @@ Status GetTableFactoryFromMap(
     }
     table_factory->reset(new BlockBasedTableFactory(bbt_opt));
     return s;
-  } else if (factory_name == PlainTableFactory().Name()) {
+  } else if (factory_name == PlainTableFactory::kName) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(config_options, PlainTableOptions(),
                                     opt_map, &pt_opt);
@@ -1040,7 +1044,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
   }
   try {
     if (opt_addr == nullptr) {
-      return Status::NotFound("Could not find option: ", opt_name);
+      return Status::NotFound("Could not find option", opt_name);
     } else if (parse_func_ != nullptr) {
       return parse_func_(config_options, opt_name, opt_value, opt_addr);
     } else if (ParseOptionHelper(opt_addr, type_, opt_value)) {
@@ -1077,7 +1081,7 @@ Status OptionTypeInfo::ParseStruct(
             iter->second.Parse(config_options, map_iter.first, map_iter.second,
                                opt_addr + iter->second.offset_);
       } else {
-        status = Status::InvalidArgument("Unrecognized option: ",
+        status = Status::InvalidArgument("Unrecognized option",
                                          struct_name + "." + map_iter.first);
       }
     }
@@ -1090,7 +1094,7 @@ Status OptionTypeInfo::ParseStruct(
       status = opt_info->Parse(config_options, elem_name, opt_value,
                                opt_addr + opt_info->offset_);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
     // This option represents a field in the struct (e.g. field)
@@ -1100,7 +1104,7 @@ Status OptionTypeInfo::ParseStruct(
       status = opt_info->Parse(config_options, elem_name, opt_value,
                                opt_addr + opt_info->offset_);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ",
+      status = Status::InvalidArgument("Unrecognized option",
                                        struct_name + "." + opt_name);
     }
   }
@@ -1117,7 +1121,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     if (serialize_func_ != nullptr) {
       return serialize_func_(config_options, opt_name, opt_addr, opt_value);
     } else if (!SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
-      return Status::InvalidArgument("Cannot serialize option: ", opt_name);
+      return Status::InvalidArgument("Cannot serialize option", opt_name);
     }
   }
   return Status::OK();
@@ -1160,14 +1164,14 @@ Status OptionTypeInfo::SerializeStruct(
       status = opt_info->Serialize(config_options, elem_name,
                                    opt_addr + opt_info->offset_, value);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
     // This option represents a field in the struct (e.g. field)
     std::string elem_name;
     const auto opt_info = Find(opt_name, *struct_map, &elem_name);
     if (opt_info == nullptr) {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     } else if (opt_info->ShouldSerialize()) {
       status = opt_info->Serialize(config_options, opt_name + "." + elem_name,
                                    opt_addr + opt_info->offset_, value);

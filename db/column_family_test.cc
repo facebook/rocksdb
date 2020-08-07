@@ -22,25 +22,17 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/object_registry.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 static const int kValueSize = 1000;
-
-namespace {
-std::string RandomString(Random* rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-}  // anonymous namespace
 
 // counts how many operations were performed
 class EnvCounter : public EnvWrapper {
@@ -109,11 +101,11 @@ class ColumnFamilyTestBase : public testing::Test {
       // preserves the implementation that was in place when all of the
       // magic values in this file were picked.
       *storage = std::string(kValueSize, ' ');
-      return Slice(*storage);
     } else {
       Random r(k);
-      return test::RandomString(&r, kValueSize, storage);
+      *storage = r.RandomString(kValueSize);
     }
+    return Slice(*storage);
   }
 
   void Build(int base, int n, int flush_every = 0) {
@@ -329,11 +321,11 @@ class ColumnFamilyTestBase : public testing::Test {
       // 10 bytes for key, rest is value
       if (!save) {
         ASSERT_OK(Put(cf, test::RandomKey(&rnd_, 11),
-                      RandomString(&rnd_, key_value_size - 10)));
+                      rnd_.RandomString(key_value_size - 10)));
       } else {
         std::string key = test::RandomKey(&rnd_, 11);
         keys_[cf].insert(key);
-        ASSERT_OK(Put(cf, key, RandomString(&rnd_, key_value_size - 10)));
+        ASSERT_OK(Put(cf, key, rnd_.RandomString(key_value_size - 10)));
       }
     }
     db_->FlushWAL(false);
@@ -2432,7 +2424,10 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
 
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
-
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
+  
   // 1MB should create ~10 files for each CF
   int kKeysNum = 10000;
   PutRandomData(1, kKeysNum, 100);
@@ -2446,6 +2441,9 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   // now we sleep again. this is just so we're certain that flush job finished
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
 
@@ -2995,6 +2993,9 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
   test::SleepingBackgroundTask sleeping_task;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
 
   WriteOptions wo;
   wo.sync = true;
@@ -3040,6 +3041,9 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   test::SleepingBackgroundTask sleeping_task;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                  Env::Priority::HIGH);
+  // Make sure the task is sleeping. Otherwise, it might start to execute
+  // after sleeping_task.WaitUntilDone() and cause TSAN warning.
+  sleeping_task.WaitUntilSleeping();
 
   WriteOptions wo;
   wo.sync = true;

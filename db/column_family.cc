@@ -347,7 +347,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   bool is_block_based_table =
-      (result.table_factory->Name() == BlockBasedTableFactory().Name());
+      (result.table_factory->Name() == BlockBasedTableFactory::kName);
 
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
@@ -1047,13 +1047,14 @@ bool ColumnFamilyData::NeedsCompaction() const {
 }
 
 Compaction* ColumnFamilyData::PickCompaction(
-    const MutableCFOptions& mutable_options, LogBuffer* log_buffer) {
+    const MutableCFOptions& mutable_options,
+    const MutableDBOptions& mutable_db_options, LogBuffer* log_buffer) {
   SequenceNumber earliest_mem_seqno =
       std::min(mem_->GetEarliestSequenceNumber(),
                imm_.current()->GetEarliestSequenceNumber(false));
   auto* result = compaction_picker_->PickCompaction(
-      GetName(), mutable_options, current_->storage_info(), log_buffer,
-      earliest_mem_seqno);
+      GetName(), mutable_options, mutable_db_options, current_->storage_info(),
+      log_buffer, earliest_mem_seqno);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1123,14 +1124,16 @@ const int ColumnFamilyData::kCompactAllLevels = -1;
 const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
 Compaction* ColumnFamilyData::CompactRange(
-    const MutableCFOptions& mutable_cf_options, int input_level,
+    const MutableCFOptions& mutable_cf_options,
+    const MutableDBOptions& mutable_db_options, int input_level,
     int output_level, const CompactRangeOptions& compact_range_options,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
     uint64_t max_file_num_to_ignore) {
   auto* result = compaction_picker_->CompactRange(
-      GetName(), mutable_cf_options, current_->storage_info(), input_level,
-      output_level, compact_range_options, begin, end, compaction_end, conflict,
+      GetName(), mutable_cf_options, mutable_db_options,
+      current_->storage_info(), input_level, output_level,
+      compact_range_options, begin, end, compaction_end, conflict,
       max_file_num_to_ignore);
   if (result != nullptr) {
     result->SetInputVersion(current_);
@@ -1300,7 +1303,7 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0 && cf_options.ttl != kDefaultTtl) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory::kName) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
     }
@@ -1308,7 +1311,7 @@ Status ColumnFamilyData::ValidateOptions(
 
   if (cf_options.periodic_compaction_seconds > 0 &&
       cf_options.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory().Name()) {
+    if (cf_options.table_factory->Name() != BlockBasedTableFactory::kName) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
           "Block-Based Table format. ");

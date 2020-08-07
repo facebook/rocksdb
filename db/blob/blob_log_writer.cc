@@ -13,6 +13,7 @@
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
@@ -20,19 +21,18 @@ namespace ROCKSDB_NAMESPACE {
 
 BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
                              Env* env, Statistics* statistics,
-                             uint64_t log_number, uint64_t bpsync, bool use_fs,
-                             uint64_t boffset)
+                             uint64_t log_number, bool use_fs, uint64_t boffset)
     : dest_(std::move(dest)),
       env_(env),
       statistics_(statistics),
       log_number_(log_number),
       block_offset_(boffset),
-      bytes_per_sync_(bpsync),
-      next_sync_offset_(0),
       use_fsync_(use_fs),
       last_elem_type_(kEtNone) {}
 
 Status BlobLogWriter::Sync() {
+  TEST_SYNC_POINT("BlobLogWriter::Sync");
+
   StopWatch sync_sw(env_, statistics_, BLOB_DB_BLOB_FILE_SYNC_MICROS);
   Status s = dest_->Sync(use_fsync_);
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_SYNCED);
@@ -66,7 +66,10 @@ Status BlobLogWriter::AppendFooter(BlobLogFooter& footer) {
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
-    s = dest_->Close();
+    s = Sync();
+    if (s.ok()) {
+      s = dest_->Close();
+    }
     dest_.reset();
   }
 

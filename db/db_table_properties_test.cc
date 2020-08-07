@@ -16,6 +16,7 @@
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 #ifndef ROCKSDB_LITE
 
@@ -155,12 +156,12 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
 
   // build a decent LSM
   for (int i = 0; i < 10000; i++) {
-    ASSERT_OK(Put(test::RandomKey(&rnd, 5), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
   }
   Flush();
   dbfull()->TEST_WaitForCompact();
   if (NumTableFilesAtLevel(0) == 0) {
-    ASSERT_OK(Put(test::RandomKey(&rnd, 5), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
     Flush();
   }
 
@@ -293,6 +294,7 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
     NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger);
 
   Options opts = CurrentOptions();
+  opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.table_properties_collector_factories.emplace_back(compact_on_del);
 
   if(GetParam() == "kCompactionStyleUniversal") {
@@ -363,6 +365,8 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_MARKED));
+  ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_MARKED));
 }
 
 INSTANTIATE_TEST_CASE_P(

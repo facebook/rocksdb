@@ -211,47 +211,6 @@ class Constructor {
   stl_wrappers::KVMap data_;
 };
 
-class BlockConstructor: public Constructor {
- public:
-  explicit BlockConstructor(const Comparator* cmp)
-      : Constructor(cmp),
-        comparator_(cmp),
-        block_(nullptr) { }
-  ~BlockConstructor() override { delete block_; }
-  Status FinishImpl(const Options& /*options*/,
-                    const ImmutableCFOptions& /*ioptions*/,
-                    const MutableCFOptions& /*moptions*/,
-                    const BlockBasedTableOptions& table_options,
-                    const InternalKeyComparator& /*internal_comparator*/,
-                    const stl_wrappers::KVMap& kv_map) override {
-    delete block_;
-    block_ = nullptr;
-    BlockBuilder builder(table_options.block_restart_interval);
-
-    for (const auto& kv : kv_map) {
-      builder.Add(kv.first, kv.second);
-    }
-    // Open the block
-    data_ = builder.Finish().ToString();
-    BlockContents contents;
-    contents.data = data_;
-    block_ = new Block(std::move(contents));
-    return Status::OK();
-  }
-  InternalIterator* NewIterator(
-      const SliceTransform* /*prefix_extractor*/) const override {
-    return block_->NewDataIterator(comparator_, comparator_,
-                                   kDisableGlobalSequenceNumber);
-  }
-
- private:
-  const Comparator* comparator_;
-  std::string data_;
-  Block* block_;
-
-  BlockConstructor();
-};
-
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator : public InternalIterator {
  public:
@@ -282,7 +241,9 @@ class KeyConvertingIterator : public InternalIterator {
   void SeekToLast() override { iter_->SeekToLast(); }
   void Next() override { iter_->Next(); }
   void Prev() override { iter_->Prev(); }
-  bool IsOutOfBound() override { return iter_->IsOutOfBound(); }
+  IterBoundCheck UpperBoundCheckResult() override {
+    return iter_->UpperBoundCheckResult();
+  }
 
   Slice key() const override {
     assert(Valid());
@@ -309,7 +270,56 @@ class KeyConvertingIterator : public InternalIterator {
   void operator=(const KeyConvertingIterator&);
 };
 
-class TableConstructor: public Constructor {
+// `BlockConstructor` APIs always accept/return user keys.
+class BlockConstructor : public Constructor {
+ public:
+  explicit BlockConstructor(const Comparator* cmp)
+      : Constructor(cmp), comparator_(cmp), block_(nullptr) {}
+  ~BlockConstructor() override { delete block_; }
+  Status FinishImpl(const Options& /*options*/,
+                    const ImmutableCFOptions& /*ioptions*/,
+                    const MutableCFOptions& /*moptions*/,
+                    const BlockBasedTableOptions& table_options,
+                    const InternalKeyComparator& /*internal_comparator*/,
+                    const stl_wrappers::KVMap& kv_map) override {
+    delete block_;
+    block_ = nullptr;
+    BlockBuilder builder(table_options.block_restart_interval);
+
+    for (const auto& kv : kv_map) {
+      // `DataBlockIter` assumes it reads only internal keys. `BlockConstructor`
+      // clients provide user keys, so we need to convert to internal key format
+      // before writing the data block.
+      ParsedInternalKey ikey(kv.first, kMaxSequenceNumber, kTypeValue);
+      std::string encoded;
+      AppendInternalKey(&encoded, ikey);
+      builder.Add(encoded, kv.second);
+    }
+    // Open the block
+    data_ = builder.Finish().ToString();
+    BlockContents contents;
+    contents.data = data_;
+    block_ = new Block(std::move(contents));
+    return Status::OK();
+  }
+  InternalIterator* NewIterator(
+      const SliceTransform* /*prefix_extractor*/) const override {
+    // `DataBlockIter` returns the internal keys it reads.
+    // `KeyConvertingIterator` converts them to user keys before they are
+    // exposed to the `BlockConstructor` clients.
+    return new KeyConvertingIterator(
+        block_->NewDataIterator(comparator_, kDisableGlobalSequenceNumber));
+  }
+
+ private:
+  const Comparator* comparator_;
+  std::string data_;
+  Block* block_;
+
+  BlockConstructor();
+};
+
+class TableConstructor : public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
                             bool convert_to_internal_key = false,
@@ -386,10 +396,9 @@ class TableConstructor: public Constructor {
 
   InternalIterator* NewIterator(
       const SliceTransform* prefix_extractor) const override {
-    ReadOptions ro;
     InternalIterator* iter = table_reader_->NewIterator(
-        ro, prefix_extractor, /*arena=*/nullptr, /*skip_filters=*/false,
-        TableReaderCaller::kUncategorized);
+        read_options_, prefix_extractor, /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kUncategorized);
     if (convert_to_internal_key_) {
       return new KeyConvertingIterator(iter);
     } else {
@@ -444,6 +453,7 @@ class TableConstructor: public Constructor {
     file_reader_.reset();
   }
 
+  const ReadOptions read_options_;
   uint64_t uniq_id_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
@@ -1219,8 +1229,7 @@ class FileChecksumTestHelper {
   void AddKVtoKVMap(int num_entries) {
     Random rnd(test::RandomSeed());
     for (int i = 0; i < num_entries; i++) {
-      std::string v;
-      test::RandomString(&rnd, 100, &v);
+      std::string v = rnd.RandomString(100);
       kv_map_[test::RandomKey(&rnd, 20)] = v;
     }
   }
@@ -1876,8 +1885,9 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   const MutableCFOptions new_moptions(options);
   c.Reopen(new_ioptions, new_moptions);
   auto reader = c.GetTableReader();
+  ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(
-      ReadOptions(), new_moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      read_options, new_moptions.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Test point lookup
@@ -1891,16 +1901,10 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   }
 }
 
-static std::string RandomString(Random* rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-
 void AddInternalKey(TableConstructor* c, const std::string& prefix,
                     std::string value = "v", int /*suffix_len*/ = 800) {
   static Random rnd(1023);
-  InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);
+  InternalKey k(prefix + rnd.RandomString(800), 0, kTypeValue);
   c->Add(k.Encode().ToString(), value);
 }
 
@@ -1944,8 +1948,9 @@ void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   ASSERT_EQ(5u, props->num_data_blocks);
 
   // TODO(Zhongyi): update test to use MutableCFOptions
+  ReadOptions read_options;
   std::unique_ptr<InternalIterator> index_iter(reader->NewIterator(
-      ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // -- Find keys do not exist, but have common prefix.
@@ -2253,8 +2258,9 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKey2) {
     auto reader = c.GetTableReader();
     auto props = reader->GetTableProperties();
     ASSERT_EQ(4u, props->num_data_blocks);
+    ReadOptions read_options;
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-        ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+        read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized,
         /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
 
@@ -2437,8 +2443,9 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
   auto reader = c.GetTableReader();
   auto props = reader->GetTableProperties();
   ASSERT_EQ(1u, props->num_data_blocks);
+  ReadOptions read_options;
   std::unique_ptr<InternalIterator> iter(reader->NewIterator(
-      ReadOptions(), /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      read_options, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized,
       /*compaction_readahead_size=*/0, /*allow_unprepared_value=*/true));
 
@@ -2473,7 +2480,7 @@ TEST_P(BlockBasedTableTest, IndexSizeStat) {
   std::vector<std::string> keys;
 
   for (int i = 0; i < 100; ++i) {
-    keys.push_back(RandomString(&rnd, 10000));
+    keys.push_back(rnd.RandomString(10000));
   }
 
   // Each time we load one more key to the table. the table index block
@@ -2517,7 +2524,7 @@ TEST_P(BlockBasedTableTest, NumBlockStat) {
   for (int i = 0; i < 10; ++i) {
     // the key/val are slightly smaller than block size, so that each block
     // holds roughly one key/value pair.
-    c.Add(RandomString(&rnd, 900), "val");
+    c.Add(rnd.RandomString(900), "val");
   }
 
   std::vector<std::string> ks;
@@ -2667,8 +2674,9 @@ TEST_P(BlockBasedTableTest, TracingIterator) {
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
   for (uint32_t i = 1; i <= 2; i++) {
+    ReadOptions read_options;
     std::unique_ptr<InternalIterator> iter(c.GetTableReader()->NewIterator(
-        ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUserIterator));
     iter->SeekToFirst();
     while (iter->Valid()) {
@@ -3599,9 +3607,8 @@ TEST_P(ParameterizedHarnessTest, RandomizedHarnessTest) {
   for (int num_entries = 0; num_entries < 2000;
        num_entries += (num_entries < 50 ? 1 : 200)) {
     for (int e = 0; e < num_entries; e++) {
-      std::string v;
       Add(test::RandomKey(&rnd, rnd.Skewed(4)),
-          test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+          rnd.RandomString(rnd.Skewed(5)));
     }
     Test(&rnd);
   }
@@ -3613,8 +3620,7 @@ TEST_F(DBHarnessTest, RandomizedLongDB) {
   int num_entries = 100000;
   for (int e = 0; e < num_entries; e++) {
     std::string v;
-    Add(test::RandomKey(&rnd, rnd.Skewed(4)),
-        test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+    Add(test::RandomKey(&rnd, rnd.Skewed(4)), rnd.RandomString(rnd.Skewed(5)));
   }
   Test(&rnd);
 
@@ -3870,8 +3876,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   TableConstructor c(BytewiseComparator());
   static Random rnd(301);
   for (int i = 0; i < kKeysInTable; i++) {
-    InternalKey k(RandomString(&rnd, kKeySize), 0, kTypeValue);
-    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+    InternalKey k(rnd.RandomString(kKeySize), 0, kTypeValue);
+    c.Add(k.Encode().ToString(), rnd.RandomString(kValSize));
   }
 
   std::vector<std::string> keys;
@@ -3884,8 +3890,9 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
            &kvmap);
   auto reader = c.GetTableReader();
 
+  ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(
-      ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   // Test point lookup
@@ -4071,6 +4078,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
   // Helper function to get the contents of the table InternalIterator
   std::unique_ptr<TableReader> table_reader;
+  const ReadOptions read_options;
   std::function<InternalIterator*()> GetTableInternalIter = [&]() {
     std::unique_ptr<RandomAccessFileReader> file_reader(
         test::GetRandomAccessFileReader(
@@ -4082,7 +4090,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
         std::move(file_reader), ss_rw.contents().size(), &table_reader);
 
     return table_reader->NewIterator(
-        ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+        read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
         /*skip_filters=*/false, TableReaderCaller::kUncategorized);
   };
 
@@ -4253,8 +4261,9 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
                          GetPlainInternalComparator(options2.comparator)),
       std::move(file_reader), ss_rw.contents().size(), &table_reader));
 
+  ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(table_reader->NewIterator(
-      ReadOptions(), moptions2.prefix_extractor.get(), /*arena=*/nullptr,
+      read_options, moptions2.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
 
   int expected_key = 1;
@@ -4350,8 +4359,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     Block metaindex_block(std::move(metaindex_contents));
 
     std::unique_ptr<InternalIterator> meta_iter(metaindex_block.NewDataIterator(
-        BytewiseComparator(), BytewiseComparator(),
-        kDisableGlobalSequenceNumber));
+        BytewiseComparator(), kDisableGlobalSequenceNumber));
     bool found_properties_block = true;
     ASSERT_OK(SeekToPropertiesBlock(meta_iter.get(), &found_properties_block));
     ASSERT_TRUE(found_properties_block);
@@ -4430,7 +4438,7 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // verify properties block comes last
   std::unique_ptr<InternalIterator> metaindex_iter{
-      metaindex_block.NewDataIterator(options.comparator, options.comparator,
+      metaindex_block.NewDataIterator(options.comparator,
                                       kDisableGlobalSequenceNumber)};
   uint64_t max_offset = 0;
   std::string key_at_max_offset;
@@ -4534,9 +4542,9 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   static Random rnd(1048);
   for (int i = 0; i < kNumKeys; i++) {
     // padding one "0" to mark existent keys.
-    std::string random_key(RandomString(&rnd, kKeySize - 1) + "1");
+    std::string random_key(rnd.RandomString(kKeySize - 1) + "1");
     InternalKey k(random_key, 0, kTypeValue);
-    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+    c.Add(k.Encode().ToString(), rnd.RandomString(kValSize));
   }
 
   std::vector<std::string> keys;
@@ -4550,8 +4558,9 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
   auto reader = c.GetTableReader();
 
   std::unique_ptr<InternalIterator> seek_iter;
+  ReadOptions read_options;
   seek_iter.reset(reader->NewIterator(
-      ReadOptions(), moptions.prefix_extractor.get(), /*arena=*/nullptr,
+      read_options, moptions.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized));
   for (int i = 0; i < 2; ++i) {
     ReadOptions ro;
@@ -4638,13 +4647,13 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
-  ASSERT_TRUE(iter->IsOutOfBound());
+  ASSERT_TRUE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
   iter.reset(new KeyConvertingIterator(reader->NewIterator(
       read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->Seek("foo");
   ASSERT_FALSE(iter->Valid());
-  ASSERT_TRUE(iter->IsOutOfBound());
+  ASSERT_TRUE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
 }
 
 // BlockBasedTableIterator should invalidate itself and return
@@ -4679,7 +4688,7 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   ASSERT_EQ("bar", iter->key());
   iter->Next();
   ASSERT_FALSE(iter->Valid());
-  ASSERT_TRUE(iter->IsOutOfBound());
+  ASSERT_TRUE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
   std::string ub2 = "foo_after";
   Slice ub_slice2(ub2);
   read_opt.iterate_upper_bound = &ub_slice2;
@@ -4691,7 +4700,7 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   ASSERT_EQ("foo", iter->key());
   iter->Next();
   ASSERT_FALSE(iter->Valid());
-  ASSERT_FALSE(iter->IsOutOfBound());
+  ASSERT_FALSE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

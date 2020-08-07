@@ -5,8 +5,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_test.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -16,6 +14,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -23,7 +22,6 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -31,12 +29,12 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_test.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
-
-#include "port/port.h"
 
 using std::string;
 
@@ -277,8 +275,8 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
       for (size_t k = 0; k < 10; k++) {  // 10 key per batch
         size_t ki = static_cast<size_t>(rnd.Uniform(TOTAL_KEYS));
         Slice key = Slice(keys[ki]);
-        std::string buffer;
-        Slice value = Slice(test::RandomString(&rnd, 16, &buffer));
+        std::string tmp = rnd.RandomString(16);
+        Slice value = Slice(tmp);
         rndbatch.Put(key, value);
       }
       SubBatchCounter batch_counter(comparators);

@@ -415,10 +415,10 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
-  auto internal_iter =
-      NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot,
-                          /* allow_unprepared_value */ true);
+  auto internal_iter = NewInternalIterator(
+      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
+      db_iter->GetRangeDelAggregator(), snapshot,
+      /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -623,7 +623,7 @@ Status DB::OpenAsSecondary(
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (nullptr == cfd) {
-        s = Status::InvalidArgument("Column family not found: ", cf.name);
+        s = Status::InvalidArgument("Column family not found", cf.name);
         break;
       }
       handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));

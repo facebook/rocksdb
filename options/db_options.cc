@@ -149,6 +149,10 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
           offsetof(struct MutableDBOptions, max_background_compactions)}},
+        {"max_subcompactions",
+         {offsetof(struct DBOptions, max_subcompactions), OptionType::kUInt32T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableDBOptions, max_subcompactions)}},
         {"base_background_compactions",
          {offsetof(struct DBOptions, base_background_compactions),
           OptionType::kInt, OptionVerificationType::kNormal,
@@ -194,9 +198,6 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
         {"wal_dir",
          {offsetof(struct DBOptions, wal_dir), OptionType::kString,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
-        {"max_subcompactions",
-         {offsetof(struct DBOptions, max_subcompactions), OptionType::kUInt32T,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
         {"WAL_size_limit_MB",
          {offsetof(struct DBOptions, WAL_size_limit_MB), OptionType::kUInt64T,
@@ -354,6 +355,14 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, best_efforts_recovery),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
+        {"max_bgerror_resume_count",
+         {offsetof(struct DBOptions, max_bgerror_resume_count),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"bgerror_resume_retry_interval",
+         {offsetof(struct DBOptions, bgerror_resume_retry_interval),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -407,7 +416,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
-      max_subcompactions(options.max_subcompactions),
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),
       keep_log_file_num(options.keep_log_file_num),
@@ -465,7 +473,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       write_dbid_to_manifest(options.write_dbid_to_manifest),
       log_readahead_size(options.log_readahead_size),
       file_checksum_gen_factory(options.file_checksum_gen_factory),
-      best_efforts_recovery(options.best_efforts_recovery) {
+      best_efforts_recovery(options.best_efforts_recovery),
+      max_bgerror_resume_count(options.max_bgerror_resume_count),
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -522,9 +532,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    wal_dir.c_str());
   ROCKS_LOG_HEADER(log, "               Options.table_cache_numshardbits: %d",
                    table_cache_numshardbits);
-  ROCKS_LOG_HEADER(log,
-                   "                     Options.max_subcompactions: %" PRIu32,
-                   max_subcompactions);
   ROCKS_LOG_HEADER(log,
                    "                        Options.WAL_ttl_seconds: %" PRIu64,
                    wal_ttl_seconds);
@@ -619,12 +626,18 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                                              : kUnknownFileChecksumFuncName);
   ROCKS_LOG_HEADER(log, "                Options.best_efforts_recovery: %d",
                    static_cast<int>(best_efforts_recovery));
+  ROCKS_LOG_HEADER(log, "               Options.max_bgerror_resume_count: %d",
+                   max_bgerror_resume_count);
+  ROCKS_LOG_HEADER(log,
+                   "           Options.bgerror_resume_retry_interval: %" PRIu64,
+                   bgerror_resume_retry_interval);
 }
 
 MutableDBOptions::MutableDBOptions()
     : max_background_jobs(2),
       base_background_compactions(-1),
       max_background_compactions(-1),
+      max_subcompactions(0),
       avoid_flush_during_shutdown(false),
       writable_file_max_buffer_size(1024 * 1024),
       delayed_write_rate(2 * 1024U * 1024U),
@@ -644,6 +657,7 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
       base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
+      max_subcompactions(options.max_subcompactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       writable_file_max_buffer_size(options.writable_file_max_buffer_size),
       delayed_write_rate(options.delayed_write_rate),
@@ -665,6 +679,8 @@ void MutableDBOptions::Dump(Logger* log) const {
                    max_background_jobs);
   ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
                    max_background_compactions);
+  ROCKS_LOG_HEADER(log, "            Options.max_subcompactions: %" PRIu32,
+                   max_subcompactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",
                    avoid_flush_during_shutdown);
   ROCKS_LOG_HEADER(

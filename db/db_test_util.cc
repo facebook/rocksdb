@@ -8,9 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+
 #include "db/forward_iterator.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -407,7 +409,7 @@ Options DBTestBase::GetOptions(
         options.use_direct_reads = true;
         options.use_direct_io_for_flush_and_compaction = true;
         options.compaction_readahead_size = 2 * 1024 * 1024;
-        test::SetupSyncPointsToMockDirectIO();
+        SetupSyncPointsToMockDirectIO();
         break;
       }
 #endif  // ROCKSDB_LITE
@@ -940,12 +942,13 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   InternalKeyComparator icmp(options.comparator);
   ReadRangeDelAggregator range_del_agg(&icmp,
                                        kMaxSequenceNumber /* upper_bound */);
+  ReadOptions read_options;
   ScopedArenaIterator iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
                                            kMaxSequenceNumber));
   } else {
-    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
                                            kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
@@ -1227,7 +1230,7 @@ int DBTestBase::GetSstFileCount(std::string path) {
 void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
                                  bool nowait) {
   for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
-    ASSERT_OK(Put(cf, Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
+    ASSERT_OK(Put(cf, Key(*key_idx), rnd->RandomString((i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
   if (!nowait) {
@@ -1239,7 +1242,7 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
 // this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
   for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
-    ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
+    ASSERT_OK(Put(Key(*key_idx), rnd->RandomString((i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
   if (!nowait) {
@@ -1252,9 +1255,9 @@ const int DBTestBase::kNumKeysByGenerateNewRandomFile = 51;
 
 void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   for (int i = 0; i < kNumKeysByGenerateNewRandomFile; i++) {
-    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 2000)));
+    ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(2000)));
   }
-  ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 200)));
+  ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(200)));
   if (!nowait) {
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
@@ -1355,12 +1358,13 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
                                        kMaxSequenceNumber /* upper_bound */);
   // This should be defined after range_del_agg so that it destructs the
   // assigned iterator before it range_del_agg is already destructed.
+  ReadOptions read_options;
   ScopedArenaIterator iter;
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
                                            kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
                                            kMaxSequenceNumber));
   }
   iter->SeekToFirst();
@@ -1563,8 +1567,9 @@ void DBTestBase::VerifyDBInternal(
   InternalKeyComparator icmp(last_options_.comparator);
   ReadRangeDelAggregator range_del_agg(&icmp,
                                        kMaxSequenceNumber /* upper_bound */);
-  auto iter =
-      dbfull()->NewInternalIterator(&arena, &range_del_agg, kMaxSequenceNumber);
+  ReadOptions read_options;
+  auto iter = dbfull()->NewInternalIterator(read_options, &arena,
+                                            &range_del_agg, kMaxSequenceNumber);
   iter->SeekToFirst();
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());

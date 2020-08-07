@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -281,8 +282,8 @@ TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
 
   Random rnd(301);
   std::string rnd_str =
-      RandomString(&rnd, static_cast<int>(options.bytes_per_sync / 2));
-  std::string rnd_str_512kb = RandomString(&rnd, 512 * 1024);
+      rnd.RandomString(static_cast<int>(options.bytes_per_sync / 2));
+  std::string rnd_str_512kb = rnd.RandomString(512 * 1024);
 
   ASSERT_OK(Put(1, "foo", "bar"));
   // First 1MB doesn't get range synced
@@ -330,8 +331,8 @@ TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
 
   Random rnd(301);
   std::string rnd_str =
-      RandomString(&rnd, static_cast<int>(options.bytes_per_sync / 2));
-  std::string rnd_str_512kb = RandomString(&rnd, 512 * 1024);
+      rnd.RandomString(static_cast<int>(options.bytes_per_sync / 2));
+  std::string rnd_str_512kb = rnd.RandomString(512 * 1024);
 
   ASSERT_OK(Put(1, "foo", "bar"));
   // First 1MB doesn't get range synced

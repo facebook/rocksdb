@@ -112,8 +112,6 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<Cache> row_cache;
 
-  uint32_t max_subcompactions;
-
   const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 
   std::vector<DbPath> cf_paths;
@@ -121,6 +119,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 
   FileChecksumGenFactory* file_checksum_gen_factory;
+
+  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 };
 
 struct MutableCFOptions {
@@ -163,7 +163,8 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
-        sample_for_compression(options.sample_for_compression) {
+        sample_for_compression(
+            options.sample_for_compression) {  // TODO: is 0 fine here?
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 

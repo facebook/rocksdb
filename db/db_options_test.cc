@@ -493,8 +493,7 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   Random rnd(1044);
   const auto value_size = size_t(1024);
-  std::string value;
-  test::RandomString(&rnd, value_size, &value);
+  std::string value = rnd.RandomString(value_size);
 
   Options options;
   options.create_if_missing = true;
@@ -713,7 +712,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -742,7 +741,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -774,7 +773,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -838,7 +837,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }

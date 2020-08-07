@@ -756,7 +756,7 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
 
   bfile->log_writer_ = std::make_shared<BlobLogWriter>(
       std::move(fwriter), env_, statistics_, bfile->file_number_,
-      bdb_options_.bytes_per_sync, db_options_.use_fsync, boffset);
+      db_options_.use_fsync, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
   return s;
@@ -1148,25 +1148,26 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
 Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
                                    CompressionType compression_type,
                                    PinnableSlice* value_output) const {
-  if (compression_type != kNoCompression) {
-    BlockContents contents;
-    auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+  assert(compression_type != kNoCompression);
 
-    {
-      StopWatch decompression_sw(env_, statistics_,
-                                 BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(compression_type);
-      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                             compression_type);
-      Status s = UncompressBlockContentsForCompressionType(
-          info, compressed_value.data(), compressed_value.size(), &contents,
-          kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
-      if (!s.ok()) {
-        return Status::Corruption("Unable to decompress blob.");
-      }
+  BlockContents contents;
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+
+  {
+    StopWatch decompression_sw(env_, statistics_, BLOB_DB_DECOMPRESSION_MICROS);
+    UncompressionContext context(compression_type);
+    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                           compression_type);
+    Status s = UncompressBlockContentsForCompressionType(
+        info, compressed_value.data(), compressed_value.size(), &contents,
+        kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+    if (!s.ok()) {
+      return Status::Corruption("Unable to decompress blob.");
     }
-    value_output->PinSelf(contents.data);
   }
+
+  value_output->PinSelf(contents.data);
+
   return Status::OK();
 }
 

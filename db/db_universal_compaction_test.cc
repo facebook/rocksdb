@@ -12,6 +12,7 @@
 #if !defined(ROCKSDB_LITE)
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -331,7 +332,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
        num++) {
     // Write 110KB (11 values, each 10K)
     for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      ASSERT_OK(Put(1, Key(key_idx), rnd.RandomString(10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -389,7 +390,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
        num++) {
     // Write 110KB (11 values, each 10K)
     for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      ASSERT_OK(Put(1, Key(key_idx), rnd.RandomString(10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -468,7 +469,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
     // Write 110KB (11 values, each 10K)
     for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      ASSERT_OK(Put(1, Key(key_idx), rnd.RandomString(10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -546,7 +547,7 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
   Random rnd(301);
   for (int key = 1024 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, ToString(key), RandomString(&rnd, kTestValueSize)));
+    ASSERT_OK(Put(1, ToString(key), rnd.RandomString(kTestValueSize)));
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();
@@ -609,17 +610,17 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
   // Generate 3 overlapping files
   Random rnd(301);
   for (int i = 0; i < 210; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
   }
   ASSERT_OK(Flush());
 
   for (int i = 200; i < 300; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
   }
   ASSERT_OK(Flush());
 
   for (int i = 250; i < 260; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
   }
   ASSERT_OK(Flush());
 
@@ -930,7 +931,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
     // Write 100KB (100 values, each 1K)
     for (int i = 0; i < 100; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 990)));
+      ASSERT_OK(Put(1, Key(key_idx), rnd.RandomString(990)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -968,7 +969,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
        num++) {
     // Write 100KB (100 values, each 1K)
     for (int i = 0; i < 100; i++) {
-      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
+      ASSERT_OK(Put(Key(key_idx), rnd.RandomString(990)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -978,7 +979,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
   for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
+    ASSERT_OK(Put(Key(key_idx), rnd.RandomString(990)));
     key_idx++;
   }
   dbfull()->TEST_WaitForCompact();
@@ -999,7 +1000,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
        num++) {
     // Write 110KB (11 values, each 10K)
     for (int i = 0; i < 100; i++) {
-      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
+      ASSERT_OK(Put(Key(key_idx), rnd.RandomString(990)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -1009,7 +1010,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
   for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
+    ASSERT_OK(Put(Key(key_idx), rnd.RandomString(990)));
     key_idx++;
   }
   dbfull()->TEST_WaitForCompact();
@@ -1020,7 +1021,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   //   Now we have 3 files at level 0, with size 4, 0.4, 2. Generate one
   //   more file at level-0, which should trigger level-0 compaction.
   for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
+    ASSERT_OK(Put(Key(key_idx), rnd.RandomString(990)));
     key_idx++;
   }
   dbfull()->TEST_WaitForCompact();
@@ -1500,7 +1501,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
 
   for (int i = 0; i <= max_key1; i++) {
     // each value is 10K
-    ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    ASSERT_OK(Put(1, Key(i), rnd.RandomString(10000)));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
     dbfull()->TEST_WaitForCompact();
   }
@@ -1518,7 +1519,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   // Insert more keys
   for (int i = max_key1 + 1; i <= max_key2; i++) {
     // each value is 10K
-    ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    ASSERT_OK(Put(1, Key(i), rnd.RandomString(10000)));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
     dbfull()->TEST_WaitForCompact();
   }
@@ -1550,7 +1551,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   // Insert more keys
   for (int i = max_key2 + 1; i <= max_key3; i++) {
     // each value is 10K
-    ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    ASSERT_OK(Put(1, Key(i), rnd.RandomString(10000)));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
     dbfull()->TEST_WaitForCompact();
   }

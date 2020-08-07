@@ -15,21 +15,42 @@ class TimerTest : public testing::Test {
 
  protected:
   std::unique_ptr<MockTimeEnv> mock_env_;
+
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+  // On MacOS, `CondVar.TimedWait()` doesn't use the time from MockTimeEnv,
+  // instead it still uses the system time.
+  // This is just a mitigation that always trigger the CV timeout. It is not
+  // perfect, only works for this test.
+  void SetUp() override {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+          uint64_t* time_us = reinterpret_cast<uint64_t*>(arg);
+          if (*time_us < mock_env_->RealNowMicros()) {
+            *time_us = mock_env_->RealNowMicros() + 1000;
+          }
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  }
+#endif  // OS_MACOSX && !NDEBUG
+
+  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
 };
 
 TEST_F(TimerTest, SingleScheduleOnceTest) {
-  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 1;
   uint64_t time_counter = 0;
   mock_env_->set_current_time(0);
-  port::Mutex mutex;
-  port::CondVar test_cv(&mutex);
+
+  InstrumentedMutex mutex;
+  InstrumentedCondVar test_cv(&mutex);
 
   Timer timer(mock_env_.get());
   int count = 0;
   timer.Add(
       [&] {
-        MutexLock l(&mutex);
+        InstrumentedMutexLock l(&mutex);
         count++;
         if (count >= kIterations) {
           test_cv.SignalAll();
@@ -42,7 +63,7 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
   uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
-    MutexLock l(&mutex);
+    InstrumentedMutexLock l(&mutex);
     while(count < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
@@ -56,18 +77,17 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
 }
 
 TEST_F(TimerTest, MultipleScheduleOnceTest) {
-  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
   const int kIterations = 1;
   uint64_t time_counter = 0;
   mock_env_->set_current_time(0);
-  port::Mutex mutex1;
-  port::CondVar test_cv1(&mutex1);
+  InstrumentedMutex mutex1;
+  InstrumentedCondVar test_cv1(&mutex1);
 
   Timer timer(mock_env_.get());
   int count1 = 0;
   timer.Add(
       [&] {
-        MutexLock l(&mutex1);
+        InstrumentedMutexLock l(&mutex1);
         count1++;
         if (count1 >= kIterations) {
           test_cv1.SignalAll();
@@ -75,12 +95,12 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
       },
       "fn_sch_test1", 1 * kSecond, 0);
 
-  port::Mutex mutex2;
-  port::CondVar test_cv2(&mutex2);
+  InstrumentedMutex mutex2;
+  InstrumentedCondVar test_cv2(&mutex2);
   int count2 = 0;
   timer.Add(
       [&] {
-        MutexLock l(&mutex2);
+        InstrumentedMutexLock l(&mutex2);
         count2 += 5;
         if (count2 >= kIterations) {
           test_cv2.SignalAll();
@@ -93,7 +113,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
-    MutexLock l(&mutex1);
+    InstrumentedMutexLock l(&mutex1);
     while (count1 < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
@@ -103,7 +123,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
 
   // Wait for execution to finish
   {
-    MutexLock l(&mutex2);
+    InstrumentedMutexLock l(&mutex2);
     while(count2 < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
@@ -117,22 +137,20 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   ASSERT_EQ(5, count2);
 }
 
-// XXX: test is flaky on Linux, broken on MacOS
-TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
-  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
   const int kIterations = 5;
   uint64_t time_counter = 0;
   mock_env_->set_current_time(0);
-  port::Mutex mutex;
-  port::CondVar test_cv(&mutex);
+
+  InstrumentedMutex mutex;
+  InstrumentedCondVar test_cv(&mutex);
 
   Timer timer(mock_env_.get());
   int count = 0;
   timer.Add(
       [&] {
-        MutexLock l(&mutex);
+        InstrumentedMutexLock l(&mutex);
         count++;
-        fprintf(stderr, "%d\n", count);
         if (count >= kIterations) {
           test_cv.SignalAll();
         }
@@ -144,7 +162,7 @@ TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
   uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
-    MutexLock l(&mutex);
+    InstrumentedMutexLock l(&mutex);
     while(count < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
@@ -157,36 +175,33 @@ TEST_F(TimerTest, DISABLED_SingleScheduleRepeatedlyTest) {
   ASSERT_EQ(5, count);
 }
 
-TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
-  const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   uint64_t time_counter = 0;
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
 
-  port::Mutex mutex1;
-  port::CondVar test_cv1(&mutex1);
+  InstrumentedMutex mutex1;
+  InstrumentedCondVar test_cv1(&mutex1);
   const int kIterations1 = 5;
   int count1 = 0;
   timer.Add(
       [&] {
-        MutexLock l(&mutex1);
+        InstrumentedMutexLock l(&mutex1);
         count1++;
-        fprintf(stderr, "hello\n");
         if (count1 >= kIterations1) {
           test_cv1.SignalAll();
         }
       },
       "fn_sch_test1", 0, 2 * kSecond);
 
-  port::Mutex mutex2;
-  port::CondVar test_cv2(&mutex2);
+  InstrumentedMutex mutex2;
+  InstrumentedCondVar test_cv2(&mutex2);
   const int kIterations2 = 5;
   int count2 = 0;
   timer.Add(
       [&] {
-        MutexLock l(&mutex2);
+        InstrumentedMutexLock l(&mutex2);
         count2++;
-        fprintf(stderr, "world\n");
         if (count2 >= kIterations2) {
           test_cv2.SignalAll();
         }
@@ -198,7 +213,7 @@ TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
   uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
-    MutexLock l(&mutex1);
+    InstrumentedMutexLock l(&mutex1);
     while(count1 < kIterations1) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
@@ -210,7 +225,7 @@ TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
 
   // Wait for execution to finish
   {
-    MutexLock l(&mutex2);
+    InstrumentedMutexLock l(&mutex2);
     while(count2 < kIterations2) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
@@ -224,6 +239,49 @@ TEST_F(TimerTest, DISABLED_MultipleScheduleRepeatedlyTest) {
 
   ASSERT_EQ(count1, 5);
   ASSERT_EQ(count2, 5);
+}
+
+TEST_F(TimerTest, AddAfterStartTest) {
+  const int kIterations = 5;
+  InstrumentedMutex mutex;
+  InstrumentedCondVar test_cv(&mutex);
+
+  // wait timer to run and then add a new job
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"Timer::Run::Waiting", "TimerTest:AddAfterStartTest:1"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  mock_env_->set_current_time(0);
+  Timer timer(mock_env_.get());
+
+  ASSERT_TRUE(timer.Start());
+
+  TEST_SYNC_POINT("TimerTest:AddAfterStartTest:1");
+  int count = 0;
+  timer.Add(
+      [&] {
+        InstrumentedMutexLock l(&mutex);
+        count++;
+        if (count >= kIterations) {
+          test_cv.SignalAll();
+        }
+      },
+      "fn_sch_test", 1 * kSecond, 1 * kSecond);
+
+  // Wait for execution to finish
+  uint64_t time_counter = 0;
+  {
+    InstrumentedMutexLock l(&mutex);
+    while (count < kIterations) {
+      time_counter += kSecond;
+      mock_env_->set_current_time(time_counter);
+      test_cv.TimedWait(time_counter);
+    }
+  }
+
+  ASSERT_TRUE(timer.Shutdown());
+
+  ASSERT_EQ(kIterations, count);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

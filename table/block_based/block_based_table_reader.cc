@@ -595,12 +595,14 @@ Status BlockBasedTable::Open(
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  // Only retain read_options.deadline. In future, we may retain more
+  // Only retain read_options.deadline and read_options.io_timeout.
+  // In future, we may retain more
   // options. Specifically, w ignore verify_checksums and default to
   // checksum verification anyway when creating the index and filter
   // readers.
   ReadOptions ro;
   ro.deadline = read_options.deadline;
+  ro.io_timeout = read_options.io_timeout;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -1125,8 +1127,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
   *metaindex_block = std::move(metaindex);
   // meta block uses bytewise comparator.
   iter->reset(metaindex_block->get()->NewDataIterator(
-      BytewiseComparator(), BytewiseComparator(),
-      kDisableGlobalSequenceNumber));
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
   return Status::OK();
 }
 
@@ -1381,15 +1382,14 @@ InternalIteratorBase<IndexValue>* BlockBasedTable::NewIndexIterator(
                                          lookup_context);
 }
 
-
 template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
     DataBlockIter* input_iter, bool block_contents_pinned) {
-  return block->NewDataIterator(
-      &rep->internal_comparator, rep->internal_comparator.user_comparator(),
-      rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
-      block_contents_pinned);
+  return block->NewDataIterator(rep->internal_comparator.user_comparator(),
+                                rep->get_global_seqno(block_type), input_iter,
+                                rep->ioptions.statistics,
+                                block_contents_pinned);
 }
 
 template <>
@@ -1397,13 +1397,12 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
     IndexBlockIter* input_iter, bool block_contents_pinned) {
   return block->NewIndexIterator(
-      &rep->internal_comparator, rep->internal_comparator.user_comparator(),
+      rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
       block_contents_pinned);
 }
-
 
 // If contents is nullptr, this function looks up the block caches for the
 // data block referenced by handle, and read the block from disk if necessary.
@@ -1945,7 +1944,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     return block->second.GetValue()->NewIndexIterator(
-        &rep->internal_comparator, rep->internal_comparator.user_comparator(),
+        rep->internal_comparator.user_comparator(),
         rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
         rep->index_has_first_key, rep->index_key_includes_seq,
         rep->index_value_is_full);

@@ -13,24 +13,23 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
-
-#include "port/port.h"
 
 using std::string;
 
@@ -1644,7 +1643,9 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   ReOpenNoDelete();
 
   // commit old txn
+  assert(db != nullptr);  // Make clang analyze happy.
   txn = db->GetTransactionByName("a");
+  assert(txn != nullptr);
   s = txn->Commit();
   ASSERT_OK(s);
 

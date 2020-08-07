@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "utilities/blob_db/blob_db.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -22,14 +24,13 @@
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
@@ -150,7 +151,7 @@ class BlobDBTest : public testing::Test {
   void PutRandomWithTTL(const std::string &key, uint64_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(
         blob_db_->PutWithTTL(WriteOptions(), Slice(key), Slice(value), ttl));
     if (data != nullptr) {
@@ -161,7 +162,7 @@ class BlobDBTest : public testing::Test {
   void PutRandomUntil(const std::string &key, uint64_t expiration, Random *rnd,
                       std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(blob_db_->PutUntil(WriteOptions(), Slice(key), Slice(value),
                                  expiration));
     if (data != nullptr) {
@@ -177,7 +178,7 @@ class BlobDBTest : public testing::Test {
   void PutRandom(DB *db, const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
     if (data != nullptr) {
       (*data)[key] = value;
@@ -188,7 +189,7 @@ class BlobDBTest : public testing::Test {
       const std::string &key, Random *rnd, WriteBatch *batch,
       std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(batch->Put(key, value));
     if (data != nullptr) {
       (*data)[key] = value;
@@ -1087,7 +1088,7 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     uint64_t expiration = rnd.Next() % kMaxExpiration;
     int len = is_small_value ? 50 : 200;
     std::string key = "key" + ToString(i);
-    std::string value = test::RandomHumanReadableString(&rnd, len);
+    std::string value = rnd.HumanReadableString(len);
     std::string blob_index;
     data[key] = value;
     SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
@@ -1194,8 +1195,7 @@ TEST_F(BlobDBTest, UserCompactionFilter) {
       oss << "key" << std::setw(4) << std::setfill('0') << i;
 
       const std::string key(oss.str());
-      const std::string value(
-          test::RandomHumanReadableString(&rnd, (int)value_size));
+      const std::string value = rnd.HumanReadableString((int)value_size);
       const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
       ASSERT_OK(Put(key, value));
@@ -1272,8 +1272,7 @@ TEST_F(BlobDBTest, UserCompactionFilter_BlobIOError) {
       oss << "key" << std::setw(4) << std::setfill('0') << i;
 
       const std::string key(oss.str());
-      const std::string value(
-          test::RandomHumanReadableString(&rnd, kValueSize));
+      const std::string value = rnd.HumanReadableString(kValueSize);
       const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
       ASSERT_OK(Put(key, value));
@@ -1327,7 +1326,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
     uint64_t expiration = rnd.Next() % kMaxExpiration;
     int len = is_small_value ? 10 : 200;
     std::string key = "key" + ToString(rnd.Next() % kNumKeys);
-    std::string value = test::RandomHumanReadableString(&rnd, len);
+    std::string value = rnd.HumanReadableString(len);
     if (!has_ttl) {
       if (is_small_value) {
         std::string blob_entry;
@@ -1448,7 +1447,7 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   // Insert some small values that will be inlined.
   for (int i = 0; i < 1000; i++) {
     std::string key = "key" + ToString(i);
-    std::string value = test::RandomHumanReadableString(&rnd, 50);
+    std::string value = rnd.HumanReadableString(50);
     uint64_t ttl = rnd.Next() % 120 + 1;
     ASSERT_OK(PutWithTTL(key, value, ttl, &data));
     if (ttl >= 60) {
@@ -1556,8 +1555,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
     oss << "key" << std::setw(4) << std::setfill('0') << i;
 
     const std::string key(oss.str());
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kLargeValueSize));
+    const std::string value = rnd.HumanReadableString(kLargeValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(Put(key, value));
@@ -1574,8 +1572,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   // First, add a large TTL value will be written to its own TTL blob file.
   {
     const std::string key("key2000");
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kLargeValueSize));
+    const std::string value = rnd.HumanReadableString(kLargeValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(PutUntil(key, value, kExpiration));
@@ -1591,8 +1588,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   // Now add a small TTL value (which will be inlined).
   {
     const std::string key("key3000");
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kSmallValueSize));
+    const std::string value = rnd.HumanReadableString(kSmallValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(PutUntil(key, value, kExpiration));
@@ -1608,8 +1604,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   // value).
   {
     const std::string key("key4000");
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kSmallValueSize));
+    const std::string value = rnd.HumanReadableString(kSmallValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(Put(key, value));
@@ -2138,6 +2133,57 @@ TEST_F(BlobDBTest, ShutdownWait) {
   Close();
 
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(BlobDBTest, SyncBlobFileBeforeClose) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+
+  BlobDBOptions blob_options;
+  blob_options.min_blob_size = 0;
+  blob_options.bytes_per_sync = 1 << 20;
+  blob_options.disable_background_tasks = true;
+
+  Open(blob_options, options);
+
+  Put("foo", "bar");
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
+  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_SYNCED), 1);
+}
+
+TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+
+  BlobDBOptions blob_options;
+  blob_options.min_blob_size = 0;
+  blob_options.bytes_per_sync = 1 << 20;
+  blob_options.disable_background_tasks = true;
+
+  Open(blob_options, options);
+
+  Put("foo", "bar");
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobLogWriter::Sync", [this](void * /* arg */) {
+        fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = blob_db_impl()->TEST_CloseBlobFile(blob_files[0]);
+
+  fault_injection_env_->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(s.IsIOError());
 }
 
 }  //  namespace blob_db

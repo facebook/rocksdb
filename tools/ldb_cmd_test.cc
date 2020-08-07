@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/ldb_cmd.h"
+
 #include "db/version_edit.h"
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
@@ -16,6 +17,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
+#include "util/random.h"
 
 using std::string;
 using std::vector;
@@ -284,32 +286,28 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   for (int i = 0; i < 200; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 100; i < 300; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 200; i < 400; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 300; i < 400; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
@@ -369,32 +367,28 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   for (int i = 0; i < 100; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 50; i < 150; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 100; i < 200; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 150; i < 250; i++) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%08d", i);
-    std::string v;
-    test::RandomString(&rnd, 100, &v);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(db->Put(wopts, buf, v));
   }
   ASSERT_OK(db->Flush(fopts));
