@@ -587,8 +587,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
     }
 
     if (FLAGS_random_prefix) {
-      std::random_device rd;
-      std::shuffle(prefixes.begin(), prefixes.end(), std::mt19937(rd()));
+      RandomShuffle(prefixes.begin(), prefixes.end());
     }
 
     HistogramImpl hist_put_time;
