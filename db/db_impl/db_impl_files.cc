@@ -190,7 +190,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
-      env_->GetChildren(path, &files);  // Ignore errors
+      env_->GetChildren(path, &files).PermitUncheckedError();  // Ignore errors
       for (const std::string& file : files) {
         uint64_t number;
         FileType type;

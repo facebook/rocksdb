@@ -10,6 +10,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <limits>
 #include <memory>
 #include <string>
@@ -21,6 +22,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -307,6 +309,15 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter = nullptr;
+
+  // If non-nullptr, use the specified factory for a function to determine the
+  // partitioning of sst files. This helps compaction to split the files
+  // on interesting boundaries (key prefixes) to make propagation of sst
+  // files less write amplifying (covering the whole key space).
+  // THE FEATURE IS STILL EXPERIMENTAL
+  //
+  // Default: nullptr
+  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
