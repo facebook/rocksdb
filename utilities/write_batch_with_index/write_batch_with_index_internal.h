@@ -59,6 +59,7 @@ class BaseDeltaIterator : public Iterator {
   bool BaseValid() const;
   bool DeltaValid() const;
   void UpdateCurrent();
+  bool IsWithinBounds(const Slice& key) const;
 
   bool forward_;
   bool current_at_base_;
