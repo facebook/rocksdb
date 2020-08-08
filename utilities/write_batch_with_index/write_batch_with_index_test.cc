@@ -894,6 +894,874 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   }
 }
 
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBaseAndBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+
+  batch.Put(&cf1, "k04", "v04");
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBatchAndBase) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k04"] = "v04";
+  base["k05"] = "v05";
+  base["k06"] = "v06";
+
+  batch.Put(&cf1, "k01", "v01");
+  batch.Put(&cf1, "k02", "v02");
+  batch.Put(&cf1, "k03", "v03");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBaseAndBatchWithBounds) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+
+  batch.Put(&cf1, "k04", "v04");
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  Slice upper_bound_batch("k06");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBaseAndBatchUnbalanced1WithBounds) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+
+  batch.Put(&cf1, "k03", "v03");
+  batch.Put(&cf1, "k04", "v04");
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  Slice upper_bound_batch("k06");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBaseAndBatchUnbalanced2WithBounds) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k02"] = "v03";
+  base["k04"] = "v04";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  Slice upper_bound_batch("k06");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBatchAndBaseWithBounds) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k04"] = "v04";
+  base["k05"] = "v05";
+  base["k06"] = "v06";
+
+  batch.Put(&cf1, "k01", "v01");
+  batch.Put(&cf1, "k02", "v02");
+  batch.Put(&cf1, "k03", "v03");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  Slice upper_bound_batch("k06");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBatchAndBaseUnbalanced1WithBounds) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k05"] = "v05";
+  base["k06"] = "v06";
+
+  batch.Put(&cf1, "k01", "v01");
+  batch.Put(&cf1, "k02", "v02");
+  batch.Put(&cf1, "k03", "v03");
+  batch.Put(&cf1, "k04", "v04");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  Slice upper_bound_batch("k06");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLast1OnBatchAndBaseUnbalanced2WithBounds) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+  base["k05"] = "v05";
+  base["k06"] = "v06";
+
+  batch.Put(&cf1, "k01", "v01");
+  batch.Put(&cf1, "k02", "v02");
+
+  ReadOptions read_options;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  Slice upper_bound_batch("k06");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBaseAndBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+
+  batch.Put(&cf1, "k04", "v04");
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator())));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached end";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k04", "v04");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k03", "v03");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k02", "v02");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k01", "v01");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached start";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  // random seek forward
+  iter->Seek("k04");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k04", "v04");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached end";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached end";
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBatchAndBase) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k04"] = "v04";
+  base["k05"] = "v05";
+  base["k06"] = "v06";
+
+  batch.Put(&cf1, "k01", "v01");
+  batch.Put(&cf1, "k02", "v02");
+  batch.Put(&cf1, "k03", "v03");
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator())));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached end";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k04", "v04");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k03", "v03");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k02", "v02");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k01", "v01");
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached start";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  // random seek forward
+  iter->Seek("k04");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k04", "v04");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k05", "v05");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached end";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k06", "v06");
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithoutBaseConstraint) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k1"] = "v1";
+  base["k2"] = "v2";
+  base["k3"] = "v3";
+  base["k4"] = "v4";
+  base["k5"] = "v5";
+  base["k6"] = "v6";
+
+  Slice upper_bound("k4");
+
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  // NOTE: read_options are NOT passed to KVIter, so WBWIIterator imposes iterate_upper_bound on base
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator()),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k1", "v1");
+  iter->Next();
+  AssertIter(iter.get(), "k2", "v2");
+  iter->Next();
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k2", "v2");
+  iter->Next();
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithBaseConstraint) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k1"] = "v1";
+  base["k2"] = "v2";
+  base["k3"] = "v3";
+  base["k4"] = "v4";
+  base["k5"] = "v5";
+  base["k6"] = "v6";
+
+  Slice upper_bound("k4");
+
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  // NOTE: read_options are also passed to KVIter, so KVIter imposes iterate_upper_bound on base
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k1", "v1");
+  iter->Next();
+  AssertIter(iter.get(), "k2", "v2");
+  iter->Next();
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k2", "v2");
+  iter->Next();
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  batch.Put(&cf1, "k1", "v1");
+  batch.Put(&cf1, "k2", "v2");
+  batch.Put(&cf1, "k3", "v3");
+  batch.Put(&cf1, "k4", "v4");
+  batch.Put(&cf1, "k5", "v5");
+  batch.Put(&cf1, "k6", "v6");
+
+  Slice upper_bound("k4");
+
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  KVMap empty_map;
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map, BytewiseComparator(), &read_options), &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k1", "v1");
+  iter->Next();
+  AssertIter(iter.get(), "k2", "v2");
+  iter->Next();
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k2", "v2");
+  iter->Next();
+  AssertIter(iter.get(), "k3", "v3");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundOnBaseAndBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+
+  ReadOptions read_options;
+
+  // scan over base
+  Slice upper_bound_base("k04");
+  read_options.iterate_upper_bound = &upper_bound_base;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k01", "v01");
+  iter->Next();
+  AssertIter(iter.get(), "k02", "v02");
+  iter->Next();
+  AssertIter(iter.get(), "k03", "v03");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k03", "v03");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k02", "v02");
+  iter->Next();
+  AssertIter(iter.get(), "k03", "v03");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  // scan over batch
+  Slice upper_bound_batch("k08");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->Seek("k05");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k05", "v05");
+  iter->Next();
+  AssertIter(iter.get(), "k06", "v06");
+  iter->Next();
+  AssertIter(iter.get(), "k07", "v07");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  AssertIter(iter.get(), "k07", "v07");
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k06", "v06");
+  iter->Next();
+  AssertIter(iter.get(), "k07", "v07");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundOnBaseAndBatchInterleaved) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+  base["k09"] = "v09";
+  base["k0C"] = "v0C";
+  base["k0D"] = "v0D";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+  batch.Put(&cf1, "k0A", "v0A");
+  batch.Put(&cf1, "k0B", "v0B");
+
+  Slice upper_bound("k0B");
+
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k01", "v01");
+  iter->Next();
+  AssertIter(iter.get(), "k02", "v02");
+  iter->Next();
+  AssertIter(iter.get(), "k03", "v03");
+  iter->Next();
+  AssertIter(iter.get(), "k04", "v04");
+  iter->Next();
+  AssertIter(iter.get(), "k05", "v05");
+  iter->Next();
+  AssertIter(iter.get(), "k06", "v06");
+  iter->Next();
+  AssertIter(iter.get(), "k07", "v07");
+  iter->Next();
+  AssertIter(iter.get(), "k08", "v08");
+  iter->Next();
+  AssertIter(iter.get(), "k09", "v09");
+  iter->Next();
+  AssertIter(iter.get(), "k0A", "v0A");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundOnBatchAndBaseInterleaved) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+  base["k09"] = "v09";
+  base["k0C"] = "v0C";
+  base["k0D"] = "v0D";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+  batch.Put(&cf1, "k0A", "v0A");
+  batch.Put(&cf1, "k0B", "v0B");
+
+  Slice upper_bound("k0B");
+
+  ReadOptions read_options;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  AssertIter(iter.get(), "k01", "v01");
+  iter->Next();
+  AssertIter(iter.get(), "k02", "v02");
+  iter->Next();
+  AssertIter(iter.get(), "k03", "v03");
+  iter->Next();
+  AssertIter(iter.get(), "k04", "v04");
+  iter->Next();
+  AssertIter(iter.get(), "k05", "v05");
+  iter->Next();
+  AssertIter(iter.get(), "k06", "v06");
+  iter->Next();
+  AssertIter(iter.get(), "k07", "v07");
+  iter->Next();
+  AssertIter(iter.get(), "k08", "v08");
+  iter->Next();
+  AssertIter(iter.get(), "k09", "v09");
+  iter->Next();
+  AssertIter(iter.get(), "k0A", "v0A");
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
 TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
