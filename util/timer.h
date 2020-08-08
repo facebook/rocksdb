@@ -36,11 +36,7 @@ namespace ROCKSDB_NAMESPACE {
 class Timer {
  public:
   Timer(Env* env)
-      : env_(env),
-        mutex_(env),
-        cond_var_(&mutex_),
-        running_(false) {
-  }
+      : env_(env), mutex_(env), cond_var_(&mutex_), running_(false) {}
 
   ~Timer() {}
 
@@ -67,6 +63,7 @@ class Timer {
     auto it = map_.find(fn_name);
     if (it != map_.end()) {
       if (it->second) {
+        WaitForTaskCompleteIfNecessary(*(it->second));
         it->second->Cancel();
       }
     }
@@ -129,8 +126,13 @@ class Timer {
       }
 
       if (current_fn->next_run_time_us <= env_->NowMicros()) {
+        current_fn->executing = true;
+        mutex_.Unlock();
         // Execute the work
         current_fn->fn();
+        mutex_.Lock();
+        current_fn->executing = false;
+        cond_var_.Signal();
 
         // Remove the work from the heap once it is done executing.
         // Note that we are just removing the pointer from the heap. Its
@@ -157,6 +159,8 @@ class Timer {
     }
 
     while (!heap_.empty()) {
+      const FunctionInfo& top = *(heap_.top());
+      WaitForTaskCompleteIfNecessary(top);
       heap_.pop();
     }
 
@@ -178,25 +182,34 @@ class Timer {
     // A function is valid upon construction and until someone explicitly
     // calls `Cancel()`.
     bool valid;
+    // Whether this function is being executed now.
+    bool executing;
 
-    FunctionInfo(std::function<void()>&& _fn,
-                 const std::string& _name,
-                 const uint64_t _next_run_time_us,
-                 uint64_t _repeat_every_us)
-      : fn(std::move(_fn)),
-        name(_name),
-        next_run_time_us(_next_run_time_us),
-        repeat_every_us(_repeat_every_us),
-        valid(true) {}
+    FunctionInfo(std::function<void()>&& _fn, const std::string& _name,
+                 const uint64_t _next_run_time_us, uint64_t _repeat_every_us)
+        : fn(std::move(_fn)),
+          name(_name),
+          next_run_time_us(_next_run_time_us),
+          repeat_every_us(_repeat_every_us),
+          valid(true),
+          executing(false) {}
 
     void Cancel() {
       valid = false;
     }
 
-    bool IsValid() {
-      return valid;
-    }
+    bool IsValid() const { return valid; }
+
+    bool IsExecuting() const { return executing; }
   };
+
+  void WaitForTaskCompleteIfNecessary(const FunctionInfo& fn) {
+    mutex_.AssertHeld();
+    while (fn.executing) {
+      TEST_SYNC_POINT("Timer::WaitForTaskCompleteIfNecessary:TaskExecuting");
+      cond_var_.Wait();
+    }
+  }
 
   struct RunTimeOrder {
     bool operator()(const FunctionInfo* f1,
@@ -212,7 +225,6 @@ class Timer {
   InstrumentedCondVar cond_var_;
   std::unique_ptr<port::Thread> thread_;
   bool running_;
-
 
   std::priority_queue<FunctionInfo*,
                       std::vector<FunctionInfo*>,
