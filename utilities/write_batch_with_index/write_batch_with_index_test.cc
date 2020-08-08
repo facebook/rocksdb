@@ -560,6 +560,14 @@ class KVIter : public Iterator {
   Slice value() const override { return iter_->second; }
   Status status() const override { return Status::OK(); }
 
+  bool has_lower_bound() const override {
+    return read_options_ != nullptr && read_options_->iterate_lower_bound != nullptr;
+  };
+
+  bool has_upper_bound() const override {
+    return read_options_ != nullptr && read_options_->iterate_upper_bound != nullptr;
+  };
+
  private:
   const KVMap* const map_;
   KVMap::const_iterator iter_;
