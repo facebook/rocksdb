@@ -409,10 +409,7 @@ Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
   Env* ret_env{base_env};
   OpenSSLEnv* new_env{nullptr};
 
-  if (Env::Default() == base_env) {
-    // use safer static construction so libcrypto is synchronously loaded
-    new_env = (OpenSSLEnv*)OpenSSLEnv::Default(encrypt_read, encrypt_write);
-  } else if (nullptr != base_env) {
+  if (nullptr != base_env) {
     new_env = new OpenSSLEnv(base_env, encrypt_read, encrypt_write);
   }
 
