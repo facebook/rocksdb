@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 //
-// env_encryption.cc copied to this file then modified.
+//  env_encryption.cc copied to this file then modified.
 
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
