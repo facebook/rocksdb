@@ -71,6 +71,11 @@ ShaDescription::ShaDescription(const std::string& key_desc_str) {
   valid = good;
 }
 
+std::shared_ptr<ShaDescription> NewShaDescription(
+    const std::string& key_desc_str) {
+  return std::make_shared<ShaDescription>(key_desc_str);
+}
+
 AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
   GetCrypto();  // ensure libcryto available
   memset(key, 0, EVP_MAX_KEY_LENGTH);
@@ -86,6 +91,11 @@ AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
       valid = true;
     }
   }
+}
+
+// code tests for 64 character hex string to yield 32 byte binary key
+std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string& hex_key_str) {
+  return std::make_shared<AesCtrKey>(hex_key_str);
 }
 
 void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf, uint64_t value) {
@@ -266,6 +276,19 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
   }
 
   return status;
+}
+
+std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+    const std::shared_ptr<ShaDescription>& key_desc,
+    const std::shared_ptr<AesCtrKey>& aes_ctr_key) {
+  return std::make_shared<CTREncryptionProviderV2>(*key_desc.get(),
+                                                   *aes_ctr_key.get());
+}
+
+std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+    const std::string& key_desc_str, const uint8_t binary_key[], int bytes) {
+  return std::make_shared<CTREncryptionProviderV2>(key_desc_str, binary_key,
+                                                   bytes);
 }
 
 Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,

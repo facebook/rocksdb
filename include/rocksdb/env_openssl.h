@@ -75,6 +75,9 @@ struct ShaDescription {
   bool IsValid() const { return valid; }
 };
 
+std::shared_ptr<ShaDescription> NewShaDescription(
+    const std::string& key_desc_str);
+
 struct AesCtrKey {
   uint8_t key[EVP_MAX_KEY_LENGTH];
   bool valid;
@@ -91,7 +94,7 @@ struct AesCtrKey {
     }
   }
 
-  AesCtrKey(const std::string& key_str);
+  AesCtrKey(const std::string& hex_key_str);
 
   // see Writing Solid Code, 2nd edition
   //   Chapter 9, page 321, Managing Secrets in Memory ... bullet 4 "Scrub the
@@ -113,6 +116,9 @@ struct AesCtrKey {
 
   bool IsValid() const { return valid; }
 };
+
+// code tests for 64 character hex string to yield 32 byte binary key
+std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string& hex_key_str);
 
 class CTREncryptionProviderV2 : public EncryptionProvider {
  public:
@@ -156,6 +162,13 @@ class CTREncryptionProviderV2 : public EncryptionProvider {
   ShaDescription key_desc_;
   AesCtrKey key_;
 };
+
+std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+    const std::shared_ptr<ShaDescription>& key_desc,
+    const std::shared_ptr<AesCtrKey>& aes_ctr_key);
+
+std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+    const std::string& key_desc_str, const uint8_t binary_key[], int bytes);
 
 // OpenSSLEnv implements an Env wrapper that adds encryption to files stored
 // on disk.
