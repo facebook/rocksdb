@@ -9,8 +9,6 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/env_openssl.h"
-
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -112,14 +110,6 @@ void AESBlockAccessCipherStream::BigEndianAdd128(uint8_t* buf, uint64_t value) {
   }  // for
 }
 
-//
-// AES_BLOCK_SIZE assumed to be 16
-//
-typedef union {
-  uint64_t nums[2];
-  uint8_t bytes[AES_BLOCK_SIZE];
-} AesAlignedBlock;
-
 // "data" is assumed to be aligned at AES_BLOCK_SIZE or greater
 Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
                                            size_t data_size) {
@@ -127,7 +117,7 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
   if (0 < data_size) {
     if (crypto_shared->IsValid()) {
       int ret_val, out_len;
-      ALIGN16 AesAlignedBlock iv;
+      ALIGN16 uint8_t iv[AES_BLOCK_SIZE];
       uint64_t block_index = file_offset / BlockSize();
 
       // make a context once per thread
@@ -138,32 +128,35 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
                 crypto_shared->EVP_CIPHER_CTX_free_ptr());
       }
 
-      memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
-      BigEndianAdd128(iv.bytes, block_index);
+      memcpy(iv, nonce_, AES_BLOCK_SIZE);
+      BigEndianAdd128(iv, block_index);
 
       ret_val = crypto_shared->EVP_EncryptInit_ex(
           aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr,
-          key_.key, iv.bytes);
+          key_.key, iv);
       if (1 == ret_val) {
         out_len = 0;
         ret_val = crypto_shared->EVP_EncryptUpdate(
             aes_context.get(), (unsigned char*)data, &out_len,
             (unsigned char*)data, (int)data_size);
 
-        if (1 != ret_val || (int)data_size != out_len) {
+        if (1 == ret_val && (int)data_size == out_len) {
+          // this is a soft reset of aes_context per man pages
+          uint8_t temp_buf[AES_BLOCK_SIZE];
+          out_len = 0;
+          ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(),
+                                                       temp_buf, &out_len);
+
+          if (1 != ret_val || 0 != out_len) {
+            status = Status::InvalidArgument(
+                "EVP_EncryptFinal_ex failed: ",
+                (1 != ret_val) ? "bad return value" : "output length short");
+          }
+        } else {
           status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
                                            (int)data_size == out_len
                                                ? "bad return value"
                                                : "output length short");
-        }
-        // this is a soft reset of aes_context per man pages
-        uint8_t temp_buf[AES_BLOCK_SIZE];
-        out_len = 0;
-        ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(),
-                                                     temp_buf, &out_len);
-
-        if (1 != ret_val || 0 != out_len) {
-          status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
         }
       } else {
         status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
@@ -192,7 +185,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
   uint8_t temp_buf[block_size];
 
   Status status;
-  ALIGN16 AesAlignedBlock iv;
+  ALIGN16 uint8_t iv[AES_BLOCK_SIZE];
   int out_len = 0, ret_val;
 
   if (crypto_shared->IsValid()) {
@@ -203,12 +196,12 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
           crypto_shared->EVP_CIPHER_CTX_free_ptr());
     }
 
-    memcpy(iv.bytes, nonce_, AES_BLOCK_SIZE);
-    BigEndianAdd128(iv.bytes, block_index);
+    memcpy(iv, nonce_, AES_BLOCK_SIZE);
+    BigEndianAdd128(iv, block_index);
 
     ret_val = crypto_shared->EVP_EncryptInit_ex(
         aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr, key_.key,
-        iv.bytes);
+        iv);
     if (1 == ret_val) {
       // handle uneven block start
       if (0 != block_offset) {
