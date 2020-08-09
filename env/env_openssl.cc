@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <mutex>
 
 #include "env/env_openssl_impl.h"
 #include "monitoring/perf_context_imp.h"
@@ -25,7 +26,14 @@ namespace ROCKSDB_NAMESPACE {
 
 static port::RWMutex key_lock;
 
+static std::once_flag crypto_loaded;
 static std::shared_ptr<UnixLibCrypto> crypto_shared;
+
+std::shared_ptr<UnixLibCrypto> GetCrypto() {
+  std::call_once(crypto_loaded,
+                 []() { crypto_shared = std::make_shared<UnixLibCrypto>(); });
+  return crypto_shared;
+}
 
 // reuse cipher context between calls to Encrypt & Decrypt
 static void do_nothing(EVP_CIPHER_CTX*){};
@@ -33,7 +41,7 @@ thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>
     aes_context(nullptr, &do_nothing);
 
 ShaDescription::ShaDescription(const std::string& key_desc_str) {
-  OpenSSLEnv::Default();  // ensure libcryto available
+  GetCrypto();  // ensure libcryto available
   bool good = {true};
   int ret_val;
   unsigned len;
@@ -64,7 +72,7 @@ ShaDescription::ShaDescription(const std::string& key_desc_str) {
 }
 
 AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
-  OpenSSLEnv::Default();  // ensure libcryto available
+  GetCrypto();  // ensure libcryto available
   memset(key, 0, EVP_MAX_KEY_LENGTH);
 
   // simple parse:  must be 64 characters long and hexadecimal values
@@ -263,7 +271,7 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
 Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
                                                 char* prefix,
                                                 size_t prefixLength) const {
-  OpenSSLEnv::Default();  // ensure libcryto available
+  GetCrypto();  // ensure libcryto available
   Status s;
   if (crypto_shared->IsValid()) {
     if (sizeof(PrefixVersion0) <= prefixLength) {
@@ -427,12 +435,7 @@ OpenSSLEnv::OpenSSLEnv(Env* base_env) : EnvWrapper(base_env), valid_(false) {
 }
 
 void OpenSSLEnv::init() {
-  if (crypto_shared) {
-    crypto_ = crypto_shared;
-  } else {
-    crypto_ = std::make_shared<UnixLibCrypto>();
-    crypto_shared = crypto_;
-  }
+  crypto_ = GetCrypto();
 
   valid_ = crypto_->IsValid();
   if (IsValid()) {
