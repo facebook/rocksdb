@@ -280,16 +280,37 @@ class Configurable {
   // "my_ptr"
   virtual const void* GetOptionsPtr(const std::string& name) const;
 
+  // Method for allowing options to be configured outside of the normal
+  // registered options framework.  Classes may override this method if they
+  // wish to support non-standard options implementations (such as configuring
+  // themselves from constant or simple ":"-separated strings.
+  //
+  // The default implementation does nothing and returns OK
   virtual Status ParseStringOptions(const ConfigOptions& config_options,
                                     const std::string& opts_str);
 
+  // Internal method to configure an object from a map of name-value options.
+  // This method uses the input config_options to drive the configuration of
+  // the options in opt_map.  Any option name that cannot be found from the
+  // input set will be returned in "unused".
+  //
+  // Classes may override this method to extend the functionality if required.
+  // @param config_options Controls how the options are configured and errors
+  // handled.
+  // @param opts_map The set of options to configure
+  // @param unused Any options from opt_map that were not configured.
+  // @returns a Status based on the rules outlined in ConfigureFromMap
   virtual Status ConfigureOptions(
       const ConfigOptions& config_options,
       const std::unordered_map<std::string, std::string>& opts_map,
       std::unordered_map<std::string, std::string>* unused);
 
 #ifndef ROCKSDB_LITE
-
+  // Method that configures a the specific opt_name from opt_value.
+  // By default, this method calls opt_info.ParseOption with the
+  // input parameters.
+  // Classes may override this method to extend the functionality, or
+  // change the returned Status.
   virtual Status ParseOption(const ConfigOptions& config_options,
                              const OptionTypeInfo& opt_info,
                              const std::string& opt_name,
