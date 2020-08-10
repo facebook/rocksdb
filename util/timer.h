@@ -118,6 +118,7 @@ class Timer {
       }
 
       FunctionInfo* current_fn = heap_.top();
+      assert(current_fn);
 
       if (!current_fn->IsValid()) {
         heap_.pop();
@@ -140,7 +141,8 @@ class Timer {
         // So current_fn is still a valid ptr.
         heap_.pop();
 
-        if (current_fn->repeat_every_us > 0) {
+        // current_fn may be cancelled already.
+        if (current_fn->IsValid() && current_fn->repeat_every_us > 0) {
           current_fn->next_run_time_us = env_->NowMicros() +
               current_fn->repeat_every_us;
 
@@ -154,16 +156,34 @@ class Timer {
   }
 
   void CancelAllWithLock() {
+    mutex_.AssertHeld();
     if (map_.empty() && heap_.empty()) {
       return;
     }
 
-    while (!heap_.empty()) {
-      const FunctionInfo& top = *(heap_.top());
-      WaitForTaskCompleteIfNecessary(top);
-      heap_.pop();
+    // With mutex_ held, set all tasks to invalid so that they will not be
+    // re-queued.
+    // TODO: maybe use a single flag to prevent re-queuing.
+    for (auto& elem : map_) {
+      auto& func_info = elem.second;
+      assert(func_info);
+      func_info->valid = false;
     }
 
+    if (!heap_.empty()) {
+      const FunctionInfo& top = *(heap_.top());
+      // WaitForTaskCompleteIfNecessary() may release mutex_
+      WaitForTaskCompleteIfNecessary(top);
+    }
+
+    while (!heap_.empty()) {
+#ifndef NDEBUG
+      const FunctionInfo* func_info = heap_.top();
+      assert(func_info);
+      assert(!func_info->IsExecuting());
+#endif  // !NDEBUG
+      heap_.pop();
+    }
     map_.clear();
   }
 
