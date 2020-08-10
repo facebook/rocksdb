@@ -1230,9 +1230,8 @@ if(WITH_TESTS)
 
   if(ROCKSDB_LIB_FOR_C)
     set(C_TESTS db/c_test.c)
-    # C executables must link to a shared object
     add_executable(c_test db/c_test.c)
-    target_link_libraries(c_test ${ROCKSDB_SHARED_LIB} testharness)
+    target_link_libraries(c_test ${ROCKSDB_LIB_FOR_C} testharness)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
     add_dependencies(check c_test)
   endif()
