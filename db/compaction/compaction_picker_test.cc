@@ -2016,6 +2016,127 @@ TEST_F(CompactionPickerTest, UniversalMarkedCompactionStartOutputOverlap) {
     DeleteVersionStorage();
   }
 }
+
+TEST_F(CompactionPickerTest, UniversalMarkedL0NoOverlap) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  // This test covers the case where a delete triggered compaction is
+  // scheduled and should result in a full compaction
+  NewVersionStorage(1, kCompactionStyleUniversal);
+
+  // Mark file number 4 for compaction
+  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300, 0, true);
+  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250);
+  Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150);
+  Add(0, 6U, "501", "750", 8 * kFileSize, 0, 50, 100);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  ASSERT_TRUE(compaction);
+  // Validate that its a delete triggered compaction
+  ASSERT_EQ(CompactionReason::kFilesMarkedForCompaction,
+            compaction->compaction_reason());
+  ASSERT_EQ(0, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(4U, compaction->num_input_files(0));
+  ASSERT_TRUE(file_map_[4].first->being_compacted);
+  ASSERT_TRUE(file_map_[5].first->being_compacted);
+  ASSERT_TRUE(file_map_[3].first->being_compacted);
+  ASSERT_TRUE(file_map_[6].first->being_compacted);
+}
+
+TEST_F(CompactionPickerTest, UniversalMarkedL0WithOverlap) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  // This test covers the case where a file is being compacted, and a
+  // delete triggered compaction is then scheduled. The latter should stop
+  // at the first file being compacted
+  NewVersionStorage(1, kCompactionStyleUniversal);
+
+  // Mark file number 4 for compaction
+  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300, 0, true);
+  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250);
+  Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150);
+  Add(0, 6U, "501", "750", 8 * kFileSize, 0, 50, 100);
+  UpdateVersionStorageInfo();
+  file_map_[3].first->being_compacted = true;
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  ASSERT_TRUE(compaction);
+  // Validate that its a delete triggered compaction
+  ASSERT_EQ(CompactionReason::kFilesMarkedForCompaction,
+            compaction->compaction_reason());
+  ASSERT_EQ(0, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_TRUE(file_map_[4].first->being_compacted);
+  ASSERT_TRUE(file_map_[5].first->being_compacted);
+}
+
+TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  // This test covers the case where a delete triggered compaction is
+  // scheduled first, followed by a "regular" compaction. The latter
+  // should fail
+  NewVersionStorage(1, kCompactionStyleUniversal);
+
+  // Mark file number 4 for compaction
+  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300);
+  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250, 0, true);
+  Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150);
+  Add(0, 6U, "501", "750", 8 * kFileSize, 0, 50, 100);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  ASSERT_TRUE(compaction);
+  // Validate that its a delete triggered compaction
+  ASSERT_EQ(CompactionReason::kFilesMarkedForCompaction,
+            compaction->compaction_reason());
+  ASSERT_EQ(0, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(3U, compaction->num_input_files(0));
+  ASSERT_TRUE(file_map_[5].first->being_compacted);
+  ASSERT_TRUE(file_map_[3].first->being_compacted);
+  ASSERT_TRUE(file_map_[6].first->being_compacted);
+
+  AddVersionStorage();
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction2(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  ASSERT_TRUE(compaction2);
+  ASSERT_EQ(3U, compaction->num_input_files(0));
+  ASSERT_TRUE(file_map_[1].first->being_compacted);
+  ASSERT_TRUE(file_map_[2].first->being_compacted);
+  ASSERT_TRUE(file_map_[4].first->being_compacted);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
