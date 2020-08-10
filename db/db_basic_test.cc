@@ -3291,9 +3291,6 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
   bool set_deadline = std::get<0>(GetParam());
   bool set_timeout = std::get<1>(GetParam());
 
-  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
-  // properly for the DB that's opened by the DBTestBase constructor.
-  Close();
   for (int option_config = kDefault; option_config < kEnd; ++option_config) {
     if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
       continue;
@@ -3305,7 +3302,6 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     options.env = env.get();
     options.disable_auto_compactions = true;
     Cache* block_cache = nullptr;
-    env_->SetTimeElapseOnlySleep(&options);
     // DB open will create table readers unless we reduce the table cache
     // capacity.
     // SanitizeOptions will set max_open_files to minimum of 20. Table cache
@@ -3320,6 +3316,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
+    SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
     if (options.table_factory &&
