@@ -880,6 +880,9 @@ void BlockBasedTableBuilder::Flush() {
     if (r->first_key_in_next_block == nullptr) {
       block_rep->first_key_in_next_block.reset(nullptr);
     } else {
+      if (!block_rep->first_key_in_next_block) {
+        block_rep->first_key_in_next_block.reset(new td::string());
+      }
       block_rep->first_key_in_next_block->assign(
           r->first_key_in_next_block->data(),
           r->first_key_in_next_block->size());
