@@ -2645,37 +2645,17 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
 }
 } // anonymous namespace
 
-void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
-  auto* level_files = &files_[level];
-  // Must not overlap
-#ifndef NDEBUG
-  if (level > 0 && !level_files->empty() &&
-      internal_comparator_->Compare(
-          (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
-    auto* f2 = (*level_files)[level_files->size() - 1];
-    if (info_log != nullptr) {
-      Error(info_log, "Adding new file %" PRIu64
-                      " range (%s, %s) to level %d but overlapping "
-                      "with existing file %" PRIu64 " %s %s",
-            f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
-            f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
-            f2->smallest.DebugString(true).c_str(),
-            f2->largest.DebugString(true).c_str());
-      LogFlush(info_log);
-    }
-    assert(false);
-  }
-#else
-  (void)info_log;
-#endif
+void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
+  auto& level_files = files_[level];
+  level_files.push_back(f);
+
   f->refs++;
-  level_files->push_back(f);
 
   const uint64_t file_number = f->fd.GetNumber();
 
   assert(file_locations_.find(file_number) == file_locations_.end());
   file_locations_.emplace(file_number,
-                          FileLocation(level, level_files->size() - 1));
+                          FileLocation(level, level_files.size() - 1));
 }
 
 void VersionStorageInfo::AddBlobFile(
