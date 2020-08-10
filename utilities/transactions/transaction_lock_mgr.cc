@@ -643,26 +643,27 @@ void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
 }
 
 void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
-                                const TransactionKeyMap* key_map, Env* env) {
-  for (auto& key_map_iter : *key_map) {
-    uint32_t column_family_id = key_map_iter.first;
-    auto& keys = key_map_iter.second;
-
-    std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
+                                const LockTracker& tracker, Env* env) {
+  std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
+      tracker.GetColumnFamilyIterator());
+  assert(cf_it != nullptr);
+  while (cf_it->HasNext()) {
+    ColumnFamilyId cf = cf_it->Next();
+    std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(cf);
     LockMap* lock_map = lock_map_ptr.get();
-
-    if (lock_map == nullptr) {
+    if (!lock_map) {
       // Column Family must have been dropped.
       return;
     }
 
     // Bucket keys by lock_map_ stripe
     std::unordered_map<size_t, std::vector<const std::string*>> keys_by_stripe(
-        std::max(keys.size(), lock_map->num_stripes_));
-
-    for (auto& key_iter : keys) {
-      const std::string& key = key_iter.first;
-
+        lock_map->num_stripes_);
+    std::unique_ptr<LockTracker::KeyIterator> key_it(
+        tracker.GetKeyIterator(cf));
+    assert(key_it != nullptr);
+    while (key_it->HasNext()) {
+      const std::string& key = key_it->Next();
       size_t stripe_num = lock_map->GetStripe(key);
       keys_by_stripe[stripe_num].push_back(&key);
     }

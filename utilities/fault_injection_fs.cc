@@ -227,7 +227,6 @@ IOStatus FaultInjectionTestFS::NewDirectory(
     std::unique_ptr<FSDirectory>* result, IODebugContext* dbg) {
   std::unique_ptr<FSDirectory> r;
   IOStatus io_s = target()->NewDirectory(name, options, &r, dbg);
-  assert(io_s.ok());
   if (!io_s.ok()) {
     return io_s;
   }

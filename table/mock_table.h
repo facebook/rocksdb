@@ -36,144 +36,14 @@ struct MockTableFileSystem {
   std::map<uint32_t, stl_wrappers::KVMap> files;
 };
 
-class MockTableReader : public TableReader {
- public:
-  explicit MockTableReader(const stl_wrappers::KVMap& table) : table_(table) {}
-
-  InternalIterator* NewIterator(const ReadOptions&,
-                                const SliceTransform* prefix_extractor,
-                                Arena* arena, bool skip_filters,
-                                TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0,
-                                bool allow_unprepared_value = false) override;
-
-  Status Get(const ReadOptions& readOptions, const Slice& key,
-             GetContext* get_context, const SliceTransform* prefix_extractor,
-             bool skip_filters = false) override;
-
-  uint64_t ApproximateOffsetOf(const Slice& /*key*/,
-                               TableReaderCaller /*caller*/) override {
-    return 0;
-  }
-
-  uint64_t ApproximateSize(const Slice& /*start*/, const Slice& /*end*/,
-                           TableReaderCaller /*caller*/) override {
-    return 0;
-  }
-
-  size_t ApproximateMemoryUsage() const override { return 0; }
-
-  void SetupForCompaction() override {}
-
-  std::shared_ptr<const TableProperties> GetTableProperties() const override;
-
-  ~MockTableReader() {}
-
- private:
-  const stl_wrappers::KVMap& table_;
-};
-
-class MockTableIterator : public InternalIterator {
- public:
-  explicit MockTableIterator(const stl_wrappers::KVMap& table) : table_(table) {
-    itr_ = table_.end();
-  }
-
-  bool Valid() const override { return itr_ != table_.end(); }
-
-  void SeekToFirst() override { itr_ = table_.begin(); }
-
-  void SeekToLast() override {
-    itr_ = table_.end();
-    --itr_;
-  }
-
-  void Seek(const Slice& target) override {
-    std::string str_target(target.data(), target.size());
-    itr_ = table_.lower_bound(str_target);
-  }
-
-  void SeekForPrev(const Slice& target) override {
-    std::string str_target(target.data(), target.size());
-    itr_ = table_.upper_bound(str_target);
-    Prev();
-  }
-
-  void Next() override { ++itr_; }
-
-  void Prev() override {
-    if (itr_ == table_.begin()) {
-      itr_ = table_.end();
-    } else {
-      --itr_;
-    }
-  }
-
-  Slice key() const override { return Slice(itr_->first); }
-
-  Slice value() const override { return Slice(itr_->second); }
-
-  Status status() const override { return Status::OK(); }
-
- private:
-  const stl_wrappers::KVMap& table_;
-  stl_wrappers::KVMap::const_iterator itr_;
-};
-
-class MockTableBuilder : public TableBuilder {
- public:
-  MockTableBuilder(uint32_t id, MockTableFileSystem* file_system)
-      : id_(id), file_system_(file_system) {
-    table_ = MakeMockFile({});
-  }
-
-  // REQUIRES: Either Finish() or Abandon() has been called.
-  ~MockTableBuilder() {}
-
-  // Add key,value to the table being constructed.
-  // REQUIRES: key is after any previously added key according to comparator.
-  // REQUIRES: Finish(), Abandon() have not been called
-  void Add(const Slice& key, const Slice& value) override {
-    table_.insert({key.ToString(), value.ToString()});
-  }
-
-  // Return non-ok iff some error has been detected.
-  Status status() const override { return Status::OK(); }
-
-  // Return non-ok iff some error happens during IO.
-  IOStatus io_status() const override { return IOStatus::OK(); }
-
-  Status Finish() override {
-    MutexLock lock_guard(&file_system_->mutex);
-    file_system_->files.insert({id_, table_});
-    return Status::OK();
-  }
-
-  void Abandon() override {}
-
-  uint64_t NumEntries() const override { return table_.size(); }
-
-  uint64_t FileSize() const override { return table_.size(); }
-
-  TableProperties GetTableProperties() const override {
-    return TableProperties();
-  }
-
-  // Get file checksum
-  std::string GetFileChecksum() const override { return kUnknownFileChecksum; }
-  // Get file checksum function name
-  const char* GetFileChecksumFuncName() const override {
-    return kUnknownFileChecksumFuncName;
-  }
-
- private:
-  uint32_t id_;
-  MockTableFileSystem* file_system_;
-  stl_wrappers::KVMap table_;
-};
-
 class MockTableFactory : public TableFactory {
  public:
+  enum MockCorruptionMode {
+    kCorruptNone,
+    kCorruptKey,
+    kCorruptValue,
+  };
+
   MockTableFactory();
   const char* Name() const override { return "MockTable"; }
   using TableFactory::NewTableReader;
@@ -202,6 +72,7 @@ class MockTableFactory : public TableFactory {
     return std::string();
   }
 
+  void SetCorruptionMode(MockCorruptionMode mode) { corrupt_mode_ = mode; }
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
   void AssertSingleFile(const stl_wrappers::KVMap& file_contents);
@@ -213,6 +84,7 @@ class MockTableFactory : public TableFactory {
 
   mutable MockTableFileSystem file_system_;
   mutable std::atomic<uint32_t> next_id_;
+  MockCorruptionMode corrupt_mode_;
 };
 
 }  // namespace mock

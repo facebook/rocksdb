@@ -4949,6 +4949,18 @@ class TickerTypeJni {
         return -0x0E;
       case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
         return -0X0F;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED:
+        return -0x10;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC:
+        return -0x11;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL:
+        return -0x12;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED:
+        return -0x13;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC:
+        return -0x14;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
+        return -0x15;
 
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
@@ -5249,6 +5261,18 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
       case -0x0F:
         return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
+      case -0x10:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED;
+      case -0x11:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC;
+      case -0x12:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL;
+      case -0x13:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED;
+      case -0x14:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
+      case -0x15:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;

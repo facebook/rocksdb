@@ -387,6 +387,7 @@ class ColumnFamilyData {
   bool NeedsCompaction() const;
   // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
+                             const MutableDBOptions& mutable_db_options,
                              LogBuffer* log_buffer);
 
   // Check if the passed range overlap with any running compactions.
@@ -412,6 +413,7 @@ class ColumnFamilyData {
   static const int kCompactToBaseLevel;
   // REQUIRES: DB mutex held
   Compaction* CompactRange(const MutableCFOptions& mutable_cf_options,
+                           const MutableDBOptions& mutable_db_options,
                            int input_level, int output_level,
                            const CompactRangeOptions& compact_range_options,
                            const InternalKey* begin, const InternalKey* end,

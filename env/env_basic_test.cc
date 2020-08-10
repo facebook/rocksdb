@@ -62,11 +62,13 @@ class EnvBasicTestWithParam : public testing::Test,
     test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
-  void SetUp() override { env_->CreateDirIfMissing(test_dir_); }
+  void SetUp() override {
+    env_->CreateDirIfMissing(test_dir_).PermitUncheckedError();
+  }
 
   void TearDown() override {
     std::vector<std::string> files;
-    env_->GetChildren(test_dir_, &files);
+    env_->GetChildren(test_dir_, &files).PermitUncheckedError();
     for (const auto& file : files) {
       // don't know whether it's file or directory, try both. The tests must
       // only create files or empty directories, so one must succeed, else the
@@ -209,13 +211,12 @@ TEST_P(EnvBasicTestWithParam, Basics) {
                                        soptions_)
                    .ok());
   ASSERT_TRUE(!seq_file);
-  ASSERT_TRUE(!env_->NewRandomAccessFile(test_dir_ + "/non_existent",
-                                         &rand_file, soptions_)
-                   .ok());
+  ASSERT_NOK(env_->NewRandomAccessFile(test_dir_ + "/non_existent", &rand_file,
+                                       soptions_));
   ASSERT_TRUE(!rand_file);
 
   // Check that deleting works.
-  ASSERT_TRUE(!env_->DeleteFile(test_dir_ + "/non_existent").ok());
+  ASSERT_NOK(env_->DeleteFile(test_dir_ + "/non_existent"));
   ASSERT_OK(env_->DeleteFile(test_dir_ + "/g"));
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
@@ -346,14 +347,14 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   ASSERT_EQ(3U, children.size());
   ASSERT_EQ(3U, childAttr.size());
   for (auto each : children) {
-    env_->DeleteDir(test_dir_ + "/" + each);
+    env_->DeleteDir(test_dir_ + "/" + each).PermitUncheckedError();
   }  // necessary for default POSIX env
 
   // non-exist directory returns IOError
   ASSERT_OK(env_->DeleteDir(test_dir_));
-  ASSERT_TRUE(!env_->FileExists(test_dir_).ok());
-  ASSERT_TRUE(!env_->GetChildren(test_dir_, &children).ok());
-  ASSERT_TRUE(!env_->GetChildrenFileAttributes(test_dir_, &childAttr).ok());
+  ASSERT_NOK(env_->FileExists(test_dir_));
+  ASSERT_NOK(env_->GetChildren(test_dir_, &children));
+  ASSERT_NOK(env_->GetChildrenFileAttributes(test_dir_, &childAttr));
 
   // if dir is a file, returns IOError
   ASSERT_OK(env_->CreateDir(test_dir_));
@@ -362,7 +363,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
       env_->NewWritableFile(test_dir_ + "/file", &writable_file, soptions_));
   ASSERT_OK(writable_file->Close());
   writable_file.reset();
-  ASSERT_TRUE(!env_->GetChildren(test_dir_ + "/file", &children).ok());
+  ASSERT_NOK(env_->GetChildren(test_dir_ + "/file", &children));
   ASSERT_EQ(0U, children.size());
 }
 

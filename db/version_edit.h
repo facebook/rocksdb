@@ -13,15 +13,76 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
+#include "db/wal_edit.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+// Tag numbers for serialized VersionEdit.  These numbers are written to
+// disk and should not be changed. The number should be forward compatible so
+// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
+// between Tag and kTagSafeIgnoreMask field.
+enum Tag : uint32_t {
+  kComparator = 1,
+  kLogNumber = 2,
+  kNextFileNumber = 3,
+  kLastSequence = 4,
+  kCompactPointer = 5,
+  kDeletedFile = 6,
+  kNewFile = 7,
+  // 8 was used for large value refs
+  kPrevLogNumber = 9,
+  kMinLogNumberToKeep = 10,
+
+  // these are new formats divergent from open source leveldb
+  kNewFile2 = 100,
+  kNewFile3 = 102,
+  kNewFile4 = 103,      // 4th (the latest) format version of adding files
+  kColumnFamily = 200,  // specify column family for version edit
+  kColumnFamilyAdd = 201,
+  kColumnFamilyDrop = 202,
+  kMaxColumnFamily = 203,
+
+  kInAtomicGroup = 300,
+
+  // Mask for an unidentified tag from the future which can be safely ignored.
+  kTagSafeIgnoreMask = 1 << 13,
+
+  // Forward compatible (aka ignorable) records
+  kDbId,
+  kBlobFileAddition,
+  kBlobFileGarbage,
+  kWalAddition,
+  kWalDeletion,
+};
+
+enum NewFileCustomTag : uint32_t {
+  kTerminate = 1,  // The end of customized fields
+  kNeedCompaction = 2,
+  // Since Manifest is not entirely forward-compatible, we currently encode
+  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
+  // when manifest becomes forward-comptabile.
+  kMinLogNumberToKeepHack = 3,
+  kOldestBlobFileNumber = 4,
+  kOldestAncesterTime = 5,
+  kFileCreationTime = 6,
+  kFileChecksum = 7,
+  kFileChecksumFuncName = 8,
+
+  // If this bit for the custom tag is set, opening DB should fail if
+  // we don't know this field.
+  kCustomTagNonSafeIgnoreMask = 1 << 6,
+
+  // Forward incompatible (aka unignorable) fields
+  kPathId,
+};
 
 class VersionSet;
 
@@ -374,10 +435,29 @@ class VersionEdit {
     return blob_file_garbages_;
   }
 
+  // Add a WAL (either just created or closed).
+  void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    wal_additions_.emplace_back(number, std::move(metadata));
+  }
+
+  // Retrieve all the added WALs.
+  const WalAdditions& GetWalAdditions() const { return wal_additions_; }
+
+  bool HasWalAddition() const { return !wal_additions_.empty(); }
+
+  // Delete a WAL (either directly deleted or archived).
+  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+
+  // Retrieve all the deleted WALs.
+  const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
+
+  bool HasWalDeletion() const { return !wal_deletions_.empty(); }
+
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
-           blob_file_additions_.size() + blob_file_garbages_.size();
+           blob_file_additions_.size() + blob_file_garbages_.size() +
+           wal_additions_.size() + wal_deletions_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -456,6 +536,9 @@ class VersionEdit {
 
   BlobFileAdditions blob_file_additions_;
   BlobFileGarbages blob_file_garbages_;
+
+  WalAdditions wal_additions_;
+  WalDeletions wal_deletions_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

@@ -509,7 +509,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
 
   // trash_dir is deprecated and not needed anymore, but if user passed it
   // we will still remove files in it.
-  Status s;
+  Status s = Status::OK();
   if (delete_existing_trash && trash_dir != "") {
     std::vector<std::string> files_in_trash;
     s = fs->GetChildren(trash_dir, IOOptions(), &files_in_trash, nullptr);
@@ -532,6 +532,9 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
 
   if (status) {
     *status = s;
+  } else {
+    // No one passed us a Status, so they must not care about the error...
+    s.PermitUncheckedError();
   }
 
   return res;

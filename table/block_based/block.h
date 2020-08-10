@@ -168,7 +168,7 @@ class Block {
 
   BlockBasedTableOptions::DataBlockIndexType IndexType() const;
 
-  // ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
+  // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
   //
   // If iter is null, return new Iterator
@@ -187,13 +187,13 @@ class Block {
   // NOTE: for the hash based lookup, if a key prefix doesn't match any key,
   // the iterator will simply be set as "invalid", rather than returning
   // the key that is just pass the target key.
-  DataBlockIter* NewDataIterator(const Comparator* ucmp,
+  DataBlockIter* NewDataIterator(const Comparator* raw_ucmp,
                                  SequenceNumber global_seqno,
                                  DataBlockIter* iter = nullptr,
                                  Statistics* stats = nullptr,
                                  bool block_contents_pinned = false);
 
-  // ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
+  // raw_ucmp is a raw (i.e., not wrapped by `UserComparatorWrapper`) user key
   // comparator.
   //
   // key_includes_seq, default true, means that the keys are in internal key
@@ -208,7 +208,7 @@ class Block {
   // first_internal_key. It affects data serialization format, so the same value
   // have_first_key must be used when writing and reading index.
   // It is determined by IndexType property of the table.
-  IndexBlockIter* NewIndexIterator(const Comparator* ucmp,
+  IndexBlockIter* NewIndexIterator(const Comparator* raw_ucmp,
                                    SequenceNumber global_seqno,
                                    IndexBlockIter* iter, Statistics* stats,
                                    bool total_order_seek, bool have_first_key,
@@ -251,14 +251,13 @@ class Block {
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:
-  void InitializeBase(const Comparator* ucmp, const char* data,
+  void InitializeBase(const Comparator* raw_ucmp, const char* data,
                       uint32_t restarts, uint32_t num_restarts,
                       SequenceNumber global_seqno, bool block_contents_pinned) {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
 
-    ucmp_wrapper_ = UserComparatorWrapper(ucmp);
-    icmp_ = InternalKeyComparator(ucmp, false /* named */);
+    raw_ucmp_ = raw_ucmp;
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;
@@ -357,9 +356,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Cache::Handle* cache_handle() { return cache_handle_; }
 
  protected:
-  UserComparatorWrapper ucmp_wrapper_;
-  InternalKeyComparator icmp_;
-
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
@@ -390,6 +386,12 @@ class BlockIter : public InternalIteratorBase<TValue> {
   virtual void NextImpl() = 0;
   virtual void PrevImpl() = 0;
 
+  InternalKeyComparator icmp() {
+    return InternalKeyComparator(raw_ucmp_, false /* named */);
+  }
+
+  UserComparatorWrapper ucmp() { return UserComparatorWrapper(raw_ucmp_); }
+
   // Must be called every time a key is found that needs to be returned to user,
   // and may be called when no key is found (as a no-op). Updates `key_`,
   // `key_buf_`, and `key_pinned_` with info about the found key.
@@ -419,15 +421,16 @@ class BlockIter : public InternalIteratorBase<TValue> {
   int CompareCurrentKey(const Slice& other) {
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
-      return ucmp_wrapper_.Compare(raw_key_.GetUserKey(), other);
+      return ucmp().Compare(raw_key_.GetUserKey(), other);
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
-      return icmp_.Compare(raw_key_.GetInternalKey(), other);
+      return icmp().Compare(raw_key_.GetInternalKey(), other);
     }
-    return icmp_.Compare(raw_key_.GetInternalKey(), global_seqno_, other,
-                         kDisableGlobalSequenceNumber);
+    return icmp().Compare(raw_key_.GetInternalKey(), global_seqno_, other,
+                          kDisableGlobalSequenceNumber);
   }
 
  private:
+  const Comparator* raw_ucmp_;
   // Store the cache handle, if the block is cached. We need this since the
   // only other place the handle is stored is as an argument to the Cleanable
   // function callback, which is hard to retrieve. When multiple value
@@ -472,20 +475,21 @@ class DataBlockIter final : public BlockIter<Slice> {
  public:
   DataBlockIter()
       : BlockIter(), read_amp_bitmap_(nullptr), last_bitmap_offset_(0) {}
-  DataBlockIter(const Comparator* ucmp, const char* data, uint32_t restarts,
+  DataBlockIter(const Comparator* raw_ucmp, const char* data, uint32_t restarts,
                 uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
                 DataBlockHashIndex* data_block_hash_index)
       : DataBlockIter() {
-    Initialize(ucmp, data, restarts, num_restarts, global_seqno,
+    Initialize(raw_ucmp, data, restarts, num_restarts, global_seqno,
                read_amp_bitmap, block_contents_pinned, data_block_hash_index);
   }
-  void Initialize(const Comparator* ucmp, const char* data, uint32_t restarts,
-                  uint32_t num_restarts, SequenceNumber global_seqno,
+  void Initialize(const Comparator* raw_ucmp, const char* data,
+                  uint32_t restarts, uint32_t num_restarts,
+                  SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
                   DataBlockHashIndex* data_block_hash_index) {
-    InitializeBase(ucmp, data, restarts, num_restarts, global_seqno,
+    InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
     raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
@@ -594,12 +598,12 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
   // format.
   // value_is_full, default true, means that no delta encoding is
   // applied to values.
-  void Initialize(const Comparator* ucmp, const char* data, uint32_t restarts,
-                  uint32_t num_restarts, SequenceNumber global_seqno,
-                  BlockPrefixIndex* prefix_index, bool have_first_key,
-                  bool key_includes_seq, bool value_is_full,
-                  bool block_contents_pinned) {
-    InitializeBase(ucmp, data, restarts, num_restarts,
+  void Initialize(const Comparator* raw_ucmp, const char* data,
+                  uint32_t restarts, uint32_t num_restarts,
+                  SequenceNumber global_seqno, BlockPrefixIndex* prefix_index,
+                  bool have_first_key, bool key_includes_seq,
+                  bool value_is_full, bool block_contents_pinned) {
+    InitializeBase(raw_ucmp, data, restarts, num_restarts,
                    kDisableGlobalSequenceNumber, block_contents_pinned);
     raw_key_.SetIsUserKey(!key_includes_seq);
     prefix_index_ = prefix_index;

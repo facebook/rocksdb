@@ -44,7 +44,7 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 #ifndef ROCKSDB_LITE
   s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
 #else
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   if (s.ok()) {
     *result = env;
@@ -77,7 +77,7 @@ Status Env::LoadEnv(const std::string& value, Env** result,
 #else
   (void)result;
   (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   return s;
 }

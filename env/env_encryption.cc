@@ -472,11 +472,14 @@ class EncryptedEnv : public EnvWrapper {
       // Initialize prefix
       prefixBuf.Alignment(underlying->GetRequiredBufferAlignment());
       prefixBuf.AllocateNewBuffer(prefixLength);
-      provider_->CreateNewPrefix(fname, prefixBuf.BufferStart(), prefixLength);
-      prefixBuf.Size(prefixLength);
-      prefixSlice = Slice(prefixBuf.BufferStart(), prefixBuf.CurrentSize());
-      // Write prefix
-      status = underlying->Append(prefixSlice);
+      status = provider_->CreateNewPrefix(fname, prefixBuf.BufferStart(),
+                                          prefixLength);
+      if (status.ok()) {
+        prefixBuf.Size(prefixLength);
+        prefixSlice = Slice(prefixBuf.BufferStart(), prefixBuf.CurrentSize());
+        // Write prefix
+        status = underlying->Append(prefixSlice);
+      }
       if (!status.ok()) {
         return status;
       }

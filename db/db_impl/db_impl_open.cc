@@ -1528,7 +1528,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
               break;
             }
           } else {
-            s = Status::InvalidArgument("Column family not found: ", cf.name);
+            s = Status::InvalidArgument("Column family not found", cf.name);
             break;
           }
         }

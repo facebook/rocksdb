@@ -150,6 +150,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
+      io_tracer_(std::make_shared<IOTracer>()),
       fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
@@ -685,9 +686,17 @@ void DBImpl::StartTimedTasks() {
     stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
     if (stats_dump_period_sec > 0) {
       if (!thread_dump_stats_) {
+        // In case of many `DB::Open()` in rapid succession we can have all
+        // threads dumping at once, which causes severe lock contention in
+        // jemalloc. Ensure successive `DB::Open()`s are staggered by at least
+        // one second in the common case.
+        static std::atomic<uint64_t> stats_dump_threads_started(0);
         thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
             [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond));
+            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
+            stats_dump_threads_started.fetch_add(1) %
+                static_cast<uint64_t>(stats_dump_period_sec) *
+                kMicrosInSecond));
       }
     }
     stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
@@ -1083,9 +1092,18 @@ Status DBImpl::SetDBOptions(
           mutex_.Lock();
         }
         if (new_options.stats_dump_period_sec > 0) {
+          // In case many DBs have `stats_dump_period_sec` enabled in rapid
+          // succession, we can have all threads dumping at once, which causes
+          // severe lock contention in jemalloc. Ensure successive enabling of
+          // `stats_dump_period_sec` are staggered by at least one second in the
+          // common case.
+          static std::atomic<uint64_t> stats_dump_threads_started(0);
           thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
               [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
               static_cast<uint64_t>(new_options.stats_dump_period_sec) *
+                  kMicrosInSecond,
+              stats_dump_threads_started.fetch_add(1) %
+                  static_cast<uint64_t>(new_options.stats_dump_period_sec) *
                   kMicrosInSecond));
         } else {
           thread_dump_stats_.reset();
@@ -1347,9 +1365,12 @@ bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
   }
 }
 
-InternalIterator* DBImpl::NewInternalIterator(
-    Arena* arena, RangeDelAggregator* range_del_agg, SequenceNumber sequence,
-    ColumnFamilyHandle* column_family, bool allow_unprepared_value) {
+InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
+                                              Arena* arena,
+                                              RangeDelAggregator* range_del_agg,
+                                              SequenceNumber sequence,
+                                              ColumnFamilyHandle* column_family,
+                                              bool allow_unprepared_value) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
@@ -1361,9 +1382,8 @@ InternalIterator* DBImpl::NewInternalIterator(
   mutex_.Lock();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
-  ReadOptions roptions;
-  return NewInternalIterator(roptions, cfd, super_version, arena, range_del_agg,
-                             sequence, allow_unprepared_value);
+  return NewInternalIterator(read_options, cfd, super_version, arena,
+                             range_del_agg, sequence, allow_unprepared_value);
 }
 
 void DBImpl::SchedulePurge() {
@@ -2688,10 +2708,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(
         Status::NotSupported("Managed iterator is not supported anymore."));
   }
-  if (read_options.deadline != std::chrono::microseconds::zero()) {
-    return NewErrorIterator(
-        Status::NotSupported("ReadOptions deadline is not supported"));
-  }
   Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
@@ -2812,10 +2828,10 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       sv->version_number, read_callback, this, cfd, allow_blob,
       read_options.snapshot != nullptr ? false : allow_refresh);
 
-  InternalIterator* internal_iter =
-      NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot,
-                          /* allow_unprepared_value */ true);
+  InternalIterator* internal_iter = NewInternalIterator(
+      db_iter->GetReadOptions(), cfd, sv, db_iter->GetArena(),
+      db_iter->GetRangeDelAggregator(), snapshot,
+      /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
 
   return db_iter;
@@ -3024,6 +3040,20 @@ FileSystem* DB::GetFileSystem() const {
 FileSystem* DBImpl::GetFileSystem() const {
   return immutable_db_options_.fs.get();
 }
+
+#ifndef ROCKSDB_LITE
+
+Status DBImpl::StartIOTrace(Env* env, const TraceOptions& trace_options,
+                            std::unique_ptr<TraceWriter>&& trace_writer) {
+  return io_tracer_->StartIOTrace(env, trace_options, std::move(trace_writer));
+}
+
+Status DBImpl::EndIOTrace() {
+  io_tracer_->EndIOTrace();
+  return Status::OK();
+}
+
+#endif  // ROCKSDB_LITE
 
 Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   InstrumentedMutexLock l(&mutex_);

@@ -21,7 +21,7 @@ TEST_F(TimedEnvTest, BasicTest) {
   std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
   std::unique_ptr<Env> timed_env(NewTimedEnv(mem_env.get()));
   std::unique_ptr<WritableFile> writable_file;
-  timed_env->NewWritableFile("f", &writable_file, EnvOptions());
+  ASSERT_OK(timed_env->NewWritableFile("f", &writable_file, EnvOptions()));
 
   ASSERT_GT(get_perf_context()->env_new_writable_file_nanos, 0);
 }

@@ -844,6 +844,18 @@ public class ColumnFamilyOptions extends RocksObject
     return forceConsistencyChecks(nativeHandle_);
   }
 
+  @Override
+  public ColumnFamilyOptions setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
+    setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
+    this.sstPartitionerFactory_ = sstPartitionerFactory;
+    return this;
+  }
+
+  @Override
+  public SstPartitionerFactory sstPartitionerFactory() {
+    return sstPartitionerFactory_;
+  }
+
   private static native long getColumnFamilyOptionsFromProps(
       final long cfgHandle, String optString);
   private static native long getColumnFamilyOptionsFromProps(final String optString);
@@ -1005,6 +1017,7 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setForceConsistencyChecks(final long handle,
     final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
+  private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
@@ -1018,5 +1031,5 @@ public class ColumnFamilyOptions extends RocksObject
   private CompactionOptionsFIFO compactionOptionsFIFO_;
   private CompressionOptions bottommostCompressionOptions_;
   private CompressionOptions compressionOptions_;
-
+  private SstPartitionerFactory sstPartitionerFactory_;
 }
