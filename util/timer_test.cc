@@ -17,10 +17,13 @@ class TimerTest : public testing::Test {
   std::unique_ptr<MockTimeEnv> mock_env_;
 
 #if defined(OS_MACOSX) && !defined(NDEBUG)
-  // On MacOS, `CondVar.TimedWait()` doesn't use the time from MockTimeEnv,
-  // instead it still uses the system time.
-  // This is just a mitigation that always trigger the CV timeout. It is not
-  // perfect, only works for this test.
+  // On some platforms (MacOS) pthread_cond_timedwait does not appear
+  // to release the lock for other threads to operate if the deadline time
+  // is already passed. This is a problem for tests in general because
+  // TimedWait calls are a bad abstraction: the deadline parameter is
+  // usually computed from Env time, but is interpreted in real clock time.
+  // Since this test doesn't even pretend to use clock times, we have
+  // to mock TimedWait to ensure it yields.
   void SetUp() override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -60,14 +63,13 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
 
   ASSERT_TRUE(timer.Start());
 
-  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     InstrumentedMutexLock l(&mutex);
     while(count < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv.TimedWait(real_start_time + time_counter);
+      test_cv.TimedWait(time_counter);
     }
   }
 
@@ -110,14 +112,13 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
 
   ASSERT_TRUE(timer.Start());
 
-  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     InstrumentedMutexLock l(&mutex1);
     while (count1 < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv1.TimedWait(real_start_time + time_counter);
+      test_cv1.TimedWait(time_counter);
     }
   }
 
@@ -127,7 +128,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
     while(count2 < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv2.TimedWait(real_start_time + time_counter);
+      test_cv2.TimedWait(time_counter);
     }
   }
 
@@ -159,14 +160,13 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
 
   ASSERT_TRUE(timer.Start());
 
-  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     InstrumentedMutexLock l(&mutex);
     while(count < kIterations) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv.TimedWait(real_start_time + time_counter);
+      test_cv.TimedWait(time_counter);
     }
   }
 
@@ -210,14 +210,13 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
 
   ASSERT_TRUE(timer.Start());
 
-  uint64_t real_start_time = mock_env_->RealNowMicros();
   // Wait for execution to finish
   {
     InstrumentedMutexLock l(&mutex1);
     while(count1 < kIterations1) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv1.TimedWait(real_start_time + time_counter);
+      test_cv1.TimedWait(time_counter);
     }
   }
 
@@ -229,7 +228,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
     while(count2 < kIterations2) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
-      test_cv2.TimedWait(real_start_time + time_counter);
+      test_cv2.TimedWait(time_counter);
     }
   }
 
