@@ -500,6 +500,12 @@ DEFINE_int32(compact_range_one_in, 0,
              "If non-zero, then CompactRange() will be called once for every N "
              "operations on average.  0 indicates CompactRange() is disabled.");
 
+DEFINE_int32(mark_for_compaction_one_file_in, 0,
+             "A `TablePropertiesCollectorFactory` will be registered, which "
+             "creates a `TablePropertiesCollector` with `NeedCompact()` "
+             "returning true once for every N files on average. 0 or negative "
+             "mean `NeedCompact()` always returns false.");
+
 DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
              "on average.  0 indicates calls to Flush() are disabled.");
