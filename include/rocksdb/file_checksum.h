@@ -22,12 +22,16 @@ namespace ROCKSDB_NAMESPACE {
 constexpr char kUnknownFileChecksum[] = "";
 // The unknown sst file checksum function name.
 constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
-// The default DB file checksum function name.
-constexpr char kDefaultDbFileChecksumFuncName[] = "FileChecksumCrc32c";
+// The standard DB file checksum function name.
+// This is the name of the checksum function returned by
+// GetFileChecksumGenCrc32cFactory();
+constexpr char kStandardDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 
 struct FileChecksumGenContext {
   std::string file_name;
   // The name of the requested checksum generator
+  // This allows the checksum factory to create generators for a suite of
+  // different functions.
   std::string requested_checksum_func_name;
 };
 
@@ -54,7 +58,6 @@ class FileChecksumGenerator {
   virtual std::string GetChecksum() const = 0;
 
   // Returns a name that identifies the current file checksum function.
-  // The name should not contain ':'.
   virtual const char* Name() const = 0;
 };
 

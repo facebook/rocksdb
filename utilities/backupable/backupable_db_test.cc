@@ -38,6 +38,58 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+class DummyFileChecksumGen : public FileChecksumGenerator {
+ public:
+  explicit DummyFileChecksumGen(const FileChecksumGenContext& /* context */,
+                                bool state) {
+    if (state) {
+      checksum_ = 0;
+    } else {
+      checksum_ = 1;
+    }
+  }
+
+  void Update(const char* /* data */, size_t /* n */) override {}
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "DummyFileChecksum"; }
+
+ private:
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class DummyFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  explicit DummyFileChecksumGenFactory(bool state = false) : state_(state) {}
+
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "DummyFileChecksum") {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new DummyFileChecksumGen(context, state_));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "DummyFileChecksumGenFactory"; }
+
+ private:
+  bool state_;
+};
+
 class FileHash32Gen : public FileChecksumGenerator {
  public:
   explicit FileHash32Gen(const FileChecksumGenContext& /*context*/) {
@@ -724,8 +776,8 @@ class BackupableDBTest : public testing::Test {
     backup_engine_.reset();
   }
 
-  void OpenBackupEngine() {
-    backupable_options_->destroy_old_data = false;
+  void OpenBackupEngine(bool destroy_old_data = false) {
+    backupable_options_->destroy_old_data = destroy_old_data;
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
@@ -899,6 +951,50 @@ TEST_F(BackupableDBTest, DbAndBackupSameCustomChecksum) {
     ASSERT_OK(backup_engine_->VerifyBackup(1, true));
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  // Mimic a checksum mismatch for custom checksum function by using a dummy
+  // checksum function with a state
+  std::shared_ptr<FileChecksumGenFactory> dummy_factory_0 =
+      std::make_shared<DummyFileChecksumGenFactory>(false);
+  std::shared_ptr<FileChecksumGenFactory> dummy_factory_1 =
+      std::make_shared<DummyFileChecksumGenFactory>(true);
+  FileChecksumGenContext context;
+  // Both factories have the same generator name
+  std::string dummy_checksum_function_name =
+      dummy_factory_0->CreateFileChecksumGenerator(context)->Name();
+  options_.file_checksum_gen_factory = dummy_factory_0;
+  for (const auto& sopt : kAllShareOptions) {
+    backupable_options_->file_checksum_gen_factory = dummy_factory_1;
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    // DB and backup engine do not have the same custom checksum function
+    // "state"
+    Status s = backup_engine_->CreateNewBackup(db_.get());
+    ASSERT_NOK(s);
+    ASSERT_TRUE(
+        s.ToString().find("Corruption: " + dummy_checksum_function_name +
+                          " mismatch") != std::string::npos);
+    CloseBackupEngine();
+
+    // Change custom checksum function and try again
+    backupable_options_->file_checksum_gen_factory = dummy_factory_0;
+    OpenBackupEngine(true /* destroy_old_data */);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseBackupEngine();
+
+    // Try verifying or restoring a backup using a different custom checksum
+    // function "state"
+    backupable_options_->file_checksum_gen_factory = dummy_factory_1;
+    OpenBackupEngine(false /* destroy_old_data */);
+    ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseDBAndBackupEngine();
+
     // delete old data
     DestroyDB(dbname_, options_);
   }

@@ -177,16 +177,16 @@ struct BackupableDBOptions {
   // Regardless of what is set for this option, BackupEngine will always use
   // its default crc32c checksum for creating, verifying, or restoring backups.
   //
-  // When the DB checksum factory is set to GetFileChecksumGenCrc32cFactory(),
-  // we recommend not setting this option to the same factory to avoid
-  // unnecessary additional computation of crc32c since the backup engine
-  // default checksum function is also crc32c.
-  //
   // Note: If share_files_with_checksum and share_table_files are true,
   // the <checksum> appeared in the table filenames will be the custom checksum
   // value if db session ids are available (namely, table file naming options
   // is kOptionalChecksumAndDbSessionId and the db session ids obtained from
   // the table files are nonempty).
+  //
+  // Note: We do not require the same setting to this option for backup
+  // restoration or verification as was set during backup creation but we
+  // strongly recommend setting it to the same as the DB file checksum function
+  // for all BackupEngine interactions when practical.
   //
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;

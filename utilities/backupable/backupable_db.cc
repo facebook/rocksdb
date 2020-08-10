@@ -62,17 +62,17 @@ inline std::string ChecksumInt32ToHex(const uint32_t& checksum_value) {
   return ChecksumStrToHex(checksum_str);
 }
 // Checks if the checksum function names are the same. Note that both the
-// backup default checksum function and the db default checksum function are
-// crc32c although they have different names. So We treat the db default
+// backup default checksum function and the db standard checksum function are
+// crc32c although they have different names. So We treat the db standard
 // checksum function name and the backup default checksum function name as
 // the same name.
 inline bool IsSameChecksumFunc(const std::string& dst_checksum_func_name,
                                const std::string& src_checksum_func_name) {
   return (dst_checksum_func_name == src_checksum_func_name) ||
          ((dst_checksum_func_name == kDefaultBackupFileChecksumFuncName) &&
-          (src_checksum_func_name == kDefaultDbFileChecksumFuncName)) ||
+          (src_checksum_func_name == kStandardDbFileChecksumFuncName)) ||
          ((src_checksum_func_name == kDefaultBackupFileChecksumFuncName) &&
-          (dst_checksum_func_name == kDefaultDbFileChecksumFuncName));
+          (dst_checksum_func_name == kStandardDbFileChecksumFuncName));
 }
 inline bool IsSstFile(const std::string& fname) {
   return fname.length() > 4 && fname.rfind(".sst") == fname.length() - 4;
@@ -431,10 +431,10 @@ class BackupEngineImpl : public BackupEngine {
       std::unique_ptr<FileChecksumGenerator>& checksum_func) {
     if (requested_checksum_func_name != kDefaultBackupFileChecksumFuncName) {
       if (!HasCustomChecksumGenFactory()) {
-        // if the requested checksum function for the file is the db default
+        // if the requested checksum function for the file is the db standard
         // checksum function we can use the backup default checksum function
         // as they are both crc32c; otherwise, we return Status::NotSupported()
-        if (requested_checksum_func_name != kDefaultDbFileChecksumFuncName) {
+        if (requested_checksum_func_name != kStandardDbFileChecksumFuncName) {
           return Status::NotSupported("Custom checksum function " +
                                       requested_checksum_func_name +
                                       " not implemented");
@@ -443,11 +443,11 @@ class BackupEngineImpl : public BackupEngine {
         checksum_func =
             GetCustomChecksumGenerator(requested_checksum_func_name);
         // we will use the default backup checksum function if the custom
-        // checksum functions is the db default checksum function but is not
+        // checksum functions is the db standard checksum function but is not
         // found in the checksum factory passed in; otherwise, we return
         // Status::NotFound()
         if (checksum_func == nullptr &&
-            requested_checksum_func_name != kDefaultDbFileChecksumFuncName) {
+            requested_checksum_func_name != kStandardDbFileChecksumFuncName) {
           return Status::NotFound("Checksum checksum function " +
                                   requested_checksum_func_name + " not found");
         }
@@ -1006,11 +1006,11 @@ Status BackupEngineImpl::Initialize() {
             if (work_item.src_checksum_func_name ==
                     kUnknownFileChecksumFuncName ||
                 work_item.src_checksum_func_name ==
-                    kDefaultDbFileChecksumFuncName) {
+                    kStandardDbFileChecksumFuncName) {
               // kUnknownFileChecksumFuncName implies no table file checksums in
               // db manifest, but we can compare using the crc32c checksum
               checksum_to_compare = result.checksum_hex;
-              checksum_func_name_used = kDefaultDbFileChecksumFuncName;
+              checksum_func_name_used = kStandardDbFileChecksumFuncName;
             } else {
               checksum_to_compare = result.custom_checksum_hex;
               checksum_func_name_used = work_item.src_checksum_func_name;
