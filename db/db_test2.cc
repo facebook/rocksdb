@@ -2160,6 +2160,8 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   env_->now_cpu_count_.store(0);
   env_->SetMockSleep();
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
   ASSERT_EQ("bar", Get("foo"));
@@ -2203,6 +2205,8 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   std::string last_value = "v" + ToString(kNumEntries - 1);
   env_->now_cpu_count_.store(0);
   env_->SetMockSleep();
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);

@@ -3600,6 +3600,8 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   env_->SetMockSleep();
   options.env = env_;
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -3645,6 +3647,8 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   // Test dynamically changing ttl.
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   DestroyAndReopen(options);
 
@@ -3728,6 +3732,8 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
           });
 
       options.env = env_;
+
+      // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
       DestroyAndReopen(options);
 
@@ -3875,6 +3881,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
 
       options.env = env_;
 
+      // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
       DestroyAndReopen(options);
 
       int periodic_compactions = 0;
@@ -3956,6 +3964,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   env_->SetMockSleep();
   options.env = env_;
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   int periodic_compactions = 0;
@@ -4026,6 +4036,8 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   options.max_open_files = -1;   // needed for both periodic and ttl compactions
   env_->SetMockSleep();
   options.env = env_;
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   DestroyAndReopen(options);
 
@@ -4117,6 +4129,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   TestCompactionFilter test_compaction_filter;
   env_->SetMockSleep();
   options.env = env_;
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   enum CompactionFilterType {
     kUseCompactionFilter,

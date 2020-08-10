@@ -77,8 +77,12 @@ class BlobDBTest : public testing::Test {
     if (options.env == mock_env_.get()) {
       // Need to disable stats dumping and persisting which also use
       // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
-      // With mock_env_, this can hang on some platforms.
-      // TODO: why? investigate/fix
+      // With mocked time, this can hang on some platforms (MacOS)
+      // because (a) on some platforms, pthread_cond_timedwait does not appear
+      // to release the lock for other threads to operate if the deadline time
+      // is already passed, and (b) TimedWait calls are currently a bad
+      // abstraction because the deadline parameter is usually computed from
+      // Env time, but is interpreted in real clock time.
       options.stats_dump_period_sec = 0;
       options.stats_persist_period_sec = 0;
     }

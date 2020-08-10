@@ -564,8 +564,8 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   Options options;
-  SetTimeElapseOnlySleepOnReopen(&options);
   options.env = env_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   options.create_if_missing = true;
   ASSERT_OK(TryReopen(options));
 
@@ -587,7 +587,7 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   env_->MockSleepForMicroseconds(20);
   assert_candidate_files_empty(dbfull(), true);
 
-  env_->MockSleepForMicroseconds(21);
+  env_->MockSleepForMicroseconds(1);
   assert_candidate_files_empty(dbfull(), false);
 
   Close();
@@ -704,6 +704,8 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   env_->SetMockSleep();
   options.env = env_;
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   // Test dynamically changing ttl.
   options.ttl = 1 * 60 * 60;  // 1 hour
   ASSERT_OK(TryReopen(options));
@@ -732,6 +734,8 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   // Test dynamically changing compaction_options_fifo.max_table_files_size
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 00KB

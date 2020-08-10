@@ -3552,6 +3552,8 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   // Test to make sure that all files with expired ttl are deleted on next
   // manual compaction.
   {
+    // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
     options.ttl = 1 * 60 * 60 ;  // 1 hour
@@ -5466,6 +5468,8 @@ TEST_F(DBTest, MergeTestTime) {
   SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   ASSERT_EQ(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
   db_->Put(WriteOptions(), "foo", one);
   ASSERT_OK(Flush());
@@ -5510,11 +5514,10 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
-  uint64_t n = 0;
-  for (int i = 0; i < 1000; i++) {
+  constexpr unsigned n = 1000;
+  for (unsigned i = 0; i < n; i++) {
     ASSERT_OK(db_->Merge(WriteOptions(), "foo", "TEST"));
     ASSERT_OK(Flush());
-    ++n;
   }
   dbfull()->TEST_WaitForFlushMemTable();
 
@@ -5522,7 +5525,7 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   cro.exclusive_manual_compaction = exclusive_manual_compaction_;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  ASSERT_EQ(n * 1000000U,
+  ASSERT_EQ(uint64_t{n} * 1000000U,
             TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 }
 
@@ -5538,7 +5541,7 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
-  uint64_t n = 0;
+  unsigned n = 0;
   // put some data
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
@@ -5557,7 +5560,7 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
 
   Iterator* itr = db_->NewIterator(ReadOptions());
   itr->SeekToFirst();
-  ASSERT_EQ(n * 1000000U,
+  ASSERT_EQ(uint64_t{n} * 1000000U,
             TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME));
   delete itr;
 }
@@ -6578,6 +6581,8 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   env_->SetMockSleep();
   options.env = env_;
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   bool set_file_creation_time_to_zero = true;
@@ -6643,6 +6648,8 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   options = CurrentOptions();
   options.max_open_files = -1;
   options.env = env_;
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   DestroyAndReopen(options);
 

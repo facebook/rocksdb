@@ -2158,6 +2158,8 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   env_->SetMockSleep();
   Reopen(opts);
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   int periodic_compactions = 0;
   int start_level = -1;
   int output_level = -1;
