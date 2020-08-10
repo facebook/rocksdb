@@ -3146,7 +3146,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
       fprintf(stderr, "step %d: Value mismatch for key '%s': '%s' vs. '%s'\n",
               step, EscapeString(miter->key()).c_str(),
               EscapeString(miter->value()).c_str(),
-              EscapeString(miter->value()).c_str());
+              EscapeString(dbiter->value()).c_str());
       ok = false;
     }
   }
