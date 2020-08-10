@@ -5,6 +5,7 @@
 
 #include "db/wal_edit.h"
 
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/testharness.h"
@@ -116,6 +117,111 @@ TEST(WalSet, DeleteNonClosedWal) {
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 100 must be closed before deletion") !=
               std::string::npos);
+}
+
+class WalSetTest : public testing::Test {
+ public:
+  void SetUp() override {
+    env_ = Env::Default();
+    fs_ = FileSystem::Default();
+    test_dir_ = test::PerThreadDBPath("wal_set_test");
+    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+  }
+
+  void TearDown() override {
+    EXPECT_OK(DestroyDir(env_, test_dir_));
+    logs_on_disk_.clear();
+    wals_.Reset();
+  }
+
+  void CreateWalOnDisk(WalNumber number, const std::string& fname,
+                       uint64_t size_bytes) {
+    std::unique_ptr<FSWritableFile> f;
+    std::string fpath = Path(fname);
+    ASSERT_OK(fs_->NewWritableFile(fpath, FileOptions(), &f, nullptr));
+    std::string content(size_bytes, '0');
+    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
+    ASSERT_OK(f->Close(IOOptions(), nullptr));
+
+    logs_on_disk_[number] = fpath;
+  }
+
+  void AddWalToWalSet(WalNumber number, uint64_t size_bytes) {
+    // Create WAL.
+    ASSERT_OK(wals_.AddWal(WalAddition(number)));
+    // Close WAL.
+    ASSERT_OK(wals_.AddWal(WalAddition(number, WalMetadata(size_bytes))));
+  }
+
+  Status CheckWals() const { return wals_.CheckWals(env_, logs_on_disk_); }
+
+ private:
+  Env* env_;
+  std::shared_ptr<FileSystem> fs_;
+  std::string test_dir_;
+  std::unordered_map<WalNumber, std::string> logs_on_disk_;
+  WalSet wals_;
+
+  std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
+};
+
+TEST_F(WalSetTest, CheckEmptyWals) { ASSERT_OK(CheckWals()); }
+
+TEST_F(WalSetTest, CheckWals) {
+  for (int number = 1; number < 10; number++) {
+    uint64_t size = rand() % 100;
+    std::stringstream ss;
+    ss << "log" << number;
+    std::string fname = ss.str();
+    CreateWalOnDisk(number, fname, size);
+    // log 0 - 5 are obsolete.
+    if (number > 5) {
+      AddWalToWalSet(number, size);
+    }
+  }
+  ASSERT_OK(CheckWals());
+}
+
+TEST_F(WalSetTest, CheckMissingWals) {
+  for (int number = 1; number < 10; number++) {
+    uint64_t size = rand() % 100;
+    AddWalToWalSet(number, size);
+    // logs with even number are missing from disk.
+    if (number % 2) {
+      std::stringstream ss;
+      ss << "log" << number;
+      std::string fname = ss.str();
+      CreateWalOnDisk(number, fname, size);
+    }
+  }
+
+  Status s = CheckWals();
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  // The first log with even number is missing.
+  std::stringstream expected_err;
+  expected_err << "Missing WAL with log number: " << 2;
+  ASSERT_TRUE(s.ToString().find(expected_err.str()) != std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(WalSetTest, CheckWalsWithWrongSize) {
+  for (int number = 1; number < 10; number++) {
+    uint64_t size = rand() % 100;
+    AddWalToWalSet(number, size);
+    // logs with even number have wrong size.
+    std::stringstream ss;
+    ss << "log" << number;
+    std::string fname = ss.str();
+    CreateWalOnDisk(number, fname, (number % 2) ? size : size + 1);
+  }
+
+  Status s = CheckWals();
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  // The first log with even number has wrong size.
+  std::stringstream expected_err;
+  expected_err << "Size mismatch: WAL (log number: " << 2 << ")";
+  ASSERT_TRUE(s.ToString().find(expected_err.str()) != std::string::npos)
+      << s.ToString();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

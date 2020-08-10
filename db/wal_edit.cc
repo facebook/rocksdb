@@ -172,4 +172,41 @@ Status WalSet::DeleteWals(const WalDeletions& wals) {
 
 void WalSet::Reset() { wals_.clear(); }
 
+Status WalSet::CheckWals(
+    Env* env,
+    const std::unordered_map<WalNumber, std::string>& logs_on_disk) const {
+  assert(env != nullptr);
+
+  Status s;
+  for (auto it = wals_.begin(); it != wals_.end(); ++it) {
+    const uint64_t log_number = it->first;
+    const WalMetadata& wal_meta = it->second;
+
+    if (logs_on_disk.find(log_number) == logs_on_disk.end()) {
+      std::stringstream ss;
+      ss << "Missing WAL with log number: " << log_number << ".";
+      s = Status::Corruption(ss.str());
+      break;
+    }
+
+    if (wal_meta.HasSize()) {
+      uint64_t bytes = 0;
+      s = env->GetFileSize(logs_on_disk.at(log_number), &bytes);
+      if (!s.ok()) {
+        break;
+      }
+      if (wal_meta.GetSizeInBytes() != bytes) {
+        std::stringstream ss;
+        ss << "Size mismatch: WAL (log number: " << log_number
+           << ") in MANIFEST is " << wal_meta.GetSizeInBytes()
+           << " bytes , but actually is " << bytes << " bytes on disk.";
+        s = Status::Corruption(ss.str());
+        break;
+      }
+    }
+  }
+
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
