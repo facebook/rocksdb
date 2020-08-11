@@ -521,11 +521,12 @@ class KVIter : public Iterator {
     } else {
       if (read_options_ != nullptr &&
           read_options_->iterate_upper_bound != nullptr) {
-
         // we can seek to before the iterate_upper_bound
 
-        // NOTE: std::map::lower_bound is equivalent to RocksDB's `iterate_upper_bound`
-        iter_ = map_->lower_bound(read_options_->iterate_upper_bound->ToString());
+        // NOTE: std::map::lower_bound is equivalent to RocksDB's
+        // `iterate_upper_bound`
+        iter_ =
+            map_->lower_bound(read_options_->iterate_upper_bound->ToString());
         if (iter_ != map_->begin()) {
           // lower_bound gives us the first element not
           // less than the `iterate_upper_bound` so we have
@@ -561,11 +562,13 @@ class KVIter : public Iterator {
   Status status() const override { return Status::OK(); }
 
   bool has_lower_bound() const override {
-    return read_options_ != nullptr && read_options_->iterate_lower_bound != nullptr;
+    return read_options_ != nullptr &&
+           read_options_->iterate_lower_bound != nullptr;
   };
 
   bool has_upper_bound() const override {
-    return read_options_ != nullptr && read_options_->iterate_upper_bound != nullptr;
+    return read_options_ != nullptr &&
+           read_options_->iterate_upper_bound != nullptr;
   };
 
  private:
@@ -578,24 +581,27 @@ class KVIter : public Iterator {
     if (read_options_ != nullptr) {
       // TODO(AR) should this only be used when moving backward?
       if (read_options_->iterate_lower_bound != nullptr) {
-        return comparator_->Compare(iter_->first, *(read_options_->iterate_lower_bound)) >= 0;
+        return comparator_->Compare(iter_->first,
+                                    *(read_options_->iterate_lower_bound)) >= 0;
       }
 
       // TODO(AR) should this only be used when moving forward?
       if (read_options_->iterate_upper_bound != nullptr) {
-        return comparator_->Compare(iter_->first, *(read_options_->iterate_upper_bound)) < 0;
+        return comparator_->Compare(iter_->first,
+                                    *(read_options_->iterate_upper_bound)) < 0;
       }
     }
-    
+
     return true;
   }
 };
 
-::testing::AssertionResult IterEquals(Iterator* iter,
-    const std::string& key,const std::string& value) {
+::testing::AssertionResult IterEquals(Iterator* iter, const std::string& key,
+                                      const std::string& value) {
   auto s = iter->status();
   if (!s.ok()) {
-    return ::testing::AssertionFailure() << "Iterator NOT OK; status is: " << s.ToString();
+    return ::testing::AssertionFailure()
+           << "Iterator NOT OK; status is: " << s.ToString();
   }
 
   if (!iter->Valid()) {
@@ -603,11 +609,15 @@ class KVIter : public Iterator {
   }
 
   if (key != iter->key()) {
-    return ::testing::AssertionFailure() << "Iterator::key(): '" << iter->key().ToString(false) << "' is not equal to '" << key << "'";
+    return ::testing::AssertionFailure()
+           << "Iterator::key(): '" << iter->key().ToString(false)
+           << "' is not equal to '" << key << "'";
   }
 
   if (value != iter->value()) {
-    return ::testing::AssertionFailure() << "Iterator::value(): '" << iter->value().ToString(false) << "' is not equal to '" << value << "'";
+    return ::testing::AssertionFailure()
+           << "Iterator::value(): '" << iter->value().ToString(false)
+           << "' is not equal to '" << value << "'";
   }
 
   return ::testing::AssertionSuccess();
@@ -1212,7 +1222,8 @@ TEST_F(WriteBatchWithIndexTest,
   ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBaseAndBatch) {
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLastOnBaseAndBatch) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
 
@@ -1225,8 +1236,8 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBaseAndBatch) 
   batch.Put(&cf1, "k05", "v05");
   batch.Put(&cf1, "k06", "v06");
 
-  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
-      &cf1, new KVIter(&base, BytewiseComparator())));
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&base, BytewiseComparator())));
 
   ASSERT_OK(iter->status());
 
@@ -1308,7 +1319,8 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBaseAndBatch) 
   ASSERT_FALSE(iter->Valid()) << "Should have reached end";
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBatchAndBase) {
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseSeekToLastOnBatchAndBase) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
 
@@ -1321,8 +1333,8 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBatchAndBase) 
   batch.Put(&cf1, "k02", "v02");
   batch.Put(&cf1, "k03", "v03");
 
-  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
-      &cf1, new KVIter(&base, BytewiseComparator())));
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&base, BytewiseComparator())));
 
   ASSERT_OK(iter->status());
 
@@ -1400,7 +1412,8 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseSeekToLastOnBatchAndBase) 
   ASSERT_TRUE(IterEquals(iter.get(), "k06", "v06"));
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithoutBaseConstraint) {
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundOnBaseWithoutBaseConstraint) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
 
@@ -1417,10 +1430,10 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithoutBas
   ReadOptions read_options;
   read_options.iterate_upper_bound = &upper_bound;
 
-  // NOTE: read_options are NOT passed to KVIter, so WBWIIterator imposes iterate_upper_bound on base
+  // NOTE: read_options are NOT passed to KVIter, so WBWIIterator imposes
+  // iterate_upper_bound on base
   std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
-      &cf1, new KVIter(&base, BytewiseComparator()),
-      &read_options));
+      &cf1, new KVIter(&base, BytewiseComparator()), &read_options));
 
   ASSERT_OK(iter->status());
 
@@ -1461,7 +1474,8 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithoutBas
   ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithBaseConstraint) {
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseUpperBoundOnBaseWithBaseConstraint) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
 
@@ -1478,7 +1492,8 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBaseWithBaseCo
   ReadOptions read_options;
   read_options.iterate_upper_bound = &upper_bound;
 
-  // NOTE: read_options are also passed to KVIter, so KVIter imposes iterate_upper_bound on base
+  // NOTE: read_options are also passed to KVIter, so KVIter imposes
+  // iterate_upper_bound on base
   std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
       &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
       &read_options));
@@ -1539,8 +1554,9 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseUpperBoundOnBatch) {
   read_options.iterate_upper_bound = &upper_bound;
 
   KVMap empty_map;
-  std::unique_ptr<Iterator> iter(
-      batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map, BytewiseComparator(), &read_options), &read_options));
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&empty_map, BytewiseComparator(), &read_options),
+      &read_options));
 
   ASSERT_OK(iter->status());
 

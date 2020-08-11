@@ -121,18 +121,14 @@ class Iterator : public Cleanable {
    * checking ReadOptions::iterate_lower_bound,
    * false otherwise.
    */
-  virtual bool has_lower_bound() const {
-    return false;
-  }
+  virtual bool has_lower_bound() const { return false; }
 
   /**
    * true if this iterator is already
    * checking ReadOptions::iterate_upper_bound,
    * false otherwise.
    */
-  virtual bool has_upper_bound() const {
-    return false;
-  }
+  virtual bool has_upper_bound() const { return false; }
 };
 
 // Return an empty iterator (yields nothing).
