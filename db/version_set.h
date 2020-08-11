@@ -119,7 +119,7 @@ class VersionStorageInfo {
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
-  void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
+  void AddFile(int level, FileMetaData* f);
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 

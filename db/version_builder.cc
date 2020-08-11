@@ -989,8 +989,7 @@ class VersionBuilder::Rep {
       if (add_it != add_files.end() && add_it->second != f) {
         vstorage->RemoveCurrentStats(f);
       } else {
-        assert(ioptions_);
-        vstorage->AddFile(level, f, ioptions_->info_log);
+        vstorage->AddFile(level, f);
       }
     }
   }
