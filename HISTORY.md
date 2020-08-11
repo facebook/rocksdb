@@ -43,6 +43,9 @@
 * Reduce key comparisons during random access in all block-based tables.
 * BackupEngine avoids unnecessary repeated checksum computation for backing up a table file to the `shared_checksum` directory when using `kOptionalChecksumAndDbSessionId`, except on SST files generated before this version of RocksDB, which fall back on using `kChecksumAndFileSize`.
 
+### General Improvements
+* The settings of the DBOptions and ColumnFamilyOptions are now managed by Configurable objects (see New Features).  The same convenience methods to configure these options still exist but the backend implementation has been unified under a common implementation.
+
 ## 6.11 (6/12/2020)
 ### Bug Fixes
 * Fix consistency checking error swallowing in some cases when options.force_consistency_checks = true.
