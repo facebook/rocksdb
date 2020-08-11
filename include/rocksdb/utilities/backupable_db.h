@@ -170,12 +170,11 @@ struct BackupableDBOptions {
   // When it is not nullptr, BackupEngine will try to find in the factory the
   // checksum function that DB used to calculate the file checksums. If such a
   // function is found, BackupEngine will use it to create, verify, or restore
-  // backups, in addition to the default crc32c checksum function. Therefore,
-  // this option comes into effect only if DB has a custom checksum factory and
-  // this option is set to the same factory.
+  // backups, in addition to the default crc32c checksum function. If such a
+  // function is not found, BackupEngine will return Status::InvalidArgument().
+  // Therefore, this option comes into effect only if DB has a custom checksum
+  // factory and this option is set to the same factory.
   //
-  // Regardless of what is set for this option, BackupEngine will always use
-  // its default crc32c checksum for creating, verifying, or restoring backups.
   //
   // Note: If share_files_with_checksum and share_table_files are true,
   // the <checksum> appeared in the table filenames will be the custom checksum
