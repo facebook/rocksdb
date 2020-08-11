@@ -745,167 +745,197 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   }
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseBatchEmpty) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
 
-  {
-    KVMap map;
-    map["a"] = "aa";
-    map["c"] = "cc";
-    map["e"] = "ee";
-    std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+  KVMap map;
+  map["a"] = "aa";
+  map["c"] = "cc";
+  map["e"] = "ee";
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
 
-    iter->SeekToFirst();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "e", "ee"));
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
+  iter->SeekToFirst();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "e", "ee"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
 
-    iter->SeekToLast();
-    ASSERT_TRUE(IterEquals(iter.get(), "e", "ee"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-    iter->Prev();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
+  iter->SeekToLast();
+  ASSERT_TRUE(IterEquals(iter.get(), "e", "ee"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("b");
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Seek("b");
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
 
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
 
-    iter->Seek("a");
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-  }
+  iter->Seek("a");
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+}
 
-  // Test the case that there is one element in the write batch
-  ASSERT_OK(batch.Put(&cf2, "zoo", "bar"));
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseBatchOne) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  // Test the case that there is one element in the write batch for each cf
   ASSERT_OK(batch.Put(&cf1, "a", "aa"));
-  {
-    KVMap empty_map;
-    std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+  ASSERT_OK(batch.Put(&cf2, "zoo", "bar"));
+  KVMap empty_map;
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
 
-    iter->SeekToFirst();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
-  }
+  iter->SeekToFirst();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+}
 
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseBatchInterleaved) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  ASSERT_OK(batch.Put(&cf1, "a", "aa"));
+  ASSERT_OK(batch.Put(&cf2, "zoo", "bar"));  // note this is cf2!
   ASSERT_OK(batch.Delete(&cf1, "b"));
   ASSERT_OK(batch.Put(&cf1, "c", "cc"));
   ASSERT_OK(batch.Put(&cf1, "d", "dd"));
   ASSERT_OK(batch.Delete(&cf1, "e"));
 
-  {
-    KVMap map;
-    map["b"] = "";
-    map["cc"] = "cccc";
-    map["f"] = "ff";
-    std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+  /* At this point batch/cf1 should contain:
+    a -> aa
+    c -> cc
+    d -> dd
+  */
 
-    iter->SeekToFirst();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
+  KVMap map;
+  map["b"] = "";
+  map["cc"] = "cccc";
+  map["f"] = "ff";
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
 
-    iter->SeekToLast();
-    ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-    iter->Prev();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
+  iter->SeekToFirst();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("c");
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->SeekToLast();
+  ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("cb");
-    ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
+  iter->Seek("c");
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
 
-    iter->Seek("cc");
-    ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->Seek("cb");
+  ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
 
-    iter->Seek("e");
-    ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
+  iter->Seek("cc");
+  ASSERT_TRUE(IterEquals(iter.get(), "cc", "cccc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
 
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->Seek("e");
+  ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
 
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
-  }
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
 
-  {
-    KVMap empty_map;
-    std::unique_ptr<Iterator> iter(
-        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "f", "ff"));
+}
 
-    iter->SeekToFirst();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithEmptyBaseBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
 
-    iter->SeekToLast();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  ASSERT_OK(batch.Put(&cf1, "a", "aa"));
+  ASSERT_OK(batch.Put(&cf2, "zoo", "bar"));  // note this is cf2!
+  ASSERT_OK(batch.Delete(&cf1, "b"));
+  ASSERT_OK(batch.Put(&cf1, "c", "cc"));
+  ASSERT_OK(batch.Put(&cf1, "d", "dd"));
+  ASSERT_OK(batch.Delete(&cf1, "e"));
 
-    iter->Prev();
-    ASSERT_OK(iter->status());
-    ASSERT_TRUE(!iter->Valid());
+  /* At this point batch/cf1 should contain:
+    a -> aa
+    c -> cc
+    d -> dd
+  */
+  KVMap empty_map;
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
 
-    iter->Seek("aa");
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-    iter->Next();
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->SeekToFirst();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("ca");
-    ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->SeekToLast();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "a", "aa"));
 
-    iter->Prev();
-    ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
-  }
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+
+  iter->Seek("aa");
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+
+  iter->Seek("ca");
+  ASSERT_TRUE(IterEquals(iter.get(), "d", "dd"));
+
+  iter->Prev();
+  ASSERT_TRUE(IterEquals(iter.get(), "c", "cc"));
 }
 
 TEST_F(WriteBatchWithIndexTest,
