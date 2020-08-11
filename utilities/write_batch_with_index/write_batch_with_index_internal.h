@@ -61,7 +61,27 @@ class BaseDeltaIterator : public Iterator {
   void UpdateCurrent();
   bool IsWithinBounds(const Slice& key) const;
 
-  bool forward_;
+  inline bool IsMovingForward() const {
+    return progress_ < Progress::BACKWARD;
+  }
+
+  inline bool IsMovingBackward() const {
+    return progress_ > Progress::FORWARD;
+  }
+
+  enum Progress {
+    TO_BE_DETERMINED = 0,
+
+    SEEK_TO_FIRST = 1,
+    SEEK = 2,
+    FORWARD = 3,
+
+    BACKWARD = 4,
+    SEEK_FOR_PREV = 5,
+    SEEK_TO_LAST = 6
+  };
+
+  Progress progress_;
   bool current_at_base_;
   bool equal_keys_;
   Status status_;
