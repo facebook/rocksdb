@@ -2158,6 +2158,9 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
   env_->now_cpu_count_.store(0);
+  env_->SetMockSleep();
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
@@ -2165,19 +2168,20 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   ASSERT_EQ(0, get_perf_context()->get_cpu_nanos);
   ASSERT_EQ(0, env_->now_cpu_count_.load());
 
-  uint64_t kDummyAddonTime = uint64_t{1000000000000};
+  constexpr uint64_t kDummyAddonSeconds = uint64_t{1000000};
+  constexpr uint64_t kDummyAddonNanos = 1000000000U * kDummyAddonSeconds;
 
   // Add time to NowNanos() reading.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0",
-      [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
+      [&](void* /*arg*/) { env_->MockSleepForSeconds(kDummyAddonSeconds); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
   ASSERT_EQ("bar", Get("foo"));
   ASSERT_GT(env_->now_cpu_count_.load(), 2);
-  ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonTime);
-  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonNanos);
+  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonNanos);
 
   SetPerfLevel(PerfLevel::kDisable);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -2200,6 +2204,9 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   std::string last_key = "k" + ToString(kNumEntries - 1);
   std::string last_value = "v" + ToString(kNumEntries - 1);
   env_->now_cpu_count_.store(0);
+  env_->SetMockSleep();
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
@@ -2227,12 +2234,13 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_EQ(0, env_->now_cpu_count_.load());
   delete iter;
 
-  uint64_t kDummyAddonTime = uint64_t{1000000000000};
+  constexpr uint64_t kDummyAddonSeconds = uint64_t{1000000};
+  constexpr uint64_t kDummyAddonNanos = 1000000000U * kDummyAddonSeconds;
 
   // Add time to NowNanos() reading.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0",
-      [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
+      [&](void* /*arg*/) { env_->MockSleepForSeconds(kDummyAddonSeconds); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
@@ -2249,19 +2257,19 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_seek_cpu_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->iter_seek_cpu_nanos, kDummyAddonNanos);
   iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v1", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_next_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonNanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_prev_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonNanos);
   ASSERT_GE(env_->now_cpu_count_.load(), 12);
-  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
+  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonNanos);
 
   SetPerfLevel(PerfLevel::kDisable);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();

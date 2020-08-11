@@ -206,7 +206,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
  public:
-  explicit SpecialEnv(Env* base);
+  explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -529,11 +529,23 @@ class SpecialEnv : public EnvWrapper {
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     if (no_slowdown_ || time_elapse_only_sleep_) {
-      addon_time_.fetch_add(micros);
+      addon_microseconds_.fetch_add(micros);
     }
     if (!no_slowdown_) {
       target()->SleepForMicroseconds(micros);
     }
+  }
+
+  void MockSleepForMicroseconds(int64_t micros) {
+    sleep_counter_.Increment();
+    assert(no_slowdown_);
+    addon_microseconds_.fetch_add(micros);
+  }
+
+  void MockSleepForSeconds(int64_t seconds) {
+    sleep_counter_.Increment();
+    assert(no_slowdown_);
+    addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
@@ -544,9 +556,8 @@ class SpecialEnv : public EnvWrapper {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
-      // FIXME: addon_time_ sometimes used to mean seconds (here) and
-      // sometimes microseconds
-      *unix_time += addon_time_.load();
+      // mock microseconds elapsed to seconds of time
+      *unix_time += addon_microseconds_.load() / 1000000;
     }
     return s;
   }
@@ -558,12 +569,12 @@ class SpecialEnv : public EnvWrapper {
 
   virtual uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
-           addon_time_.load() * 1000;
+           addon_microseconds_.load() * 1000;
   }
 
   virtual uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
-           addon_time_.load();
+           addon_microseconds_.load();
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
@@ -571,16 +582,7 @@ class SpecialEnv : public EnvWrapper {
     return target()->DeleteFile(fname);
   }
 
-  void SetTimeElapseOnlySleep(Options* options) {
-    time_elapse_only_sleep_ = true;
-    no_slowdown_ = true;
-    // Need to disable stats dumping and persisting which also use
-    // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
-    // With time_elapse_only_sleep_, this can hang on some platforms.
-    // TODO: why? investigate/fix
-    options->stats_dump_period_sec = 0;
-    options->stats_persist_period_sec = 0;
-  }
+  void SetMockSleep(bool enabled = true) { no_slowdown_ = enabled; }
 
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
@@ -658,19 +660,23 @@ class SpecialEnv : public EnvWrapper {
 
   std::function<void()>* table_write_callback_;
 
-  std::atomic<int64_t> addon_time_;
-
   std::atomic<int> now_cpu_count_;
 
   std::atomic<int> delete_count_;
 
-  std::atomic<bool> time_elapse_only_sleep_;
-
-  bool no_slowdown_;
-
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
+
+ private:  // accessing these directly is prone to error
+  friend class DBTestBase;
+
+  std::atomic<int64_t> addon_microseconds_{0};
+
+  // Do not modify in the env of a running DB (could cause deadlock)
+  std::atomic<bool> time_elapse_only_sleep_;
+
+  bool no_slowdown_;
 };
 
 #ifndef ROCKSDB_LITE
@@ -1130,6 +1136,15 @@ class DBTestBase : public testing::Test {
                                       Tickers ticker_type) {
     return options.statistics->getAndResetTickerCount(ticker_type);
   }
+
+  // Note: reverting this setting within the same test run is not yet
+  // supported
+  void SetTimeElapseOnlySleepOnReopen(DBOptions* options);
+
+ private:  // Prone to error on direct use
+  void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);
+
+  bool time_elapse_only_sleep_on_reopen_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

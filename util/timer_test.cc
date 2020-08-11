@@ -17,10 +17,13 @@ class TimerTest : public testing::Test {
   std::unique_ptr<MockTimeEnv> mock_env_;
 
 #if defined(OS_MACOSX) && !defined(NDEBUG)
-  // On MacOS, `CondVar.TimedWait()` doesn't use the time from MockTimeEnv,
-  // instead it still uses the system time.
-  // This is just a mitigation that always trigger the CV timeout. It is not
-  // perfect, only works for this test.
+  // On some platforms (MacOS) pthread_cond_timedwait does not appear
+  // to release the lock for other threads to operate if the deadline time
+  // is already passed. This is a problem for tests in general because
+  // TimedWait calls are a bad abstraction: the deadline parameter is
+  // usually computed from Env time, but is interpreted in real clock time.
+  // Since this test doesn't even pretend to use clock times, we have
+  // to mock TimedWait to ensure it yields.
   void SetUp() override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -116,7 +119,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
       test_cv1.TimedWait(time_counter);
-      }
+    }
   }
 
   // Wait for execution to finish

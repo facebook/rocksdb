@@ -91,36 +91,6 @@ class KeepFilterFactory : public CompactionFilterFactory {
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
 };
-
-class DelayFilter : public CompactionFilter {
- public:
-  explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
-              std::string* /*new_value*/,
-              bool* /*value_changed*/) const override {
-    db_test->env_->addon_time_.fetch_add(1000);
-    return true;
-  }
-
-  const char* Name() const override { return "DelayFilter"; }
-
- private:
-  DBTestBase* db_test;
-};
-
-class DelayFilterFactory : public CompactionFilterFactory {
- public:
-  explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override {
-    return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
-  }
-
-  const char* Name() const override { return "DelayFilterFactory"; }
-
- private:
-  DBTestBase* db_test;
-};
 }  // namespace
 
 // Make sure we don't trigger a problem if the trigger condtion is given
@@ -2185,8 +2155,10 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   opts.compaction_options_universal.max_size_amplification_percent = 200;
   opts.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
   opts.num_levels = 5;
-  env_->addon_time_.store(0);
+  env_->SetMockSleep();
   Reopen(opts);
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   int periodic_compactions = 0;
   int start_level = -1;
@@ -2210,7 +2182,7 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   ASSERT_EQ(0, periodic_compactions);
   // Move clock forward so that the flushed file would qualify periodic
   // compaction.
-  env_->addon_time_.store(48 * 60 * 60 + 100);
+  env_->MockSleepForSeconds(48 * 60 * 60 + 100);
 
   // Another flush would trigger compaction the oldest file.
   ASSERT_OK(Put("foo", "bar2"));
@@ -2232,7 +2204,7 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   // After periodic compaction threshold hits, a flush will trigger
   // a compaction
   ASSERT_OK(Put("foo", "bar2"));
-  env_->addon_time_.fetch_add(48 * 60 * 60 + 100);
+  env_->MockSleepForSeconds(48 * 60 * 60 + 100);
   Flush();
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(1, periodic_compactions);

@@ -26,14 +26,13 @@ int64_t MaybeCurrentTime(Env* env) {
 
 // Special Env used to delay background operations
 
-SpecialEnv::SpecialEnv(Env* base)
+SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
     : EnvWrapper(base),
       maybe_starting_time_(MaybeCurrentTime(base)),
       rnd_(301),
       sleep_counter_(this),
-      addon_time_(0),
-      time_elapse_only_sleep_(false),
-      no_slowdown_(false) {
+      time_elapse_only_sleep_(time_elapse_only_sleep),
+      no_slowdown_(time_elapse_only_sleep) {
   delay_sstable_sync_.store(false, std::memory_order_release);
   drop_writes_.store(false, std::memory_order_release);
   no_space_.store(false, std::memory_order_release);
@@ -606,6 +605,39 @@ void DBTestBase::ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
 }
 
+void DBTestBase::SetTimeElapseOnlySleepOnReopen(DBOptions* options) {
+  time_elapse_only_sleep_on_reopen_ = true;
+
+  // Need to disable stats dumping and persisting which also use
+  // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
+  // With time_elapse_only_sleep_, this can hang on some platforms (MacOS)
+  // because (a) on some platforms, pthread_cond_timedwait does not appear
+  // to release the lock for other threads to operate if the deadline time
+  // is already passed, and (b) TimedWait calls are currently a bad abstraction
+  // because the deadline parameter is usually computed from Env time,
+  // but is interpreted in real clock time.
+  options->stats_dump_period_sec = 0;
+  options->stats_persist_period_sec = 0;
+}
+
+void DBTestBase::MaybeInstallTimeElapseOnlySleep(const DBOptions& options) {
+  if (time_elapse_only_sleep_on_reopen_) {
+    assert(options.env == env_ ||
+           static_cast_with_check<CompositeEnvWrapper>(options.env)
+                   ->env_target() == env_);
+    assert(options.stats_dump_period_sec == 0);
+    assert(options.stats_persist_period_sec == 0);
+    // We cannot set these before destroying the last DB because they might
+    // cause a deadlock or similar without the appropriate options set in
+    // the DB.
+    env_->time_elapse_only_sleep_ = true;
+    env_->no_slowdown_ = true;
+  } else {
+    // Going back in same test run is not yet supported, so no
+    // reset in this case.
+  }
+}
+
 Status DBTestBase::TryReopenWithColumnFamilies(
     const std::vector<std::string>& cfs, const std::vector<Options>& options) {
   Close();
@@ -616,6 +648,7 @@ Status DBTestBase::TryReopenWithColumnFamilies(
   }
   DBOptions db_opts = DBOptions(options[0]);
   last_options_ = options[0];
+  MaybeInstallTimeElapseOnlySleep(db_opts);
   return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
 }
 
@@ -659,6 +692,7 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
 }
 
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
+  MaybeInstallTimeElapseOnlySleep(options);
   return DB::OpenForReadOnly(options, dbname_, &db_);
 }
 
@@ -673,6 +707,7 @@ Status DBTestBase::TryReopen(const Options& options) {
   // problem, we manually call destructor of table_facotry which eventually
   // clears the block cache.
   last_options_ = options;
+  MaybeInstallTimeElapseOnlySleep(options);
   return DB::Open(options, dbname_, &db_);
 }
 

@@ -44,6 +44,7 @@ class Timer {
 
   ~Timer() {}
 
+  // repeat_every_us == 0 means do not repeat
   void Add(std::function<void()> fn,
            const std::string& fn_name,
            uint64_t start_after_us,

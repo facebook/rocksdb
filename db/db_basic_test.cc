@@ -592,6 +592,7 @@ TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, Snapshot) {
+  env_->SetMockSleep();
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   do {
@@ -607,7 +608,7 @@ TEST_F(DBBasicTest, Snapshot) {
     Put(0, "foo", "0v2");
     Put(1, "foo", "1v2");
 
-    env_->addon_time_.fetch_add(1);
+    env_->MockSleepForSeconds(1);
 
     const Snapshot* s2 = db_->GetSnapshot();
     ASSERT_EQ(2U, GetNumSnapshots());
@@ -3026,13 +3027,13 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_, false);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
-  env_->SetTimeElapseOnlySleep(&options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(1048576);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   options.env = env.get();
+  SetTimeElapseOnlySleepOnReopen(&options);
   ReopenWithColumnFamilies(GetCFNames(), options);
 
   // Test the non-batched version of MultiGet with multiple column
@@ -3194,9 +3195,6 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
   bool set_deadline = std::get<0>(GetParam());
   bool set_timeout = std::get<1>(GetParam());
 
-  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
-  // properly for the DB that's opened by the DBTestBase constructor.
-  Close();
   for (int option_config = kDefault; option_config < kEnd; ++option_config) {
     if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
       continue;
@@ -3209,7 +3207,6 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
     options.env = env.get();
     options.disable_auto_compactions = true;
     Cache* block_cache = nullptr;
-    env_->SetTimeElapseOnlySleep(&options);
     // Fileter block reads currently don't cause the request to get
     // aborted on a read timeout, so its possible those block reads
     // may get issued even if the deadline is past
@@ -3233,6 +3230,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
+    SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
     if (options.table_factory &&
@@ -3293,9 +3291,6 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
   bool set_deadline = std::get<0>(GetParam());
   bool set_timeout = std::get<1>(GetParam());
 
-  // Since we call SetTimeElapseOnlySleep, Close() later on may not work
-  // properly for the DB that's opened by the DBTestBase constructor.
-  Close();
   for (int option_config = kDefault; option_config < kEnd; ++option_config) {
     if (ShouldSkipOptions(option_config, kSkipPlainTable | kSkipMmapReads)) {
       continue;
@@ -3307,7 +3302,6 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     options.env = env.get();
     options.disable_auto_compactions = true;
     Cache* block_cache = nullptr;
-    env_->SetTimeElapseOnlySleep(&options);
     // DB open will create table readers unless we reduce the table cache
     // capacity.
     // SanitizeOptions will set max_open_files to minimum of 20. Table cache
@@ -3322,6 +3316,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
+    SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
     if (options.table_factory &&
