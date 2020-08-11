@@ -1024,8 +1024,6 @@ TEST_F(BackupableDBTest, CustomChecksumTransition) {
 
     // 2) with two custom checksum functions (FileHashGenFactory) for db
     //    but one custom checksum function (FileHash32GenFactory) for backup
-    // note that the checksum factory for backup does not know the checksum
-    // function in the db
     ++i;
     options_.file_checksum_gen_factory = hash_factory;
     backupable_options_->file_checksum_gen_factory = hash32_factory;
@@ -1033,14 +1031,35 @@ TEST_F(BackupableDBTest, CustomChecksumTransition) {
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                           sopt);
     FillDB(db_.get(), 0, keys_iteration * (i + 1));
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
-
+    // note that the checksum factory for backup does not know the custom
+    // checksum function used in the db
+    ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+    // but it knows the custom checksum function for the older backup
     ASSERT_OK(backup_engine_->VerifyBackup(i, true));
+    // reset the factory to nullptr and try again
+    CloseBackupEngine();
+    backupable_options_->file_checksum_gen_factory = nullptr;
+    OpenBackupEngine();
+    ASSERT_NOK(backup_engine_->DeleteBackup(i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
     CloseDBAndBackupEngine();
     AssertBackupConsistency(i, 0, keys_iteration * i, keys_iteration * (i + 1));
     AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
                             keys_iteration * (i + 2));
+    // Now set the factory to the same as the one used in the db
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseBackupEngine();
+    // Say, we accidentally change the factory
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    OpenBackupEngine();
+    ASSERT_NOK(backup_engine_->VerifyBackup(i + 2, true));
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(i + 2, dbname_, dbname_));
+    ASSERT_OK(backup_engine_->DeleteBackup(i + 2));
+    CloseDBAndBackupEngine();
 
     // 3) with one custom checksum function (FileHash32GenFactory) for db
     //    but two custom checksum functions (FileHashGenFactory) for backup
@@ -1067,6 +1086,8 @@ TEST_F(BackupableDBTest, CustomChecksumTransition) {
 
     // 4) no custom checksums
     ++i;
+    options_.file_checksum_gen_factory = nullptr;
+    backupable_options_->file_checksum_gen_factory = nullptr;
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                           sopt);
     FillDB(db_.get(), 0, keys_iteration * (i + 1));

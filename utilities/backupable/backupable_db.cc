@@ -431,28 +431,26 @@ class BackupEngineImpl : public BackupEngine {
       std::unique_ptr<FileChecksumGenerator>& checksum_func) {
     if (requested_checksum_func_name != kDefaultBackupFileChecksumFuncName) {
       if (!HasCustomChecksumGenFactory()) {
-        // if the requested checksum function for the file is the db standard
-        // checksum function we can use the backup default checksum function
-        // as they are both crc32c; otherwise, we return Status::NotSupported()
-        if (requested_checksum_func_name != kStandardDbFileChecksumFuncName) {
-          return Status::NotSupported("Custom checksum function " +
-                                      requested_checksum_func_name +
-                                      " not implemented");
-        }
+        // No custom checksum factory indicates users would like to use the
+        // backup default checksum function and accept the degraded data
+        // integrity checking
+        return Status::OK();
       } else {
         checksum_func =
             GetCustomChecksumGenerator(requested_checksum_func_name);
         // we will use the default backup checksum function if the custom
         // checksum functions is the db standard checksum function but is not
         // found in the checksum factory passed in; otherwise, we return
-        // Status::NotFound()
+        // Status::InvalidArgument()
         if (checksum_func == nullptr &&
             requested_checksum_func_name != kStandardDbFileChecksumFuncName) {
-          return Status::NotFound("Checksum checksum function " +
-                                  requested_checksum_func_name + " not found");
+          return Status::InvalidArgument("Checksum checksum function " +
+                                         requested_checksum_func_name +
+                                         " not found");
         }
       }
     }
+    // The requested checksum function is the default backup checksum function
     return Status::OK();
   }
 
@@ -1514,7 +1512,10 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     std::string backup_checksum_func_name = file_info->checksum_func_name;
     std::unique_ptr<FileChecksumGenerator> checksum_func;
     if (src_checksum_func_name != kUnknownFileChecksumFuncName) {
-      SetChecksumGenerator(src_checksum_func_name, checksum_func);
+      s = SetChecksumGenerator(src_checksum_func_name, checksum_func);
+      if (!s.ok()) {
+        return s;
+      }
       if (checksum_func != nullptr) {
         backup_checksum_func_name = checksum_func->Name();
       }
@@ -1636,10 +1637,10 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
         if (file_checksum_status.ok() &&
             src_checksum_str != kUnknownFileChecksum &&
             src_checksum_func_name != kUnknownFileChecksumFuncName) {
-          // Ignore returned status of the following function.
-          // If checksum_func is nullptr, we verify with crc32c but not the
-          // custom checksum function.
-          SetChecksumGenerator(src_checksum_func_name, checksum_func);
+          s = SetChecksumGenerator(src_checksum_func_name, checksum_func);
+          if (!s.ok()) {
+            return s;
+          }
           src_checksum_hex = ChecksumStrToHex(src_checksum_str);
         }
       }
@@ -1816,7 +1817,10 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   std::unique_ptr<FileChecksumGenerator> checksum_func;
   if (src_checksum_func_name != kUnknownFileChecksumFuncName) {
     // DB files have checksum functions
-    SetChecksumGenerator(src_checksum_func_name, checksum_func);
+    s = SetChecksumGenerator(src_checksum_func_name, checksum_func);
+    if (!s.ok()) {
+      return s;
+    }
     if (checksum_func != nullptr) {
       backup_checksum_func_name = checksum_func->Name();
     }
