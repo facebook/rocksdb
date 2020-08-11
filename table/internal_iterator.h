@@ -70,7 +70,7 @@ class InternalIteratorBase : public Cleanable {
   // REQUIRES: The iterator is `Valid()` before this call.
   //
   // The iterator is `Valid()` after this call if no seek occurred, or if a seek
-  // occurred and the source contains an entry that comes at or past target.
+  // occurred and the source contains an entry that comes at or past `target`.
   virtual void SeekIfSeqnoSmaller(const Slice& /* target */,
                                   SequenceNumber /* limit */) {}
 
@@ -78,6 +78,17 @@ class InternalIteratorBase : public Cleanable {
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
   virtual void SeekForPrev(const Slice& target) = 0;
+
+  // Position at the last key in the source at or before `target` if all keys
+  // visible to this iterator are known to have seqnos strictly less than
+  // `limit`. It is ok to be a no-op if that condition is unknown.
+  //
+  // REQUIRES: The iterator is `Valid()` before this call.
+  //
+  // The iterator is `Valid()` after this call if no seek occurred, or if a seek
+  // occurred and the source contains an entry that comes at or before `target`.
+  virtual void SeekForPrevIfSeqnoSmaller(const Slice& /* target */,
+                                         SequenceNumber /* limit */) {}
 
   // Moves to the next entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.

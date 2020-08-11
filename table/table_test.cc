@@ -4765,6 +4765,25 @@ TEST_P(BlockBasedTableTest, SeekIfSeqnoSmaller) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ("k0", ExtractUserKey(iter->key()).ToString());
   }
+
+  iter->SeekToLast();
+  {
+    InternalKey internal_key("k1", kMaxSequenceNumber, kValueTypeForSeek);
+    std::string encoded_key = internal_key.Encode().ToString();
+    iter->SeekForPrevIfSeqnoSmaller(encoded_key, kNumKeys /* limit */);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("k0", ExtractUserKey(iter->key()).ToString());
+  }
+
+  iter->SeekToLast();
+  {
+    InternalKey internal_key("k1", kMaxSequenceNumber, kValueTypeForSeek);
+    std::string encoded_key = internal_key.Encode().ToString();
+    iter->SeekForPrevIfSeqnoSmaller(encoded_key, kNumKeys - 1 /* limit */);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("k" + std::to_string(kNumKeys - 1),
+              ExtractUserKey(iter->key()).ToString());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -14,7 +14,7 @@ void BlockBasedTableIterator::Seek(const Slice& target) { SeekImpl(&target); }
 void BlockBasedTableIterator::SeekIfSeqnoSmaller(const Slice& target,
                                                  SequenceNumber limit) {
   if (largest_seqno_ < limit) {
-    SeekImpl(&target);
+    Seek(target);
   }
 }
 
@@ -164,6 +164,13 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
   CheckDataBlockWithinUpperBound();
   assert(!block_iter_.Valid() ||
          icomp_.Compare(target, block_iter_.key()) >= 0);
+}
+
+void BlockBasedTableIterator::SeekForPrevIfSeqnoSmaller(const Slice& target,
+                                                        SequenceNumber limit) {
+  if (largest_seqno_ < limit) {
+    SeekForPrev(target);
+  }
 }
 
 void BlockBasedTableIterator::SeekToLast() {
