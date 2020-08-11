@@ -340,13 +340,23 @@ workflows:
   build-examples:
     jobs:
       - build-examples
-  build-linux-non-shm-0:
-    jobs:
-      - build-linux-non-shm:
-          start_test: ""
-          end_test: "block_based_filter_block_test"
   build-linux-non-shm-1:
     jobs:
       - build-linux-non-shm:
-          start_test: "block_based_filter_block_test"
+          start_test: ""
+          end_test: "db_test"
+  build-linux-non-shm-2:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "db_test"
+          end_test: "db_test2"
+  build-linux-non-shm-3:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "db_test2"
+          end_test: "arena_test"
+  build-linux-non-shm-4:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "compact_on_deletion_collector_test"
           end_test: ""
