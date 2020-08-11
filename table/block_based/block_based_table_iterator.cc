@@ -11,6 +11,13 @@
 namespace ROCKSDB_NAMESPACE {
 void BlockBasedTableIterator::Seek(const Slice& target) { SeekImpl(&target); }
 
+void BlockBasedTableIterator::SeekIfSeqnoSmaller(const Slice& target,
+                                                 SequenceNumber limit) {
+  if (largest_seqno_ < limit) {
+    SeekImpl(&target);
+  }
+}
+
 void BlockBasedTableIterator::SeekToFirst() { SeekImpl(nullptr); }
 
 void BlockBasedTableIterator::SeekImpl(const Slice* target) {

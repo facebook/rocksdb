@@ -94,11 +94,11 @@ class BlockBasedTable : public TableReader {
                      std::unique_ptr<RandomAccessFileReader>&& file,
                      uint64_t file_size,
                      std::unique_ptr<TableReader>* table_reader,
+                     const SequenceNumber largest_seqno,
                      const SliceTransform* prefix_extractor = nullptr,
                      bool prefetch_index_and_filter_in_cache = true,
                      bool skip_filters = false, int level = -1,
                      const bool immortal_table = false,
-                     const SequenceNumber largest_seqno = 0,
                      bool force_direct_prefetch = false,
                      TailPrefetchStats* tail_prefetch_stats = nullptr,
                      BlockCacheTracer* const block_cache_tracer = nullptr,
@@ -508,7 +508,8 @@ struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
       const InternalKeyComparator& _internal_comparator, bool skip_filters,
-      uint64_t _file_size, int _level, const bool _immortal_table)
+      uint64_t _file_size, int _level, const bool _immortal_table,
+      const SequenceNumber _largest_seqno)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
@@ -520,6 +521,7 @@ struct BlockBasedTable::Rep {
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
         global_seqno(kDisableGlobalSequenceNumber),
+        largest_seqno(_largest_seqno),
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table) {}
@@ -577,6 +579,8 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+
+  const SequenceNumber largest_seqno;
 
   // Size of the table file on disk
   uint64_t file_size;

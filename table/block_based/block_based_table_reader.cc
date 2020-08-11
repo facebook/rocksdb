@@ -582,11 +582,10 @@ Status BlockBasedTable::Open(
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table_reader,
-    const SliceTransform* prefix_extractor,
+    const SequenceNumber largest_seqno, const SliceTransform* prefix_extractor,
     const bool prefetch_index_and_filter_in_cache, const bool skip_filters,
     const int level, const bool immortal_table,
-    const SequenceNumber largest_seqno, const bool force_direct_prefetch,
-    TailPrefetchStats* tail_prefetch_stats,
+    const bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin) {
   table_reader->reset();
@@ -646,9 +645,9 @@ Status BlockBasedTable::Open(
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
-  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters,
-                                      file_size, level, immortal_table);
+  Rep* rep = new BlockBasedTable::Rep(
+      ioptions, env_options, table_options, internal_comparator, skip_filters,
+      file_size, level, immortal_table, largest_seqno);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
@@ -2100,7 +2099,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
+        need_upper_bound_check, prefix_extractor, caller, rep_->largest_seqno,
         compaction_readahead_size, allow_unprepared_value);
   } else {
     auto* mem = arena->AllocateAligned(sizeof(BlockBasedTableIterator));
@@ -2108,7 +2107,7 @@ InternalIterator* BlockBasedTable::NewIterator(
         this, read_options, rep_->internal_comparator, std::move(index_iter),
         !skip_filters && !read_options.total_order_seek &&
             prefix_extractor != nullptr,
-        need_upper_bound_check, prefix_extractor, caller,
+        need_upper_bound_check, prefix_extractor, caller, rep_->largest_seqno,
         compaction_readahead_size, allow_unprepared_value);
   }
 }

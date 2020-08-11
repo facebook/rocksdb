@@ -63,6 +63,17 @@ class InternalIteratorBase : public Cleanable {
   // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
+  // Position at the first key in the source at or past `target` if all keys
+  // visible to this iterator are known to have seqnos strictly less than
+  // `limit`. It is ok to be a no-op if that condition is unknown.
+  //
+  // REQUIRES: The iterator is `Valid()` before this call.
+  //
+  // The iterator is `Valid()` after this call if no seek occurred, or if a seek
+  // occurred and the source contains an entry that comes at or past target.
+  virtual void SeekIfSeqnoSmaller(const Slice& /* target */,
+                                  SequenceNumber /* limit */) {}
+
   // Position at the first key in the source that at or before target
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.

@@ -325,10 +325,13 @@ class BlockConstructor : public Constructor {
 
 class TableConstructor : public Constructor {
  public:
-  explicit TableConstructor(const Comparator* cmp,
-                            bool convert_to_internal_key = false,
-                            int level = -1, SequenceNumber largest_seqno = 0)
+  explicit TableConstructor(
+      const Comparator* cmp, bool convert_to_internal_key = false,
+      int level = -1,
+      SequenceNumber global_seqno = kDisableGlobalSequenceNumber,
+      SequenceNumber largest_seqno = kMaxSequenceNumber)
       : Constructor(cmp),
+        global_seqno_(global_seqno),
         largest_seqno_(largest_seqno),
         convert_to_internal_key_(convert_to_internal_key),
         level_(level) {
@@ -349,11 +352,11 @@ class TableConstructor : public Constructor {
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
 
-    if (largest_seqno_ != 0) {
+    if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // Pretend that it's an external file written by SstFileWriter.
       int_tbl_prop_collector_factories.emplace_back(
           new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                      0 /* global_seqno*/));
+                                                      global_seqno_));
     }
 
     std::string column_family_name;
@@ -462,6 +465,7 @@ class TableConstructor : public Constructor {
   std::unique_ptr<WritableFileWriter> file_writer_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<TableReader> table_reader_;
+  SequenceNumber global_seqno_;
   SequenceNumber largest_seqno_;
   bool convert_to_internal_key_;
   int level_;
@@ -2435,7 +2439,8 @@ TEST_P(BlockBasedTableTest, BinaryIndexWithFirstKeyGlobalSeqno) {
   const MutableCFOptions moptions(options);
 
   TableConstructor c(BytewiseComparator(), /* convert_to_internal_key */ false,
-                     /* level */ -1, /* largest_seqno */ 42);
+                     /* level */ -1, 0 /* global_seqno */,
+                     /* largest_seqno */ 42);
 
   c.Add(InternalKey("b", 0, kTypeValue).Encode().ToString(), "x");
   c.Add(InternalKey("c", 0, kTypeValue).Encode().ToString(), "y");
@@ -4707,6 +4712,59 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_FALSE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
+}
+
+TEST_P(BlockBasedTableTest, SeekIfSeqnoSmaller) {
+  const int kNumKeys = 10;
+
+  TableConstructor c(BytewiseComparator(), false /*convert_to_internal_key*/,
+                     -1 /* level */, kDisableGlobalSequenceNumber,
+                     kNumKeys - 1 /* largest_seqno */);
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::string user_key = "k" + std::to_string(i);
+    InternalKey internal_key(user_key, i /* seqno */, kTypeValue);
+    std::string encoded_key = internal_key.Encode().ToString();
+    c.Add(encoded_key, kDummyValue);
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  Options options;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  const ImmutableCFOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, moptions, table_options, internal_comparator,
+           &keys, &kvmap);
+
+  auto* reader = c.GetTableReader();
+  ReadOptions read_opt;
+  std::unique_ptr<InternalIterator> iter;
+  iter.reset(reader->NewIterator(
+      read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kUncategorized));
+
+  iter->SeekToFirst();
+  {
+    InternalKey internal_key("k" + std::to_string(kNumKeys - 1),
+                             kMaxSequenceNumber, kValueTypeForSeek);
+    std::string encoded_key = internal_key.Encode().ToString();
+    iter->SeekIfSeqnoSmaller(encoded_key, kNumKeys /* limit */);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("k" + std::to_string(kNumKeys - 1),
+              ExtractUserKey(iter->key()).ToString());
+  }
+
+  iter->SeekToFirst();
+  {
+    InternalKey internal_key("k" + std::to_string(kNumKeys - 1),
+                             kMaxSequenceNumber, kValueTypeForSeek);
+    std::string encoded_key = internal_key.Encode().ToString();
+    iter->SeekIfSeqnoSmaller(encoded_key, kNumKeys - 1 /* limit */);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("k0", ExtractUserKey(iter->key()).ToString());
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

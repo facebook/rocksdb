@@ -149,7 +149,8 @@ class PartitionedFilterBlockTest
     table_.reset(new MockedBlockBasedTable(
         new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
                                  icomp_, skip_filters, file_size, level,
-                                 immortal_table),
+                                 immortal_table,
+                                 kMaxSequenceNumber /* largest_seqno */),
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(

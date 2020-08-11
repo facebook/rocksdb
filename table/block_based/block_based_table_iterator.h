@@ -26,6 +26,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
+      SequenceNumber largest_seqno,
       size_t compaction_readahead_size = 0, bool allow_unprepared_value = false)
       : table_(table),
         read_options_(read_options),
@@ -35,6 +36,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         lookup_context_(caller),
+        largest_seqno_(largest_seqno),
         block_prefetcher_(compaction_readahead_size),
         allow_unprepared_value_(allow_unprepared_value),
         block_iter_points_to_real_block_(false),
@@ -45,6 +47,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
+  void SeekIfSeqnoSmaller(const Slice& target, SequenceNumber limit) override;
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
@@ -193,6 +196,10 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const SliceTransform* prefix_extractor_;
   uint64_t prev_block_offset_ = std::numeric_limits<uint64_t>::max();
   BlockCacheLookupContext lookup_context_;
+
+  // Max possible seqno of all keys visible to this iterator, or
+  // `kMaxSequenceNumber` if unknown.
+  const SequenceNumber largest_seqno_;
 
   BlockPrefetcher block_prefetcher_;
 

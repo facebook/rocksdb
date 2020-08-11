@@ -98,7 +98,8 @@ class BlockBasedTableReaderTest
     ASSERT_NE(table_options, nullptr);
     ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
                                     comparator, std::move(file), file_size,
-                                    &table_reader));
+                                    &table_reader,
+                                    kMaxSequenceNumber /* largest_seqno */));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }

@@ -36,11 +36,11 @@ struct TableReaderOptions {
                      bool _force_direct_prefetch = false, int _level = -1,
                      BlockCacheTracer* const _block_cache_tracer = nullptr,
                      size_t _max_file_size_for_l0_meta_pin = 0)
-      : TableReaderOptions(_ioptions, _prefix_extractor, _env_options,
-                           _internal_comparator, _skip_filters, _immortal,
-                           _force_direct_prefetch, _level,
-                           0 /* _largest_seqno */, _block_cache_tracer,
-                           _max_file_size_for_l0_meta_pin) {}
+      : TableReaderOptions(
+            _ioptions, _prefix_extractor, _env_options, _internal_comparator,
+            _skip_filters, _immortal, _force_direct_prefetch, _level,
+            kMaxSequenceNumber /* largest_seqno */, _block_cache_tracer,
+            _max_file_size_for_l0_meta_pin) {}
 
   // @param skip_filters Disables loading/accessing the filter block
   TableReaderOptions(const ImmutableCFOptions& _ioptions,

@@ -143,7 +143,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                    file_name));
     s = opts.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
-                           env_options, ikc),
+                           env_options, ikc,
+                           kMaxSequenceNumber /* largest_seqno */),
         std::move(file_reader), file_size, &table_reader);
     if (!s.ok()) {
       fprintf(stderr, "Open Table Error: %s\n", s.ToString().c_str());
