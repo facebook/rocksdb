@@ -47,7 +47,7 @@ class Iterator : public Cleanable {
   // Valid() after this call iff the source is not empty.
   virtual void SeekToLast() = 0;
 
-  // Position at the first key in the source that at or past target.
+  // Position at the first key in the source that is at or past target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
   // All Seek*() methods clear any error status() that the iterator had prior to
@@ -56,7 +56,7 @@ class Iterator : public Cleanable {
   // Target does not contain timestamp.
   virtual void Seek(const Slice& target) = 0;
 
-  // Position at the last key in the source that at or before target.
+  // Position at the last key in the source that is at or before target.
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or before target.
   // Target does not contain timestamp.
