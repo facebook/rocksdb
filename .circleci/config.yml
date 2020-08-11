@@ -261,6 +261,13 @@ jobs:
     machine:
       image: ubuntu-1604:201903-01
     resource_class: 2xlarge
+    parameters:
+      start_test:
+        default: ""
+        type: string
+      end_test:
+        default: ""
+        type: string
     steps:
       - checkout # checkout the code in the project directory
       - run: pyenv global 3.5.2
@@ -268,7 +275,7 @@ jobs:
       - run:
           name: "Build and unit tests on non-shm"
           command: |
-            TMPD=/tmp/rocksdb_test_tmp make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+            TMPD=/tmp/rocksdb_test_tmp ROCKSDBTESTS_START=<<parameters.start_test>> ROCKSDBTESTS_END=<<parameters.end_test>> make V=1 J=32 -j32 check_some | .circleci/cat_ignore_eagain
 
 workflows:
   build-linux:
@@ -333,6 +340,13 @@ workflows:
   build-examples:
     jobs:
       - build-examples
-  build-linux-non-shm:
+  build-linux-non-shm-0:
     jobs:
-      - build-linux-non-shm
+      - build-linux-non-shm:
+          start_test: ""
+          end_test: "block_based_filter_block_test"
+  build-linux-non-shm-1:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "block_based_filter_block_test"
+          end_test: ""
