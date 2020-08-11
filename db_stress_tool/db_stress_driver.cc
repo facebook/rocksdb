@@ -43,13 +43,6 @@ void ThreadBody(void* v) {
     }
   }
 
-#ifndef ROCKSDB_LITE
-  if (FLAGS_inject_corruption_and_verify_checksum) {
-    MutexLock l(shared->GetMutex());
-    thread->shared->GetStressTest()->TestInjectCorruptionAndVerify(thread);
-  }
-#endif  // ROCKSDB_LITE
-
   if (!FLAGS_skip_verifydb) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }

@@ -655,8 +655,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(
-              FLAGS_inject_corruption_and_verify_checksum_one_in)) {
-        TestInjectCorruptionAndVerify(thread, true);
+              FLAGS_inject_random_corruption_and_verify_checksum_one_in)) {
+        TestInjectCorruptionAndVerify(thread);
       }
 
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
@@ -1328,8 +1328,7 @@ inline Status FlipBitsInFile(
 }
 }  // namespace
 
-void StressTest::TestInjectCorruptionAndVerify(ThreadState* thread,
-                                               bool inbetween_ops) const {
+void StressTest::TestInjectCorruptionAndVerify(ThreadState* thread) const {
   db_->DisableFileDeletions();
   std::vector<LiveFileMetaData> table_file_meta;
   db_->GetLiveFilesMetaData(&table_file_meta);
@@ -1377,34 +1376,32 @@ void StressTest::TestInjectCorruptionAndVerify(ThreadState* thread,
 
   Status s;
   EnvOptions env_opts(db_->GetDBOptions());
-  if (inbetween_ops) {
-    // Make a copy of the file to be corrupted and tamper the copy instead
-    // of the original file.
-    std::string file_copy = file_name;
-    file_copy.insert(file_copy.find_last_of('/') + 1,
-                     "." + ToString(thread->tid) + ".");
-    s = CopyFile(db_->GetFileSystem(), file_name, file_copy, 0 /* size */,
-                 options_.use_fsync);
-    if (!s.ok()) {
-      fprintf(stderr,
-              "Failed to copy due to %s No corruption injected "
-              "and no checksum verification performed for %s\n",
-              s.ToString().c_str(), file_name.c_str());
-      db_->EnableFileDeletions(false /* force */);
-      return;
-    }
-    file_name = file_copy;
-    uint64_t copy_size = 0;
-    db_stress_env->GetFileSize(file_name, &copy_size);
-    // Sanity check after copying
-    if (static_cast<size_t>(copy_size) != file_size) {
-      fprintf(stderr,
-              "File size mismatch after file copy. No corruption "
-              "injected and no checksum verification performed for %s\n",
-              file_name.c_str());
-      db_->EnableFileDeletions(false /* force */);
-      return;
-    }
+  // Make a copy of the file to be corrupted and tamper the copy instead
+  // of the original file.
+  std::string file_copy = file_name;
+  file_copy.insert(file_copy.find_last_of('/') + 1,
+                   "." + ToString(thread->tid) + ".");
+  s = CopyFile(db_->GetFileSystem(), file_name, file_copy, 0 /* size */,
+               options_.use_fsync);
+  if (!s.ok()) {
+    fprintf(stderr,
+            "Failed to copy due to %s No corruption injected "
+            "and no checksum verification performed for %s\n",
+            s.ToString().c_str(), file_name.c_str());
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+  file_name = file_copy;
+  uint64_t copy_size = 0;
+  db_stress_env->GetFileSize(file_name, &copy_size);
+  // Sanity check after copying
+  if (static_cast<size_t>(copy_size) != file_size) {
+    fprintf(stderr,
+            "File size mismatch after file copy. No corruption "
+            "injected and no checksum verification performed for %s\n",
+            file_name.c_str());
+    db_->EnableFileDeletions(false /* force */);
+    return;
   }
 
   // Verify checksum before corruption
@@ -1446,61 +1443,13 @@ void StressTest::TestInjectCorruptionAndVerify(ThreadState* thread,
                 loc.first, loc.second);
       }
       thread->shared->SetVerificationFailure();
-      db_->EnableFileDeletions(false /* force */);
-      return;
     }
-  } else {
-    // No corruption was injected
-    db_->EnableFileDeletions(false /* force */);
-    return;
   }
 
-  if (inbetween_ops) {
-    // Delete the file copy created for injecting corruption
-    //
-    db_->EnableFileDeletions(false /* force */);
-    db_stress_env->DeleteFile(file_name);
-    return;
-  } else {
-    // Restore the file so that we may verfiy the db
-    //
-    uint8_t num_bits_restored = 0;
-    s = FlipBitsInFile(file_name, env_opts, locations, &num_bits_restored);
-    if (!s.ok()) {
-      fprintf(stderr, "Fail to restore the corrupted %s due to %s\n",
-              file_name.c_str(), s.ToString().c_str());
-      thread->shared->SetVerificationFailure();
-      db_->EnableFileDeletions(false /* force */);
-      return;
-    }
-
-    if (num_bits_restored != num_bits_flipped) {
-      fprintf(stderr,
-              "Restored %" PRIu8 " bits while corrupted %" PRIu8
-              " bits in %s\n",
-              num_bits_restored, num_bits_flipped, file_name.c_str());
-      thread->shared->SetVerificationFailure();
-      db_->EnableFileDeletions(false /* force */);
-      return;
-    }
-
-    // Verify the checksum of the file
-    s = VerifySstFileChecksum(options_, env_opts, file_name);
-    if (!s.ok()) {
-      fprintf(stderr,
-              "Fail to verify the checksum of %s recovered from "
-              "corruption\n",
-              file_name.c_str());
-      thread->shared->SetVerificationFailure();
-      db_->EnableFileDeletions(false /* force */);
-      return;
-    }
-    fprintf(stdout,
-            "Succeed corruption injection and checksum verification "
-            "for %s\n",
-            file_name.c_str());
-  }
+  // Delete the file copy created for injecting corruption
+  //
   db_->EnableFileDeletions(false /* force */);
+  db_stress_env->DeleteFile(file_name);
   return;
 }
 
