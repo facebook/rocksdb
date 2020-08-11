@@ -63,14 +63,12 @@ class InternalIteratorBase : public Cleanable {
   // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
-  // Position at the first key in the source at or past `target` if all keys
-  // visible to this iterator are known to have seqnos strictly less than
-  // `limit`. It is ok to be a no-op if that condition is unknown.
+  // Seek forwards as far as the first key in the source at or after `target`,
+  // only skipping over keys with seqnos strictly less than `limit`. The
+  // implementation can be a no-op or seek only part of the way forward to
+  // the largest allowed key.
   //
   // REQUIRES: The iterator is `Valid()` before this call.
-  //
-  // The iterator is `Valid()` after this call if no seek occurred, or if a seek
-  // occurred and the source contains an entry that comes at or past `target`.
   virtual void SeekIfSeqnoSmaller(const Slice& /* target */,
                                   SequenceNumber /* limit */) {}
 
@@ -79,14 +77,12 @@ class InternalIteratorBase : public Cleanable {
   // an entry that comes at or before target.
   virtual void SeekForPrev(const Slice& target) = 0;
 
-  // Position at the last key in the source at or before `target` if all keys
-  // visible to this iterator are known to have seqnos strictly less than
-  // `limit`. It is ok to be a no-op if that condition is unknown.
+  // Seek backwards as far as the last key in the source at or before `target`,
+  // only skipping over keys with seqnos strictly less than `limit`. The
+  // implementation can be a no-op or seek only part of the way backward to
+  // the smallest allowed key.
   //
   // REQUIRES: The iterator is `Valid()` before this call.
-  //
-  // The iterator is `Valid()` after this call if no seek occurred, or if a seek
-  // occurred and the source contains an entry that comes at or before `target`.
   virtual void SeekForPrevIfSeqnoSmaller(const Slice& /* target */,
                                          SequenceNumber /* limit */) {}
 

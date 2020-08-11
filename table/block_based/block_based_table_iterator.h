@@ -46,8 +46,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   ~BlockBasedTableIterator() {}
 
   void Seek(const Slice& target) override;
-  void SeekForPrev(const Slice& target) override;
   void SeekIfSeqnoSmaller(const Slice& target, SequenceNumber limit) override;
+  void SeekForPrev(const Slice& target) override;
   void SeekForPrevIfSeqnoSmaller(const Slice& target,
                                  SequenceNumber limit) override;
   void SeekToFirst() override;

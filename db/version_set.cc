@@ -910,7 +910,10 @@ class LevelIterator final : public InternalIterator {
   ~LevelIterator() override { delete file_iter_.Set(nullptr); }
 
   void Seek(const Slice& target) override;
+  void SeekIfSeqnoSmaller(const Slice& target, SequenceNumber limit) override;
   void SeekForPrev(const Slice& target) override;
+  void SeekForPrevIfSeqnoSmaller(const Slice& target,
+                                 SequenceNumber limit) override;
   void SeekToFirst() override;
   void SeekToLast() override;
   void Next() final override;
@@ -1104,6 +1107,19 @@ void LevelIterator::Seek(const Slice& target) {
   CheckMayBeOutOfLowerBound();
 }
 
+void LevelIterator::SeekIfSeqnoSmaller(const Slice& target,
+                                       SequenceNumber limit) {
+  assert(Valid());
+  const FdWithKeyRange& cur_file = flevel_->files[file_index_];
+  if (cur_file.fd.largest_seqno < limit) {
+    file_iter_.Seek(target);
+    SkipEmptyFileForward();
+    // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
+    // receiving updates to its bounds in this function, so we omit the call to
+    // `CheckMayBeOutOfLowerBound()`.
+  }
+}
+
 void LevelIterator::SeekForPrev(const Slice& target) {
   size_t new_file_index = FindFile(icomparator_, *flevel_, target);
   if (new_file_index >= flevel_->num_files) {
@@ -1116,6 +1132,19 @@ void LevelIterator::SeekForPrev(const Slice& target) {
     SkipEmptyFileBackward();
   }
   CheckMayBeOutOfLowerBound();
+}
+
+void LevelIterator::SeekForPrevIfSeqnoSmaller(const Slice& target,
+                                              SequenceNumber limit) {
+  assert(Valid());
+  const FdWithKeyRange& cur_file = flevel_->files[file_index_];
+  if (cur_file.fd.largest_seqno < limit) {
+    file_iter_.SeekForPrev(target);
+    SkipEmptyFileBackward();
+    // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
+    // receiving updates to its bounds in this function, so we omit the call to
+    // `CheckMayBeOutOfLowerBound()`.
+  }
 }
 
 void LevelIterator::SeekToFirst() {
