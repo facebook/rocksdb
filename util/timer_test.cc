@@ -288,9 +288,7 @@ TEST_F(TimerTest, CancelRunningTask) {
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
   ASSERT_TRUE(timer.Start());
-  int* value = new int;
-  ASSERT_NE(nullptr, value);  // make linter happy
-  *value = 0;
+  int value = 0;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency({
       {"TimerTest::CancelRunningTask:test_func:0",
@@ -301,7 +299,7 @@ TEST_F(TimerTest, CancelRunningTask) {
   SyncPoint::GetInstance()->EnableProcessing();
   timer.Add(
       [&]() {
-        *value = 1;
+        value = 1;
         TEST_SYNC_POINT("TimerTest::CancelRunningTask:test_func:0");
         TEST_SYNC_POINT("TimerTest::CancelRunningTask:test_func:1");
       },
@@ -310,9 +308,7 @@ TEST_F(TimerTest, CancelRunningTask) {
     TEST_SYNC_POINT("TimerTest::CancelRunningTask:BeforeCancel");
     timer.Cancel(kTestFuncName);
     // Verify that *value has been set to 1.
-    ASSERT_EQ(1, *value);
-    delete value;
-    value = nullptr;
+    ASSERT_EQ(1, value);
   });
   mock_env_->set_current_time(1);
   control_thr.join();
@@ -336,18 +332,16 @@ TEST_F(TimerTest, ShutdownRunningTask) {
 
   ASSERT_TRUE(timer.Start());
 
-  int* value = new int;
-  ASSERT_NE(nullptr, value);
-  *value = 0;
+  int value = 0;
   timer.Add(
       [&]() {
         TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:test_func:0");
-        *value = 1;
+        ++value;
         TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:test_func:1");
       },
       kTestFunc1Name, 0, 1 * kSecond);
 
-  timer.Add([&]() { ++(*value); }, kTestFunc2Name, 0, 1 * kSecond);
+  timer.Add([&]() { ++value; }, kTestFunc2Name, 0, 1 * kSecond);
 
   port::Thread control_thr([&]() {
     TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:BeforeShutdown");
@@ -355,7 +349,8 @@ TEST_F(TimerTest, ShutdownRunningTask) {
   });
   mock_env_->set_current_time(1);
   control_thr.join();
-  delete value;
+
+  ASSERT_GE(value, 1);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
