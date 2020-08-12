@@ -59,7 +59,28 @@ class BaseDeltaIterator : public Iterator {
   bool BaseValid() const;
   bool DeltaValid() const;
   void UpdateCurrent();
-  bool IsWithinBounds(const Slice& key) const;
+
+  /**
+   * Returns the upper bound for the base iterator,
+   * or nullptr if there is no upper bound.
+   *
+   * The base iterator may have its own upper bound,
+   * if not not we use the upper bound from this
+   * iterator's ReadOptions (if present).
+   */
+  inline const Slice* base_iterator_upper_bound() const;
+
+  /**
+   * Returns the lower bound for the base iterator,
+   * or nullptr if there is no lower bound.
+   *
+   * The base iterator may have its own lower bound,
+   * if not not we use the lower bound from this
+   * iterator's ReadOptions (if present).
+   */
+  inline const Slice* base_iterator_lower_bound() const;
+  bool BaseIsWithinBounds() const;
+  bool DeltaIsWithinBounds() const;
 
   inline bool IsMovingForward() const {
     return progress_ < Progress::BACKWARD;
