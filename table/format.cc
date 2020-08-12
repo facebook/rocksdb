@@ -371,10 +371,9 @@ Status UncompressBlockContentsForCompressionType(
       break;
     }
     case kZlibCompression:
-      ubuf = Zlib_Uncompress(
-          uncompression_info, data, n, &decompress_size,
-          GetCompressFormatForVersion(kZlibCompression, format_version),
-          allocator);
+      ubuf = Zlib_Uncompress(uncompression_info, data, n, &decompress_size,
+                             GetCompressFormatForVersion(format_version),
+                             allocator);
       if (!ubuf) {
         static char zlib_corrupt_msg[] =
             "Zlib not supported or corrupted Zlib compressed block contents";
@@ -383,10 +382,9 @@ Status UncompressBlockContentsForCompressionType(
       *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kBZip2Compression:
-      ubuf = BZip2_Uncompress(
-          data, n, &decompress_size,
-          GetCompressFormatForVersion(kBZip2Compression, format_version),
-          allocator);
+      ubuf = BZip2_Uncompress(data, n, &decompress_size,
+                              GetCompressFormatForVersion(format_version),
+                              allocator);
       if (!ubuf) {
         static char bzip2_corrupt_msg[] =
             "Bzip2 not supported or corrupted Bzip2 compressed block contents";
@@ -395,10 +393,9 @@ Status UncompressBlockContentsForCompressionType(
       *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kLZ4Compression:
-      ubuf = LZ4_Uncompress(
-          uncompression_info, data, n, &decompress_size,
-          GetCompressFormatForVersion(kLZ4Compression, format_version),
-          allocator);
+      ubuf = LZ4_Uncompress(uncompression_info, data, n, &decompress_size,
+                            GetCompressFormatForVersion(format_version),
+                            allocator);
       if (!ubuf) {
         static char lz4_corrupt_msg[] =
             "LZ4 not supported or corrupted LZ4 compressed block contents";
@@ -407,10 +404,9 @@ Status UncompressBlockContentsForCompressionType(
       *contents = BlockContents(std::move(ubuf), decompress_size);
       break;
     case kLZ4HCCompression:
-      ubuf = LZ4_Uncompress(
-          uncompression_info, data, n, &decompress_size,
-          GetCompressFormatForVersion(kLZ4HCCompression, format_version),
-          allocator);
+      ubuf = LZ4_Uncompress(uncompression_info, data, n, &decompress_size,
+                            GetCompressFormatForVersion(format_version),
+                            allocator);
       if (!ubuf) {
         static char lz4hc_corrupt_msg[] =
             "LZ4HC not supported or corrupted LZ4HC compressed block contents";

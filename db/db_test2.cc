@@ -1481,8 +1481,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
 
   if (compression_failure_type_ == kTestCompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
-        [](void* arg) {
+        "CompressData:TamperWithReturnValue", [](void* arg) {
           bool* ret = static_cast<bool*>(arg);
           *ret = false;
         });
