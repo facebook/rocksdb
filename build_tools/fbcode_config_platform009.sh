@@ -111,7 +111,7 @@ CLANG_BIN="$CLANG_BASE/bin"
 CLANG_LIB="$CLANG_BASE/lib"
 CLANG_SRC="$CLANG_BASE/../../src"
 
-CLANG_ANALYZER="$CLANG_BASE/bin/clang++"
+CLANG_ANALYZER="$CLANG_BIN/clang++"
 CLANG_SCAN_BUILD="$CLANG_SRC/llvm/clang/tools/scan-build/bin/scan-build"
 
 if [ -z "$USE_CLANG" ]; then
@@ -141,7 +141,7 @@ else
   CFLAGS+=" -isystem $CLANG_INCLUDE"
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
-  #CFLAGS+=" -Wno-expansion-to-defined "
+  CFLAGS+=" -Wno-expansion-to-defined "
   CXXFLAGS="-nostdinc++"
 fi
 
