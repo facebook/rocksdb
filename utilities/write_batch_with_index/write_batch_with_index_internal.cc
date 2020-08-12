@@ -45,7 +45,7 @@ void BaseDeltaIterator::SeekToFirst() {
 
 void BaseDeltaIterator::SeekToLast() {
   progress_ = Progress::SEEK_TO_LAST;
-  // is there an upper bound constraint?
+  // is there an upper bound constraint on base_iterator_?
   const Slice* base_upper_bound = base_iterator_upper_bound();
   if (base_upper_bound != nullptr) {
     // yes, and is base_iterator already constrained by an upper_bound?
@@ -62,6 +62,14 @@ void BaseDeltaIterator::SeekToLast() {
       // yes, so the base_iterator will take care of base_upper_bound
       base_iterator_->SeekToLast();
     }
+  } else {
+    // no upper cound constraint, so just SeekToLast
+    base_iterator_->SeekToLast();
+  }
+
+  // is there an upper bound constraint on delta_iterator_?
+  if (read_options_ != nullptr
+      && read_options_->iterate_upper_bound != nullptr) {
 
     // delta iterator does not itself support iterate_upper_bound,
     // so we have to seek it to before iterate_upper_bound
@@ -74,8 +82,7 @@ void BaseDeltaIterator::SeekToLast() {
     }
 
   } else {
-    // no upper cound constraint, so just SeekToLast on both
-    base_iterator_->SeekToLast();
+    // no upper bound constraint, so just SeekToLast
     delta_iterator_->SeekToLast();
   }
 
