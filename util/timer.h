@@ -158,6 +158,7 @@ class Timer {
 
         // current_fn may be cancelled already.
         if (current_fn->IsValid() && current_fn->repeat_every_us > 0) {
+          assert(running_);
           current_fn->next_run_time_us = env_->NowMicros() +
               current_fn->repeat_every_us;
 
