@@ -1717,6 +1717,337 @@ TEST_F(WriteBatchWithIndexTest,
 }
 
 TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseNoSuchUpperBoundOnBaseAndBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+
+  ReadOptions read_options;
+
+  // scan over base
+  // upper bound k033 does exist, but comes between k03 and k04
+  Slice upper_bound_base("k033");
+  read_options.iterate_upper_bound = &upper_bound_base;
+
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  // scan over batch
+  // upper bound k077 does exist, but comes between k07 and k08
+  Slice upper_bound_batch("k077");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->Seek("k05");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k06", "v06"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k06", "v06"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseOverUpperBoundOnBaseWithBaseConstraintAndBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+
+  ReadOptions read_options;
+
+  // scan over base
+  // upper bound k044 is beyond the keys in the base
+  Slice upper_bound_base("k044");
+  read_options.iterate_upper_bound = &upper_bound_base;
+
+  // NOTE: KVIter also has read_options::iterate_upper_bound constraint
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), &read_options),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  // scan over batch
+  // upper bound k09 is beyond the keys in the batch
+  Slice upper_bound_batch("k09");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->Seek("k05");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k06", "v06"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
+       TestIteraratorWithBaseOverUpperBoundOnBaseWithoutBaseConstraintAndBatch) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  KVMap base;
+  base["k01"] = "v01";
+  base["k02"] = "v02";
+  base["k03"] = "v03";
+  base["k04"] = "v04";
+
+  batch.Put(&cf1, "k05", "v05");
+  batch.Put(&cf1, "k06", "v06");
+  batch.Put(&cf1, "k07", "v07");
+  batch.Put(&cf1, "k08", "v08");
+
+  ReadOptions read_options;
+
+  // scan over base
+  // upper bound k044 is beyond the keys in the base
+  Slice upper_bound_base("k044");
+  read_options.iterate_upper_bound = &upper_bound_base;
+
+  // NOTE: KVIter DOES NOT have read_options::iterate_upper_bound constraint
+  std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
+      &cf1, new KVIter(&base, BytewiseComparator(), nullptr),
+      &read_options));
+
+  ASSERT_OK(iter->status());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  // scan over batch
+  // upper bound k09 is beyond the keys in the batch
+  Slice upper_bound_batch("k09");
+  read_options.iterate_upper_bound = &upper_bound_batch;
+
+  iter->Seek("k05");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k06", "v06"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToLast();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+  iter->Next();
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+}
+
+TEST_F(WriteBatchWithIndexTest,
        TestIteraratorWithBaseUpperBoundOnBaseAndDifferentUpperBoundOnBatch) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 0, true);

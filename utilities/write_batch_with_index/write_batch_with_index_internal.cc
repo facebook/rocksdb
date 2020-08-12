@@ -54,6 +54,9 @@ void BaseDeltaIterator::SeekToLast() {
       base_iterator_->Seek(*(base_upper_bound));
       if (base_iterator_->Valid()) {
         base_iterator_->Prev();  // upper bound should be exclusive!
+      } else {
+        // the base_upper_bound is beyond the base_iterator, so just SeekToLast()
+        base_iterator_->SeekToLast();
       }
     } else {
       // yes, so the base_iterator will take care of base_upper_bound
@@ -65,6 +68,9 @@ void BaseDeltaIterator::SeekToLast() {
     delta_iterator_->Seek(*(read_options_->iterate_upper_bound));
     if (delta_iterator_->Valid()) {
       delta_iterator_->Prev();  // upper bound should be exclusive!
+    } else {
+      // the upper_bound is beyond the delta_iterator, so just SeekToLast()
+      delta_iterator_->SeekToLast();
     }
 
   } else {
