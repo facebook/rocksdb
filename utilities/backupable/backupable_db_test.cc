@@ -38,6 +38,148 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+class DummyFileChecksumGen : public FileChecksumGenerator {
+ public:
+  explicit DummyFileChecksumGen(const FileChecksumGenContext& /* context */,
+                                bool state) {
+    if (state) {
+      checksum_ = 0;
+    } else {
+      checksum_ = 1;
+    }
+  }
+
+  void Update(const char* /* data */, size_t /* n */) override {}
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "DummyFileChecksum"; }
+
+ private:
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class DummyFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  explicit DummyFileChecksumGenFactory(bool state = false) : state_(state) {}
+
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "DummyFileChecksum") {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new DummyFileChecksumGen(context, state_));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "DummyFileChecksumGenFactory"; }
+
+ private:
+  bool state_;
+};
+
+class FileHash32Gen : public FileChecksumGenerator {
+ public:
+  explicit FileHash32Gen(const FileChecksumGenContext& /*context*/) {
+    checksum_ = 0;
+  }
+
+  void Update(const char* data, size_t n) override { content_.append(data, n); }
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    const char* str = content_.c_str();
+    checksum_ = Hash(str, strlen(str), 1);
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "FileHash32"; }
+
+ private:
+  std::string content_;
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class FileHash64Gen : public FileChecksumGenerator {
+ public:
+  explicit FileHash64Gen(const FileChecksumGenContext& /*context*/) {
+    checksum_ = 0;
+  }
+
+  void Update(const char* data, size_t n) override { content_.append(data, n); }
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    const char* str = content_.c_str();
+    checksum_ = Hash64(str, strlen(str), 1);
+    // Store as big endian raw bytes
+    PutFixed64(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "FileHash64"; }
+
+ private:
+  std::string content_;
+  uint64_t checksum_;
+  std::string checksum_str_;
+};
+
+class FileHash32GenFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileHash32") {
+      return std::unique_ptr<FileChecksumGenerator>(new FileHash32Gen(context));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "FileHash32GenFactory"; }
+};
+
+class FileHashGenFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileHash64") {
+      return std::unique_ptr<FileChecksumGenerator>(new FileHash64Gen(context));
+    } else if (context.requested_checksum_func_name == "FileHash32") {
+      return std::unique_ptr<FileChecksumGenerator>(new FileHash32Gen(context));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "FileHashGenFactory"; }
+};
+
 class DummyDB : public StackableDB {
  public:
   /* implicit */
@@ -634,8 +776,8 @@ class BackupableDBTest : public testing::Test {
     backup_engine_.reset();
   }
 
-  void OpenBackupEngine() {
-    backupable_options_->destroy_old_data = false;
+  void OpenBackupEngine(bool destroy_old_data = false) {
+    backupable_options_->destroy_old_data = destroy_old_data;
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
@@ -765,6 +907,204 @@ class BackupableDBTestWithParam : public BackupableDBTest,
     backupable_options_->share_files_with_checksum = GetParam();
   }
 };
+
+TEST_F(BackupableDBTest, DbAndBackupSameCustomChecksum) {
+  const int keys_iteration = 5000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  // backup uses it default crc32c
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  // backup uses db crc32c
+  backupable_options_->file_checksum_gen_factory =
+      GetFileChecksumGenCrc32cFactory();
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  std::shared_ptr<FileChecksumGenFactory> hash_factory =
+      std::make_shared<FileHashGenFactory>();
+  options_.file_checksum_gen_factory = hash_factory;
+  backupable_options_->file_checksum_gen_factory = hash_factory;
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  // Mimic a checksum mismatch for custom checksum function by using a dummy
+  // checksum function with a state
+  std::shared_ptr<FileChecksumGenFactory> dummy_factory_0 =
+      std::make_shared<DummyFileChecksumGenFactory>(false);
+  std::shared_ptr<FileChecksumGenFactory> dummy_factory_1 =
+      std::make_shared<DummyFileChecksumGenFactory>(true);
+  FileChecksumGenContext context;
+  // Both factories have the same generator name
+  std::string dummy_checksum_function_name =
+      dummy_factory_0->CreateFileChecksumGenerator(context)->Name();
+  options_.file_checksum_gen_factory = dummy_factory_0;
+  for (const auto& sopt : kAllShareOptions) {
+    backupable_options_->file_checksum_gen_factory = dummy_factory_1;
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    // DB and backup engine do not have the same custom checksum function
+    // "state"
+    Status s = backup_engine_->CreateNewBackup(db_.get());
+    ASSERT_NOK(s);
+    ASSERT_TRUE(
+        s.ToString().find("Corruption: " + dummy_checksum_function_name +
+                          " mismatch") != std::string::npos);
+    CloseBackupEngine();
+
+    // Change custom checksum function and try again
+    backupable_options_->file_checksum_gen_factory = dummy_factory_0;
+    OpenBackupEngine(true /* destroy_old_data */);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseBackupEngine();
+
+    // Try verifying or restoring a backup using a different custom checksum
+    // function "state"
+    backupable_options_->file_checksum_gen_factory = dummy_factory_1;
+    OpenBackupEngine(false /* destroy_old_data */);
+    ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseDBAndBackupEngine();
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
+
+TEST_F(BackupableDBTest, CustomChecksumTransition) {
+  const int keys_iteration = 5000;
+  std::shared_ptr<FileChecksumGenFactory> hash32_factory =
+      std::make_shared<FileHash32GenFactory>();
+  std::shared_ptr<FileChecksumGenFactory> hash_factory =
+      std::make_shared<FileHashGenFactory>();
+  for (const auto& sopt : kAllShareOptions) {
+    // 1) with one custom checksum function (FileHash32GenFactory) for both
+    //    db and backup
+    int i = 0;
+    options_.file_checksum_gen_factory = hash32_factory;
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    // open with old backup
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    // verify the backup with checksum
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (i + 2));
+
+    // 2) with two custom checksum functions (FileHashGenFactory) for db
+    //    but one custom checksum function (FileHash32GenFactory) for backup
+    ++i;
+    options_.file_checksum_gen_factory = hash_factory;
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    // note that the checksum factory for backup does not know the custom
+    // checksum function used in the db
+    ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+    // but it knows the custom checksum function for the older backup
+    ASSERT_OK(backup_engine_->VerifyBackup(i, true));
+    // reset the factory to nullptr and try again
+    CloseBackupEngine();
+    backupable_options_->file_checksum_gen_factory = nullptr;
+    OpenBackupEngine();
+    ASSERT_NOK(backup_engine_->DeleteBackup(i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(i, 0, keys_iteration * i, keys_iteration * (i + 1));
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (i + 2));
+    // Now set the factory to the same as the one used in the db
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseBackupEngine();
+    // Say, we accidentally change the factory
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    OpenBackupEngine();
+    ASSERT_NOK(backup_engine_->VerifyBackup(i + 2, true));
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(i + 2, dbname_, dbname_));
+    ASSERT_OK(backup_engine_->DeleteBackup(i + 2));
+    CloseDBAndBackupEngine();
+
+    // 3) with one custom checksum function (FileHash32GenFactory) for db
+    //    but two custom checksum functions (FileHashGenFactory) for backup
+    // note that the checksum factory for backup does know the checksum
+    // function in the db
+    ++i;
+    options_.file_checksum_gen_factory = hash32_factory;
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+    ASSERT_OK(backup_engine_->VerifyBackup(i - 1, true));
+    ASSERT_OK(backup_engine_->VerifyBackup(i, true));
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(i - 1, 0, keys_iteration * (i - 1),
+                            keys_iteration * i);
+    AssertBackupConsistency(i, 0, keys_iteration * i, keys_iteration * (i + 1));
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (i + 2));
+
+    // 4) no custom checksums
+    ++i;
+    options_.file_checksum_gen_factory = nullptr;
+    backupable_options_->file_checksum_gen_factory = nullptr;
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    for (int j = 0; j <= i; ++j) {
+      ASSERT_OK(backup_engine_->VerifyBackup(j + 1, true));
+    }
+    CloseDBAndBackupEngine();
+    for (int j = 0; j <= i; ++j) {
+      AssertBackupConsistency(j + 1, 0, keys_iteration * (j + 1),
+                              keys_iteration * (j + 2));
+    }
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
 
 // This test verifies that the verifyBackup method correctly identifies
 // invalid backups
