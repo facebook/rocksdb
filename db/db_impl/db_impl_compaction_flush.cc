@@ -848,11 +848,17 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (options.change_level) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[RefitLevel] waiting for background threads to stop");
+    DisableManualCompaction();
     s = PauseBackgroundWork();
+    bool bg_paused = false;
     if (s.ok()) {
+      bg_paused = true;
       s = ReFitLevel(cfd, final_output_level, options.target_level);
     }
-    ContinueBackgroundWork();
+    if (bg_paused) {
+      ContinueBackgroundWork();
+    }
+    EnableManualCompaction();
   }
   LogFlush(immutable_db_options_.info_log);
 
@@ -959,7 +965,7 @@ Status DBImpl::CompactFilesImpl(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
   }
-  if (manual_compaction_paused_.load(std::memory_order_acquire)) {
+  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
     return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
 
@@ -1180,7 +1186,7 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
     return;
   }
   if (c->is_manual_compaction() &&
-      manual_compaction_paused_.load(std::memory_order_acquire)) {
+      manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
     return;
   }
   Version* current = cfd->current();
@@ -1254,7 +1260,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     return;
   }
   if (c->is_manual_compaction() &&
-      manual_compaction_paused_.load(std::memory_order_acquire)) {
+      manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
     return;
   }
   Version* current = cfd->current();
@@ -1965,11 +1971,21 @@ Status DBImpl::EnableAutoCompaction(
 }
 
 void DBImpl::DisableManualCompaction() {
-  manual_compaction_paused_.store(true, std::memory_order_release);
+  InstrumentedMutexLock l(&mutex_);
+  manual_compaction_paused_.fetch_add(1, std::memory_order_release);
+  // Wait for any pending manual compactions to finish (typically through
+  // failing with `Status::Incomplete`) prior to returning. This way we are
+  // guaranteed no pending manual compaction will commit while manual
+  // compactions are "disabled".
+  while (HasPendingManualCompaction()) {
+    bg_cv_.Wait();
+  }
 }
 
 void DBImpl::EnableManualCompaction() {
-  manual_compaction_paused_.store(false, std::memory_order_release);
+  InstrumentedMutexLock l(&mutex_);
+  assert(manual_compaction_paused_ > 0);
+  manual_compaction_paused_.fetch_add(-1, std::memory_order_release);
 }
 
 void DBImpl::MaybeScheduleFlushOrCompaction() {
@@ -2528,7 +2544,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
     } else if (is_manual &&
-               manual_compaction_paused_.load(std::memory_order_acquire)) {
+               manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     }
   } else {

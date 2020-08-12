@@ -1833,7 +1833,14 @@ class DBImpl : public DB {
   InstrumentedMutex log_write_mutex_;
 
   std::atomic<bool> shutting_down_;
-  std::atomic<bool> manual_compaction_paused_;
+
+  // If zero, manual compactions are allowed to proceed. If non-zero, manual
+  // compactions may still be running, but will quickly fail with
+  // `Status::Incomplete`. The value indicates how many threads have paused
+  // manual compactions. It is accessed in read mode outside the DB mutex in
+  // compaction code paths.
+  std::atomic<int> manual_compaction_paused_;
+
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
   // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't

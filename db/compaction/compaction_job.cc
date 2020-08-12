@@ -329,7 +329,7 @@ CompactionJob::CompactionJob(
     EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::atomic<bool>* manual_compaction_paused, const std::string& db_id,
+    const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
     const std::string& db_session_id)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
@@ -929,7 +929,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   TEST_SYNC_POINT_CALLBACK(
       "CompactionJob::Run():PausingManualCompaction:1",
       reinterpret_cast<void*>(
-          const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
+          const_cast<std::atomic<int>*>(manual_compaction_paused_)));
 
   Slice* start = sub_compact->start;
   Slice* end = sub_compact->end;
@@ -1023,7 +1023,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     TEST_SYNC_POINT_CALLBACK(
         "CompactionJob::Run():PausingManualCompaction:2",
         reinterpret_cast<void*>(
-            const_cast<std::atomic<bool>*>(manual_compaction_paused_)));
+            const_cast<std::atomic<int>*>(manual_compaction_paused_)));
     if (partitioner.get()) {
       last_key_for_partitioner.assign(c_iter->user_key().data_,
                                       c_iter->user_key().size_);
@@ -1090,7 +1090,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
       (manual_compaction_paused_ &&
-       manual_compaction_paused_->load(std::memory_order_relaxed))) {
+       manual_compaction_paused_->load(std::memory_order_relaxed) > 0)) {
     status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
   }
   if (status.ok()) {
