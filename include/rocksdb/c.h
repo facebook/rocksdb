@@ -219,6 +219,13 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_column_families_with_ttl(
+    const rocksdb_options_t* options, const char* name, int num_column_families,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles,
+    const int* ttls, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_t*
 rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
