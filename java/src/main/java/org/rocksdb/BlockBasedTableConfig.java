@@ -723,7 +723,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    */
   public BlockBasedTableConfig setFormatVersion(
       final int formatVersion) {
-    assert(formatVersion >= 0);
+    assert (formatVersion >= 0);
     this.formatVersion = formatVersion;
     return this;
   }
