@@ -19,7 +19,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "table/block_based/block_based_table_builder.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -170,11 +169,11 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
                        compression_type, sample_for_compression);
 
-  // TODO: move out from block_based_table_builder and refactor
-  assert(immutable_cf_options_);
-  CompressionType type = immutable_cf_options_->blob_compression_type;
-  CompressBlock(*blob, info, &type, 2, false, compressed_blob, nullptr,
-                nullptr);
+  constexpr uint32_t compression_format_version = 2;
+
+  if (!CompressData(*blob, info, compression_format_version, compressed_blob)) {
+    return Status::Corruption("Error compressing blob");
+  }
 
   *blob = Slice(*compressed_blob);
 
