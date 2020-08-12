@@ -395,19 +395,19 @@ void BaseDeltaIterator::UpdateCurrent() {
 }
 
 inline const Slice* BaseDeltaIterator::base_iterator_upper_bound() const {
-  const Slice* iterate_upper_bound = base_iterator_->iterate_upper_bound();
-  if (iterate_upper_bound == nullptr && read_options_ != nullptr) {
+  const Slice* upper_bound = base_iterator_->iterate_upper_bound();
+  if (upper_bound == nullptr && read_options_ != nullptr) {
     return read_options_->iterate_upper_bound;
   }
-  return iterate_upper_bound;
+  return upper_bound;
 }
 
 inline const Slice* BaseDeltaIterator::base_iterator_lower_bound() const {
-  const Slice* iterate_lower_bound = base_iterator_->iterate_lower_bound();
-  if (iterate_lower_bound == nullptr && read_options_ != nullptr) {
+  const Slice* lower_bound = base_iterator_->iterate_lower_bound();
+  if (lower_bound == nullptr && read_options_ != nullptr) {
     return read_options_->iterate_lower_bound;
   }
-  return iterate_lower_bound;
+  return lower_bound;
 }
 
 bool BaseDeltaIterator::BaseIsWithinBounds() const {
