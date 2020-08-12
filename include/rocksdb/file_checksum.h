@@ -29,9 +29,10 @@ constexpr char kStandardDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 
 struct FileChecksumGenContext {
   std::string file_name;
-  // The name of the requested checksum generator
-  // This allows the checksum factory to create generators for a suite of
-  // different functions.
+  // The name of the requested checksum generator.
+  // Checksum factories may use or ignore requested_checksum_func_name,
+  // and checksum factories written before this field was available are still
+  // compatible.
   std::string requested_checksum_func_name;
 };
 
