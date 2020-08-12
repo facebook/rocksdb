@@ -110,11 +110,11 @@ struct IndexValue {
   std::string ToString(bool hex, bool have_first_key) const;
 };
 
-inline uint32_t GetCompressFormatForVersion(uint32_t version) {
-  // As of version 2, we encode compressed block with
+inline uint32_t GetCompressFormatForVersion(uint32_t format_version) {
+  // As of format_version 2, we encode compressed block with
   // compress_format_version == 2. Before that, the version is 1.
   // DO NOT CHANGE THIS FUNCTION, it affects disk format
-  return version >= 2 ? 2 : 1;
+  return format_version >= 2 ? 2 : 1;
 }
 
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
