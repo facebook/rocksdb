@@ -1935,8 +1935,9 @@ TEST_F(WriteBatchWithIndexTest,
   ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
 }
 
-TEST_F(WriteBatchWithIndexTest,
-       TestIteraratorWithBaseOverUpperBoundOnBaseWithoutBaseConstraintAndBatch) {
+TEST_F(
+    WriteBatchWithIndexTest,
+    TestIteraratorWithBaseOverUpperBoundOnBaseWithoutBaseConstraintAndBatch) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
 
@@ -1960,8 +1961,7 @@ TEST_F(WriteBatchWithIndexTest,
 
   // NOTE: KVIter DOES NOT have read_options::iterate_upper_bound constraint
   std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(
-      &cf1, new KVIter(&base, BytewiseComparator(), nullptr),
-      &read_options));
+      &cf1, new KVIter(&base, BytewiseComparator(), nullptr), &read_options));
 
   ASSERT_OK(iter->status());
 
