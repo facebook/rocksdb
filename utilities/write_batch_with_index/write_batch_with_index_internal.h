@@ -90,13 +90,27 @@ class BaseDeltaIterator : public Iterator {
     return progress_ > Progress::FORWARD;
   }
 
+  /**
+   * Indicates the progression of the BaseDeltaIterator.
+   *
+   * The numeric ordering of the enumerated values is
+   * important as it allows us to easily calculate
+   * whether a progression is considered to be generally
+   * Forward or Backward. For the logic see
+   * BaseDeltaIterator::IsMovingForward() and
+   * BaseDeltaIterator::IsMovingBackward().
+   */
   enum Progress {
+    // initial state, also considered
+    // to be a forward progression
     TO_BE_DETERMINED = 0,
 
+    // forward progressions
     SEEK_TO_FIRST = 1,
     SEEK = 2,
     FORWARD = 3,
 
+    // backward progressions
     BACKWARD = 4,
     SEEK_FOR_PREV = 5,
     SEEK_TO_LAST = 6
