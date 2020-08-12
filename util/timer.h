@@ -35,7 +35,7 @@ namespace ROCKSDB_NAMESPACE {
 // A map from a function name to the function keeps track of all the functions.
 class Timer {
  public:
-  Timer(Env* env)
+  explicit Timer(Env* env)
       : env_(env),
         mutex_(env),
         cond_var_(&mutex_),
@@ -96,8 +96,8 @@ class Timer {
       return false;
     }
 
-    thread_.reset(new port::Thread(&Timer::Run, this));
     running_ = true;
+    thread_.reset(new port::Thread(&Timer::Run, this));
     return true;
   }
 
