@@ -1891,6 +1891,43 @@ TEST_F(WriteBatchWithIndexTest,
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
 
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  iter->SeekForPrev("k04");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  iter->SeekForPrev("k044");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+
   // scan over batch
   // upper bound k09 is beyond the keys in the batch
   Slice upper_bound_batch("k09");
@@ -1933,6 +1970,63 @@ TEST_F(WriteBatchWithIndexTest,
   iter->Next();
   ASSERT_OK(iter->status());
   ASSERT_FALSE(iter->Valid()) << "Should have reached upper_bound";
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  iter->SeekForPrev("k08");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k07", "v07"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k06", "v06"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k05", "v05"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k04", "v04"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k03", "v03"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k02", "v02"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k01", "v01"));
+
+  iter->Prev();
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+
+  iter->SeekForPrev("k09");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(IterEquals(iter.get(), "k08", "v08"));
 }
 
 TEST_F(
