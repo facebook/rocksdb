@@ -123,7 +123,8 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
   if (do_sample && info.SampleForCompression() &&
-      Random::GetTLSInstance()->OneIn((int)info.SampleForCompression())) {
+      Random::GetTLSInstance()->OneIn(
+          static_cast<int>(info.SampleForCompression()))) {
     // Sampling with a fast compression algorithm
     if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
