@@ -618,7 +618,7 @@ TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
 endif
 
 	# Enable building all unit tests, but use check_some to run only tests
-	# known to pass ASC
+	# known to pass ASC (ASSERT_STATUS_CHECKED)
 	SUBSET := $(TESTS_PASSING_ASC)
 	# Alternate: only build unit tests known to pass ASC, and run them
 	# with make check

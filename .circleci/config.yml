@@ -257,6 +257,26 @@ jobs:
           command: |
             OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4 | ../.circleci/cat_ignore_eagain
 
+  build-linux-non-shm:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    parameters:
+      start_test:
+        default: ""
+        type: string
+      end_test:
+        default: ""
+        type: string
+    steps:
+      - checkout # checkout the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+      - run:
+          name: "Build and unit tests on non-shm"
+          command: |
+            TMPD=/tmp/rocksdb_test_tmp ROCKSDBTESTS_START=<<parameters.start_test>> ROCKSDBTESTS_END=<<parameters.end_test>> make V=1 J=32 -j32 check_some | .circleci/cat_ignore_eagain
+
 workflows:
   build-linux:
     jobs:
@@ -320,3 +340,23 @@ workflows:
   build-examples:
     jobs:
       - build-examples
+  build-linux-non-shm-1:
+    jobs:
+      - build-linux-non-shm:
+          start_test: ""
+          end_test: "db_tailing_iter_test" # make sure unique in src.mk
+  build-linux-non-shm-2:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "db_tailing_iter_test" # make sure unique in src.mk
+          end_test: "db_test2" # make sure unique in src.mk
+  build-linux-non-shm-3:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "db_test2" # make sure unique in src.mk
+          end_test: "arena_test" # make sure unique in src.mk
+  build-linux-non-shm-4:
+    jobs:
+      - build-linux-non-shm:
+          start_test: "compact_on_deletion_collector_test" # make sure unique in src.mk
+          end_test: ""
