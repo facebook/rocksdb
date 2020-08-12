@@ -123,6 +123,7 @@ enum class BackgroundErrorReason {
   kWriteCallback,
   kMemTable,
   kManifestWrite,
+  kFlushNoWAL,
 };
 
 enum class WriteStallCondition {
