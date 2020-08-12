@@ -148,6 +148,33 @@ jobs:
       - run: sudo apt-get update -y && sudo apt-get install -y clang-10 libgflags-dev clang-tools-10
       - run: SKIP_FORMAT_BUCK_CHECKS=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
 
+  build-linux-clang11-clang-analyze:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-10 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
+      - run: sudo apt-get update -y && sudo apt-get install -y clang-11 libgflags-dev clang-tools-11
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 CC=clang-11 CXX=clang++-11 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-11" CLANG_SCAN_BUILD=scan-build-11 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
+
+  build-linux-clang9-clang-analyze:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: 2xlarge
+    steps:
+      - checkout # check out the code in the project directory
+      - run: pyenv global 3.5.2
+      - run: echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-9 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial-9 main" | sudo tee -a /etc/apt/sources.list
+      - run: echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
+      - run: sudo apt-get update -y && sudo apt-get install -y clang-9 libgflags-dev clang-tools-9
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 CC=clang-9 CXX=clang++-9 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-9" CLANG_SCAN_BUILD=scan-build-9 USE_CLANG=1 PRINT_PARALLEL_OUTPUTS=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
+
+
   build-linux-cmake:
     machine:
       image: ubuntu-1604:201903-01
@@ -311,6 +338,12 @@ workflows:
   build-linux-clang10-clang-analyze:
     jobs:
       - build-linux-clang10-clang-analyze
+  build-linux-clang11-clang-analyze:
+    jobs:
+      - build-linux-clang11-clang-analyze
+  build-linux-clang9-clang-analyze:
+    jobs:
+      - build-linux-clang9-clang-analyze
   build-linux-cmake:
     jobs:
       - build-linux-cmake
