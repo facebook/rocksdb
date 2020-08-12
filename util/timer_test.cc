@@ -289,7 +289,6 @@ TEST_F(TimerTest, CancelRunningTask) {
   Timer timer(mock_env_.get());
   ASSERT_TRUE(timer.Start());
   int* value = new int;
-  ASSERT_NE(nullptr, value);  // make linter happy
   *value = 0;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency({
@@ -337,7 +336,6 @@ TEST_F(TimerTest, ShutdownRunningTask) {
   ASSERT_TRUE(timer.Start());
 
   int* value = new int;
-  ASSERT_NE(nullptr, value);
   *value = 0;
   timer.Add(
       [&]() {
