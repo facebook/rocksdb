@@ -344,19 +344,19 @@ workflows:
     jobs:
       - build-linux-non-shm:
           start_test: ""
-          end_test: "db_test"
+          end_test: "db_tailing_iter_test" # make sure unique in src.mk
   build-linux-non-shm-2:
     jobs:
       - build-linux-non-shm:
-          start_test: "db_test"
-          end_test: "db_test2"
+          start_test: "db_tailing_iter_test" # make sure unique in src.mk
+          end_test: "db_test2" # make sure unique in src.mk
   build-linux-non-shm-3:
     jobs:
       - build-linux-non-shm:
-          start_test: "db_test2"
-          end_test: "arena_test"
+          start_test: "db_test2" # make sure unique in src.mk
+          end_test: "arena_test" # make sure unique in src.mk
   build-linux-non-shm-4:
     jobs:
       - build-linux-non-shm:
-          start_test: "compact_on_deletion_collector_test"
+          start_test: "compact_on_deletion_collector_test" # make sure unique in src.mk
           end_test: ""
