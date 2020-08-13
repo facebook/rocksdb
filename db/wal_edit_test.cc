@@ -119,13 +119,11 @@ TEST(WalSet, DeleteNonClosedWal) {
               std::string::npos);
 }
 
-class WalSetTest : public testing::Test {
+class WalSetTest : public DBTestBase {
  public:
   void SetUp() override {
-    env_ = Env::Default();
-    fs_ = FileSystem::Default();
     test_dir_ = test::PerThreadDBPath("wal_set_test");
-    ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
+    ASSERT_OK(env_->CreateDir(test_dir_, IOOptions(), nullptr));
   }
 
   void TearDown() override {
@@ -138,7 +136,7 @@ class WalSetTest : public testing::Test {
                        uint64_t size_bytes) {
     std::unique_ptr<FSWritableFile> f;
     std::string fpath = Path(fname);
-    ASSERT_OK(fs_->NewWritableFile(fpath, FileOptions(), &f, nullptr));
+    ASSERT_OK(env_->NewWritableFile(fpath, FileOptions(), &f, nullptr));
     std::string content(size_bytes, '0');
     ASSERT_OK(f->Append(content, IOOptions(), nullptr));
     ASSERT_OK(f->Close(IOOptions(), nullptr));
@@ -156,8 +154,6 @@ class WalSetTest : public testing::Test {
   Status CheckWals() const { return wals_.CheckWals(env_, logs_on_disk_); }
 
  private:
-  Env* env_;
-  std::shared_ptr<FileSystem> fs_;
   std::string test_dir_;
   std::unordered_map<WalNumber, std::string> logs_on_disk_;
   WalSet wals_;
