@@ -119,7 +119,7 @@ TEST(WalSet, DeleteNonClosedWal) {
               std::string::npos);
 }
 
-class WalSetTest : public DBTestBase {
+class WalSetTest : public DBTestBase, public testing::Test {
  public:
   void SetUp() override {
     test_dir_ = test::PerThreadDBPath("wal_set_test");
