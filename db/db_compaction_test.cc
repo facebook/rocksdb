@@ -5442,8 +5442,6 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
   ASSERT_TRUE(has_compaction);
 }
 
-#endif // !defined(ROCKSDB_LITE)
-
 TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   // A `CompactRange()` with `change_level == true` needs to execute its final
   // step, `ReFitLevel()`, in isolation. Previously there was a bug where
@@ -5537,6 +5535,8 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
       "CompactedFG");
   refit_level_thread.join();
 }
+
+#endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
 
