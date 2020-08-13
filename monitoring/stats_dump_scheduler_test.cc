@@ -13,29 +13,10 @@ class StatsDumpSchedulerTest : public DBTestBase {
  public:
   StatsDumpSchedulerTest()
       : DBTestBase("/stats_dump_scheduler_test"),
-        mock_env_(new MockTimeEnv(Env::Default())) {}
+        mock_env_(new SafeMockTimeEnv(Env::Default())) {}
 
  protected:
-  std::unique_ptr<MockTimeEnv> mock_env_;
-
-#if defined(OS_MACOSX) && !defined(NDEBUG)
-  // On MacOS, `CondVar.TimedWait()` doesn't use the time from MockTimeEnv,
-  // instead it still uses the system time.
-  // This is just a mitigation that always trigger the CV timeout. It is not
-  // perfect, only works for this test.
-  void SetUp() override {
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-    SyncPoint::GetInstance()->SetCallBack(
-        "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-          uint64_t* time_us = reinterpret_cast<uint64_t*>(arg);
-          if (*time_us < mock_env_->RealNowMicros()) {
-            *time_us = mock_env_->RealNowMicros() + 1000;
-          }
-        });
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
-#endif  // OS_MACOSX && !NDEBUG
+  std::unique_ptr<SafeMockTimeEnv> mock_env_;
 };
 
 #ifndef ROCKSDB_LITE

@@ -688,7 +688,7 @@ void DBImpl::StartStatsDumpScheduler() {
     InstrumentedMutexLock l(&mutex_);
     stats_dump_scheduler_ = StatsDumpScheduler::Default();
 #ifndef NDEBUG
-    stats_dump_scheduler_->TEST_UpdateEnv(env_);
+    stats_dump_scheduler_->TEST_SetEnv(env_);
 #endif  // !NDEBUG
   }
 

@@ -38,16 +38,20 @@ class StatsDumpScheduler {
 
   size_t TEST_GetValidTaskNum() const;
 
-  bool TEST_UpdateEnv(Env* env);
+  bool TEST_SetEnv(Env* env);
 
 #endif  // !NDEBUG
 
  private:
   std::unique_ptr<Timer> timer;
 
-  StatsDumpScheduler(Env* env);
+  explicit StatsDumpScheduler(Env* env);
 
   std::string GetTaskName(DBImpl* dbi, const std::string& func_name);
+
+#ifndef NDEBUG
+  port::Mutex test_mutex_;
+#endif  // !NDEBUG
 };
 
 }  // namespace ROCKSDB_NAMESPACE

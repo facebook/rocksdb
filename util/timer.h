@@ -51,9 +51,9 @@ class Timer {
            const std::string& fn_name,
            uint64_t start_after_us,
            uint64_t repeat_every_us) {
-    std::unique_ptr<FunctionInfo> fn_info(new FunctionInfo(
-        std::move(fn), fn_name, env_->NowMicros() + start_after_us,
-        repeat_every_us));
+    std::unique_ptr<FunctionInfo> fn_info(
+        new FunctionInfo(std::move(fn), fn_name,
+                         env_->NowMicros() + start_after_us, repeat_every_us));
     InstrumentedMutexLock l(&mutex_);
     auto it = map_.find(fn_name);
     if (it == map_.end()) {
@@ -141,7 +141,8 @@ class Timer {
 #ifndef NDEBUG
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
     InstrumentedMutexLock l(&mutex_);
-    while (!heap_.empty() && heap_.top()->next_run_time_us <= env_->NowMicros()) {
+    while (!heap_.empty() &&
+           heap_.top()->next_run_time_us <= env_->NowMicros()) {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
     }
     if (callback != nullptr) {
@@ -150,7 +151,8 @@ class Timer {
     cond_var_.SignalAll();
     do {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
-    } while (!heap_.empty() && heap_.top()->next_run_time_us <= env_->NowMicros());
+    } while (!heap_.empty() &&
+             heap_.top()->next_run_time_us <= env_->NowMicros());
   }
 
   size_t TEST_GetPendingTaskNum() const {

@@ -29,11 +29,11 @@ void StatsDumpScheduler::Register(DBImpl* dbi,
   }
   if (stats_persist_period_sec > 0) {
     timer->Start();
-    timer->Add([dbi]() { dbi->PersistStats(); }, GetTaskName(dbi, "pst_st"),
-               initial_delay.fetch_add(1) %
-                   static_cast<uint64_t>(stats_persist_period_sec) *
-                   kMicrosInSecond,
-               static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond);
+    timer->Add(
+        [dbi]() { dbi->PersistStats(); }, GetTaskName(dbi, "pst_st"),
+        initial_delay.fetch_add(1) %
+            static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond,
+        static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond);
   }
 }
 
@@ -53,14 +53,16 @@ StatsDumpScheduler* StatsDumpScheduler::Default() {
   return &scheduler;
 }
 
-std::string StatsDumpScheduler::GetTaskName(DBImpl* dbi, const std::string& func_name) {
+std::string StatsDumpScheduler::GetTaskName(DBImpl* dbi,
+                                            const std::string& func_name) {
   std::string db_session_id;
   dbi->GetDbSessionId(db_session_id);
   return db_session_id + ":" + func_name;
 }
 
 #ifndef NDEBUG
-bool StatsDumpScheduler::TEST_UpdateEnv(Env* env) {
+bool StatsDumpScheduler::TEST_SetEnv(Env* env) {
+  MutexLock l(&test_mutex_);
   auto scheduler = Default();
   if (scheduler->timer == nullptr ||
       scheduler->timer->TEST_GetPendingTaskNum() != 0) {
