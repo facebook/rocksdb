@@ -15,6 +15,6 @@ LIBUNWIND_BASE=/mnt/gvfs/third-party2/libunwind/02486dac347645d31dce116f44e1de31
 TBB_BASE=/mnt/gvfs/third-party2/tbb/2e0ec671e550bfca347300bf3f789d9c0fff24ad/2018_U5/platform009/7f3b187
 LIBURING_BASE=/mnt/gvfs/third-party2/liburing/70dbd9cfee63a25611417d09433a86d7711b3990/20200729/platform009/7f3b187
 KERNEL_HEADERS_BASE=/mnt/gvfs/third-party2/kernel-headers/32b8a2407b634df3f8f948ba373fc4acc6a18296/fb/platform009/da39a3e
-BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/08634589372fa5f237bfd374e8c644a8364e78c1/2.32/centos7-native/da39a3e
+BINUTILS_BASE=/mnt/gvfs/third-party2/binutils/08634589372fa5f237bfd374e8c644a8364e78c1/2.32/platform009/ba86d1f/
 VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/6ae525939ad02e5e676855082fbbc7828dbafeac/3.15.0/platform009/7f3b187
 LUA_BASE=/mnt/gvfs/third-party2/lua/162efd9561a3d21f6869f4814011e9cf1b3ff4dc/5.3.4/platform009/a6271c4
