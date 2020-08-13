@@ -853,7 +853,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     bool bg_paused = false;
     if (s.ok()) {
       bg_paused = true;
+      TEST_SYNC_POINT("DBImpl::CompactRange:PreRefitLevel");
       s = ReFitLevel(cfd, final_output_level, options.target_level);
+      TEST_SYNC_POINT("DBImpl::CompactRange:PostRefitLevel");
     }
     if (bg_paused) {
       ContinueBackgroundWork();
