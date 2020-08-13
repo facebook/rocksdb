@@ -5454,7 +5454,6 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   // compaction issued during the `ReFitLevel()` phase fails with
   // `Status::Incomplete`.
   Options options = CurrentOptions();
-  options.listeners.emplace_back(new FlushedFileCollector());
   options.memtable_factory.reset(
       new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
   options.level0_file_num_compaction_trigger = 2;
@@ -5520,7 +5519,10 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   TEST_SYNC_POINT(
       "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:PutFG");
   // Make sure we have something new to compact in the foreground.
-  ASSERT_OK(Put(Key(0), "val"));
+  // Note key 1 is carefully chosen as it ensures the file we create here
+  // overlaps with one of the files being refitted L2->L1 in the background.
+  // If we chose key 0, the file created here would not overlap.
+  ASSERT_OK(Put(Key(1), "val"));
   ASSERT_OK(Flush());
   TEST_SYNC_POINT(
       "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:FlushedFG");
