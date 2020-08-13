@@ -79,10 +79,10 @@ class CompactionJobTest : public testing::Test {
         mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr)),
+        versions_(new VersionSet(
+            dbname_, &db_options_, env_options_, table_cache_.get(),
+            &write_buffer_manager_, &write_controller_,
+            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
@@ -249,10 +249,10 @@ class CompactionJobTest : public testing::Test {
   void NewDB() {
     DestroyDB(dbname_, Options());
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
-    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
-                                   table_cache_.get(), &write_buffer_manager_,
-                                   &write_controller_,
-                                   /*block_cache_tracer=*/nullptr));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     compaction_job_stats_.Reset();
     SetIdentityFile(env_, dbname_);
 
@@ -334,7 +334,7 @@ class CompactionJobTest : public testing::Test {
         nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER);
+        Env::Priority::USER, nullptr /* IOTracer */);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
