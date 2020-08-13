@@ -1807,7 +1807,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   std::string backup_checksum_func_name = kDefaultBackupFileChecksumFuncName;
   std::string db_id;
   std::string db_session_id;
-  // whether the checksum for a table file is available
+  // whether a default or custom checksum for a table file is available
   bool has_checksum = false;
 
   // Set up the custom checksum function.
@@ -1956,10 +1956,13 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
         backup_env_->DeleteFile(final_dest_path);
       } else {
         // file exists and referenced
-        if (!has_checksum) {
-          s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
-                                size_limit, &checksum_hex, checksum_func,
-                                &custom_checksum_hex);
+        if (!has_checksum || checksum_hex.empty()) {
+          // Either both checksum_hex and custom_checksum_hex need recalculating
+          // or only checksum_hex needs recalculating
+          s = CalculateChecksum(
+              src_dir + fname, db_env_, src_env_options, size_limit,
+              &checksum_hex, checksum_func,
+              checksum_hex.empty() ? nullptr : &custom_checksum_hex);
           if (!s.ok()) {
             return s;
           }
@@ -1999,10 +2002,13 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // the file is present and referenced by a backup
       ROCKS_LOG_INFO(options_.info_log,
                      "%s already present, calculate checksum", fname.c_str());
-      if (!has_checksum) {
-        s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
-                              size_limit, &checksum_hex, checksum_func,
-                              &custom_checksum_hex);
+      if (!has_checksum || checksum_hex.empty()) {
+        // Either both checksum_hex and custom_checksum_hex need recalculating
+        // or only checksum_hex needs recalculating
+        s = CalculateChecksum(
+            src_dir + fname, db_env_, src_env_options, size_limit,
+            &checksum_hex, checksum_func,
+            checksum_hex.empty() ? nullptr : &custom_checksum_hex);
         if (!s.ok()) {
           return s;
         }
@@ -2475,6 +2481,7 @@ Status BackupEngineImpl::BackupMeta::AddFile(
           "try again.");
     } else if (IsSameChecksumFunc(itr->second->checksum_func_name,
                                   file_info->checksum_func_name) &&
+               !itr->second->custom_checksum_hex.empty() &&
                itr->second->custom_checksum_hex !=
                    file_info->custom_checksum_hex) {
       return Status::Corruption(
