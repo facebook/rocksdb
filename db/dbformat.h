@@ -18,6 +18,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/enum_reflection.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
@@ -41,7 +42,7 @@ class InternalKey;
 // data structures.
 // The highest bit of the value type needs to be reserved to SST tables
 // for them to do more flexible encoding.
-enum ValueType : unsigned char {
+ROCKSDB_ENUM_PLAIN(ValueType, unsigned char,
   kTypeDeletion = 0x0,
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
@@ -71,7 +72,7 @@ enum ValueType : unsigned char {
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
   kMaxValue = 0x7F  // Not used for storing records.
-};
+);
 
 // Defined in dbformat.cc
 extern const ValueType kValueTypeForSeek;
