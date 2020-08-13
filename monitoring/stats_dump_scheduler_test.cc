@@ -23,6 +23,7 @@ class StatsDumpSchedulerTest : public DBTestBase {
 
 TEST_F(StatsDumpSchedulerTest, BasicTest) {
   constexpr int kPeriodSec = 5;
+  Close();
   Options options;
   options.stats_dump_period_sec = kPeriodSec;
   options.stats_persist_period_sec = kPeriodSec;
