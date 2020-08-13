@@ -178,9 +178,9 @@ Status WalSet::CheckWals(
   assert(env != nullptr);
 
   Status s;
-  for (auto it = wals_.begin(); it != wals_.end(); ++it) {
-    const uint64_t log_number = it->first;
-    const WalMetadata& wal_meta = it->second;
+  for (const auto& wal : wals_) {
+    const uint64_t log_number = wal.first;
+    const WalMetadata& wal_meta = wal.second;
 
     if (logs_on_disk.find(log_number) == logs_on_disk.end()) {
       std::stringstream ss;
