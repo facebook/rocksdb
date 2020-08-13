@@ -1051,8 +1051,8 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats, Env::Priority::USER, &manual_compaction_paused_,
-      db_id_, db_session_id_);
+      &compaction_job_stats, Env::Priority::USER, io_tracer_,
+      &manual_compaction_paused_, db_id_, db_session_id_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -2846,7 +2846,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
-        &compaction_job_stats, thread_pri,
+        &compaction_job_stats, thread_pri, io_tracer_,
         is_manual ? &manual_compaction_paused_ : nullptr, db_id_,
         db_session_id_);
     compaction_job.Prepare();

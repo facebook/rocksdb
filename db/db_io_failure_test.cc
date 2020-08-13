@@ -34,7 +34,7 @@ TEST_F(DBIOFailureTest, DropWrites) {
     // Force out-of-space errors
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
-    env_->no_slowdown_ = true;
+    env_->SetMockSleep();
     for (int i = 0; i < 5; i++) {
       if (option_config_ != kUniversalCompactionMultiLevel &&
           option_config_ != kUniversalSubcompactions) {

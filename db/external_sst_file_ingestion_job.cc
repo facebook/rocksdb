@@ -136,7 +136,7 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
                         db_options_.use_fsync);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
@@ -194,7 +194,7 @@ Status ExternalSstFileIngestionJob::Prepare(
       for (size_t i = 0; i < files_to_ingest_.size(); i++) {
         std::string generated_checksum, generated_checksum_func_name;
         IOStatus io_s = GenerateOneFileChecksum(
-            fs_, files_to_ingest_[i].internal_file_path,
+            fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(), &generated_checksum,
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
@@ -831,7 +831,7 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   }
   std::string file_checksum, file_checksum_func_name;
   IOStatus io_s = GenerateOneFileChecksum(
-      fs_, file_to_ingest->internal_file_path,
+      fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), &file_checksum,
       &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,

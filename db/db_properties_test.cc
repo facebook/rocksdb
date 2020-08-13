@@ -1415,13 +1415,11 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
 }
 
 TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
   uint64_t oldest_key_time = 0;
-  Options options;
-  options.env = mock_env.get();
+  Options options = CurrentOptions();
+  SetTimeElapseOnlySleepOnReopen(&options);
 
   // "rocksdb.estimate-oldest-key-time" only available to fifo compaction.
-  mock_env->set_current_time(100);
   for (auto compaction : {kCompactionStyleLevel, kCompactionStyleUniversal,
                           kCompactionStyleNone}) {
     options.compaction_style = compaction;
@@ -1432,60 +1430,60 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
         DB::Properties::kEstimateOldestKeyTime, &oldest_key_time));
   }
 
+  int64_t mock_start_time;
+  ASSERT_OK(env_->GetCurrentTime(&mock_start_time));
+
   options.compaction_style = kCompactionStyleFIFO;
   options.ttl = 300;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 
-  mock_env->set_current_time(100);
+  env_->MockSleepForSeconds(100);
   ASSERT_OK(Put("k1", "v1"));
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
   ASSERT_OK(Flush());
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(200);
+  env_->MockSleepForSeconds(100);  // -> 200
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Flush());
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(300);
+  env_->MockSleepForSeconds(100);  // -> 300
   ASSERT_OK(Put("k3", "v3"));
   ASSERT_OK(Flush());
   ASSERT_EQ("3", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(450);
+  env_->MockSleepForSeconds(150);  // -> 450
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(200, oldest_key_time);
+  ASSERT_EQ(200, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(550);
+  env_->MockSleepForSeconds(100);  // -> 550
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(300, oldest_key_time);
+  ASSERT_EQ(300, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(650);
+  env_->MockSleepForSeconds(100);  // -> 650
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel());
   ASSERT_FALSE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                         &oldest_key_time));
-
-  // Close before mock_env destructs.
-  Close();
 }
 
 TEST_F(DBPropertiesTest, SstFilesSize) {

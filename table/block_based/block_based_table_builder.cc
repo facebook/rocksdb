@@ -105,63 +105,6 @@ bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
-bool CompressBlockInternal(const Slice& raw,
-                           const CompressionInfo& compression_info,
-                           uint32_t format_version,
-                           std::string* compressed_output) {
-  bool ret;
-
-  // Will return compressed block contents if (1) the compression method is
-  // supported in this platform and (2) the compression rate is "good enough".
-  switch (compression_info.type()) {
-    case kSnappyCompression:
-      ret = Snappy_Compress(compression_info, raw.data(), raw.size(),
-                            compressed_output);
-      break;
-    case kZlibCompression:
-      ret = Zlib_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kZlibCompression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kBZip2Compression:
-      ret = BZip2_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kBZip2Compression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kLZ4Compression:
-      ret = LZ4_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kLZ4Compression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kLZ4HCCompression:
-      ret = LZ4HC_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kLZ4HCCompression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kXpressCompression:
-      ret = XPRESS_Compress(raw.data(), raw.size(), compressed_output);
-      break;
-    case kZSTD:
-    case kZSTDNotFinalCompression:
-      ret = ZSTD_Compress(compression_info, raw.data(), raw.size(),
-                          compressed_output);
-      break;
-    default:
-      // Do not recognize this compression type
-      ret = false;
-  }
-
-  TEST_SYNC_POINT_CALLBACK(
-      "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
-      static_cast<void*>(&ret));
-
-  return ret;
-}
-
 }  // namespace
 
 // format_version is the block format as defined in include/rocksdb/table.h
@@ -170,11 +113,9 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                     bool do_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow) {
-  *type = info.type();
-
-  if (info.type() == kNoCompression && !info.SampleForCompression()) {
-    return raw;
-  }
+  assert(type);
+  assert(compressed_output);
+  assert(compressed_output->empty());
 
   // If requested, we sample one in every N block with a
   // fast and slow compression algorithm and report the stats.
@@ -182,10 +123,10 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
   if (do_sample && info.SampleForCompression() &&
-      Random::GetTLSInstance()->OneIn((int)info.SampleForCompression()) &&
-      sampled_output_fast && sampled_output_slow) {
+      Random::GetTLSInstance()->OneIn(
+          static_cast<int>(info.SampleForCompression()))) {
     // Sampling with a fast compression algorithm
-    if (LZ4_Supported() || Snappy_Supported()) {
+    if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
           LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
       CompressionContext context(c);
@@ -194,33 +135,46 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
 
-      CompressBlockInternal(raw, info_tmp, format_version, sampled_output_fast);
+      CompressData(raw, info_tmp, GetCompressFormatForVersion(format_version),
+                   sampled_output_fast);
     }
 
     // Sampling with a slow but high-compression algorithm
-    if (ZSTD_Supported() || Zlib_Supported()) {
+    if (sampled_output_slow && (ZSTD_Supported() || Zlib_Supported())) {
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
       CompressionContext context(c);
       CompressionOptions options;
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
-      CompressBlockInternal(raw, info_tmp, format_version, sampled_output_slow);
+
+      CompressData(raw, info_tmp, GetCompressFormatForVersion(format_version),
+                   sampled_output_slow);
     }
   }
 
-  // Actually compress the data
-  if (*type != kNoCompression) {
-    if (CompressBlockInternal(raw, info, format_version, compressed_output) &&
-        GoodCompressionRatio(compressed_output->size(), raw.size())) {
-      return *compressed_output;
-    }
+  if (info.type() == kNoCompression) {
+    *type = kNoCompression;
+    return raw;
   }
 
-  // Compression method is not supported, or not good
-  // compression ratio, so just fall back to uncompressed form.
-  *type = kNoCompression;
-  return raw;
+  // Actually compress the data; if the compression method is not supported,
+  // or the compression fails etc., just fall back to uncompressed
+  if (!CompressData(raw, info, GetCompressFormatForVersion(format_version),
+                    compressed_output)) {
+    *type = kNoCompression;
+    return raw;
+  }
+
+  // Check the compression ratio; if it's not good enough, just fall back to
+  // uncompressed
+  if (!GoodCompressionRatio(compressed_output->size(), raw.size())) {
+    *type = kNoCompression;
+    return raw;
+  }
+
+  *type = info.type();
+  return *compressed_output;
 }
 
 // kBlockBasedTableMagicNumber was picked by running

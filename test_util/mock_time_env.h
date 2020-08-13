@@ -9,6 +9,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// NOTE: SpecialEnv offers most of this functionality, along with hooks
+// for safe DB behavior under a mock time environment, so should be used
+// instead of MockTimeEnv for DB tests.
 class MockTimeEnv : public EnvWrapper {
  public:
   explicit MockTimeEnv(Env* base) : EnvWrapper(base) {}
