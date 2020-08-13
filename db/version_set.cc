@@ -3738,8 +3738,11 @@ Status VersionSet::ProcessManifestWrites(
     assert(first_writer.cfd->GetID() == 0);  // default CF
     // Write to MANIFEST without applying to default CF's versions.
     for (VersionEdit* edit : first_writer.edit_list) {
-      wals_.AddWals(edit->GetWalAdditions());
-      wals_.DeleteWals(edit->GetWalDeletions());
+      if (edit->IsWalAddition()) {
+        wals_.AddWals(edit->GetWalAdditions());
+      } else if (edit->IsWalDeletion()) {
+        wals_.DeleteWals(edit->GetWalDeletions());
+      }
       LogAndApplyWalHelper(edit);
       batch_edits.push_back(edit);
     }
@@ -4537,6 +4540,17 @@ Status VersionSet::ReadAndRecover(
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
       break;
+    }
+    if (edit.IsWalManipulation()) {
+      if (edit.IsWalAddition()) {
+        wals_.AddWals(edit.GetWalAdditions());
+      } else if (edit.IsWalDeletion()) {
+        wals_.DeleteWals(edit.GetWalDeletions());
+      }
+      // WAL edits do not need to apply to versions,
+      // but still may contain information such as next file number.
+      ExtractInfoFromVersionEdit(nullptr, edit, version_edit_params);
+      continue;
     }
     if (edit.has_db_id_) {
       db_id_ = edit.GetDbId();
