@@ -28,6 +28,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+#ifndef ROCKSDB_LITE
 class StatsHistoryTest : public DBTestBase {
  public:
   StatsHistoryTest()
@@ -47,8 +48,6 @@ class StatsHistoryTest : public DBTestBase {
         });
   }
 };
-
-#ifndef ROCKSDB_LITE
 
 TEST_F(StatsHistoryTest, RunStatsDumpPeriodSec) {
   constexpr int kPeriodSec = 5;

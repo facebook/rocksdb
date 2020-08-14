@@ -9,6 +9,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+#ifndef ROCKSDB_LITE
 class StatsDumpSchedulerTest : public DBTestBase {
  public:
   StatsDumpSchedulerTest()
@@ -28,8 +29,6 @@ class StatsDumpSchedulerTest : public DBTestBase {
         });
   }
 };
-
-#ifndef ROCKSDB_LITE
 
 TEST_F(StatsDumpSchedulerTest, Basic) {
   constexpr int kPeriodSec = 5;

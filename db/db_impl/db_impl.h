@@ -2113,7 +2113,7 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   // Scheduler to run DumpStats() and PersistStats(). Currently, it always use
   // a global instance from StatsDumpScheduler::Default(). Only in unittest, it
-  // may be updated.
+  // can be overrided by StatsDumpTestSchduler.
   StatsDumpScheduler* stats_dump_scheduler_;
 #endif
 
