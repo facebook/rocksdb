@@ -275,8 +275,13 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
 #ifndef ROCKSDB_LITE
 void DBImpl::TEST_WaitForStatsDumpRun(std::function<void()> callback) const {
   if (stats_dump_scheduler_ != nullptr) {
-    stats_dump_scheduler_->TEST_WaitForRun(callback);
+    static_cast<StatsDumpTestScheduler*>(stats_dump_scheduler_)
+        ->TEST_WaitForRun(callback);
   }
+}
+
+StatsDumpTestScheduler* DBImpl::TEST_GetStatsDumpScheduler() const {
+  return static_cast<StatsDumpTestScheduler*>(stats_dump_scheduler_);
 }
 #endif  // !ROCKSDB_LITE
 

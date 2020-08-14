@@ -687,9 +687,8 @@ void DBImpl::StartStatsDumpScheduler() {
   {
     InstrumentedMutexLock l(&mutex_);
     stats_dump_scheduler_ = StatsDumpScheduler::Default();
-#ifndef NDEBUG
-    stats_dump_scheduler_->TEST_SetEnv(env_);
-#endif  // !NDEBUG
+    TEST_SYNC_POINT_CALLBACK("DBImpl::StartStatsDumpScheduler:Init",
+                             &stats_dump_scheduler_);
   }
 
   stats_dump_scheduler_->Register(this,
@@ -1087,9 +1086,6 @@ Status DBImpl::SetDBOptions(
         }
         if (new_options.stats_dump_period_sec > 0 ||
             new_options.stats_persist_period_sec > 0) {
-          if (stats_dump_scheduler_ == nullptr) {
-            stats_dump_scheduler_ = StatsDumpScheduler::Default();
-          }
           mutex_.Unlock();
           stats_dump_scheduler_->Register(this,
                                           new_options.stats_dump_period_sec,

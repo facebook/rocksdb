@@ -42,8 +42,6 @@ class Timer {
         running_(false),
         executing_task_(false) {}
 
-  ~Timer() {}
-
   // Add a new function. If the fn_name already exists, overriding it,
   // regardless if the function is pending removed (invalid) or not.
   // repeat_every_us == 0 means do not repeat
@@ -180,7 +178,7 @@ class Timer {
         continue;
       }
 
-      auto current_fn = heap_.top();
+      FunctionInfo* current_fn = heap_.top();
       assert(current_fn);
 
       if (!current_fn->IsValid()) {

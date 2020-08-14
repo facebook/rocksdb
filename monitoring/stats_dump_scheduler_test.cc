@@ -17,11 +17,21 @@ class StatsDumpSchedulerTest : public DBTestBase {
 
  protected:
   std::unique_ptr<SafeMockTimeEnv> mock_env_;
+
+  void SetUp() override {
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::StartStatsDumpScheduler:Init", [&](void* arg) {
+          auto* stats_dump_scheduler_ptr =
+              reinterpret_cast<StatsDumpScheduler**>(arg);
+          *stats_dump_scheduler_ptr =
+              StatsDumpTestScheduler::Default(mock_env_.get());
+        });
+  }
 };
 
 #ifndef ROCKSDB_LITE
 
-TEST_F(StatsDumpSchedulerTest, BasicTest) {
+TEST_F(StatsDumpSchedulerTest, Basic) {
   constexpr int kPeriodSec = 5;
   Close();
   Options options;
@@ -98,7 +108,7 @@ TEST_F(StatsDumpSchedulerTest, BasicTest) {
   Close();
 }
 
-TEST_F(StatsDumpSchedulerTest, MultiInstancesTest) {
+TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   constexpr int kPeriodSec = 5;
   const int kInstanceNum = 10;
 
@@ -153,7 +163,6 @@ TEST_F(StatsDumpSchedulerTest, MultiInstancesTest) {
 
   int half = kInstanceNum / 2;
   for (int i = 0; i < half; i++) {
-    dbs[i]->Close();
     delete dbs[i];
   }
 
@@ -174,7 +183,7 @@ TEST_F(StatsDumpSchedulerTest, MultiInstancesTest) {
   }
 }
 
-TEST_F(StatsDumpSchedulerTest, MultiEnvTest) {
+TEST_F(StatsDumpSchedulerTest, MultiEnv) {
   constexpr int kDumpPeriodSec = 5;
   constexpr int kPersistPeriodSec = 10;
   Close();
@@ -197,7 +206,7 @@ TEST_F(StatsDumpSchedulerTest, MultiEnvTest) {
 
   std::string dbname = test::PerThreadDBPath("multi_env_test");
   DB* db;
-  DB::Open(options2, dbname, &db);
+  ASSERT_OK(DB::Open(options2, dbname, &db));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
 
   ASSERT_EQ(dbi->TEST_GetStatsDumpScheduler(),

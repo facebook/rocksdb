@@ -27,32 +27,37 @@ class StatsDumpScheduler {
   StatsDumpScheduler(const StatsDumpScheduler&) = delete;
   StatsDumpScheduler(StatsDumpScheduler&&) = delete;
   StatsDumpScheduler& operator=(const StatsDumpScheduler&) = delete;
+  StatsDumpScheduler& operator=(StatsDumpScheduler&&) = delete;
 
   void Register(DBImpl* dbi, unsigned int stats_dump_period_sec,
                 unsigned int stats_persist_period_sec);
 
   void Unregister(DBImpl* dbi);
 
-#ifndef NDEBUG
-  void TEST_WaitForRun(std::function<void()> callback) const;
-
-  size_t TEST_GetValidTaskNum() const;
-
-  bool TEST_SetEnv(Env* env);
-
-#endif  // !NDEBUG
-
- private:
+ protected:
   std::unique_ptr<Timer> timer;
 
   explicit StatsDumpScheduler(Env* env);
 
+ private:
   std::string GetTaskName(DBImpl* dbi, const std::string& func_name);
+};
 
 #ifndef NDEBUG
-  port::Mutex test_mutex_;
-#endif  // !NDEBUG
+// StatsDumpTestScheduler is for unittest, which can specify the Env like
+// SafeMockTimeEnv. It also contains functions for unittest.
+class StatsDumpTestScheduler : public StatsDumpScheduler {
+ public:
+  static StatsDumpTestScheduler* Default(Env* env);
+
+  void TEST_WaitForRun(std::function<void()> callback) const;
+
+  size_t TEST_GetValidTaskNum() const;
+
+ private:
+  explicit StatsDumpTestScheduler(Env* env);
 };
+#endif  // !NDEBUG
 
 }  // namespace ROCKSDB_NAMESPACE
 

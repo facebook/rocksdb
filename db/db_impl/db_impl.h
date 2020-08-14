@@ -71,6 +71,9 @@ class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
 class StatsDumpScheduler;
+#ifndef NDEBUG
+class StatsDumpTestScheduler;
+#endif  // !NDEBUG
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -999,9 +1002,7 @@ class DBImpl : public DB {
   }
 
 #ifndef ROCKSDB_LITE
-  StatsDumpScheduler* TEST_GetStatsDumpScheduler() const {
-    return stats_dump_scheduler_;
-  }
+  StatsDumpTestScheduler* TEST_GetStatsDumpScheduler() const;
 #endif  // !ROCKSDB_LITE
 
 #endif  // NDEBUG
@@ -2113,7 +2114,6 @@ class DBImpl : public DB {
   // Scheduler to run DumpStats() and PersistStats(). Currently, it always use
   // a global instance from StatsDumpScheduler::Default(). Only in unittest, it
   // may be updated.
-  // REQUIRES: mutex locked
   StatsDumpScheduler* stats_dump_scheduler_;
 #endif
 

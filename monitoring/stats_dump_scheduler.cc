@@ -61,31 +61,43 @@ std::string StatsDumpScheduler::GetTaskName(DBImpl* dbi,
 }
 
 #ifndef NDEBUG
-bool StatsDumpScheduler::TEST_SetEnv(Env* env) {
-  MutexLock l(&test_mutex_);
-  auto scheduler = Default();
-  if (scheduler->timer == nullptr ||
-      scheduler->timer->TEST_GetPendingTaskNum() != 0) {
-    return false;
+
+// Get the static scheduler. For a new env, it needs to re-create the internal
+// timer, so only re-create it when there's no running task. Otherwise, return
+// the existing scheduler. Which means if the unittest needs to update MockEnv,
+// Close all db instances and then re-open them.
+StatsDumpTestScheduler* StatsDumpTestScheduler::Default(Env* env) {
+  static StatsDumpTestScheduler scheduler(env);
+  static port::Mutex mutex;
+  {
+    MutexLock l(&mutex);
+    if (scheduler.timer.get() != nullptr &&
+        scheduler.timer->TEST_GetPendingTaskNum() == 0) {
+      scheduler.timer->Shutdown();
+      scheduler.timer.reset(new Timer(env));
+    }
   }
-  scheduler->timer.reset(new Timer(env));
-  return true;
+  return &scheduler;
 }
 
-void StatsDumpScheduler::TEST_WaitForRun(std::function<void()> callback) const {
+void StatsDumpTestScheduler::TEST_WaitForRun(
+    std::function<void()> callback) const {
   if (timer != nullptr) {
     timer->TEST_WaitForRun(callback);
   }
 }
 
-size_t StatsDumpScheduler::TEST_GetValidTaskNum() const {
+size_t StatsDumpTestScheduler::TEST_GetValidTaskNum() const {
   if (timer != nullptr) {
     return timer->TEST_GetPendingTaskNum();
   }
   return 0;
 }
-#endif  // !NDEBUG
 
+StatsDumpTestScheduler::StatsDumpTestScheduler(Env* env)
+    : StatsDumpScheduler(env) {}
+
+#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE
