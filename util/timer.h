@@ -126,7 +126,7 @@ class Timer {
     return true;
   }
 
-  bool HasPendingTask() {
+  bool HasPendingTask() const {
     InstrumentedMutexLock l(&mutex_);
     for (auto it = map_.begin(); it != map_.end(); it++) {
       if (it->second->IsValid()) {
