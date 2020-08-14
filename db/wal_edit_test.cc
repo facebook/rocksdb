@@ -5,6 +5,7 @@
 
 #include "db/wal_edit.h"
 
+#include "db/db_test_util.h"
 #include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -119,7 +120,7 @@ TEST(WalSet, DeleteNonClosedWal) {
               std::string::npos);
 }
 
-class WalSetTest : public DBTestBase, public testing::Test {
+class WalSetTest : public DBTestBase {
  public:
   void SetUp() override {
     test_dir_ = test::PerThreadDBPath("wal_set_test");
