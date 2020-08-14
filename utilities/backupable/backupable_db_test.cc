@@ -1155,33 +1155,20 @@ TEST_F(BackupableDBTest, CustomChecksumNoNewDbTables) {
   }
 }
 
-TEST_F(BackupableDBTest, FileCollisionByFailingToRestore) {
+TEST_F(BackupableDBTest, FileCollision) {
   const int keys_iteration = 5000;
-  std::shared_ptr<FileChecksumGenFactory> hash32_factory =
-      std::make_shared<FileHash32GenFactory>();
-  std::shared_ptr<FileChecksumGenFactory> hash_factory =
-      std::make_shared<FileHashGenFactory>();
   for (const auto& sopt : kAllShareOptions) {
-    options_.file_checksum_gen_factory = hash_factory;
-    backupable_options_->file_checksum_gen_factory = hash_factory;
-
     OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
     FillDB(db_.get(), 0, keys_iteration);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     FillDB(db_.get(), 0, keys_iteration);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
-    CloseBackupEngine();
-    // Say, we accidentally change the factory
-    backupable_options_->file_checksum_gen_factory = hash32_factory;
-    OpenBackupEngine();
-    // Note that when backup engine is unable to restore, it may have cleaned up
-    // the db directory. If the db directory has been cleaned up, it is
-    // sensitive to file collision.
-    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(2, dbname_, dbname_));
     CloseDBAndBackupEngine();
 
-    // Reset factory and create a new backup
-    backupable_options_->file_checksum_gen_factory = hash_factory;
+    // If the db directory has been cleaned up, it is sensitive to file
+    // collision.
+    DestroyDB(dbname_, options_);
+
     // open with old backup
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
                           sopt);
