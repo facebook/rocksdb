@@ -846,6 +846,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   }
 
   if (options.change_level) {
+    TEST_SYNC_POINT("DBImpl::CompactRange:BeforeRefit:1");
+    TEST_SYNC_POINT("DBImpl::CompactRange:BeforeRefit:2");
+
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "[RefitLevel] waiting for background threads to stop");
     DisableManualCompaction();
@@ -1331,6 +1334,11 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     }
   }
   if (to_level != level) {
+    // This might also be checked previously in some cases, but still double
+    // check here to prevent corruption..
+    if (vstorage->NumLevelFiles(to_level) > 0) {
+      return Status::NotSupported("The target level is not empty");
+    }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Before refitting:\n%s", cfd->GetName().c_str(),
                     cfd->current()->DebugString().data());
