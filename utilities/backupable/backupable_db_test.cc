@@ -747,7 +747,8 @@ class BackupableDBTest : public testing::Test {
   }
 
   void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
-                             ShareOption shared_option = kShareNoChecksum) {
+                             ShareOption shared_option = kShareNoChecksum,
+                             bool share_options_param_test = false) {
     // reset all the defaults
     test_backup_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetLimitWrittenFiles(1000000);
@@ -763,12 +764,19 @@ class BackupableDBTest : public testing::Test {
     db_.reset(db);
     backupable_options_->destroy_old_data = destroy_old_data;
     backupable_options_->share_table_files = shared_option != kNoShare;
-    backupable_options_->share_files_with_checksum =
-        shared_option == kShareWithChecksum;
+    if (!share_options_param_test) {
+      backupable_options_->share_files_with_checksum =
+          shared_option == kShareWithChecksum;
+    }
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
     backup_engine_.reset(backup_engine);
+  }
+
+  void OpenDBAndBackupEngineInShareParamTest(bool destroy_old_data = false,
+                                             bool dummy = false) {
+    OpenDBAndBackupEngine(destroy_old_data, dummy, kShareNoChecksum, true);
   }
 
   void CloseDBAndBackupEngine() {
@@ -1111,7 +1119,7 @@ TEST_F(BackupableDBTest, CustomChecksumTransition) {
 TEST_P(BackupableDBTestWithParam, VerifyBackup) {
   const int keys_iteration = 5000;
   Status s;
-  OpenDBAndBackupEngine(true);
+  OpenDBAndBackupEngineInShareParamTest(true);
   // create five backups
   for (int i = 0; i < 5; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
@@ -1119,7 +1127,7 @@ TEST_P(BackupableDBTestWithParam, VerifyBackup) {
   }
   CloseDBAndBackupEngine();
 
-  OpenDBAndBackupEngine();
+  OpenDBAndBackupEngineInShareParamTest();
   // ---------- case 1. - valid backup -----------
   ASSERT_TRUE(backup_engine_->VerifyBackup(1).ok());
 
@@ -1159,7 +1167,7 @@ TEST_P(BackupableDBTestWithParam, OfflineIntegrationTest) {
       // in last iteration, put smaller amount of data,
       int fill_up_to = std::min(keys_iteration * (i + 1), max_key);
       // ---- insert new data and back up ----
-      OpenDBAndBackupEngine(destroy_data);
+      OpenDBAndBackupEngineInShareParamTest(destroy_data);
       destroy_data = false;
       FillDB(db_.get(), keys_iteration * i, fill_up_to);
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
@@ -1194,7 +1202,7 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
   // delete old data
   DestroyDB(dbname_, options_);
 
-  OpenDBAndBackupEngine(true);
+  OpenDBAndBackupEngineInShareParamTest(true);
   // write some data, backup, repeat
   for (int i = 0; i < 5; ++i) {
     if (i == 4) {
@@ -1565,7 +1573,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
 TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   const int keys_iteration = 50000;
 
-  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  OpenDBAndBackupEngineInShareParamTest(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
@@ -1580,7 +1588,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
 
   // Enable table checksums in DB manifest
   options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  OpenDBAndBackupEngineInShareParamTest(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
@@ -2604,7 +2612,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   const int kNumKeysPerBackup = 100;
   const int kNumBackups = 3;
   options_.use_direct_reads = true;
-  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  OpenDBAndBackupEngineInShareParamTest(true /* destroy_old_data */);
   for (int i = 0; i < kNumBackups; ++i) {
     FillDB(db_.get(), i * kNumKeysPerBackup /* from */,
            (i + 1) * kNumKeysPerBackup /* to */);
