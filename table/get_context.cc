@@ -225,8 +225,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       return true;  // to continue to the next seq
     }
 
-    if (ucmp_->timestamp_size() > 0 && snapshot_seq_ < parsed_key.sequence) {
-      return true;  // to continue to the next seq
+    if (ucmp_->timestamp_size() > 0) {
+      assert(callback_);
+      if (!callback_->IsVisible(parsed_key.sequence)) {
+        return true;  // to continue to the next seq
+      }
     }
 
     appendToReplayLog(replay_log_, parsed_key.type, value);

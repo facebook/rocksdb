@@ -1583,19 +1583,32 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
+namespace {
+class GetWithTimestampReadCallback : public ReadCallback {
+ public:
+  explicit GetWithTimestampReadCallback(SequenceNumber seq)
+      : ReadCallback(seq) {}
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
+    return seq <= max_visible_seq_;
+  }
+};
+}  // namespace
+
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
 
-#ifndef NDEBUG
   assert(get_impl_options.column_family);
-  ColumnFamilyHandle* cf = get_impl_options.column_family;
-  const Comparator* const ucmp = cf->GetComparator();
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
+  size_t ts_sz = ucmp->timestamp_size();
+  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
+
+#ifndef NDEBUG
+  if (ts_sz > 0) {
     assert(read_options.timestamp);
-    assert(read_options.timestamp->size() == ucmp->timestamp_size());
+    assert(read_options.timestamp->size() == ts_sz);
   } else {
     assert(!read_options.timestamp);
   }
@@ -1661,6 +1674,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       snapshot = get_impl_options.callback->max_visible_seq();
     }
   }
+  // If timestamp is used, we use read callback to ensure <key,t,s> is returned
+  // only if t <= read_opts.timestamp and s <= snapshot.
+  if (ts_sz > 0 && !get_impl_options.callback) {
+    read_cb.Refresh(snapshot);
+    get_impl_options.callback = &read_cb;
+  }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
@@ -1678,9 +1697,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  const Comparator* comparator =
-      get_impl_options.column_family->GetComparator();
-  size_t ts_sz = comparator->timestamp_size();
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
     // Get value associated with key
