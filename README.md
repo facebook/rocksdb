@@ -1,4 +1,14 @@
-## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
+<p align="center">
+  <img src="https://rocksdb.org/static/logo.svg" alt="logo" width="20%" />
+</p>
+
+<h1 align="center">
+  RocksDB
+</h1>
+
+<p align="center">
+  A Persistent Key-Value Store for Flash and RAM Storage.
+</p>
 
 [![CircleCI Status](https://circleci.com/gh/facebook/rocksdb.svg?style=svg)](https://circleci.com/gh/facebook/rocksdb)
 [![TravisCI Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
