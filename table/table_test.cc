@@ -2559,10 +2559,10 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
   std::string encoded_key = internal_key.Encode().ToString();
   for (uint32_t i = 1; i <= 2; i++) {
     PinnableSlice value;
-    GetContext get_context(
-        options.comparator, nullptr, nullptr, nullptr, GetContext::kNotFound,
-        user_key, kMaxSequenceNumber, &value, nullptr, nullptr, true, nullptr,
-        nullptr, nullptr, nullptr, nullptr, nullptr, /*tracing_get_id=*/i);
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, user_key, &value, nullptr,
+                           nullptr, true, nullptr, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, /*tracing_get_id=*/i);
     get_perf_context()->Reset();
     ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
                                       moptions.prefix_extractor.get()));
@@ -2817,8 +2817,8 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
 
   {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                           GetContext::kNotFound, Slice(), kMaxSequenceNumber,
-                           nullptr, nullptr, nullptr, true, nullptr, nullptr);
+                           GetContext::kNotFound, Slice(), nullptr, nullptr,
+                           nullptr, true, nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
     reader->Get(ReadOptions(), "non-exist-key", &get_context,
                 moptions.prefix_extractor.get());
@@ -2992,8 +2992,8 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_FALSE(reader->TEST_FilterBlockInCache());
   PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, user_key, kMaxSequenceNumber,
-                         &value, nullptr, nullptr, true, nullptr, nullptr);
+                         GetContext::kNotFound, user_key, &value, nullptr,
+                         nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
   ASSERT_STREQ(value.data(), "hello");
@@ -3078,9 +3078,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       PinnableSlice value;
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                               GetContext::kNotFound, user_key,
-                               kMaxSequenceNumber, &value, nullptr, nullptr,
-                               true, nullptr, nullptr);
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -3105,9 +3104,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       value.Reset();
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                               GetContext::kNotFound, user_key,
-                               kMaxSequenceNumber, &value, nullptr, nullptr,
-                               true, nullptr, nullptr);
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -4586,9 +4584,8 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         PinnableSlice value;
         std::string user_key = ExtractUserKey(kv.first).ToString();
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                               GetContext::kNotFound, user_key,
-                               kMaxSequenceNumber, &value, nullptr, nullptr,
-                               true, nullptr, nullptr);
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, kv.first, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -4613,9 +4610,8 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
       } else {  // Search using Get()
         PinnableSlice value;
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                               GetContext::kNotFound, user_key,
-                               kMaxSequenceNumber, &value, nullptr, nullptr,
-                               true, nullptr, nullptr);
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);

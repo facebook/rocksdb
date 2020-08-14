@@ -92,9 +92,8 @@ class GetContext {
   // merge_context and they are never merged. The value pointer is untouched.
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, SequenceNumber snapshot_seq,
-             PinnableSlice* value, bool* value_found,
-             MergeContext* merge_context, bool do_merge,
+             const Slice& user_key, PinnableSlice* value,
+             bool* value_found, MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, Env* env,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
@@ -102,8 +101,8 @@ class GetContext {
              uint64_t tracing_get_id = 0);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, SequenceNumber snapshot_seq,
-             PinnableSlice* value, std::string* timestamp, bool* value_found,
+             const Slice& user_key, PinnableSlice* value,
+             std::string* timestamp, bool* value_found,
              MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, Env* env,
              SequenceNumber* seq = nullptr,
@@ -174,7 +173,6 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
-  SequenceNumber snapshot_seq_;
   PinnableSlice* pinnable_val_;
   std::string* timestamp_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist

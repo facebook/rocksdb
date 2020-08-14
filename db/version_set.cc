@@ -1804,9 +1804,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      k.sequence(nullptr), do_merge ? value : nullptr,
-      do_merge ? timestamp : nullptr, value_found, merge_context, do_merge,
-      max_covering_tombstone_seq, this->env_, seq,
+      do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
+      merge_context, do_merge, max_covering_tombstone_seq, this->env_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
       tracing_get_id);
 
@@ -1942,14 +1941,13 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   autovector<GetContext, 16> get_ctx;
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
-    assert(iter->lkey);
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->lkey->sequence(nullptr), iter->value, iter->timestamp, nullptr,
-        &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
-        this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
-        callback, is_blob, tracing_mget_id);
+        iter->value, iter->timestamp, nullptr, &(iter->merge_context), true,
+        &iter->max_covering_tombstone_seq, this->env_, nullptr,
+        merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
+        tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
