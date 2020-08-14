@@ -1319,6 +1319,175 @@ TEST_F(VersionSetTest, WalDeletion) {
   }
 }
 
+TEST_F(VersionSetTest, WalCreateTwice) {
+  NewDB();
+
+  constexpr WalNumber kLogNumber = 10;
+
+  VersionEdit edit;
+  edit.AddWal(kLogNumber);
+
+  mutex_.Lock();
+  Status s =
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &edit, &mutex_);
+  ASSERT_OK(s);
+  s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &edit, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 10 is created more than once") !=
+              std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(VersionSetTest, WalCloseTwice) {
+  NewDB();
+
+  constexpr WalNumber kLogNumber = 10;
+  constexpr uint64_t kSizeInBytes = 111;
+
+  {
+    VersionEdit edit;
+    edit.AddWal(kLogNumber);
+    edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
+
+    mutex_.Lock();
+    ASSERT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
+    mutex_.Unlock();
+  }
+
+  {
+    VersionEdit edit;
+    edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
+
+    mutex_.Lock();
+    Status s =
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_);
+    mutex_.Unlock();
+
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("WAL 10 is closed more than once") !=
+                std::string::npos)
+        << s.ToString();
+  }
+}
+
+TEST_F(VersionSetTest, WalCloseBeforeCreate) {
+  NewDB();
+
+  constexpr WalNumber kLogNumber = 10;
+  constexpr uint64_t kSizeInBytes = 111;
+
+  VersionEdit edit;
+  edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
+
+  mutex_.Lock();
+  Status s =
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &edit, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 10 is not created before closing") !=
+              std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(VersionSetTest, WalCreateAfterClose) {
+  NewDB();
+
+  constexpr WalNumber kLogNumber = 10;
+  constexpr uint64_t kSizeInBytes = 111;
+
+  {
+    // Add a closed WAL.
+    VersionEdit edit;
+    edit.AddWal(kLogNumber);
+    edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
+
+    mutex_.Lock();
+    ASSERT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
+    mutex_.Unlock();
+  }
+
+  {
+    // Create the same WAL again.
+    VersionEdit edit;
+    edit.AddWal(kLogNumber);
+
+    mutex_.Lock();
+    Status s =
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_);
+    mutex_.Unlock();
+
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("WAL 10 is created more than once") !=
+                std::string::npos)
+        << s.ToString();
+  }
+}
+
+TEST_F(VersionSetTest, WalDeleteNonExistingLog) {
+  NewDB();
+
+  constexpr WalNumber kLogNumber = 10;
+
+  VersionEdit edit;
+  edit.DeleteWal(kLogNumber);
+
+  mutex_.Lock();
+  Status s =
+      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                             mutable_cf_options_, &edit, &mutex_);
+  mutex_.Unlock();
+
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 10 must exist before deletion") !=
+              std::string::npos)
+      << s.ToString();
+}
+
+TEST_F(VersionSetTest, WalDeleteNonClosedLog) {
+  NewDB();
+
+  constexpr WalNumber kLogNumber = 10;
+
+  {
+    VersionEdit edit;
+    edit.AddWal(kLogNumber);
+
+    mutex_.Lock();
+    ASSERT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
+    mutex_.Unlock();
+  }
+
+  {
+    VersionEdit edit;
+    edit.DeleteWal(kLogNumber);
+
+    mutex_.Lock();
+    Status s =
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_);
+    mutex_.Unlock();
+
+    ASSERT_TRUE(s.IsCorruption());
+    ASSERT_TRUE(s.ToString().find("WAL 10 must be closed before deletion") !=
+                std::string::npos)
+        << s.ToString();
+  }
+}
+
 class VersionSetAtomicGroupTest : public VersionSetTestBase,
                                   public testing::Test {
  public:

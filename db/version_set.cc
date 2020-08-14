@@ -3738,10 +3738,14 @@ Status VersionSet::ProcessManifestWrites(
     assert(first_writer.cfd->GetID() == 0);  // default CF
     // Write to MANIFEST without applying to default CF's versions.
     for (VersionEdit* edit : first_writer.edit_list) {
+      Status s;
       if (edit->IsWalAddition()) {
-        wals_.AddWals(edit->GetWalAdditions());
+        s = wals_.AddWals(edit->GetWalAdditions());
       } else if (edit->IsWalDeletion()) {
-        wals_.DeleteWals(edit->GetWalDeletions());
+        s = wals_.DeleteWals(edit->GetWalDeletions());
+      }
+      if (!s.ok()) {
+        return s;
       }
       LogAndApplyWalHelper(edit);
       batch_edits.push_back(edit);
@@ -4543,9 +4547,18 @@ Status VersionSet::ReadAndRecover(
     }
     if (edit.IsWalManipulation()) {
       if (edit.IsWalAddition()) {
-        wals_.AddWals(edit.GetWalAdditions());
+        for (const WalAddition& wal : edit.GetWalAdditions()) {
+          if (wal.GetMetadata().HasSize()) {
+            // Create WAL before closing.
+            wals_.AddWal(WalAddition(wal.GetLogNumber()));
+          }
+          wals_.AddWal(wal);
+        }
       } else if (edit.IsWalDeletion()) {
-        wals_.DeleteWals(edit.GetWalDeletions());
+        s = wals_.DeleteWals(edit.GetWalDeletions());
+      }
+      if (!s.ok()) {
+        break;
       }
       // WAL edits do not need to apply to versions,
       // but still may contain information such as next file number.
