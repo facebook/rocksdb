@@ -669,12 +669,6 @@ static bool SaveValue(void* arg, const char* entry) {
     if (!s->CheckCallback(seq)) {
       return true;  // to continue to the next seq
     }
-    if (ts_sz > 0) {
-      assert(s->key);
-      if (s->callback_ && !s->callback_->IsVisible(seq)) {
-        return true;  // to continue to the next seq
-      }
-    }
 
     s->seq = seq;
 
