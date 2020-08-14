@@ -5385,6 +5385,24 @@ Status VersionSet::WriteCurrentStateToManifest(
     }
   }
 
+  {
+    // Save WALs.
+    for (const auto& wal_addition : wal_additions) {
+      TEST_SYNC_POINT_CALLBACK(
+          "VersionSet::WriteCurrentStateToManifest:SaveWal",
+          wal_addition.get());
+      std::string record;
+      if (!wal_addition->EncodeTo(&record)) {
+        return Status::Corruption("Unable to Encode VersionEdit: " +
+                                  wal_addition->DebugString(true));
+      }
+      io_s = log->AddRecord(record);
+      if (!io_s.ok()) {
+        return io_s;
+      }
+    }
+  }
+
   for (auto cfd : *column_family_set_) {
     assert(cfd);
 
@@ -5411,21 +5429,6 @@ Status VersionSet::WriteCurrentStateToManifest(
       io_s = log->AddRecord(record);
       if (!io_s.ok()) {
         return io_s;
-      }
-    }
-
-    {
-      // Save WALs.
-      for (const auto& wal_addition : wal_additions) {
-        std::string record;
-        if (!wal_addition->EncodeTo(&record)) {
-          return Status::Corruption("Unable to Encode VersionEdit: " +
-                                    wal_addition->DebugString(true));
-        }
-        io_s = log->AddRecord(record);
-        if (!io_s.ok()) {
-          return io_s;
-        }
       }
     }
 
