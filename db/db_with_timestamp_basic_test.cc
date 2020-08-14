@@ -601,7 +601,8 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
 //                               seq'=11
 //                               write finishes
 //         GetImpl(ts,seq)
-// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1.
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=1t1 but seq<s1,
+// the key should not be returned.
 TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot1) {
   Options options = CurrentOptions();
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -648,7 +649,8 @@ TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot1) {
 //                               write finishes
 //                               Flush
 //         GetImpl(ts,seq)
-// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1.
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=t1 but seq<s1,
+// the key should not be returned.
 TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot2) {
   Options options = CurrentOptions();
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -809,7 +811,8 @@ TEST_F(DataVisibilityTest, PointLookupWithSnapshot2) {
 //                            seq'=11
 //                            write finishes
 //      scan(ts,seq)
-// <k, t1, s1> can be seen in scan as long as ts>=t1 AND seq>=s1.
+// <k, t1, s1> can be seen in scan as long as ts>=t1 AND seq>=s1. If ts>=t1 but
+// seq<s1, then the key should not be returned.
 TEST_F(DataVisibilityTest, RangeScanWithoutSnapshot) {
   Options options = CurrentOptions();
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -842,14 +845,8 @@ TEST_F(DataVisibilityTest, RangeScanWithoutSnapshot) {
   Iterator* it = db_->NewIterator(read_opts);
   ASSERT_NE(nullptr, it);
   writer_thread.join();
-  int count = 0;
-  for (it->SeekToFirst(); it->Valid(); it->Next(), ++count) {
-    ASSERT_OK(it->status());
-    ASSERT_EQ("key" + std::to_string(count), it->key());
-    ASSERT_EQ("value" + std::to_string(count), it->value());
-  }
-  ASSERT_EQ(0, count);
-
+  it->SeekToFirst();
+  ASSERT_FALSE(it->Valid());
   delete it;
   Close();
 }
@@ -861,7 +858,8 @@ TEST_F(DataVisibilityTest, RangeScanWithoutSnapshot) {
 //       ts=100         seq'=11
 //                      write finishes
 //       scan(ts,seq)
-// <k, t1, s1> can be seen by the scan only if t1<=ts AND s1<=seq.
+// <k, t1, s1> can be seen by the scan only if t1<=ts AND s1<=seq. If t1<=ts
+// but s1>seq, then the key should not be returned.
 TEST_F(DataVisibilityTest, RangeScanWithSnapshot) {
   Options options = CurrentOptions();
   const size_t kTimestampSize = Timestamp(0, 0).size();
