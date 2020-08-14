@@ -839,6 +839,26 @@ class VersionSetTestBase {
     ASSERT_EQ(1, manifest_file_number);
   }
 
+  Status LogAndApplyToDefaultCF(VersionEdit& edit) {
+    mutex_.Lock();
+    Status s =
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_);
+    mutex_.Unlock();
+    return s;
+  }
+
+  void CreateNewManifest() {
+    constexpr FSDirectory* db_directory = nullptr;
+    constexpr bool new_descriptor_log = true;
+    mutex_.Lock();
+    VersionEdit dummy;
+    ASSERT_OK(versions_->LogAndApply(
+        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
+        &dummy, &mutex_, db_directory, new_descriptor_log));
+    mutex_.Unlock();
+  }
+
   MockEnv* mem_env_;
   Env* env_;
   std::shared_ptr<Env> env_guard_;
@@ -979,17 +999,8 @@ TEST_F(VersionSetTest, PersistBlobFileStateInNewManifest) {
       [&](void* /* arg */) { ++garbage_encoded; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  VersionEdit dummy;
+  CreateNewManifest();
 
-  mutex_.Lock();
-  constexpr FSDirectory* db_directory = nullptr;
-  constexpr bool new_descriptor_log = true;
-  Status s = versions_->LogAndApply(
-      versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-      &dummy, &mutex_, db_directory, new_descriptor_log);
-  mutex_.Unlock();
-
-  ASSERT_OK(s);
   ASSERT_EQ(addition_encoded, 2);
   ASSERT_EQ(garbage_encoded, 1);
 
@@ -1169,11 +1180,7 @@ TEST_F(VersionSetTest, WalAddition) {
     VersionEdit edit;
     edit.AddWal(kLogNumber);
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1186,11 +1193,7 @@ TEST_F(VersionSetTest, WalAddition) {
     VersionEdit edit;
     edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1228,11 +1231,7 @@ TEST_F(VersionSetTest, WalDeletion) {
     edit.AddWal(kClosedLogNumber);
     edit.AddWal(kClosedLogNumber, WalMetadata(kSizeInBytes));
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 2);
@@ -1248,11 +1247,7 @@ TEST_F(VersionSetTest, WalDeletion) {
     VersionEdit edit;
     edit.DeleteWal(kClosedLogNumber);
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1287,15 +1282,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
-    VersionEdit dummy;
-
-    mutex_.Lock();
-    constexpr FSDirectory* db_directory = nullptr;
-    constexpr bool new_descriptor_log = true;
-    ASSERT_OK(versions_->LogAndApply(
-        versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
-        &dummy, &mutex_, db_directory, new_descriptor_log));
-    mutex_.Unlock();
+    CreateNewManifest();
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1327,15 +1314,9 @@ TEST_F(VersionSetTest, WalCreateTwice) {
   VersionEdit edit;
   edit.AddWal(kLogNumber);
 
-  mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_);
-  ASSERT_OK(s);
-  s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_);
-  mutex_.Unlock();
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
+  Status s = LogAndApplyToDefaultCF(edit);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 10 is created more than once") !=
               std::string::npos)
@@ -1353,23 +1334,14 @@ TEST_F(VersionSetTest, WalCloseTwice) {
     edit.AddWal(kLogNumber);
     edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
   }
 
   {
     VersionEdit edit;
     edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
 
-    mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_);
-    mutex_.Unlock();
-
+    Status s = LogAndApplyToDefaultCF(edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("WAL 10 is closed more than once") !=
                 std::string::npos)
@@ -1386,12 +1358,7 @@ TEST_F(VersionSetTest, WalCloseBeforeCreate) {
   VersionEdit edit;
   edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
 
-  mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_);
-  mutex_.Unlock();
-
+  Status s = LogAndApplyToDefaultCF(edit);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 10 is not created before closing") !=
               std::string::npos)
@@ -1410,11 +1377,7 @@ TEST_F(VersionSetTest, WalCreateAfterClose) {
     edit.AddWal(kLogNumber);
     edit.AddWal(kLogNumber, WalMetadata(kSizeInBytes));
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
   }
 
   {
@@ -1422,12 +1385,7 @@ TEST_F(VersionSetTest, WalCreateAfterClose) {
     VersionEdit edit;
     edit.AddWal(kLogNumber);
 
-    mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_);
-    mutex_.Unlock();
-
+    Status s = LogAndApplyToDefaultCF(edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("WAL 10 is created more than once") !=
                 std::string::npos)
@@ -1443,12 +1401,7 @@ TEST_F(VersionSetTest, WalDeleteNonExistingLog) {
   VersionEdit edit;
   edit.DeleteWal(kLogNumber);
 
-  mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_);
-  mutex_.Unlock();
-
+  Status s = LogAndApplyToDefaultCF(edit);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 10 must exist before deletion") !=
               std::string::npos)
@@ -1464,23 +1417,14 @@ TEST_F(VersionSetTest, WalDeleteNonClosedLog) {
     VersionEdit edit;
     edit.AddWal(kLogNumber);
 
-    mutex_.Lock();
-    ASSERT_OK(
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
-    mutex_.Unlock();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
   }
 
   {
     VersionEdit edit;
     edit.DeleteWal(kLogNumber);
 
-    mutex_.Lock();
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_);
-    mutex_.Unlock();
-
+    Status s = LogAndApplyToDefaultCF(edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("WAL 10 must be closed before deletion") !=
                 std::string::npos)
