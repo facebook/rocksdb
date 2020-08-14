@@ -24,8 +24,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-static port::RWMutex key_lock;
-
 static std::once_flag crypto_loaded;
 static std::shared_ptr<UnixLibCrypto> crypto_shared;
 
