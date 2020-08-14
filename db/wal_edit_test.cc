@@ -122,9 +122,11 @@ TEST(WalSet, DeleteNonClosedWal) {
 
 class WalSetTest : public DBTestBase {
  public:
+  WalSetTest() : DBTestBase("WalSetTest") {}
+
   void SetUp() override {
     test_dir_ = test::PerThreadDBPath("wal_set_test");
-    ASSERT_OK(env_->CreateDir(test_dir_, IOOptions(), nullptr));
+    ASSERT_OK(env_->CreateDir(test_dir_));
   }
 
   void TearDown() override {
@@ -135,12 +137,12 @@ class WalSetTest : public DBTestBase {
 
   void CreateWalOnDisk(WalNumber number, const std::string& fname,
                        uint64_t size_bytes) {
-    std::unique_ptr<FSWritableFile> f;
+    std::unique_ptr<WritableFile> f;
     std::string fpath = Path(fname);
-    ASSERT_OK(env_->NewWritableFile(fpath, FileOptions(), &f, nullptr));
+    ASSERT_OK(env_->NewWritableFile(fpath, &f, EnvOptions()));
     std::string content(size_bytes, '0');
-    ASSERT_OK(f->Append(content, IOOptions(), nullptr));
-    ASSERT_OK(f->Close(IOOptions(), nullptr));
+    ASSERT_OK(f->Append(content));
+    ASSERT_OK(f->Close());
 
     logs_on_disk_[number] = fpath;
   }
