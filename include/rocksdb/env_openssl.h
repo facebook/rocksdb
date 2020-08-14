@@ -283,7 +283,7 @@ class OpenSSLEnv : public EnvWrapper {
  protected:
   ReadKeys encrypt_read_;
   WriteKey encrypt_write_;
-  mutable port::RWMutex key_lock;
+  mutable port::RWMutex key_lock_;
   bool valid_;
 };
 

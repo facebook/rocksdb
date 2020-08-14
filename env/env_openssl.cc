@@ -466,13 +466,13 @@ void OpenSSLEnv::init() {
 
 void OpenSSLEnv::SetKeys(OpenSSLEnv::ReadKeys encrypt_read,
                          OpenSSLEnv::WriteKey encrypt_write) {
-  WriteLock lock(&key_lock);
+  WriteLock lock(&key_lock_);
   encrypt_read_ = encrypt_read;
   encrypt_write_ = encrypt_write;
 }
 
 bool OpenSSLEnv::IsWriteEncrypted() const {
-  ReadLock lock(&key_lock);
+  ReadLock lock(&key_lock_);
   bool ret_flag = (nullptr != encrypt_write_.second);
   return ret_flag;
 }
@@ -509,7 +509,7 @@ Status OpenSSLEnv::ReadSeqEncryptionPrefix(
           ShaDescription desc(prefix_buffer.key_description_,
                               sizeof(prefix_buffer.key_description_));
 
-          ReadLock lock(&key_lock);
+          ReadLock lock(&key_lock_);
           auto it = encrypt_read_.find(desc);
           if (encrypt_read_.end() != it) {
             provider = it->second;
@@ -557,7 +557,7 @@ Status OpenSSLEnv::ReadRandEncryptionPrefix(
           ShaDescription desc(prefix_buffer.key_description_,
                               sizeof(prefix_buffer.key_description_));
 
-          ReadLock lock(&key_lock);
+          ReadLock lock(&key_lock_);
           auto it = encrypt_read_.find(desc);
           if (encrypt_read_.end() != it) {
             provider = it->second;
@@ -736,7 +736,7 @@ Status OpenSSLEnv::NewWritableFile(const std::string& fname,
       std::shared_ptr<const CTREncryptionProviderV2> provider;
 
       {
-        ReadLock lock(&key_lock);
+        ReadLock lock(&key_lock_);
         provider = encrypt_write_.second;
       }
 
@@ -783,7 +783,7 @@ Status OpenSSLEnv::ReopenWritableFile(const std::string& fname,
       std::shared_ptr<const CTREncryptionProviderV2> provider;
 
       {
-        ReadLock lock(&key_lock);
+        ReadLock lock(&key_lock_);
         provider = encrypt_write_.second;
       }
 
@@ -826,7 +826,7 @@ Status OpenSSLEnv::ReuseWritableFile(const std::string& fname,
       std::shared_ptr<const CTREncryptionProviderV2> provider;
 
       {
-        ReadLock lock(&key_lock);
+        ReadLock lock(&key_lock_);
         provider = encrypt_write_.second;
       }
 
@@ -882,7 +882,7 @@ Status OpenSSLEnv::NewRandomRWFile(const std::string& fname,
       } else {
         // new file
         {
-          ReadLock lock(&key_lock);
+          ReadLock lock(&key_lock_);
           provider = encrypt_write_.second;
         }
 
