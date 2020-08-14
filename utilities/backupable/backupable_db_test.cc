@@ -1053,12 +1053,23 @@ TEST_F(BackupableDBTest, CustomChecksumTransition) {
                           sopt);
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     CloseBackupEngine();
+
+    ++i;
     // Say, we accidentally change the factory
     backupable_options_->file_checksum_gen_factory = hash32_factory;
     OpenBackupEngine();
-    ASSERT_NOK(backup_engine_->VerifyBackup(i + 2, true));
-    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(i + 2, dbname_, dbname_));
-    ASSERT_OK(backup_engine_->DeleteBackup(i + 2));
+    // Unable to verify the latest backup.
+    ASSERT_NOK(backup_engine_->VerifyBackup(i + 1, true));
+    // Unable to restore the latest backup.
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(i + 1, dbname_, dbname_));
+    CloseBackupEngine();
+    // Reset the factory to the same as the one used in the db.
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(i + 1, dbname_, dbname_));
+    ASSERT_OK(backup_engine_->DeleteBackup(i + 1));
+    --i;
     CloseDBAndBackupEngine();
 
     // 3) with one custom checksum function (FileHash32GenFactory) for db
@@ -1100,6 +1111,79 @@ TEST_F(BackupableDBTest, CustomChecksumTransition) {
       AssertBackupConsistency(j + 1, 0, keys_iteration * (j + 1),
                               keys_iteration * (j + 2));
     }
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
+
+TEST_F(BackupableDBTest, CustomChecksumNoNewDbTables) {
+  const int keys_iteration = 5000;
+  std::vector<std::shared_ptr<FileChecksumGenFactory>> checksum_factories{
+      nullptr, GetFileChecksumGenCrc32cFactory(),
+      std::make_shared<FileHash32GenFactory>(),
+      std::make_shared<FileHashGenFactory>()};
+
+  for (const auto& sopt : kAllShareOptions) {
+    for (const auto& f : checksum_factories) {
+      options_.file_checksum_gen_factory = f;
+      backupable_options_->file_checksum_gen_factory = f;
+      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                            sopt);
+      FillDB(db_.get(), 0, keys_iteration);
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+      // No new table files have been created since the last backup.
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->VerifyBackup(2, true));
+      CloseDBAndBackupEngine();
+      AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+      AssertBackupConsistency(2, 0, keys_iteration, keys_iteration * 2);
+
+      OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                            sopt);
+      // No new table files have been created since the last backup and backup
+      // engine opening
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->VerifyBackup(3, true));
+      CloseDBAndBackupEngine();
+      AssertBackupConsistency(3, 0, keys_iteration, keys_iteration * 2);
+
+      // delete old data
+      DestroyDB(dbname_, options_);
+    }
+  }
+}
+
+TEST_F(BackupableDBTest, FileCollision) {
+  const int keys_iteration = 5000;
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+
+    // If the db directory has been cleaned up, it is sensitive to file
+    // collision.
+    DestroyDB(dbname_, options_);
+
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * 2);
+    if (sopt != kShareNoChecksum) {
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    } else {
+      // The new table files created in FillDB() will clash with the old
+      // backup and sharing tables with no checksum will have the file
+      // collision problem.
+      ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->PurgeOldBackups(0));
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    }
+    CloseDBAndBackupEngine();
 
     // delete old data
     DestroyDB(dbname_, options_);
