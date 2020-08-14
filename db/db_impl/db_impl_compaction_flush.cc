@@ -850,14 +850,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                    "[RefitLevel] waiting for background threads to stop");
     DisableManualCompaction();
     s = PauseBackgroundWork();
-    bool bg_paused = false;
     if (s.ok()) {
-      bg_paused = true;
       TEST_SYNC_POINT("DBImpl::CompactRange:PreRefitLevel");
       s = ReFitLevel(cfd, final_output_level, options.target_level);
       TEST_SYNC_POINT("DBImpl::CompactRange:PostRefitLevel");
-    }
-    if (bg_paused) {
       ContinueBackgroundWork();
     }
     EnableManualCompaction();
@@ -1987,7 +1983,7 @@ void DBImpl::DisableManualCompaction() {
 void DBImpl::EnableManualCompaction() {
   InstrumentedMutexLock l(&mutex_);
   assert(manual_compaction_paused_ > 0);
-  manual_compaction_paused_.fetch_add(-1, std::memory_order_release);
+  manual_compaction_paused_.fetch_sub(1, std::memory_order_release);
 }
 
 void DBImpl::MaybeScheduleFlushOrCompaction() {
