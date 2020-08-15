@@ -588,6 +588,324 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   Close();
 }
 
+class DataVisibilityTest : public DBBasicTestWithTimestampBase {
+ public:
+  DataVisibilityTest() : DBBasicTestWithTimestampBase("data_visibility_test") {}
+};
+
+// Application specifies timestamp but not snapshot.
+//           reader              writer
+//                               ts'=90
+//           ts=100
+//           seq=10
+//                               seq'=11
+//                               write finishes
+//         GetImpl(ts,seq)
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=1t1 but seq<s1,
+// the key should not be returned.
+TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot1) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::GetImpl:3",
+       "DataVisibilityTest::PointLookupWithoutSnapshot1:BeforePut"},
+      {"DataVisibilityTest::PointLookupWithoutSnapshot1:AfterPut",
+       "DBImpl::GetImpl:4"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT(
+        "DataVisibilityTest::PointLookupWithoutSnapshot1:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value");
+    ASSERT_OK(s);
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithoutSnapshot1:AfterPut");
+  });
+  ReadOptions read_opts;
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+
+  writer_thread.join();
+  ASSERT_TRUE(s.IsNotFound());
+  Close();
+}
+
+// Application specifies timestamp but not snapshot.
+//           reader              writer
+//                               ts'=90
+//           ts=100
+//           seq=10
+//                               seq'=11
+//                               write finishes
+//                               Flush
+//         GetImpl(ts,seq)
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=t1 but seq<s1,
+// the key should not be returned.
+TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot2) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::GetImpl:3",
+       "DataVisibilityTest::PointLookupWithoutSnapshot2:BeforePut"},
+      {"DataVisibilityTest::PointLookupWithoutSnapshot2:AfterPut",
+       "DBImpl::GetImpl:4"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT(
+        "DataVisibilityTest::PointLookupWithoutSnapshot2:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value");
+    ASSERT_OK(s);
+    ASSERT_OK(Flush());
+
+    write_ts_str = Timestamp(2, 0);
+    write_ts = write_ts_str;
+    write_opts.timestamp = &write_ts;
+    s = db_->Put(write_opts, "bar", "value");
+    ASSERT_OK(s);
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithoutSnapshot2:AfterPut");
+  });
+  ReadOptions read_opts;
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+  writer_thread.join();
+  ASSERT_TRUE(s.IsNotFound());
+  Close();
+}
+
+// Application specifies both timestamp and snapshot.
+//       reader               writer
+//       seq=10
+//                            ts'=90
+//       ts=100
+//                            seq'=11
+//                            write finishes
+//       GetImpl(ts,seq)
+// Since application specifies both timestamp and snapshot, application expects
+// to see data that visible in BOTH timestamp and sequence number. Therefore,
+// <k, t1, s1> can be returned only if t1<=ts AND s1<=seq.
+TEST_F(DataVisibilityTest, PointLookupWithSnapshot1) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DataVisibilityTest::PointLookupWithSnapshot1:AfterTakingSnap",
+       "DataVisibilityTest::PointLookupWithSnapshot1:BeforePut"},
+      {"DataVisibilityTest::PointLookupWithSnapshot1:AfterPut",
+       "DBImpl::GetImpl:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot1:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value");
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot1:AfterPut");
+    ASSERT_OK(s);
+  });
+  ReadOptions read_opts;
+  const Snapshot* snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DataVisibilityTest::PointLookupWithSnapshot1:AfterTakingSnap");
+  read_opts.snapshot = snap;
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+  writer_thread.join();
+
+  ASSERT_TRUE(s.IsNotFound());
+
+  db_->ReleaseSnapshot(snap);
+  Close();
+}
+
+// Application specifies both timestamp and snapshot.
+//       reader               writer
+//       seq=10
+//                            ts'=90
+//       ts=100
+//                            seq'=11
+//                            write finishes
+//                            Flush
+//       GetImpl(ts,seq)
+// Since application specifies both timestamp and snapshot, application expects
+// to see data that visible in BOTH timestamp and sequence number. Therefore,
+// <k, t1, s1> can be returned only if t1<=ts AND s1<=seq.
+TEST_F(DataVisibilityTest, PointLookupWithSnapshot2) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DataVisibilityTest::PointLookupWithSnapshot2:AfterTakingSnap",
+       "DataVisibilityTest::PointLookupWithSnapshot2:BeforePut"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot2:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value1");
+    ASSERT_OK(s);
+    ASSERT_OK(Flush());
+
+    write_ts_str = Timestamp(2, 0);
+    write_ts = write_ts_str;
+    write_opts.timestamp = &write_ts;
+    s = db_->Put(write_opts, "bar", "value2");
+    ASSERT_OK(s);
+  });
+  const Snapshot* snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DataVisibilityTest::PointLookupWithSnapshot2:AfterTakingSnap");
+  writer_thread.join();
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.snapshot = snap;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  db_->ReleaseSnapshot(snap);
+  Close();
+}
+
+// Application specifies timestamp but not snapshot.
+//      reader                writer
+//                            ts'=90
+//      ts=100
+//      seq=10
+//                            seq'=11
+//                            write finishes
+//      scan(ts,seq)
+// <k, t1, s1> can be seen in scan as long as ts>=t1 AND seq>=s1. If ts>=t1 but
+// seq<s1, then the key should not be returned.
+TEST_F(DataVisibilityTest, RangeScanWithoutSnapshot) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::NewIterator:3",
+       "DataVisibilityTest::RangeScanWithoutSnapshot:BeforePut"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    WriteOptions write_opts;
+    TEST_SYNC_POINT("DataVisibilityTest::RangeScanWithoutSnapshot:BeforePut");
+    for (int i = 0; i < 3; ++i) {
+      std::string write_ts_str = Timestamp(i + 1, 0);
+      Slice write_ts = write_ts_str;
+      write_opts.timestamp = &write_ts;
+      Status s = db_->Put(write_opts, "key" + std::to_string(i),
+                          "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  });
+  std::string read_ts_str = Timestamp(10, 0);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  read_opts.timestamp = &read_ts;
+  Iterator* it = db_->NewIterator(read_opts);
+  ASSERT_NE(nullptr, it);
+  writer_thread.join();
+  it->SeekToFirst();
+  ASSERT_FALSE(it->Valid());
+  delete it;
+  Close();
+}
+
+// Application specifies both timestamp and snapshot.
+//       reader         writer
+//       seq=10
+//                      ts'=90
+//       ts=100         seq'=11
+//                      write finishes
+//       scan(ts,seq)
+// <k, t1, s1> can be seen by the scan only if t1<=ts AND s1<=seq. If t1<=ts
+// but s1>seq, then the key should not be returned.
+TEST_F(DataVisibilityTest, RangeScanWithSnapshot) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DataVisibilityTest::RangeScanWithSnapshot:AfterTakingSnapshot",
+       "DataVisibilityTest::RangeScanWithSnapshot:BeforePut"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    WriteOptions write_opts;
+    TEST_SYNC_POINT("DataVisibilityTest::RangeScanWithSnapshot:BeforePut");
+    for (int i = 0; i < 3; ++i) {
+      std::string write_ts_str = Timestamp(i + 1, 0);
+      Slice write_ts = write_ts_str;
+      write_opts.timestamp = &write_ts;
+      Status s = db_->Put(write_opts, "key" + std::to_string(i),
+                          "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  });
+  const Snapshot* snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DataVisibilityTest::RangeScanWithSnapshot:AfterTakingSnapshot");
+
+  writer_thread.join();
+
+  std::string read_ts_str = Timestamp(10, 0);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.snapshot = snap;
+  read_opts.total_order_seek = true;
+  read_opts.timestamp = &read_ts;
+  Iterator* it = db_->NewIterator(read_opts);
+  ASSERT_NE(nullptr, it);
+  it->Seek("key0");
+  ASSERT_FALSE(it->Valid());
+
+  delete it;
+  db_->ReleaseSnapshot(snap);
+  Close();
+}
+
 class DBBasicTestWithTimestampCompressionSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
