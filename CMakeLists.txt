@@ -1245,7 +1245,7 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench
     cache/cache_bench.cc)
