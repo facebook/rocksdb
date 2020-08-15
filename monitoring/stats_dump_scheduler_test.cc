@@ -89,7 +89,7 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   scheduler = dbfull()->TEST_GetStatsDumpScheduler();
   ASSERT_EQ(0u, scheduler->TEST_GetValidTaskNum());
 
-  // Reenable one task
+  // Re-enable one task
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);

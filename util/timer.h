@@ -52,20 +52,21 @@ class Timer {
     std::unique_ptr<FunctionInfo> fn_info(
         new FunctionInfo(std::move(fn), fn_name,
                          env_->NowMicros() + start_after_us, repeat_every_us));
-    InstrumentedMutexLock l(&mutex_);
-    auto it = map_.find(fn_name);
-    if (it == map_.end()) {
-      heap_.push(fn_info.get());
-      map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
-      cond_var_.SignalAll();
-    } else {
-      // If it already exists, overriding it.
-      it->second->fn = std::move(fn_info->fn);
-      it->second->valid = true;
-      it->second->next_run_time_us = env_->NowMicros() + start_after_us;
-      it->second->repeat_every_us = repeat_every_us;
-      cond_var_.SignalAll();
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto it = map_.find(fn_name);
+      if (it == map_.end()) {
+        heap_.push(fn_info.get());
+        map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
+      } else {
+        // If it already exists, overriding it.
+        it->second->fn = std::move(fn_info->fn);
+        it->second->valid = true;
+        it->second->next_run_time_us = env_->NowMicros() + start_after_us;
+        it->second->repeat_every_us = repeat_every_us;
+      }
     }
+    cond_var_.SignalAll();
   }
 
   void Cancel(const std::string& fn_name) {
