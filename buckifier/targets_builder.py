@@ -25,11 +25,10 @@ def pretty_list(lst, indent=8):
 
 
 class TARGETSBuilder(object):
-    def __init__(self, path, gtest_dir):
+    def __init__(self, path):
         self.path = path
         self.targets_file = open(path, 'w')
-        header = targets_cfg.rocksdb_target_header_template.format(
-            gtest_dir=gtest_dir)
+        header = targets_cfg.rocksdb_target_header_template
         self.targets_file.write(header)
         self.total_lib = 0
         self.total_bin = 0
@@ -39,7 +38,8 @@ class TARGETSBuilder(object):
     def __del__(self):
         self.targets_file.close()
 
-    def add_library(self, name, srcs, deps=None, headers=None):
+    def add_library(self, name, srcs, deps=None, headers=None,
+                    extra_external_deps=""):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
@@ -51,7 +51,8 @@ class TARGETSBuilder(object):
             srcs=pretty_list(srcs),
             headers_attr_prefix=headers_attr_prefix,
             headers=headers,
-            deps=pretty_list(deps)))
+            deps=pretty_list(deps),
+            extra_external_deps=extra_external_deps))
         self.total_lib = self.total_lib + 1
 
     def add_rocksdb_library(self, name, srcs, headers=None):
@@ -74,6 +75,30 @@ class TARGETSBuilder(object):
             pretty_list(srcs),
             pretty_list(deps)))
         self.total_bin = self.total_bin + 1
+
+    def add_c_test(self):
+        self.targets_file.write("""
+if not is_opt_mode:
+    cpp_binary(
+        name = "c_test_bin",
+        srcs = ["db/c_test.c"],
+        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        compiler_flags = ROCKSDB_COMPILER_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        deps = [":rocksdb_test_lib"],
+    )
+
+if not is_opt_mode:
+    custom_unittest(
+        "c_test",
+        command = [
+            native.package_name() + "/buckifier/rocks_test_runner.sh",
+            "$(location :{})".format("c_test_bin"),
+        ],
+        type = "simple",
+    )
+""")
 
     def register_test(self,
                       test_name,

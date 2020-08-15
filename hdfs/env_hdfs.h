@@ -162,10 +162,7 @@ class HdfsEnv : public Env {
     return posixEnv->TimeToString(number);
   }
 
-  static uint64_t gettid() {
-    assert(sizeof(pthread_t) <= sizeof(uint64_t));
-    return (uint64_t)pthread_self();
-  }
+  static uint64_t gettid() { return Env::Default()->GetThreadID(); }
 
   uint64_t GetThreadID() const override { return HdfsEnv::gettid(); }
 
@@ -209,8 +206,7 @@ class HdfsEnv : public Env {
     std::string portStr = (rem == 0 ? remaining :
                            remaining.substr(0, rem));
 
-    tPort port;
-    port = atoi(portStr.c_str());
+    tPort port = static_cast<tPort>(atoi(portStr.c_str()));
     if (port == 0) {
       throw HdfsFatalException("Bad host-port for hdfs " + uri);
     }

@@ -332,7 +332,7 @@ Compaction* CompactionPicker::CompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-    uint32_t output_path_id) {
+    const MutableDBOptions& mutable_db_options, uint32_t output_path_id) {
   assert(input_files.size());
   // This compaction output should not overlap with a running compaction as
   // `SanitizeCompactionInputFiles` should've checked earlier and db mutex
@@ -356,8 +356,8 @@ Compaction* CompactionPicker::CompactFiles(
     compression_type = compact_options.compression;
   }
   auto c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, input_files, output_level,
-      compact_options.output_file_size_limit,
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options, input_files,
+      output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       compact_options.max_subcompactions,
@@ -563,7 +563,8 @@ void CompactionPicker::GetGrandparents(
 
 Compaction* CompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, int input_level, int output_level,
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
     uint64_t max_file_num_to_ignore) {
@@ -626,8 +627,8 @@ Compaction* CompactionPicker::CompactRange(
     }
 
     Compaction* c = new Compaction(
-        vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-        output_level,
+        vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+        std::move(inputs), output_level,
         MaxFileSizeForLevel(mutable_cf_options, output_level,
                             ioptions_.compaction_style),
         /* max_compaction_bytes */ LLONG_MAX,
@@ -778,8 +779,8 @@ Compaction* CompactionPicker::CompactRange(
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   Compaction* compaction = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(compaction_inputs),
-      output_level,
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+      std::move(compaction_inputs), output_level,
       MaxFileSizeForLevel(mutable_cf_options, output_level,
                           ioptions_.compaction_style, vstorage->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),

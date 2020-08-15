@@ -39,7 +39,7 @@ class DBOptionsTest : public DBTestBase {
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : db_options_type_info) {
+    for (const auto& opt : db_options_type_info) {
       if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
@@ -57,7 +57,7 @@ class DBOptionsTest : public DBTestBase {
     std::unordered_map<std::string, std::string> options_map;
     StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : cf_options_type_info) {
+    for (const auto& opt : cf_options_type_info) {
       if (opt.second.IsMutable() && opt.second.ShouldSerialize()) {
         mutable_map[opt.first] = options_map[opt.first];
       }
@@ -493,8 +493,7 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   Random rnd(1044);
   const auto value_size = size_t(1024);
-  std::string value;
-  test::RandomString(&rnd, value_size, &value);
+  std::string value = rnd.RandomString(value_size);
 
   Options options;
   options.create_if_missing = true;
@@ -564,10 +563,9 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
 }
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
-  SpecialEnv env(env_);
-  env.time_elapse_only_sleep_ = true;
   Options options;
-  options.env = &env;
+  options.env = env_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   options.create_if_missing = true;
   ASSERT_OK(TryReopen(options));
 
@@ -586,10 +584,10 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
 
   assert_candidate_files_empty(dbfull(), true);
 
-  env.addon_time_.store(20);
+  env_->MockSleepForMicroseconds(20);
   assert_candidate_files_empty(dbfull(), true);
 
-  env.addon_time_.store(21);
+  env_->MockSleepForMicroseconds(1);
   assert_candidate_files_empty(dbfull(), false);
 
   Close();
@@ -703,11 +701,12 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.compaction_options_fifo.allow_compaction = false;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   // Test dynamically changing ttl.
-  env_->addon_time_.store(0);
   options.ttl = 1 * 60 * 60;  // 1 hour
   ASSERT_OK(TryReopen(options));
 
@@ -715,15 +714,14 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-  // Add 61 seconds to the time.
-  env_->addon_time_.fetch_add(61);
+  env_->MockSleepForSeconds(61);
 
   // No files should be compacted as ttl is set to 1 hour.
   ASSERT_EQ(dbfull()->GetOptions().ttl, 3600);
@@ -737,8 +735,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   // Test dynamically changing compaction_options_fifo.max_table_files_size
-  env_->addon_time_.store(0);
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 00KB
   options.ttl = 0;
   DestroyAndReopen(options);
@@ -746,7 +745,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -778,7 +777,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
@@ -842,7 +841,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }

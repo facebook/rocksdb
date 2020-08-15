@@ -10,6 +10,8 @@
 #include "test_util/testutil.h"
 
 #include <fcntl.h>
+#include <sys/stat.h>
+
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -22,29 +24,13 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const uint32_t kLatestFormatVersion = 5u;
-
-Slice RandomString(Random* rnd, int len, std::string* dst) {
-  dst->resize(len);
-  for (int i = 0; i < len; i++) {
-    (*dst)[i] = static_cast<char>(' ' + rnd->Uniform(95));  // ' ' .. '~'
-  }
-  return Slice(*dst);
-}
-
-extern std::string RandomHumanReadableString(Random* rnd, int len) {
-  std::string ret;
-  ret.resize(len);
-  for (int i = 0; i < len; ++i) {
-    ret[i] = static_cast<char>('a' + rnd->Uniform(26));
-  }
-  return ret;
-}
 
 std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
@@ -77,8 +63,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst) {
   int raw = static_cast<int>(len * compressed_fraction);
   if (raw < 1) raw = 1;
-  std::string raw_data;
-  RandomString(rnd, raw, &raw_data);
+  std::string raw_data = rnd->RandomString(raw);
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
@@ -452,31 +437,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
                               &cf_opt->compression_per_level, rnd);
 }
 
-Status DestroyDir(Env* env, const std::string& dir) {
-  Status s;
-  if (env->FileExists(dir).IsNotFound()) {
-    return s;
-  }
-  std::vector<std::string> files_in_dir;
-  s = env->GetChildren(dir, &files_in_dir);
-  if (s.ok()) {
-    for (auto& file_in_dir : files_in_dir) {
-      if (file_in_dir == "." || file_in_dir == "..") {
-        continue;
-      }
-      s = env->DeleteFile(dir + "/" + file_in_dir);
-      if (!s.ok()) {
-        break;
-      }
-    }
-  }
-
-  if (s.ok()) {
-    s = env->DeleteDir(dir);
-  }
-  return s;
-}
-
 bool IsDirectIOSupported(Env* env, const std::string& dir) {
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
@@ -510,20 +470,45 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
-void SetupSyncPointsToMockDirectIO() {
-#if !defined(NDEBUG) && !defined(OS_MACOSX) && !defined(OS_WIN) && \
-    !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewWritableFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-        int* val = static_cast<int*>(arg);
-        *val &= ~O_DIRECT;
-      });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
+  struct stat sbuf;
+  if (stat(fname.c_str(), &sbuf) != 0) {
+    // strerror is not thread-safe so should not be used in the "passing" path
+    // of unit tests (sometimes parallelized) but is OK here where test fails
+    const char* msg = strerror(errno);
+    fprintf(stderr, "%s:%s\n", fname.c_str(), msg);
+    assert(false);
+  }
+
+  if (offset < 0) {
+    // Relative to end of file; make it absolute
+    if (-offset > sbuf.st_size) {
+      offset = 0;
+    } else {
+      offset = static_cast<int>(sbuf.st_size + offset);
+    }
+  }
+  if (offset > sbuf.st_size) {
+    offset = static_cast<int>(sbuf.st_size);
+  }
+  if (offset + bytes_to_corrupt > sbuf.st_size) {
+    bytes_to_corrupt = static_cast<int>(sbuf.st_size - offset);
+  }
+
+  // Do it
+  std::string contents;
+  Status s = ReadFileToString(Env::Default(), fname, &contents);
+  assert(s.ok());
+  for (int i = 0; i < bytes_to_corrupt; i++) {
+    contents[i + offset] ^= 0x80;
+  }
+  s = WriteStringToFile(Env::Default(), contents, fname);
+  assert(s.ok());
+  Options options;
+  EnvOptions env_options;
+#ifndef ROCKSDB_LITE
+  assert(!VerifySstFileChecksum(options, env_options, fname).ok());
 #endif
 }
 

@@ -41,7 +41,7 @@
 #include <time.h>
 #include <algorithm>
 // Get nano time includes
-#if defined(OS_LINUX) || defined(OS_FREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
 #elif defined(__MACH__)
 #include <Availability.h>
 #include <mach/clock.h>
@@ -167,7 +167,6 @@ class PosixEnv : public CompositeEnvWrapper {
   // provided by the search path
   Status LoadLibrary(const std::string& name, const std::string& path,
                      std::shared_ptr<DynamicLibrary>* result) override {
-    Status status;
     assert(result != nullptr);
     if (name.empty()) {
       void* hndl = dlopen(NULL, RTLD_NOW);
@@ -224,20 +223,6 @@ class PosixEnv : public CompositeEnvWrapper {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
-  Status GetTestDirectory(std::string* result) override {
-    const char* env = getenv("TEST_TMPDIR");
-    if (env && env[0] != '\0') {
-      *result = env;
-    } else {
-      char buf[100];
-      snprintf(buf, sizeof(buf), "/tmp/rocksdbtest-%d", int(geteuid()));
-      *result = buf;
-    }
-    // Directory may already exist
-    CreateDir(*result);
-    return Status::OK();
-  }
-
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
@@ -263,7 +248,8 @@ class PosixEnv : public CompositeEnvWrapper {
   }
 
   uint64_t NowNanos() override {
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
+    defined(OS_AIX)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
@@ -283,8 +269,8 @@ class PosixEnv : public CompositeEnvWrapper {
   }
 
   uint64_t NowCPUNanos() override {
-#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX) || \
-    (defined(__MACH__) && defined(__MAC_10_12))
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
+    defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
@@ -343,7 +329,7 @@ class PosixEnv : public CompositeEnvWrapper {
     thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
 #ifdef OS_LINUX
     thread_pools_[pool].LowerIOPriority();
@@ -352,13 +338,15 @@ class PosixEnv : public CompositeEnvWrapper {
 #endif
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
-#ifdef OS_LINUX
-    thread_pools_[pool].LowerCPUPriority();
-#else
-    (void)pool;
-#endif
+    thread_pools_[pool].LowerCPUPriority(CpuPriority::kLow);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
+    thread_pools_[pool].LowerCPUPriority(pri);
+    return Status::OK();
   }
 
   std::string TimeToString(uint64_t secondsSince1970) override {

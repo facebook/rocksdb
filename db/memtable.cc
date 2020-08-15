@@ -377,6 +377,16 @@ class MemTableIterator : public InternalIterator {
     iter_->Next();
     valid_ = iter_->Valid();
   }
+  bool NextAndGetResult(IterateResult* result) override {
+    Next();
+    bool is_valid = valid_;
+    if (is_valid) {
+      result->key = key();
+      result->bound_check_result = IterBoundCheck::kUnknown;
+      result->value_prepared = true;
+    }
+    return is_valid;
+  }
   void Prev() override {
     PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
@@ -641,8 +651,9 @@ static bool SaveValue(void* arg, const char* entry) {
   // Check that it belongs to same user key.  We do not check the
   // sequence number since the Seek() call above should have skipped
   // all entries with overly large sequence numbers.
-  uint32_t key_length;
+  uint32_t key_length = 0;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+  assert(key_length >= 8);
   Slice user_key_slice = Slice(key_ptr, key_length - 8);
   const Comparator* user_comparator =
       s->mem->GetInternalKeyComparator().user_comparator();
@@ -766,7 +777,13 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         return true;
       }
-      default:
+      default: {
+        std::string msg("Unrecognized value type: " +
+                        std::to_string(static_cast<int>(type)) + ". ");
+        msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) + ". ");
+        msg.append("seq: " + std::to_string(seq) + ".");
+        *(s->status) = Status::Corruption(msg.c_str());
+      }
         assert(false);
         return true;
     }

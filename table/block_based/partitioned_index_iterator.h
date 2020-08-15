@@ -78,18 +78,10 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
       return Status::OK();
     }
   }
-
-  // Whether iterator invalidated for being out of bound.
-  bool IsOutOfBound() override {
-    // Shoulldn't be called
-    assert(false);
-    return false;
-  }
-
-  inline bool MayBeOutOfUpperBound() override {
+  inline IterBoundCheck UpperBoundCheckResult() override {
     // Shouldn't be called.
     assert(false);
-    return true;
+    return IterBoundCheck::kUnknown;
   }
   void SetPinnedItersMgr(PinnedIteratorsManager*) override {
     // Shouldn't be called.
@@ -122,6 +114,7 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
   }
 
  private:
+  friend class BlockBasedTableReaderTestVerifyChecksum_ChecksumMismatch_Test;
   const BlockBasedTable* table_;
   const ReadOptions read_options_;
 #ifndef NDEBUG

@@ -126,8 +126,8 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
   Random rnd(301);
   for (auto* handle : handles_) {
     for (int i = 0; i < kKeyNum; ++i) {
-      db_->Put(WriteOptions(), handle, RandomString(&rnd, kKeySize),
-               RandomString(&rnd, kValueSize));
+      db_->Put(WriteOptions(), handle, rnd.RandomString(kKeySize),
+               rnd.RandomString(kValueSize));
     }
   }
 
@@ -346,18 +346,18 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     Random rnd(5632);
     for (int table = 1; table <= kTableCount; ++table) {
       for (int i = 0; i < kPutsPerTable; ++i) {
-        db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
-                 RandomString(&rnd, kValueSize));
+        db_->Put(WriteOptions(), rnd.RandomString(kKeySize),
+                 rnd.RandomString(kValueSize));
       }
       for (int i = 0; i < kDeletionsPerTable; i++) {
-        db_->Delete(WriteOptions(), RandomString(&rnd, kKeySize));
+        db_->Delete(WriteOptions(), rnd.RandomString(kKeySize));
       }
       for (int i = 0; i < kMergeOperandsPerTable; i++) {
-        db_->Merge(WriteOptions(), RandomString(&rnd, kKeySize),
-                   RandomString(&rnd, kValueSize));
+        db_->Merge(WriteOptions(), rnd.RandomString(kKeySize),
+                   rnd.RandomString(kValueSize));
       }
       for (int i = 0; i < kRangeDeletionsPerTable; i++) {
-        std::string start = RandomString(&rnd, kKeySize);
+        std::string start = rnd.RandomString(kKeySize);
         std::string end = start;
         end.resize(kValueSize);
         db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end);
@@ -546,18 +546,18 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   TableProperties tp, sum_tp, expected_tp;
   for (int table = 1; table <= kTableCount; ++table) {
     for (int i = 0; i < kPutsPerTable; ++i) {
-      db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
-               RandomString(&rnd, kValueSize));
+      db_->Put(WriteOptions(), rnd.RandomString(kKeySize),
+               rnd.RandomString(kValueSize));
     }
     for (int i = 0; i < kDeletionsPerTable; i++) {
-      db_->Delete(WriteOptions(), RandomString(&rnd, kKeySize));
+      db_->Delete(WriteOptions(), rnd.RandomString(kKeySize));
     }
     for (int i = 0; i < kMergeOperandsPerTable; i++) {
-      db_->Merge(WriteOptions(), RandomString(&rnd, kKeySize),
-                 RandomString(&rnd, kValueSize));
+      db_->Merge(WriteOptions(), rnd.RandomString(kKeySize),
+                 rnd.RandomString(kValueSize));
     }
     for (int i = 0; i < kRangeDeletionsPerTable; i++) {
-      std::string start = RandomString(&rnd, kKeySize);
+      std::string start = rnd.RandomString(kKeySize);
       std::string end = start;
       end.resize(kValueSize);
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end);
@@ -920,7 +920,7 @@ TEST_F(DBPropertiesTest, ApproximateMemoryUsage) {
   for (int r = 0; r < kNumRounds; ++r) {
     for (int f = 0; f < kFlushesPerRound; ++f) {
       for (int w = 0; w < kWritesPerFlush; ++w) {
-        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+        Put(rnd.RandomString(kKeySize), rnd.RandomString(kValueSize));
       }
     }
     // Make sure that there is no flush between getting the two properties.
@@ -938,7 +938,7 @@ TEST_F(DBPropertiesTest, ApproximateMemoryUsage) {
     iters.push_back(db_->NewIterator(ReadOptions()));
     for (int f = 0; f < kFlushesPerRound; ++f) {
       for (int w = 0; w < kWritesPerFlush; ++w) {
-        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+        Put(rnd.RandomString(kKeySize), rnd.RandomString(kValueSize));
       }
     }
     // Force flush to prevent flush from happening between getting the
@@ -1296,8 +1296,8 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
 
   const int kMaxKey = 1000;
   for (int i = 0; i < kMaxKey; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
-    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), rnd.RandomString(102)));
   }
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -1415,13 +1415,11 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
 }
 
 TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
   uint64_t oldest_key_time = 0;
-  Options options;
-  options.env = mock_env.get();
+  Options options = CurrentOptions();
+  SetTimeElapseOnlySleepOnReopen(&options);
 
   // "rocksdb.estimate-oldest-key-time" only available to fifo compaction.
-  mock_env->set_current_time(100);
   for (auto compaction : {kCompactionStyleLevel, kCompactionStyleUniversal,
                           kCompactionStyleNone}) {
     options.compaction_style = compaction;
@@ -1432,60 +1430,60 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
         DB::Properties::kEstimateOldestKeyTime, &oldest_key_time));
   }
 
+  int64_t mock_start_time;
+  ASSERT_OK(env_->GetCurrentTime(&mock_start_time));
+
   options.compaction_style = kCompactionStyleFIFO;
   options.ttl = 300;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 
-  mock_env->set_current_time(100);
+  env_->MockSleepForSeconds(100);
   ASSERT_OK(Put("k1", "v1"));
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
   ASSERT_OK(Flush());
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(200);
+  env_->MockSleepForSeconds(100);  // -> 200
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Flush());
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(300);
+  env_->MockSleepForSeconds(100);  // -> 300
   ASSERT_OK(Put("k3", "v3"));
   ASSERT_OK(Flush());
   ASSERT_EQ("3", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(450);
+  env_->MockSleepForSeconds(150);  // -> 450
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(200, oldest_key_time);
+  ASSERT_EQ(200, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(550);
+  env_->MockSleepForSeconds(100);  // -> 550
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(300, oldest_key_time);
+  ASSERT_EQ(300, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(650);
+  env_->MockSleepForSeconds(100);  // -> 650
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel());
   ASSERT_FALSE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                         &oldest_key_time));
-
-  // Close before mock_env destructs.
-  Close();
 }
 
 TEST_F(DBPropertiesTest, SstFilesSize) {

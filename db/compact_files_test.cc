@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -148,7 +149,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   auto l0_files = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForCompact();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForCompact();
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
@@ -183,13 +184,13 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   for (int i = 0; i < 500; ++i) {
     db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
   }
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable();
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
     db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
   }
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable();
   auto l0_files_2 = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_1, 0));
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 0));
@@ -383,7 +384,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   for (int i = 0; i < 500; ++i) {
     db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
   }
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable();
   auto l0_files_1 = collector->GetFlushedFiles();
   CompactionOptions co;
   co.compression = CompressionType::kLZ4Compression;

@@ -893,7 +893,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
     if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress) {
       // Merge result from DB with merges in Batch
-      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+      auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
       const MergeOperator* merge_operator =
           cfh->cfd()->ioptions()->merge_operator;
       Statistics* statistics = immuable_db_options.statistics.get();
@@ -997,7 +997,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
                              &sorted_keys);
 
   ColumnFamilyHandleImpl* cfh =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   const MergeOperator* merge_operator = cfh->cfd()->ioptions()->merge_operator;
   for (auto iter = key_context.begin(); iter != key_context.end(); ++iter) {
     KeyContext& key = *iter;

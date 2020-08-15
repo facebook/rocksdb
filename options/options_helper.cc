@@ -61,7 +61,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.bytes_per_sync = mutable_db_options.bytes_per_sync;
   options.wal_bytes_per_sync = mutable_db_options.wal_bytes_per_sync;
   options.strict_bytes_per_sync = mutable_db_options.strict_bytes_per_sync;
-  options.max_subcompactions = immutable_db_options.max_subcompactions;
+  options.max_subcompactions = mutable_db_options.max_subcompactions;
   options.max_background_flushes = mutable_db_options.max_background_flushes;
   options.max_log_file_size = immutable_db_options.max_log_file_size;
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
@@ -146,6 +146,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.file_checksum_gen_factory =
       immutable_db_options.file_checksum_gen_factory;
   options.best_efforts_recovery = immutable_db_options.best_efforts_recovery;
+  options.max_bgerror_resume_count =
+      immutable_db_options.max_bgerror_resume_count;
+  options.bgerror_resume_retry_interval =
+      immutable_db_options.bgerror_resume_retry_interval;
   return options;
 }
 
@@ -271,59 +275,6 @@ std::vector<CompressionType> GetSupportedCompressions() {
 }
 
 #ifndef ROCKSDB_LITE
-
-namespace {
-bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
-                                    std::string* value) {
-  std::stringstream ss;
-  bool result;
-  for (size_t i = 0; i < types.size(); ++i) {
-    if (i > 0) {
-      ss << ':';
-    }
-    std::string string_type;
-    result = SerializeEnum<CompressionType>(compression_type_string_map,
-                                            types[i], &string_type);
-    if (result == false) {
-      return result;
-    }
-    ss << string_type;
-  }
-  *value = ss.str();
-  return true;
-}
-
-bool ParseVectorCompressionType(
-    const std::string& value,
-    std::vector<CompressionType>* compression_per_level) {
-  compression_per_level->clear();
-  size_t start = 0;
-  while (start < value.size()) {
-    size_t end = value.find(':', start);
-    bool is_ok;
-    CompressionType type;
-    if (end == std::string::npos) {
-      is_ok = ParseEnum<CompressionType>(compression_type_string_map,
-                                         value.substr(start), &type);
-      if (!is_ok) {
-        return false;
-      }
-      compression_per_level->emplace_back(type);
-      break;
-    } else {
-      is_ok = ParseEnum<CompressionType>(
-          compression_type_string_map, value.substr(start, end - start), &type);
-      if (!is_ok) {
-        return false;
-      }
-      compression_per_level->emplace_back(type);
-      start = end + 1;
-    }
-  }
-  return true;
-}
-}  // anonymouse namespace
-
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
     const std::string& value,
@@ -394,9 +345,6 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
     case OptionType::kInt64T:
       PutUnaligned(reinterpret_cast<int64_t*>(opt_address), ParseInt64(value));
       break;
-    case OptionType::kVectorInt:
-      *reinterpret_cast<std::vector<int>*>(opt_address) = ParseVectorInt(value);
-      break;
     case OptionType::kUInt:
       *reinterpret_cast<unsigned int*>(opt_address) = ParseUint32(value);
       break;
@@ -427,9 +375,6 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
           reinterpret_cast<CompressionType*>(opt_address));
-    case OptionType::kVectorCompressionType:
-      return ParseVectorCompressionType(
-          value, reinterpret_cast<std::vector<CompressionType>*>(opt_address));
     case OptionType::kSliceTransform:
       return ParseSliceTransform(
           value, reinterpret_cast<std::shared_ptr<const SliceTransform>*>(
@@ -474,9 +419,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
         *value = ToString(v);
       }
       break;
-    case OptionType::kVectorInt:
-      return SerializeIntVector(
-          *reinterpret_cast<const std::vector<int>*>(opt_address), value);
     case OptionType::kUInt:
       *value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
       break;
@@ -516,11 +458,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
           *(reinterpret_cast<const CompressionType*>(opt_address)), value);
-    case OptionType::kVectorCompressionType:
-      return SerializeVectorCompressionType(
-          *(reinterpret_cast<const std::vector<CompressionType>*>(opt_address)),
-          value);
-      break;
     case OptionType::kSliceTransform: {
       const auto* slice_transform_ptr =
           reinterpret_cast<const std::shared_ptr<const SliceTransform>*>(
@@ -700,58 +637,17 @@ Status StringToMap(const std::string& opts_str,
       return Status::InvalidArgument("Empty key found");
     }
 
-    // skip space after '=' and look for '{' for possible nested options
-    pos = eq_pos + 1;
-    while (pos < opts.size() && isspace(opts[pos])) {
-      ++pos;
-    }
-    // Empty value at the end
-    if (pos >= opts.size()) {
-      (*opts_map)[key] = "";
-      break;
-    }
-    if (opts[pos] == '{') {
-      int count = 1;
-      size_t brace_pos = pos + 1;
-      while (brace_pos < opts.size()) {
-        if (opts[brace_pos] == '{') {
-          ++count;
-        } else if (opts[brace_pos] == '}') {
-          --count;
-          if (count == 0) {
-            break;
-          }
-        }
-        ++brace_pos;
-      }
-      // found the matching closing brace
-      if (count == 0) {
-        (*opts_map)[key] = trim(opts.substr(pos + 1, brace_pos - pos - 1));
-        // skip all whitespace and move to the next ';'
-        // brace_pos points to the next position after the matching '}'
-        pos = brace_pos + 1;
-        while (pos < opts.size() && isspace(opts[pos])) {
-          ++pos;
-        }
-        if (pos < opts.size() && opts[pos] != ';') {
-          return Status::InvalidArgument(
-              "Unexpected chars after nested options");
-        }
-        ++pos;
-      } else {
-        return Status::InvalidArgument(
-            "Mismatched curly braces for nested options");
-      }
+    std::string value;
+    Status s = OptionTypeInfo::NextToken(opts, ';', eq_pos + 1, &pos, &value);
+    if (!s.ok()) {
+      return s;
     } else {
-      size_t sc_pos = opts.find(';', pos);
-      if (sc_pos == std::string::npos) {
-        (*opts_map)[key] = trim(opts.substr(pos));
-        // It either ends with a trailing semi-colon or the last key-value pair
+      (*opts_map)[key] = value;
+      if (pos == std::string::npos) {
         break;
       } else {
-        (*opts_map)[key] = trim(opts.substr(pos, sc_pos - pos));
+        pos++;
       }
-      pos = sc_pos + 1;
     }
   }
 
@@ -764,7 +660,7 @@ Status GetStringFromStruct(
     std::string* opt_string) {
   assert(opt_string);
   opt_string->clear();
-  for (const auto iter : type_info) {
+  for (const auto& iter : type_info) {
     const auto& opt_info = iter.second;
     // If the option is no longer used in rocksdb and marked as deprecated,
     // we skip it in the serialization.
@@ -1038,7 +934,7 @@ Status GetTableFactoryFromMap(
     const std::unordered_map<std::string, std::string>& opt_map,
     std::shared_ptr<TableFactory>* table_factory) {
   Status s;
-  if (factory_name == BlockBasedTableFactory().Name()) {
+  if (factory_name == BlockBasedTableFactory::kName) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(
         config_options, BlockBasedTableOptions(), opt_map, &bbt_opt);
@@ -1047,7 +943,7 @@ Status GetTableFactoryFromMap(
     }
     table_factory->reset(new BlockBasedTableFactory(bbt_opt));
     return s;
-  } else if (factory_name == PlainTableFactory().Name()) {
+  } else if (factory_name == PlainTableFactory::kName) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(config_options, PlainTableOptions(),
                                     opt_map, &pt_opt);
@@ -1086,6 +982,59 @@ std::unordered_map<std::string, CompactionStopStyle>
         {"kCompactionStopStyleSimilarSize", kCompactionStopStyleSimilarSize},
         {"kCompactionStopStyleTotalSize", kCompactionStopStyleTotalSize}};
 
+Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
+                                 size_t pos, size_t* end, std::string* token) {
+  while (pos < opts.size() && isspace(opts[pos])) {
+    ++pos;
+  }
+  // Empty value at the end
+  if (pos >= opts.size()) {
+    *token = "";
+    *end = std::string::npos;
+    return Status::OK();
+  } else if (opts[pos] == '{') {
+    int count = 1;
+    size_t brace_pos = pos + 1;
+    while (brace_pos < opts.size()) {
+      if (opts[brace_pos] == '{') {
+        ++count;
+      } else if (opts[brace_pos] == '}') {
+        --count;
+        if (count == 0) {
+          break;
+        }
+      }
+      ++brace_pos;
+    }
+    // found the matching closing brace
+    if (count == 0) {
+      *token = trim(opts.substr(pos + 1, brace_pos - pos - 1));
+      // skip all whitespace and move to the next delimiter
+      // brace_pos points to the next position after the matching '}'
+      pos = brace_pos + 1;
+      while (pos < opts.size() && isspace(opts[pos])) {
+        ++pos;
+      }
+      if (pos < opts.size() && opts[pos] != delimiter) {
+        return Status::InvalidArgument("Unexpected chars after nested options");
+      }
+      *end = pos;
+    } else {
+      return Status::InvalidArgument(
+          "Mismatched curly braces for nested options");
+    }
+  } else {
+    *end = opts.find(delimiter, pos);
+    if (*end == std::string::npos) {
+      // It either ends with a trailing semi-colon or the last key-value pair
+      *token = trim(opts.substr(pos));
+    } else {
+      *token = trim(opts.substr(pos, *end - pos));
+    }
+  }
+  return Status::OK();
+}
+
 Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
                              const std::string& opt_name,
                              const std::string& opt_value,
@@ -1095,7 +1044,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
   }
   try {
     if (opt_addr == nullptr) {
-      return Status::NotFound("Could not find option: ", opt_name);
+      return Status::NotFound("Could not find option", opt_name);
     } else if (parse_func_ != nullptr) {
       return parse_func_(config_options, opt_name, opt_value, opt_addr);
     } else if (ParseOptionHelper(opt_addr, type_, opt_value)) {
@@ -1132,7 +1081,7 @@ Status OptionTypeInfo::ParseStruct(
             iter->second.Parse(config_options, map_iter.first, map_iter.second,
                                opt_addr + iter->second.offset_);
       } else {
-        status = Status::InvalidArgument("Unrecognized option: ",
+        status = Status::InvalidArgument("Unrecognized option",
                                          struct_name + "." + map_iter.first);
       }
     }
@@ -1145,7 +1094,7 @@ Status OptionTypeInfo::ParseStruct(
       status = opt_info->Parse(config_options, elem_name, opt_value,
                                opt_addr + opt_info->offset_);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
     // This option represents a field in the struct (e.g. field)
@@ -1155,7 +1104,7 @@ Status OptionTypeInfo::ParseStruct(
       status = opt_info->Parse(config_options, elem_name, opt_value,
                                opt_addr + opt_info->offset_);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ",
+      status = Status::InvalidArgument("Unrecognized option",
                                        struct_name + "." + opt_name);
     }
   }
@@ -1172,7 +1121,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     if (serialize_func_ != nullptr) {
       return serialize_func_(config_options, opt_name, opt_addr, opt_value);
     } else if (!SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
-      return Status::InvalidArgument("Cannot serialize option: ", opt_name);
+      return Status::InvalidArgument("Cannot serialize option", opt_name);
     }
   }
   return Status::OK();
@@ -1215,14 +1164,14 @@ Status OptionTypeInfo::SerializeStruct(
       status = opt_info->Serialize(config_options, elem_name,
                                    opt_addr + opt_info->offset_, value);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
     // This option represents a field in the struct (e.g. field)
     std::string elem_name;
     const auto opt_info = Find(opt_name, *struct_map, &elem_name);
     if (opt_info == nullptr) {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     } else if (opt_info->ShouldSerialize()) {
       status = opt_info->Serialize(config_options, opt_name + "." + elem_name,
                                    opt_addr + opt_info->offset_, value);
@@ -1258,8 +1207,6 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
       GetUnaligned(reinterpret_cast<const int64_t*>(that_offset), &v2);
       return (v1 == v2);
     }
-    case OptionType::kVectorInt:
-      return IsOptionEqual<std::vector<int> >(this_offset, that_offset);
     case OptionType::kUInt32T:
       return IsOptionEqual<uint32_t>(this_offset, that_offset);
     case OptionType::kUInt64T: {
@@ -1279,9 +1226,6 @@ static bool AreOptionsEqual(OptionType type, const char* this_offset,
     case OptionType::kDouble:
       return AreEqualDoubles(*reinterpret_cast<const double*>(this_offset),
                              *reinterpret_cast<const double*>(that_offset));
-    case OptionType::kVectorCompressionType:
-      return IsOptionEqual<std::vector<CompressionType> >(this_offset,
-                                                          that_offset);
     case OptionType::kCompactionStyle:
       return IsOptionEqual<CompactionStyle>(this_offset, that_offset);
     case OptionType::kCompactionStopStyle:

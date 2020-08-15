@@ -303,14 +303,14 @@ TEST_F(DBMemTableTest, InsertWithHint) {
   ASSERT_EQ(hint_bar, rep->last_hint_in());
   ASSERT_EQ(hint_bar, rep->last_hint_out());
   ASSERT_EQ(5, rep->num_insert_with_hint());
-  ASSERT_OK(Put("whitelisted", "vvv"));
+  ASSERT_OK(Put("NotInPrefixDomain", "vvv"));
   ASSERT_EQ(5, rep->num_insert_with_hint());
   ASSERT_EQ("foo_v1", Get("foo_k1"));
   ASSERT_EQ("foo_v2", Get("foo_k2"));
   ASSERT_EQ("foo_v3", Get("foo_k3"));
   ASSERT_EQ("bar_v1", Get("bar_k1"));
   ASSERT_EQ("bar_v2", Get("bar_k2"));
-  ASSERT_EQ("vvv", Get("whitelisted"));
+  ASSERT_EQ("vvv", Get("NotInPrefixDomain"));
 }
 
 TEST_F(DBMemTableTest, ColumnFamilyId) {

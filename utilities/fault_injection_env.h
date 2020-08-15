@@ -17,16 +17,12 @@
 #include <set>
 #include <string>
 
-#include "db/version_set.h"
-#include "env/mock_env.h"
 #include "file/filename.h"
-#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/mutexlock.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+class Random;
 class TestWritableFile;
 class FaultInjectionTestEnv;
 

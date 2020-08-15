@@ -347,6 +347,11 @@ class StackableDB : public DB {
     db_->GetLiveFilesMetaData(metadata);
   }
 
+  virtual Status GetLiveFilesChecksumInfo(
+      FileChecksumList* checksum_list) override {
+    return db_->GetLiveFilesChecksumInfo(checksum_list);
+  }
+
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
                                        ColumnFamilyMetaData* cf_meta) override {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
@@ -398,6 +403,10 @@ class StackableDB : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
+  }
+
+  virtual Status GetDbSessionId(std::string& session_id) const override {
+    return db_->GetDbSessionId(session_id);
   }
 
   using DB::SetOptions;

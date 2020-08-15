@@ -17,7 +17,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
     std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
-    const bool seq_per_batch)
+    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -30,7 +30,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       current_batch_seq_(0),
       current_last_seq_(0),
       versions_(versions),
-      seq_per_batch_(seq_per_batch) {
+      seq_per_batch_(seq_per_batch),
+      io_tracer_(io_tracer) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
 
@@ -42,7 +43,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
 Status TransactionLogIteratorImpl::OpenLogFile(
     const LogFile* log_file,
     std::unique_ptr<SequentialFileReader>* file_reader) {
-  FileSystem* fs = options_->fs.get();
+  FileSystemPtr fs(options_->fs, io_tracer_);
   std::unique_ptr<FSSequentialFile> file;
   std::string fname;
   Status s;

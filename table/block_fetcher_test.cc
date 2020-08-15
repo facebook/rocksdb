@@ -4,7 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_fetcher.h"
+
 #include "db/table_properties_collector.h"
+#include "env/composite_env_wrapper.h"
+#include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -14,7 +17,6 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/format.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -42,14 +44,14 @@ class CountedMemoryAllocator : public MemoryAllocator {
 };
 
 struct MemcpyStats {
-  int num_stack_buf_memcpy = 0;
-  int num_heap_buf_memcpy = 0;
-  int num_compressed_buf_memcpy = 0;
+  int num_stack_buf_memcpy;
+  int num_heap_buf_memcpy;
+  int num_compressed_buf_memcpy;
 };
 
 struct BufAllocationStats {
-  int num_heap_buf_allocations = 0;
-  int num_compressed_buf_allocations = 0;
+  int num_heap_buf_allocations;
+  int num_compressed_buf_allocations;
 };
 
 struct TestStats {
@@ -58,20 +60,30 @@ struct TestStats {
 };
 
 class BlockFetcherTest : public testing::Test {
+ public:
+  enum class Mode {
+    kBufferedRead = 0,
+    kBufferedMmap,
+    kDirectRead,
+    kNumModes,
+  };
+  // use NumModes as array size to avoid "size of array '...' has non-integral
+  // type" errors.
+  const static int NumModes = static_cast<int>(Mode::kNumModes);
+
  protected:
   void SetUp() override {
-    test::SetupSyncPointsToMockDirectIO();
+    SetupSyncPointsToMockDirectIO();
     test_dir_ = test::PerThreadDBPath("block_fetcher_test");
     env_ = Env::Default();
     fs_ = FileSystem::Default();
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
   }
 
-  void TearDown() override { EXPECT_OK(test::DestroyDir(env_, test_dir_)); }
+  void TearDown() override { EXPECT_OK(DestroyDir(env_, test_dir_)); }
 
-  void AssertSameBlock(const BlockContents& block1,
-                       const BlockContents& block2) {
-    ASSERT_EQ(block1.data.ToString(), block2.data.ToString());
+  void AssertSameBlock(const std::string& block1, const std::string& block2) {
+    ASSERT_EQ(block1, block2);
   }
 
   // Creates a table with kv pairs (i, i) where i ranges from 0 to 9, inclusive.
@@ -81,10 +93,9 @@ class BlockFetcherTest : public testing::Test {
     NewFileWriter(table_name, &writer);
 
     // Create table builder.
-    Options options;
-    ImmutableCFOptions ioptions(options);
-    InternalKeyComparator comparator(options.comparator);
-    ColumnFamilyOptions cf_options;
+    ImmutableCFOptions ioptions(options_);
+    InternalKeyComparator comparator(options_.comparator);
+    ColumnFamilyOptions cf_options(options_);
     MutableCFOptions moptions(cf_options);
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
@@ -103,12 +114,12 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_OK(table_builder->Finish());
   }
 
-  void FetchIndexBlock(const std::string& table_name, bool use_direct_io,
+  void FetchIndexBlock(const std::string& table_name,
                        CountedMemoryAllocator* heap_buf_allocator,
                        CountedMemoryAllocator* compressed_buf_allocator,
-                       MemcpyStats* memcpy_stats, BlockContents* index_block) {
-    FileOptions fopt;
-    fopt.use_direct_reads = use_direct_io;
+                       MemcpyStats* memcpy_stats, BlockContents* index_block,
+                       std::string* result) {
+    FileOptions fopt(options_);
     std::unique_ptr<RandomAccessFileReader> file;
     NewFileReader(table_name, fopt, &file);
 
@@ -123,6 +134,7 @@ class BlockFetcherTest : public testing::Test {
                heap_buf_allocator, compressed_buf_allocator, index_block,
                memcpy_stats, &compression_type);
     ASSERT_EQ(compression_type, CompressionType::kNoCompression);
+    result->assign(index_block->data.ToString());
   }
 
   // Fetches the first data block in both direct IO and non-direct IO mode.
@@ -134,10 +146,9 @@ class BlockFetcherTest : public testing::Test {
   // Expects:
   // Block contents are the same.
   // Bufferr allocation and memory copy statistics are expected.
-  void TestFetchDataBlock(const std::string& table_name_prefix, bool compressed,
-                          bool do_uncompress,
-                          const TestStats& expected_non_direct_io_stats,
-                          const TestStats& expected_direct_io_stats) {
+  void TestFetchDataBlock(
+      const std::string& table_name_prefix, bool compressed, bool do_uncompress,
+      std::array<TestStats, NumModes> expected_stats_by_mode) {
     for (CompressionType compression_type : GetSupportedCompressions()) {
       bool do_compress = compression_type != kNoCompression;
       if (compressed != do_compress) continue;
@@ -150,52 +161,71 @@ class BlockFetcherTest : public testing::Test {
       CompressionType expected_compression_type_after_fetch =
           (compressed && !do_uncompress) ? compression_type : kNoCompression;
 
-      BlockContents blocks[2];
-      MemcpyStats memcpy_stats[2];
-      CountedMemoryAllocator heap_buf_allocators[2];
-      CountedMemoryAllocator compressed_buf_allocators[2];
-      for (bool use_direct_io : {false, true}) {
-        FetchFirstDataBlock(
-            table_name, use_direct_io, compressed, do_uncompress,
-            expected_compression_type_after_fetch,
-            &heap_buf_allocators[use_direct_io],
-            &compressed_buf_allocators[use_direct_io], &blocks[use_direct_io],
-            &memcpy_stats[use_direct_io]);
+      BlockContents blocks[NumModes];
+      std::string block_datas[NumModes];
+      MemcpyStats memcpy_stats[NumModes];
+      CountedMemoryAllocator heap_buf_allocators[NumModes];
+      CountedMemoryAllocator compressed_buf_allocators[NumModes];
+      for (int i = 0; i < NumModes; ++i) {
+        SetMode(static_cast<Mode>(i));
+        FetchFirstDataBlock(table_name, compressed, do_uncompress,
+                            expected_compression_type_after_fetch,
+                            &heap_buf_allocators[i],
+                            &compressed_buf_allocators[i], &blocks[i],
+                            &block_datas[i], &memcpy_stats[i]);
       }
 
-      AssertSameBlock(blocks[0], blocks[1]);
+      for (int i = 0; i < NumModes - 1; ++i) {
+        AssertSameBlock(block_datas[i], block_datas[i + 1]);
+      }
 
       // Check memcpy and buffer allocation statistics.
-      for (bool use_direct_io : {false, true}) {
-        const TestStats& expected_stats = use_direct_io
-                                              ? expected_direct_io_stats
-                                              : expected_non_direct_io_stats;
+      for (int i = 0; i < NumModes; ++i) {
+        const TestStats& expected_stats = expected_stats_by_mode[i];
 
-        ASSERT_EQ(memcpy_stats[use_direct_io].num_stack_buf_memcpy,
+        ASSERT_EQ(memcpy_stats[i].num_stack_buf_memcpy,
                   expected_stats.memcpy_stats.num_stack_buf_memcpy);
-        ASSERT_EQ(memcpy_stats[use_direct_io].num_heap_buf_memcpy,
+        ASSERT_EQ(memcpy_stats[i].num_heap_buf_memcpy,
                   expected_stats.memcpy_stats.num_heap_buf_memcpy);
-        ASSERT_EQ(memcpy_stats[use_direct_io].num_compressed_buf_memcpy,
+        ASSERT_EQ(memcpy_stats[i].num_compressed_buf_memcpy,
                   expected_stats.memcpy_stats.num_compressed_buf_memcpy);
 
-        ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumAllocations(),
+        ASSERT_EQ(heap_buf_allocators[i].GetNumAllocations(),
                   expected_stats.buf_allocation_stats.num_heap_buf_allocations);
         ASSERT_EQ(
-            compressed_buf_allocators[use_direct_io].GetNumAllocations(),
+            compressed_buf_allocators[i].GetNumAllocations(),
             expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
 
         // The allocated buffers are not deallocated until
         // the block content is deleted.
-        ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
-        ASSERT_EQ(
-            compressed_buf_allocators[use_direct_io].GetNumDeallocations(), 0);
-        blocks[use_direct_io].allocation.reset();
-        ASSERT_EQ(heap_buf_allocators[use_direct_io].GetNumDeallocations(),
+        ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(), 0);
+        ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(), 0);
+        blocks[i].allocation.reset();
+        ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(),
                   expected_stats.buf_allocation_stats.num_heap_buf_allocations);
         ASSERT_EQ(
-            compressed_buf_allocators[use_direct_io].GetNumDeallocations(),
+            compressed_buf_allocators[i].GetNumDeallocations(),
             expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
       }
+    }
+  }
+
+  void SetMode(Mode mode) {
+    switch (mode) {
+      case Mode::kBufferedRead:
+        options_.use_direct_reads = false;
+        options_.allow_mmap_reads = false;
+        break;
+      case Mode::kBufferedMmap:
+        options_.use_direct_reads = false;
+        options_.allow_mmap_reads = true;
+        break;
+      case Mode::kDirectRead:
+        options_.use_direct_reads = true;
+        options_.allow_mmap_reads = false;
+        break;
+      case Mode::kNumModes:
+        assert(false);
     }
   }
 
@@ -204,6 +234,7 @@ class BlockFetcherTest : public testing::Test {
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   BlockBasedTableFactory table_factory_;
+  Options options_;
 
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 
@@ -244,7 +275,8 @@ class BlockFetcherTest : public testing::Test {
     ASSERT_OK(env_->GetFileSize(Path(table_name), &file_size));
 
     std::unique_ptr<TableReader> table_reader;
-    ASSERT_OK(BlockBasedTable::Open(ioptions, EnvOptions(),
+    ReadOptions ro;
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
                                     table_factory_.table_options(), comparator,
                                     std::move(file), file_size, &table_reader));
 
@@ -259,8 +291,9 @@ class BlockFetcherTest : public testing::Test {
   void ReadFooter(RandomAccessFileReader* file, Footer* footer) {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
-    ReadFooterFromFile(file, nullptr /* prefetch_buffer */, file_size, footer,
-                       kBlockBasedTableMagicNumber);
+    IOOptions opts;
+    ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */, file_size,
+                       footer, kBlockBasedTableMagicNumber);
   }
 
   // NOTE: compression_type returns the compression type of the fetched block
@@ -272,8 +305,7 @@ class BlockFetcherTest : public testing::Test {
                   MemoryAllocator* compressed_buf_allocator,
                   BlockContents* contents, MemcpyStats* stats,
                   CompressionType* compresstion_type) {
-    Options options;
-    ImmutableCFOptions ioptions(options);
+    ImmutableCFOptions ioptions(options_);
     ReadOptions roptions;
     PersistentCacheOptions persistent_cache_options;
     Footer footer;
@@ -297,26 +329,25 @@ class BlockFetcherTest : public testing::Test {
   // NOTE: expected_compression_type is the expected compression
   // type of the fetched block content, if the block is uncompressed,
   // then the expected compression type is kNoCompression.
-  void FetchFirstDataBlock(const std::string& table_name, bool use_direct_io,
-                           bool compressed, bool do_uncompress,
+  void FetchFirstDataBlock(const std::string& table_name, bool compressed,
+                           bool do_uncompress,
                            CompressionType expected_compression_type,
                            MemoryAllocator* heap_buf_allocator,
                            MemoryAllocator* compressed_buf_allocator,
-                           BlockContents* block, MemcpyStats* memcpy_stats) {
-    Options options;
-    ImmutableCFOptions ioptions(options);
-    InternalKeyComparator comparator(options.comparator);
-
-    FileOptions foptions;
-    foptions.use_direct_reads = use_direct_io;
+                           BlockContents* block, std::string* result,
+                           MemcpyStats* memcpy_stats) {
+    ImmutableCFOptions ioptions(options_);
+    InternalKeyComparator comparator(options_.comparator);
+    FileOptions foptions(options_);
 
     // Get block handle for the first data block.
     std::unique_ptr<BlockBasedTable> table;
     NewTableReader(ioptions, foptions, comparator, table_name, &table);
 
     std::unique_ptr<BlockBasedTable::IndexReader> index_reader;
+    ReadOptions ro;
     ASSERT_OK(BinarySearchIndexReader::Create(
-        table.get(), nullptr /* prefetch_buffer */, false /* use_cache */,
+        table.get(), ro, nullptr /* prefetch_buffer */, false /* use_cache */,
         false /* prefetch */, false /* pin */, nullptr /* lookup_context */,
         &index_reader));
 
@@ -336,6 +367,7 @@ class BlockFetcherTest : public testing::Test {
                do_uncompress, heap_buf_allocator, compressed_buf_allocator,
                block, memcpy_stats, &compression_type);
     ASSERT_EQ(compression_type, expected_compression_type);
+    result->assign(block->data.ToString());
   }
 };
 
@@ -353,33 +385,53 @@ TEST_F(BlockFetcherTest, FetchIndexBlock) {
 
     CountedMemoryAllocator allocator;
     MemcpyStats memcpy_stats;
-    BlockContents indexes[2];
-    for (bool use_direct_io : {false, true}) {
-      FetchIndexBlock(table_name, use_direct_io, &allocator, &allocator,
-                      &memcpy_stats, &indexes[use_direct_io]);
+    BlockContents indexes[NumModes];
+    std::string index_datas[NumModes];
+    for (int i = 0; i < NumModes; ++i) {
+      SetMode(static_cast<Mode>(i));
+      FetchIndexBlock(table_name, &allocator, &allocator, &memcpy_stats,
+                      &indexes[i], &index_datas[i]);
     }
-    AssertSameBlock(indexes[0], indexes[1]);
+    for (int i = 0; i < NumModes - 1; ++i) {
+      AssertSameBlock(index_datas[i], index_datas[i + 1]);
+    }
   }
 }
 
 // Data blocks are not compressed,
-// fetch data block under both direct IO and non-direct IO.
+// fetch data block under direct IO, mmap IO,and non-direct IO.
 // Expects:
 // 1. in non-direct IO mode, allocate a heap buffer and memcpy the block
 //    into the buffer;
 // 2. in direct IO mode, allocate a heap buffer and memcpy from the
 //    direct IO buffer to the heap buffer.
 TEST_F(BlockFetcherTest, FetchUncompressedDataBlock) {
-  MemcpyStats memcpy_stats;
-  memcpy_stats.num_heap_buf_memcpy = 1;
-
-  BufAllocationStats buf_allocation_stats;
-  buf_allocation_stats.num_heap_buf_allocations = 1;
-
-  TestStats expected_stats{memcpy_stats, buf_allocation_stats};
-
-  TestFetchDataBlock("FetchUncompressedDataBlock", false, false, expected_stats,
-                     expected_stats);
+  TestStats expected_non_mmap_stats = {
+      {
+          0 /* num_stack_buf_memcpy */,
+          1 /* num_heap_buf_memcpy */,
+          0 /* num_compressed_buf_memcpy */,
+      },
+      {
+          1 /* num_heap_buf_allocations */,
+          0 /* num_compressed_buf_allocations */,
+      }};
+  TestStats expected_mmap_stats = {{
+                                       0 /* num_stack_buf_memcpy */,
+                                       0 /* num_heap_buf_memcpy */,
+                                       0 /* num_compressed_buf_memcpy */,
+                                   },
+                                   {
+                                       0 /* num_heap_buf_allocations */,
+                                       0 /* num_compressed_buf_allocations */,
+                                   }};
+  std::array<TestStats, NumModes> expected_stats_by_mode{{
+      expected_non_mmap_stats /* kBufferedRead */,
+      expected_mmap_stats /* kBufferedMmap */,
+      expected_non_mmap_stats /* kDirectRead */,
+  }};
+  TestFetchDataBlock("FetchUncompressedDataBlock", false, false,
+                     expected_stats_by_mode);
 }
 
 // Data blocks are compressed,
@@ -391,16 +443,32 @@ TEST_F(BlockFetcherTest, FetchUncompressedDataBlock) {
 // 2. in direct IO mode, allocate a compressed buffer and memcpy from the
 //    direct IO buffer to the compressed buffer.
 TEST_F(BlockFetcherTest, FetchCompressedDataBlock) {
-  MemcpyStats memcpy_stats;
-  memcpy_stats.num_compressed_buf_memcpy = 1;
-
-  BufAllocationStats buf_allocation_stats;
-  buf_allocation_stats.num_compressed_buf_allocations = 1;
-
-  TestStats expected_stats{memcpy_stats, buf_allocation_stats};
-
-  TestFetchDataBlock("FetchCompressedDataBlock", true, false, expected_stats,
-                     expected_stats);
+  TestStats expected_non_mmap_stats = {
+      {
+          0 /* num_stack_buf_memcpy */,
+          0 /* num_heap_buf_memcpy */,
+          1 /* num_compressed_buf_memcpy */,
+      },
+      {
+          0 /* num_heap_buf_allocations */,
+          1 /* num_compressed_buf_allocations */,
+      }};
+  TestStats expected_mmap_stats = {{
+                                       0 /* num_stack_buf_memcpy */,
+                                       0 /* num_heap_buf_memcpy */,
+                                       0 /* num_compressed_buf_memcpy */,
+                                   },
+                                   {
+                                       0 /* num_heap_buf_allocations */,
+                                       0 /* num_compressed_buf_allocations */,
+                                   }};
+  std::array<TestStats, NumModes> expected_stats_by_mode{{
+      expected_non_mmap_stats /* kBufferedRead */,
+      expected_mmap_stats /* kBufferedMmap */,
+      expected_non_mmap_stats /* kDirectRead */,
+  }};
+  TestFetchDataBlock("FetchCompressedDataBlock", true, false,
+                     expected_stats_by_mode);
 }
 
 // Data blocks are compressed,
@@ -412,32 +480,42 @@ TEST_F(BlockFetcherTest, FetchCompressedDataBlock) {
 // 2. in direct IO mode mode, allocate a heap buffer, then directly uncompress
 //    and memcpy from the direct IO buffer to the heap buffer.
 TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
-  TestStats expected_non_direct_io_stats;
-  {
-    MemcpyStats memcpy_stats;
-    memcpy_stats.num_stack_buf_memcpy = 1;
-    memcpy_stats.num_heap_buf_memcpy = 1;
-
-    BufAllocationStats buf_allocation_stats;
-    buf_allocation_stats.num_heap_buf_allocations = 1;
-    buf_allocation_stats.num_compressed_buf_allocations = 0;
-
-    expected_non_direct_io_stats = {memcpy_stats, buf_allocation_stats};
-  }
-
-  TestStats expected_direct_io_stats;
-  {
-    MemcpyStats memcpy_stats;
-    memcpy_stats.num_heap_buf_memcpy = 1;
-
-    BufAllocationStats buf_allocation_stats;
-    buf_allocation_stats.num_heap_buf_allocations = 1;
-
-    expected_direct_io_stats = {memcpy_stats, buf_allocation_stats};
-  }
-
+  TestStats expected_buffered_read_stats = {
+      {
+          1 /* num_stack_buf_memcpy */,
+          1 /* num_heap_buf_memcpy */,
+          0 /* num_compressed_buf_memcpy */,
+      },
+      {
+          1 /* num_heap_buf_allocations */,
+          0 /* num_compressed_buf_allocations */,
+      }};
+  TestStats expected_mmap_stats = {{
+                                       0 /* num_stack_buf_memcpy */,
+                                       1 /* num_heap_buf_memcpy */,
+                                       0 /* num_compressed_buf_memcpy */,
+                                   },
+                                   {
+                                       1 /* num_heap_buf_allocations */,
+                                       0 /* num_compressed_buf_allocations */,
+                                   }};
+  TestStats expected_direct_read_stats = {
+      {
+          0 /* num_stack_buf_memcpy */,
+          1 /* num_heap_buf_memcpy */,
+          0 /* num_compressed_buf_memcpy */,
+      },
+      {
+          1 /* num_heap_buf_allocations */,
+          0 /* num_compressed_buf_allocations */,
+      }};
+  std::array<TestStats, NumModes> expected_stats_by_mode{{
+      expected_buffered_read_stats,
+      expected_mmap_stats,
+      expected_direct_read_stats,
+  }};
   TestFetchDataBlock("FetchAndUncompressCompressedDataBlock", true, true,
-                     expected_non_direct_io_stats, expected_direct_io_stats);
+                     expected_stats_by_mode);
 }
 
 #endif  // ROCKSDB_LITE

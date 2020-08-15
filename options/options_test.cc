@@ -553,6 +553,172 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
 }
 
+TEST_F(OptionsTest, CompressionOptionsFromString) {
+  ColumnFamilyOptions base_cf_opt;
+  ColumnFamilyOptions new_cf_opt;
+  ConfigOptions config_options;
+  std::string opts_str;
+  config_options.ignore_unknown_options = false;
+  CompressionOptions dflt;
+  // Test with some optional values removed....
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(config_options, ColumnFamilyOptions(),
+                                       "compression_opts=3:4:5; "
+                                       "bottommost_compression_opts=4:5:6:7",
+                                       &base_cf_opt));
+  ASSERT_EQ(base_cf_opt.compression_opts.window_bits, 3);
+  ASSERT_EQ(base_cf_opt.compression_opts.level, 4);
+  ASSERT_EQ(base_cf_opt.compression_opts.strategy, 5);
+  ASSERT_EQ(base_cf_opt.compression_opts.max_dict_bytes, dflt.max_dict_bytes);
+  ASSERT_EQ(base_cf_opt.compression_opts.zstd_max_train_bytes,
+            dflt.zstd_max_train_bytes);
+  ASSERT_EQ(base_cf_opt.compression_opts.parallel_threads,
+            dflt.parallel_threads);
+  ASSERT_EQ(base_cf_opt.compression_opts.enabled, dflt.enabled);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.window_bits, 4);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.level, 5);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.strategy, 6);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.max_dict_bytes, 7u);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.zstd_max_train_bytes,
+            dflt.zstd_max_train_bytes);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.parallel_threads,
+            dflt.parallel_threads);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.enabled, dflt.enabled);
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(),
+      "compression_opts=4:5:6:7:8:9:true; "
+      "bottommost_compression_opts=5:6:7:8:9:false",
+      &base_cf_opt));
+  ASSERT_EQ(base_cf_opt.compression_opts.window_bits, 4);
+  ASSERT_EQ(base_cf_opt.compression_opts.level, 5);
+  ASSERT_EQ(base_cf_opt.compression_opts.strategy, 6);
+  ASSERT_EQ(base_cf_opt.compression_opts.max_dict_bytes, 7u);
+  ASSERT_EQ(base_cf_opt.compression_opts.zstd_max_train_bytes, 8u);
+  ASSERT_EQ(base_cf_opt.compression_opts.parallel_threads, 9u);
+  ASSERT_EQ(base_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.window_bits, 5);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.level, 6);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.strategy, 7);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.max_dict_bytes, 8u);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 9u);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.parallel_threads,
+            dflt.parallel_threads);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.enabled, false);
+
+  ASSERT_OK(
+      GetStringFromColumnFamilyOptions(config_options, base_cf_opt, &opts_str));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(), opts_str, &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
+  ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
+  ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 7u);
+  ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 8u);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 9u);
+  ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 5);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 8u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 9u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
+            dflt.parallel_threads);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, false);
+
+  // Test as struct values
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(),
+      "compression_opts={window_bits=5; level=6; strategy=7; max_dict_bytes=8;"
+      "zstd_max_train_bytes=9;parallel_threads=10;enabled=true}; "
+      "bottommost_compression_opts={window_bits=4; level=5; strategy=6;"
+      " max_dict_bytes=7;zstd_max_train_bytes=8;parallel_threads=9;"
+      "enabled=false}; ",
+      &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 5);
+  ASSERT_EQ(new_cf_opt.compression_opts.level, 6);
+  ASSERT_EQ(new_cf_opt.compression_opts.strategy, 7);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 8u);
+  ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 9u);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 10u);
+  ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 4);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 5);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 6);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes, 7u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 8u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads, 9u);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, false);
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "compression_opts={window_bits=4; strategy=5;};"
+      "bottommost_compression_opts={level=6; strategy=7;}",
+      &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
+  ASSERT_EQ(new_cf_opt.compression_opts.strategy, 5);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
+
+  ASSERT_EQ(new_cf_opt.compression_opts.level,
+            base_cf_opt.compression_opts.level);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes,
+            base_cf_opt.compression_opts.max_dict_bytes);
+  ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes,
+            base_cf_opt.compression_opts.zstd_max_train_bytes);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads,
+            base_cf_opt.compression_opts.parallel_threads);
+  ASSERT_EQ(new_cf_opt.compression_opts.enabled,
+            base_cf_opt.compression_opts.enabled);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits,
+            base_cf_opt.bottommost_compression_opts.window_bits);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_bytes,
+            base_cf_opt.bottommost_compression_opts.max_dict_bytes);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes,
+            base_cf_opt.bottommost_compression_opts.zstd_max_train_bytes);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
+            base_cf_opt.bottommost_compression_opts.parallel_threads);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled,
+            base_cf_opt.bottommost_compression_opts.enabled);
+
+  // Test a few individual struct values
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "compression_opts.enabled=false; "
+      "bottommost_compression_opts.enabled=true; ",
+      &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.compression_opts.enabled, false);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, true);
+
+  // Now test some illegal values
+  ConfigOptions ignore;
+  ignore.ignore_unknown_options = true;
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(),
+      "compression_opts=5:6:7:8:9:x:false", &base_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      ignore, ColumnFamilyOptions(), "compression_opts=5:6:7:8:9:x:false",
+      &base_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(),
+      "compression_opts=1:2:3:4:5:6:true:8", &base_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      ignore, ColumnFamilyOptions(), "compression_opts=1:2:3:4:5:6:true:8",
+      &base_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(), "compression_opts={unknown=bad;}",
+      &base_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(ignore, ColumnFamilyOptions(),
+                                             "compression_opts={unknown=bad;}",
+                                             &base_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+      config_options, ColumnFamilyOptions(), "compression_opts.unknown=bad",
+      &base_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(ignore, ColumnFamilyOptions(),
+                                             "compression_opts.unknown=bad",
+                                             &base_cf_opt));
+}
+
 TEST_F(OptionsTest, OldInterfaceTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
@@ -3440,6 +3606,48 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   ASSERT_EQ(e1.b.i, 77);
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "66");
+}
+
+TEST_F(OptionTypeInfoTest, TestVectorType) {
+  OptionTypeInfo vec_info = OptionTypeInfo::Vector<std::string>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
+      {0, OptionType::kString});
+  std::vector<std::string> vec1, vec2;
+  std::string mismatch;
+
+  ConfigOptions config_options;
+  TestAndCompareOption(config_options, vec_info, "v", "a:b:c:d", &vec1, &vec2);
+  ASSERT_EQ(vec1.size(), 4);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b");
+  ASSERT_EQ(vec1[2], "c");
+  ASSERT_EQ(vec1[3], "d");
+  vec1[3] = "e";
+  ASSERT_FALSE(vec_info.AreEqual(config_options, "v",
+                                 reinterpret_cast<char*>(&vec1),
+                                 reinterpret_cast<char*>(&vec2), &mismatch));
+  ASSERT_EQ(mismatch, "v");
+
+  // Test vectors with inner brackets
+  TestAndCompareOption(config_options, vec_info, "v", "a:{b}:c:d", &vec1,
+                       &vec2);
+  ASSERT_EQ(vec1.size(), 4);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b");
+  ASSERT_EQ(vec1[2], "c");
+  ASSERT_EQ(vec1[3], "d");
+
+  OptionTypeInfo bar_info = OptionTypeInfo::Vector<std::string>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
+      {0, OptionType::kString}, '|');
+  TestAndCompareOption(config_options, vec_info, "v", "x|y|z", &vec1, &vec2);
+  // Test vectors with inner vector
+  TestAndCompareOption(config_options, bar_info, "v",
+                       "a|{b1|b2}|{c1|c2|{d1|d2}}", &vec1, &vec2);
+  ASSERT_EQ(vec1.size(), 3);
+  ASSERT_EQ(vec1[0], "a");
+  ASSERT_EQ(vec1[1], "b1|b2");
+  ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

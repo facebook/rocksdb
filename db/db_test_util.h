@@ -10,9 +10,9 @@
 #pragma once
 
 #include <fcntl.h>
-#include <cinttypes>
 
 #include <algorithm>
+#include <cinttypes>
 #include <map>
 #include <set>
 #include <string>
@@ -43,12 +43,11 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/mock_time_env.h"
-#include "util/compression.h"
-#include "util/mutexlock.h"
-
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
+#include "util/cast_util.h"
+#include "util/compression.h"
+#include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
@@ -207,7 +206,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
  public:
-  explicit SpecialEnv(Env* base);
+  explicit SpecialEnv(Env* base, bool time_elapse_only_sleep = false);
 
   Status NewWritableFile(const std::string& f, std::unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) override {
@@ -276,7 +275,10 @@ class SpecialEnv : public EnvWrapper {
         while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
-        Status s = base_->Sync();
+        Status s;
+        if (!env_->skip_fsync_) {
+          s = base_->Sync();
+        }
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Sync", &s);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
@@ -314,7 +316,11 @@ class SpecialEnv : public EnvWrapper {
         if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated sync error");
         } else {
-          return base_->Sync();
+          if (env_->skip_fsync_) {
+            return Status::OK();
+          } else {
+            return base_->Sync();
+          }
         }
       }
       uint64_t GetFileSize() override { return base_->GetFileSize(); }
@@ -369,11 +375,39 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
-        return base_->Sync();
+        if (env_->skip_fsync_) {
+          return Status::OK();
+        } else {
+          return base_->Sync();
+        }
       }
       bool IsSyncThreadSafe() const override {
         return env_->is_wal_sync_thread_safe_.load();
       }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
+
+     private:
+      SpecialEnv* env_;
+      std::unique_ptr<WritableFile> base_;
+    };
+    class OtherFile : public WritableFile {
+     public:
+      OtherFile(SpecialEnv* env, std::unique_ptr<WritableFile>&& b)
+          : env_(env), base_(std::move(b)) {}
+      Status Append(const Slice& data) override { return base_->Append(data); }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      Status Close() override { return base_->Close(); }
+      Status Flush() override { return base_->Flush(); }
+      Status Sync() override {
+        if (env_->skip_fsync_) {
+          return Status::OK();
+        } else {
+          return base_->Sync();
+        }
+      }
+      uint64_t GetFileSize() override { return base_->GetFileSize(); }
       Status Allocate(uint64_t offset, uint64_t len) override {
         return base_->Allocate(offset, len);
       }
@@ -416,6 +450,8 @@ class SpecialEnv : public EnvWrapper {
         r->reset(new ManifestFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "log") != nullptr) {
         r->reset(new WalFile(this, std::move(*r)));
+      } else {
+        r->reset(new OtherFile(this, std::move(*r)));
       }
     }
     return s;
@@ -493,11 +529,23 @@ class SpecialEnv : public EnvWrapper {
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     if (no_slowdown_ || time_elapse_only_sleep_) {
-      addon_time_.fetch_add(micros);
+      addon_microseconds_.fetch_add(micros);
     }
     if (!no_slowdown_) {
       target()->SleepForMicroseconds(micros);
     }
+  }
+
+  void MockSleepForMicroseconds(int64_t micros) {
+    sleep_counter_.Increment();
+    assert(no_slowdown_);
+    addon_microseconds_.fetch_add(micros);
+  }
+
+  void MockSleepForSeconds(int64_t seconds) {
+    sleep_counter_.Increment();
+    assert(no_slowdown_);
+    addon_microseconds_.fetch_add(seconds * 1000000);
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
@@ -508,9 +556,8 @@ class SpecialEnv : public EnvWrapper {
       s = target()->GetCurrentTime(unix_time);
     }
     if (s.ok()) {
-      // FIXME: addon_time_ sometimes used to mean seconds (here) and
-      // sometimes microseconds
-      *unix_time += addon_time_.load();
+      // mock microseconds elapsed to seconds of time
+      *unix_time += addon_microseconds_.load() / 1000000;
     }
     return s;
   }
@@ -522,12 +569,12 @@ class SpecialEnv : public EnvWrapper {
 
   virtual uint64_t NowNanos() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
-           addon_time_.load() * 1000;
+           addon_microseconds_.load() * 1000;
   }
 
   virtual uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
-           addon_time_.load();
+           addon_microseconds_.load();
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
@@ -535,15 +582,24 @@ class SpecialEnv : public EnvWrapper {
     return target()->DeleteFile(fname);
   }
 
-  void SetTimeElapseOnlySleep(Options* options) {
-    time_elapse_only_sleep_ = true;
-    no_slowdown_ = true;
-    // Need to disable stats dumping and persisting which also use
-    // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
-    // With time_elapse_only_sleep_, this can hang on some platforms.
-    // TODO: why? investigate/fix
-    options->stats_dump_period_sec = 0;
-    options->stats_persist_period_sec = 0;
+  void SetMockSleep(bool enabled = true) { no_slowdown_ = enabled; }
+
+  Status NewDirectory(const std::string& name,
+                      std::unique_ptr<Directory>* result) override {
+    if (!skip_fsync_) {
+      return target()->NewDirectory(name, result);
+    } else {
+      class NoopDirectory : public Directory {
+       public:
+        NoopDirectory() {}
+        ~NoopDirectory() {}
+
+        Status Fsync() override { return Status::OK(); }
+      };
+
+      result->reset(new NoopDirectory());
+      return Status::OK();
+    }
   }
 
   // Something to return when mocking current time
@@ -593,6 +649,9 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int> sync_counter_;
 
+  // If true, all fsync to files and directories are skipped.
+  bool skip_fsync_ = false;
+
   std::atomic<uint32_t> non_writeable_rate_;
 
   std::atomic<uint32_t> new_writable_count_;
@@ -601,19 +660,23 @@ class SpecialEnv : public EnvWrapper {
 
   std::function<void()>* table_write_callback_;
 
-  std::atomic<int64_t> addon_time_;
-
   std::atomic<int> now_cpu_count_;
 
   std::atomic<int> delete_count_;
 
-  std::atomic<bool> time_elapse_only_sleep_;
-
-  bool no_slowdown_;
-
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_{};
+
+ private:  // accessing these directly is prone to error
+  friend class DBTestBase;
+
+  std::atomic<int64_t> addon_microseconds_{0};
+
+  // Do not modify in the env of a running DB (could cause deadlock)
+  std::atomic<bool> time_elapse_only_sleep_;
+
+  bool no_slowdown_;
 };
 
 #ifndef ROCKSDB_LITE
@@ -818,12 +881,6 @@ class DBTestBase : public testing::Test {
 
   ~DBTestBase();
 
-  static std::string RandomString(Random* rnd, int len) {
-    std::string r;
-    test::RandomString(rnd, len, &r);
-    return r;
-  }
-
   static std::string Key(int i) {
     char buf[100];
     snprintf(buf, sizeof(buf), "key%06d", i);
@@ -864,7 +921,7 @@ class DBTestBase : public testing::Test {
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
-  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);
@@ -1078,6 +1135,39 @@ class DBTestBase : public testing::Test {
   uint64_t TestGetAndResetTickerCount(const Options& options,
                                       Tickers ticker_type) {
     return options.statistics->getAndResetTickerCount(ticker_type);
+  }
+
+  // Note: reverting this setting within the same test run is not yet
+  // supported
+  void SetTimeElapseOnlySleepOnReopen(DBOptions* options);
+
+ private:  // Prone to error on direct use
+  void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);
+
+  bool time_elapse_only_sleep_on_reopen_ = false;
+};
+
+class SafeMockTimeEnv : public MockTimeEnv {
+ public:
+  explicit SafeMockTimeEnv(Env* base) : MockTimeEnv(base) {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
+    // This is an alternate way (vs. SpecialEnv) of dealing with the fact
+    // that on some platforms, pthread_cond_timedwait does not appear to
+    // release the lock for other threads to operate if the deadline time
+    // is already passed. (TimedWait calls are currently a bad abstraction
+    // because the deadline parameter is usually computed from Env time,
+    // but is interpreted in real clock time.)
+    SyncPoint::GetInstance()->SetCallBack(
+        "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
+          uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
+          if (time_us < this->RealNowMicros()) {
+            *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
+          }
+        });
+#endif  // OS_MACOSX && !NDEBUG
+    SyncPoint::GetInstance()->EnableProcessing();
   }
 };
 

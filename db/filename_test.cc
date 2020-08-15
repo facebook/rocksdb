@@ -108,7 +108,7 @@ TEST_F(FileNameTest, Parse) {
 TEST_F(FileNameTest, InfoLogFileName) {
   std::string dbname = ("/data/rocksdb");
   std::string db_absolute_path;
-  Env::Default()->GetAbsolutePath(dbname, &db_absolute_path);
+  ASSERT_OK(Env::Default()->GetAbsolutePath(dbname, &db_absolute_path));
 
   ASSERT_EQ("/data/rocksdb/LOG", InfoLogFileName(dbname, db_absolute_path, ""));
   ASSERT_EQ("/data/rocksdb/LOG.old.666",

@@ -78,7 +78,6 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     # Directories with files for #include
     "-I" + REPO_PATH + "include/",
     "-I" + REPO_PATH,
-    "-I" + REPO_PATH + "third-party/gtest-1.8.1/fused-src/",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
@@ -125,6 +124,9 @@ cpp_library(
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
+        "db/blob/blob_log_format.cc",
+        "db/blob/blob_log_reader.cc",
+        "db/blob/blob_log_writer.cc",
         "db/builder.cc",
         "db/c.cc",
         "db/column_family.cc",
@@ -136,6 +138,7 @@ cpp_library(
         "db/compaction/compaction_picker_fifo.cc",
         "db/compaction/compaction_picker_level.cc",
         "db/compaction/compaction_picker_universal.cc",
+        "db/compaction/sst_partitioner.cc",
         "db/convenience.cc",
         "db/db_filesnapshot.cc",
         "db/db_impl/db_impl.cc",
@@ -180,6 +183,7 @@ cpp_library(
         "db/version_edit.cc",
         "db/version_edit_handler.cc",
         "db/version_set.cc",
+        "db/wal_edit.cc",
         "db/wal_manager.cc",
         "db/write_batch.cc",
         "db/write_batch_base.cc",
@@ -191,6 +195,7 @@ cpp_library(
         "env/env_hdfs.cc",
         "env/env_posix.cc",
         "env/file_system.cc",
+        "env/file_system_tracer.cc",
         "env/fs_posix.cc",
         "env/io_posix.cc",
         "env/mock_env.cc",
@@ -226,6 +231,7 @@ cpp_library(
         "monitoring/perf_level.cc",
         "monitoring/persistent_stats_history.cc",
         "monitoring/statistics.cc",
+        "monitoring/stats_dump_scheduler.cc",
         "monitoring/thread_status_impl.cc",
         "monitoring/thread_status_updater.cc",
         "monitoring/thread_status_updater_debug.cc",
@@ -280,6 +286,7 @@ cpp_library(
         "table/plain/plain_table_index.cc",
         "table/plain/plain_table_key_coding.cc",
         "table/plain/plain_table_reader.cc",
+        "table/sst_file_dumper.cc",
         "table/sst_file_reader.cc",
         "table/sst_file_writer.cc",
         "table/table_properties.cc",
@@ -292,6 +299,7 @@ cpp_library(
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
         "trace_replay/block_cache_tracer.cc",
+        "trace_replay/io_tracer.cc",
         "trace_replay/trace_replay.cc",
         "util/build_version.cc",
         "util/coding.cc",
@@ -319,9 +327,6 @@ cpp_library(
         "utilities/blob_db/blob_db_impl_filesnapshot.cc",
         "utilities/blob_db/blob_dump_tool.cc",
         "utilities/blob_db/blob_file.cc",
-        "utilities/blob_db/blob_log_format.cc",
-        "utilities/blob_db/blob_log_reader.cc",
-        "utilities/blob_db/blob_log_writer.cc",
         "utilities/cassandra/cassandra_compaction_filter.cc",
         "utilities/cassandra/format.cc",
         "utilities/cassandra/merge_operator.cc",
@@ -331,6 +336,8 @@ cpp_library(
         "utilities/debug.cc",
         "utilities/env_mirror.cc",
         "utilities/env_timed.cc",
+        "utilities/fault_injection_env.cc",
+        "utilities/fault_injection_fs.cc",
         "utilities/leveldb_options/leveldb_options.cc",
         "utilities/memory/memory_util.cc",
         "utilities/merge_operators/bytesxor.cc",
@@ -352,6 +359,8 @@ cpp_library(
         "utilities/simulator_cache/sim_cache.cc",
         "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
         "utilities/trace/file_trace_reader_writer.cc",
+        "utilities/transactions/lock/lock_tracker.cc",
+        "utilities/transactions/lock/point_lock_tracker.cc",
         "utilities/transactions/optimistic_transaction.cc",
         "utilities/transactions/optimistic_transaction_db_impl.cc",
         "utilities/transactions/pessimistic_transaction.cc",
@@ -384,8 +393,6 @@ cpp_library(
     srcs = [
         "db/db_test_util.cc",
         "table/mock_table.cc",
-        "test_util/fault_injection_test_env.cc",
-        "test_util/fault_injection_test_fs.cc",
         "test_util/testharness.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
@@ -398,11 +405,10 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [
-        ":rocksdb_lib",
-        ":rocksdb_third_party_gtest",
+    deps = [":rocksdb_lib"],
+    external_deps = ROCKSDB_EXTERNAL_DEPS + [
+        ("googletest", None, "gtest"),
     ],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
 cpp_library(
@@ -449,18 +455,26 @@ cpp_library(
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 
-cpp_library(
-    name = "rocksdb_third_party_gtest",
-    srcs = ["third-party/gtest-1.8.1/fused-src/gtest/gtest-all.cc"],
-    headers = ["third-party/gtest-1.8.1/fused-src/gtest/gtest.h"],
-    arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-    compiler_flags = ROCKSDB_COMPILER_FLAGS,
-    os_deps = ROCKSDB_OS_DEPS,
-    os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-    preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [],
-    external_deps = ROCKSDB_EXTERNAL_DEPS,
-)
+if not is_opt_mode:
+    cpp_binary(
+        name = "c_test_bin",
+        srcs = ["db/c_test.c"],
+        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        compiler_flags = ROCKSDB_COMPILER_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        deps = [":rocksdb_test_lib"],
+    )
+
+if not is_opt_mode:
+    custom_unittest(
+        "c_test",
+        command = [
+            native.package_name() + "/buckifier/rocks_test_runner.sh",
+            "$(location :{})".format("c_test_bin"),
+        ],
+        type = "simple",
+    )
 
 cpp_library(
     name = "env_basic_test_lib",
@@ -576,13 +590,6 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "c_test",
-        "db/c_test.c",
-        "serial",
-        [],
-        [],
-    ],
-    [
         "cache_simulator_test",
         "utilities/simulator_cache/cache_simulator_test.cc",
         "serial",
@@ -648,7 +655,7 @@ ROCKS_TESTS = [
     [
         "column_family_test",
         "db/column_family_test.cc",
-        "serial",
+        "parallel",
         [],
         [],
     ],
@@ -942,7 +949,7 @@ ROCKS_TESTS = [
     [
         "db_test2",
         "db/db_test2.cc",
-        "serial",
+        "parallel",
         [],
         [],
     ],
@@ -1166,6 +1173,13 @@ ROCKS_TESTS = [
     [
         "io_posix_test",
         "env/io_posix_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "io_tracer_test",
+        "trace_replay/io_tracer_test.cc",
         "serial",
         [],
         [],
@@ -1458,6 +1472,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "stats_dump_scheduler_test",
+        "monitoring/stats_dump_scheduler_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "stats_history_test",
         "monitoring/stats_history_test.cc",
         "serial",
@@ -1482,6 +1503,13 @@ ROCKS_TESTS = [
         "table_test",
         "table/table_test.cc",
         "parallel",
+        [],
+        [],
+    ],
+    [
+        "testutil_test",
+        "test_util/testutil_test.cc",
+        "serial",
         [],
         [],
     ],
@@ -1638,18 +1666,17 @@ ROCKS_TESTS = [
 # Do not build the tests in opt mode, since SyncPoint and other test code
 # will not be included.
 [
-    test_binary(
-        extra_compiler_flags = extra_compiler_flags,
-        extra_deps = extra_deps,
-        parallelism = parallelism,
-        rocksdb_arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
-        rocksdb_compiler_flags = ROCKSDB_COMPILER_FLAGS,
-        rocksdb_external_deps = ROCKSDB_EXTERNAL_DEPS,
-        rocksdb_os_deps = ROCKSDB_OS_DEPS,
-        rocksdb_os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
-        rocksdb_preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-        test_cc = test_cc,
-        test_name = test_name,
+    cpp_unittest(
+        name = test_name,
+        srcs = [test_cc],
+        arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
+        os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
+        compiler_flags = ROCKSDB_COMPILER_FLAGS,
+        preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        deps = [":rocksdb_test_lib"] + extra_deps,
+        external_deps = ROCKSDB_EXTERNAL_DEPS + [
+            ("googletest", None, "gtest"),
+        ],
     )
     for test_name, test_cc, parallelism, extra_deps, extra_compiler_flags in ROCKS_TESTS
     if not is_opt_mode

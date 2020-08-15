@@ -255,7 +255,7 @@ void BlobDumpTool::DumpSlice(const Slice s, DisplayType type) {
         snprintf(buf + j * 3 + 16, 2, "%x", c & 0xf);
         snprintf(buf + j + 65, 2, "%c", (0x20 <= c && c <= 0x7e) ? c : '.');
       }
-      for (size_t p = 0; p < sizeof(buf) - 1; p++) {
+      for (size_t p = 0; p + 1 < sizeof(buf); p++) {
         if (buf[p] == 0) {
           buf[p] = ' ';
         }

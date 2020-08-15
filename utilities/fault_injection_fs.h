@@ -21,15 +21,11 @@
 #include <set>
 #include <string>
 
-#include "db/db_test_util.h"
-#include "db/version_set.h"
-#include "env/mock_env.h"
 #include "file/filename.h"
 #include "include/rocksdb/file_system.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -161,13 +157,13 @@ class TestFSDirectory : public FSDirectory {
 
 class FaultInjectionTestFS : public FileSystemWrapper {
  public:
-  explicit FaultInjectionTestFS(std::shared_ptr<FileSystem> base)
+  explicit FaultInjectionTestFS(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
-        thread_local_error_(
-            new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {}
-  virtual ~FaultInjectionTestFS() {}
+        thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
+  }
+  virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
 
