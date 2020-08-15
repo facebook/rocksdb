@@ -1107,6 +1107,17 @@ class VersionSet {
   uint64_t MinLogNumberWithUnflushedData() const {
     return PreComputeMinLogNumberWithUnflushedData(nullptr);
   }
+
+  // In either 2PC or non-2PC mode, logs with number smaller than the
+  // returned value can be deleted.
+  uint64_t MinLogNumberToKeep() const {
+    if (db_options_->allow_2pc) {
+      return min_log_number_to_keep_2pc();
+    } else {
+      return MinLogNumberWithUnflushedData();
+    }
+  }
+
   // Returns the minimum log number which still has data not flushed to any SST
   // file, except data from `cfd_to_skip`.
   uint64_t PreComputeMinLogNumberWithUnflushedData(

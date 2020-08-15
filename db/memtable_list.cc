@@ -472,6 +472,20 @@ Status MemTableList::TryInstallMemtableFlushResults(
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);
+
+      if (s.ok()) {
+        // Track obsolete WALs in MANIFEST.
+        VersionEdit edit;
+        const std::map<WalNumber, WalMetadata>& wals =
+            vset->GetWalSet().GetWals();
+        auto end = wals.lower_bound(vset->MinLogNumberToKeep());
+        for (auto it = wals.begin(); it != end; it++) {
+          edit.DeleteWal(it->first);
+        }
+        s = vset->LogAndApply(vset->GetColumnFamilySet()->GetDefault(),
+                              mutable_cf_options, &edit, mu, nullptr, false);
+      }
+
       *io_s = vset->io_status();
 
       // we will be changing the version in the next code path,
