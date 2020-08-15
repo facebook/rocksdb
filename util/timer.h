@@ -42,23 +42,31 @@ class Timer {
         running_(false),
         executing_task_(false) {}
 
-  ~Timer() {}
-
+  // Add a new function. If the fn_name already exists, overriding it,
+  // regardless if the function is pending removed (invalid) or not.
   // repeat_every_us == 0 means do not repeat
   void Add(std::function<void()> fn,
            const std::string& fn_name,
            uint64_t start_after_us,
            uint64_t repeat_every_us) {
-    std::unique_ptr<FunctionInfo> fn_info(new FunctionInfo(
-        std::move(fn),
-        fn_name,
-        env_->NowMicros() + start_after_us,
-        repeat_every_us));
-
-    InstrumentedMutexLock l(&mutex_);
-    heap_.push(fn_info.get());
-    map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
-    cond_var_.Signal();
+    std::unique_ptr<FunctionInfo> fn_info(
+        new FunctionInfo(std::move(fn), fn_name,
+                         env_->NowMicros() + start_after_us, repeat_every_us));
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto it = map_.find(fn_name);
+      if (it == map_.end()) {
+        heap_.push(fn_info.get());
+        map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
+      } else {
+        // If it already exists, overriding it.
+        it->second->fn = std::move(fn_info->fn);
+        it->second->valid = true;
+        it->second->next_run_time_us = env_->NowMicros() + start_after_us;
+        it->second->repeat_every_us = repeat_every_us;
+      }
+    }
+    cond_var_.SignalAll();
   }
 
   void Cancel(const std::string& fn_name) {
@@ -119,6 +127,45 @@ class Timer {
     return true;
   }
 
+  bool HasPendingTask() const {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto it = map_.begin(); it != map_.end(); it++) {
+      if (it->second->IsValid()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+#ifndef NDEBUG
+  void TEST_WaitForRun(std::function<void()> callback = nullptr) {
+    InstrumentedMutexLock l(&mutex_);
+    while (!heap_.empty() &&
+           heap_.top()->next_run_time_us <= env_->NowMicros()) {
+      cond_var_.TimedWait(env_->NowMicros() + 1000);
+    }
+    if (callback != nullptr) {
+      callback();
+    }
+    cond_var_.SignalAll();
+    do {
+      cond_var_.TimedWait(env_->NowMicros() + 1000);
+    } while (!heap_.empty() &&
+             heap_.top()->next_run_time_us <= env_->NowMicros());
+  }
+
+  size_t TEST_GetPendingTaskNum() const {
+    InstrumentedMutexLock l(&mutex_);
+    size_t ret = 0;
+    for (auto it = map_.begin(); it != map_.end(); it++) {
+      if (it->second->IsValid()) {
+        ret++;
+      }
+    }
+    return ret;
+  }
+#endif  // NDEBUG
+
  private:
 
   void Run() {
@@ -142,10 +189,13 @@ class Timer {
       }
 
       if (current_fn->next_run_time_us <= env_->NowMicros()) {
+        // make a copy of the function so it won't be changed after
+        // mutex_.unlock.
+        std::function<void()> fn = current_fn->fn;
         executing_task_ = true;
         mutex_.Unlock();
         // Execute the work
-        current_fn->fn();
+        fn();
         mutex_.Lock();
         executing_task_ = false;
         cond_var_.SignalAll();
@@ -243,7 +293,7 @@ class Timer {
   Env* const env_;
   // This mutex controls both the heap_ and the map_. It needs to be held for
   // making any changes in them.
-  InstrumentedMutex mutex_;
+  mutable InstrumentedMutex mutex_;
   InstrumentedCondVar cond_var_;
   std::unique_ptr<port::Thread> thread_;
   bool running_;

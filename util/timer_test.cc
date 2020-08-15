@@ -356,6 +356,39 @@ TEST_F(TimerTest, ShutdownRunningTask) {
   delete value;
 }
 
+TEST_F(TimerTest, AddSameFuncNameTest) {
+  mock_env_->set_current_time(0);
+  Timer timer(mock_env_.get());
+
+  ASSERT_TRUE(timer.Start());
+
+  int func_counter1 = 0;
+  timer.Add([&] { func_counter1++; }, "duplicated_func", 1 * kSecond,
+            5 * kSecond);
+
+  int func2_counter = 0;
+  timer.Add([&] { func2_counter++; }, "func2", 1 * kSecond, 4 * kSecond);
+
+  // New function with the same name should override the existing one
+  int func_counter2 = 0;
+  timer.Add([&] { func_counter2++; }, "duplicated_func", 1 * kSecond,
+            5 * kSecond);
+
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(1); });
+
+  ASSERT_EQ(func_counter1, 0);
+  ASSERT_EQ(func2_counter, 1);
+  ASSERT_EQ(func_counter2, 1);
+
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(6); });
+
+  ASSERT_EQ(func_counter1, 0);
+  ASSERT_EQ(func2_counter, 2);
+  ASSERT_EQ(func_counter2, 2);
+
+  ASSERT_TRUE(timer.Shutdown());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
