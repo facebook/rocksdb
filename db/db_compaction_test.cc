@@ -52,6 +52,16 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
   DBCompactionDirectIOTest() : DBCompactionTest() {}
 };
 
+// Param = true : target level is non-empty
+// Param = false: level between target level and source level
+//  is not empty.
+class ChangeLevelConflictsWithAuto
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  ChangeLevelConflictsWithAuto() : DBCompactionTest() {}
+};
+
 namespace {
 
 class FlushedFileCollector : public EventListener {
@@ -5442,7 +5452,7 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
   ASSERT_TRUE(has_compaction);
 }
 
-TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithAuto) {
+TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
   // A `CompactRange()` may race with an automatic compaction, we'll need
   // to make sure it doesn't corrupte the data.
   Options options = CurrentOptions();
@@ -5493,7 +5503,7 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithAuto) {
   {
     CompactRangeOptions cro;
     cro.change_level = true;
-    cro.target_level = 1;
+    cro.target_level = GetParam() ? 1 : 0;
     // This should return non-OK, but it's more important for the test to
     // make sure that the DB is not corrupted.
     dbfull()->CompactRange(cro, nullptr, nullptr);
@@ -5505,6 +5515,9 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithAuto) {
   // Write something to DB just make sure that consistency check didn't
   // fail and make the DB readable.
 }
+
+INSTANTIATE_TEST_CASE_P(ChangeLevelConflictsWithAuto,
+                        ChangeLevelConflictsWithAuto, testing::Bool());
 
 TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   // A `CompactRange()` with `change_level == true` needs to execute its final

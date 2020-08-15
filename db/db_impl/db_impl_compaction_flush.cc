@@ -1320,24 +1320,28 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   }
 
   auto* vstorage = cfd->current()->storage_info();
-  if (to_level > level) {
-    if (level == 0) {
-      return Status::NotSupported(
-          "Cannot change from level 0 to other levels.");
-    }
-    // Check levels are empty for a trivial move
-    for (int l = level + 1; l <= to_level; l++) {
-      if (vstorage->NumLevelFiles(l) > 0) {
-        return Status::NotSupported(
-            "Levels between source and target are not empty for a move.");
-      }
-    }
-  }
   if (to_level != level) {
-    // This might also be checked previously in some cases, but still double
-    // check here to prevent corruption..
-    if (vstorage->NumLevelFiles(to_level) > 0) {
-      return Status::NotSupported("The target level is not empty");
+    if (to_level > level) {
+      if (level == 0) {
+        return Status::NotSupported(
+            "Cannot change from level 0 to other levels.");
+      }
+      // Check levels are empty for a trivial move
+      for (int l = level + 1; l <= to_level; l++) {
+        if (vstorage->NumLevelFiles(l) > 0) {
+          return Status::NotSupported(
+              "Levels between source and target are not empty for a move.");
+        }
+      }
+    } else {
+      // to_level < level
+      // Check levels are empty for a trivial move
+      for (int l = to_level; l < level; l++) {
+        if (vstorage->NumLevelFiles(l) > 0) {
+          return Status::NotSupported(
+              "Levels between source and target are not empty for a move.");
+        }
+      }
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Before refitting:\n%s", cfd->GetName().c_str(),
