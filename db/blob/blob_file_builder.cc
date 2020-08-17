@@ -28,8 +28,6 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   assert(blob_index);
   assert(blob_index->empty());
 
-  blob_index_.clear();
-
   if (value.size() < min_blob_size_) {
     return Status::OK();
   }
