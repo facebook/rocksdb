@@ -345,10 +345,9 @@ IOStatus WritableFileWriter::IncrementalSync() {
         allowed = offset_sync_to - pos;
       }
       s = RangeSync(pos, allowed);
-      if (s.ok()) {
-        pos += allowed;
-        last_sync_size_ = pos;
-      } else {
+      pos += allowed;
+      last_sync_size_ = pos;
+      if (!s.ok()) {
         break;
       }
     }
