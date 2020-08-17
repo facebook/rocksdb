@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
+
 #include "db/blob/blob_log_format.h"
 
 #include "util/coding.h"
