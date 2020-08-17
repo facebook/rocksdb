@@ -136,6 +136,11 @@ struct EnvOptions {
 
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
+
+  // If true, rate limiter (if provided) is applied to file sync operation.
+  // If false, it's applied to buffered write operation.
+  // Default: false
+  bool strict_write_limit = false;
 };
 
 class Env {

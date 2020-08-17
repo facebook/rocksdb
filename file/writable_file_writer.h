@@ -135,6 +135,7 @@ class WritableFileWriter {
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
+  bool strict_write_limit_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
@@ -160,6 +161,7 @@ class WritableFileWriter {
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
+        strict_write_limit_(options.strict_write_limit),
         stats_(stats),
         listeners_(),
         checksum_generator_(nullptr),
