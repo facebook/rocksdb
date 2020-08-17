@@ -315,6 +315,11 @@ enum class WALRecoveryMode : char {
   // writes to page cache, but the user desires this guarantee in face of power-
   // loss crash-recovery), RocksDB offers various mechanisms to additionally
   // invoke `WritableFile::Sync()` in order to strengthen the guarantee.
+  //
+  // This differs from kPointInTimeRecovery in that, in case a corruption is
+  // detected during recovery, this mode will refuse to open the DB. Whereas,
+  // kPointInTimeRecovery will stop recovery just before the corruption since
+  // that is a valid point-in-time to which to recover.
   kTolerateCorruptedTailRecords = 0x00,
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
