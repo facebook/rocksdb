@@ -1,4 +1,5 @@
 make_config.mk
+rocksdb.pc
 
 *.a
 *.arc

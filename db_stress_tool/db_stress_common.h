@@ -204,6 +204,7 @@ DECLARE_int32(compression_parallel_threads);
 DECLARE_string(checksum_type);
 DECLARE_string(hdfs);
 DECLARE_string(env_uri);
+DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);

@@ -746,10 +746,8 @@ class BackupableDBTest : public testing::Test {
     db_.reset(db);
   }
 
-  void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
-                             ShareOption shared_option = kShareNoChecksum) {
-    // reset all the defaults
-    test_backup_env_->SetLimitWrittenFiles(1000000);
+  void InitializeDBAndBackupEngine(bool dummy = false) {
+    // reset all the db env defaults
     test_db_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetDummySequentialFile(dummy);
 
@@ -761,14 +759,19 @@ class BackupableDBTest : public testing::Test {
       ASSERT_OK(DB::Open(options_, dbname_, &db));
     }
     db_.reset(db);
+  }
+
+  virtual void OpenDBAndBackupEngine(
+      bool destroy_old_data = false, bool dummy = false,
+      ShareOption shared_option = kShareNoChecksum) {
+    InitializeDBAndBackupEngine(dummy);
+    // reset backup env defaults
+    test_backup_env_->SetLimitWrittenFiles(1000000);
     backupable_options_->destroy_old_data = destroy_old_data;
     backupable_options_->share_table_files = shared_option != kNoShare;
     backupable_options_->share_files_with_checksum =
         shared_option == kShareWithChecksum;
-    BackupEngine* backup_engine;
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
-                                 &backup_engine));
-    backup_engine_.reset(backup_engine);
+    OpenBackupEngine(destroy_old_data);
   }
 
   void CloseDBAndBackupEngine() {
@@ -905,6 +908,17 @@ class BackupableDBTestWithParam : public BackupableDBTest,
  public:
   BackupableDBTestWithParam() {
     backupable_options_->share_files_with_checksum = GetParam();
+  }
+  void OpenDBAndBackupEngine(
+      bool destroy_old_data = false, bool dummy = false,
+      ShareOption shared_option = kShareNoChecksum) override {
+    BackupableDBTest::InitializeDBAndBackupEngine(dummy);
+    // reset backup env defaults
+    test_backup_env_->SetLimitWrittenFiles(1000000);
+    backupable_options_->destroy_old_data = destroy_old_data;
+    backupable_options_->share_table_files = shared_option != kNoShare;
+    // NOTE: keep share_files_with_checksum setting from constructor
+    OpenBackupEngine(destroy_old_data);
   }
 };
 

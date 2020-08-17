@@ -52,6 +52,16 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
   DBCompactionDirectIOTest() : DBCompactionTest() {}
 };
 
+// Param = true : target level is non-empty
+// Param = false: level between target level and source level
+//  is not empty.
+class ChangeLevelConflictsWithAuto
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  ChangeLevelConflictsWithAuto() : DBCompactionTest() {}
+};
+
 namespace {
 
 class FlushedFileCollector : public EventListener {
@@ -5441,6 +5451,73 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_TRUE(has_compaction);
 }
+
+TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
+  // A `CompactRange()` may race with an automatic compaction, we'll need
+  // to make sure it doesn't corrupte the data.
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // Run a qury to refitting to level 1 while another thread writing to
+  // the same level.
+  SyncPoint::GetInstance()->LoadDependency({
+      // The first two dependencies ensure the foreground creates an L0 file
+      // between the background compaction's L0->L1 and its L1->L2.
+      {
+          "DBImpl::CompactRange:BeforeRefit:1",
+          "AutoCompactionFinished1",
+      },
+      {
+          "AutoCompactionFinished2",
+          "DBImpl::CompactRange:BeforeRefit:2",
+      },
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread auto_comp([&] {
+    TEST_SYNC_POINT("AutoCompactionFinished1");
+    ASSERT_OK(Put("bar", "v2"));
+    ASSERT_OK(Put("foo", "v2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("bar", "v3"));
+    ASSERT_OK(Put("foo", "v3"));
+    ASSERT_OK(Flush());
+    dbfull()->TEST_WaitForCompact();
+    TEST_SYNC_POINT("AutoCompactionFinished2");
+  });
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = GetParam() ? 1 : 0;
+    // This should return non-OK, but it's more important for the test to
+    // make sure that the DB is not corrupted.
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+  }
+  auto_comp.join();
+  // Refitting didn't happen.
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Write something to DB just make sure that consistency check didn't
+  // fail and make the DB readable.
+}
+
+INSTANTIATE_TEST_CASE_P(ChangeLevelConflictsWithAuto,
+                        ChangeLevelConflictsWithAuto, testing::Bool());
 
 TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   // A `CompactRange()` with `change_level == true` needs to execute its final
