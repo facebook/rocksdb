@@ -259,7 +259,7 @@ Status BlobFileBuilder::CloseBlobFileIfNeeded() {
   assert(IsBlobFileOpen());
 
   const WritableFileWriter* const file_writer = writer_->file();
-  assert (file_writer);
+  assert(file_writer);
 
   if (file_writer->GetFileSize() < blob_file_size_) {
     return Status::OK();
