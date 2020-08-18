@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 class StatsDumpSchedulerTest : public DBTestBase {
  public:
   StatsDumpSchedulerTest()
-      : DBTestBase("/stats_dump_scheduler_test"),
+      : DBTestBase("/stats_dump_scheduler_test", /*env_do_fsync=*/true),
         mock_env_(new SafeMockTimeEnv(Env::Default())) {}
 
  protected:

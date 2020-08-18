@@ -18,7 +18,8 @@
 namespace ROCKSDB_NAMESPACE {
 class DBWALTestBase : public DBTestBase {
  protected:
-  explicit DBWALTestBase(const std::string& dir_name) : DBTestBase(dir_name) {}
+  explicit DBWALTestBase(const std::string& dir_name)
+      : DBTestBase(dir_name, /*env_do_fsync=*/true) {}
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
@@ -92,7 +93,8 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
-  DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
+  DBWALTestWithEnrichedEnv()
+      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
