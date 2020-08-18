@@ -732,8 +732,9 @@ struct AdvancedColumnFamilyOptions {
   // UNDER CONSTRUCTION -- DO NOT USE
   // The size of the smallest value to be stored separately in a blob file.
   // Values which have an uncompressed size smaller than this threshold are
-  // stored alongside the keys in SST files in the usual fashion. Note that
-  // enable_blob_files has to be set in order for this option to have any
+  // stored alongside the keys in SST files in the usual fashion. A value of
+  // zero for this option means that all values are stored in blob files. Note
+  // that enable_blob_files has to be set in order for this option to have any
   // effect.
   //
   // Default: 0
