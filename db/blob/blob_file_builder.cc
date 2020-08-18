@@ -119,32 +119,31 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
     return Status::OK();
   }
 
-  assert(versions_);
-  assert(env_);
-  assert(fs_);
-  assert(immutable_cf_options_);
-  assert(!immutable_cf_options_->cf_paths.empty());
-  assert(file_options_);
   assert(!blob_count_);
   assert(!blob_bytes_);
 
+  assert(versions_);
   const uint64_t blob_file_number = versions_->NewFileNumber();
+
+  assert(immutable_cf_options_);
+  assert(!immutable_cf_options_->cf_paths.empty());
   const std::string blob_file_path = BlobFileName(
       immutable_cf_options_->cf_paths.front().path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
 
   {
+    assert(file_options_);
     const Status s =
         NewWritableFile(fs_, blob_file_path, &file, *file_options_);
     if (!s.ok()) {
       return s;
     }
-
-    assert(file);
-    file->SetIOPriority(io_priority_);
-    file->SetWriteLifeTimeHint(write_hint_);
   }
+
+  assert(file);
+  file->SetIOPriority(io_priority_);
+  file->SetWriteLifeTimeHint(write_hint_);
 
   Statistics* const statistics = immutable_cf_options_->statistics;
 
