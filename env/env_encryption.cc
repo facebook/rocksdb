@@ -441,34 +441,35 @@ class EncryptedEnvImpl : public EnvWrapper {
       const std::string& fname, const std::unique_ptr<TypeFile>& underlying,
       const EnvOptions& options, size_t* prefix_length,
       std::unique_ptr<BlockAccessCipherStream>* stream) {
-    EncryptionProvider* provider;
+    EncryptionProvider* provider = nullptr;
     *prefix_length = 0;
     Status status = GetWritableProvider(fname, &provider);
     if (!status.ok()) {
       return status;
-    }
-    // Initialize & write prefix (if needed)
-    AlignedBuffer buffer;
-    Slice prefix;
-    *prefix_length = provider->GetPrefixLength();
-    if (*prefix_length > 0) {
-      // Initialize prefix
-      buffer.Alignment(underlying->GetRequiredBufferAlignment());
-      buffer.AllocateNewBuffer(*prefix_length);
-      status = provider->CreateNewPrefix(fname, buffer.BufferStart(),
-                                         *prefix_length);
-      if (status.ok()) {
-        buffer.Size(*prefix_length);
-        prefix = Slice(buffer.BufferStart(), buffer.CurrentSize());
-        // Write prefix
-        status = underlying->Append(prefix);
+    } else if (provider != nullptr) {
+      // Initialize & write prefix (if needed)
+      AlignedBuffer buffer;
+      Slice prefix;
+      *prefix_length = provider->GetPrefixLength();
+      if (*prefix_length > 0) {
+        // Initialize prefix
+        buffer.Alignment(underlying->GetRequiredBufferAlignment());
+        buffer.AllocateNewBuffer(*prefix_length);
+        status = provider->CreateNewPrefix(fname, buffer.BufferStart(),
+                                           *prefix_length);
+        if (status.ok()) {
+          buffer.Size(*prefix_length);
+          prefix = Slice(buffer.BufferStart(), buffer.CurrentSize());
+          // Write prefix
+          status = underlying->Append(prefix);
+        }
+        if (!status.ok()) {
+          return status;
+        }
       }
-      if (!status.ok()) {
-        return status;
-      }
+      // Create cipher stream
+      status = provider->CreateCipherStream(fname, options, prefix, stream);
     }
-    // Create cipher stream
-    status = provider->CreateCipherStream(fname, options, prefix, stream);
     return status;
   }
 
@@ -477,34 +478,36 @@ class EncryptedEnvImpl : public EnvWrapper {
       const std::string& fname, const std::unique_ptr<TypeFile>& underlying,
       const EnvOptions& options, size_t* prefix_length,
       std::unique_ptr<BlockAccessCipherStream>* stream) {
-    EncryptionProvider* provider;
+    EncryptionProvider* provider = nullptr;
     *prefix_length = 0;
     Status status = GetWritableProvider(fname, &provider);
     if (!status.ok()) {
       return status;
-    }
-    // Initialize & write prefix (if needed)
-    AlignedBuffer buffer;
-    Slice prefix;
-    *prefix_length = provider->GetPrefixLength();
-    if (*prefix_length > 0) {
-      // Initialize prefix
-      buffer.Alignment(underlying->GetRequiredBufferAlignment());
-      buffer.AllocateNewBuffer(*prefix_length);
-      status = provider->CreateNewPrefix(fname, buffer.BufferStart(),
-                                         *prefix_length);
-      if (status.ok()) {
-        buffer.Size(*prefix_length);
-        prefix = Slice(buffer.BufferStart(), buffer.CurrentSize());
-        // Write prefix
-        status = underlying->Write(0, prefix);
+    } else if (provider != nullptr) {
+      // Initialize & write prefix (if needed)
+      AlignedBuffer buffer;
+      Slice prefix;
+      *prefix_length = provider->GetPrefixLength();
+      if (*prefix_length > 0) {
+        // Initialize prefix
+        buffer.Alignment(underlying->GetRequiredBufferAlignment());
+        buffer.AllocateNewBuffer(*prefix_length);
+        status = provider->CreateNewPrefix(fname, buffer.BufferStart(),
+                                           *prefix_length);
+        if (status.ok()) {
+          buffer.Size(*prefix_length);
+          prefix = Slice(buffer.BufferStart(), buffer.CurrentSize());
+          // Write prefix
+          status = underlying->Write(0, prefix);
+        }
+        if (!status.ok()) {
+          return status;
+        }
       }
-      if (!status.ok()) {
-        return status;
-      }
+      // Create cipher stream
+      status = provider->CreateCipherStream(fname, options, prefix, stream);
     }
-    // Create cipher stream
-    return provider->CreateCipherStream(fname, options, prefix, stream);
+    return status;
   }
 
   template <class TypeFile>
@@ -766,8 +769,9 @@ class EncryptedEnvImpl : public EnvWrapper {
       status = GetReadableProvider(it->name, &provider);
       if (!status.ok()) {
         return status;
+      } else if (provider != nullptr) {
+        it->size_bytes -= provider->GetPrefixLength();
       }
-      it->size_bytes -= provider->GetPrefixLength();
     }
     return Status::OK();
   }
@@ -781,7 +785,7 @@ class EncryptedEnvImpl : public EnvWrapper {
     }
     EncryptionProvider* provider;
     status = GetReadableProvider(fname, &provider);
-    if (status.ok()) {
+    if (provider != nullptr && status.ok()) {
       size_t prefixLength = provider->GetPrefixLength();
       assert(*file_size >= prefixLength);
       *file_size -= prefixLength;
