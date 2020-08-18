@@ -749,7 +749,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: 256 MB
   //
   // Dynamically changeable through the SetOptions() API
-  uint64_t blob_file_size = 1 << 18;
+  uint64_t blob_file_size = 1 << 28;
 
   // UNDER CONSTRUCTION -- DO NOT USE
   // The compression algorithm to use for large values stored in blob files.
