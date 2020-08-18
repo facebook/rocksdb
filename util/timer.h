@@ -147,8 +147,8 @@ class Timer {
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
     InstrumentedMutexLock l(&mutex_);
     // It act as a spin lock
-    while (!heap_.empty() &&
-           heap_.top()->next_run_time_us <= env_->NowMicros()) {
+    while (executing_task_ || (!heap_.empty() &&
+           heap_.top()->next_run_time_us <= env_->NowMicros())) {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
     }
     if (callback != nullptr) {
@@ -157,8 +157,8 @@ class Timer {
     cond_var_.SignalAll();
     do {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
-    } while (!heap_.empty() &&
-             heap_.top()->next_run_time_us <= env_->NowMicros());
+    } while (executing_task_ || (!heap_.empty() &&
+             heap_.top()->next_run_time_us <= env_->NowMicros()));
   }
 
   size_t TEST_GetPendingTaskNum() const {

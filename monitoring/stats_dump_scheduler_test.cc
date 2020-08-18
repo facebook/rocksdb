@@ -20,7 +20,7 @@ class StatsDumpSchedulerTest : public DBTestBase {
   std::unique_ptr<MockTimeEnv> mock_env_;
 
   void SetUp() override {
-    mock_env_->InstallTimeWaitCallbackForMACOS();
+    mock_env_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::StartStatsDumpScheduler:Init", [&](void* arg) {
           auto* stats_dump_scheduler_ptr =
@@ -28,7 +28,6 @@ class StatsDumpSchedulerTest : public DBTestBase {
           *stats_dump_scheduler_ptr =
               StatsDumpTestScheduler::Default(mock_env_.get());
         });
-    SyncPoint::GetInstance()->EnableProcessing();
   }
 };
 

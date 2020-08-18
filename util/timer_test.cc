@@ -17,7 +17,7 @@ class TimerTest : public testing::Test {
   std::unique_ptr<MockTimeEnv> mock_env_;
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
 
-  void SetUp() override { mock_env_->InstallTimeWaitCallbackForMACOS(); }
+  void SetUp() override { mock_env_->InstallTimedWaitFixCallback(); }
 };
 
 TEST_F(TimerTest, SingleScheduleOnceTest) {

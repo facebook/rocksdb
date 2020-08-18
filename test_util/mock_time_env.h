@@ -44,10 +44,10 @@ class MockTimeEnv : public EnvWrapper {
   // TODO: this is a workaround for the different behavior on different platform
   // for timedwait timeout. Ideally timedwait API should be moved to env.
   // details: PR #7101.
-  void InstallTimeWaitCallbackForMACOS() {
-#if defined(OS_MACOSX) && !defined(NDEBUG)
+  void InstallTimedWaitFixCallback() {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
+#if defined(OS_MACOSX) && !defined(NDEBUG)
     // This is an alternate way (vs. SpecialEnv) of dealing with the fact
     // that on some platforms, pthread_cond_timedwait does not appear to
     // release the lock for other threads to operate if the deadline time
@@ -61,8 +61,8 @@ class MockTimeEnv : public EnvWrapper {
             *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
           }
         });
-    SyncPoint::GetInstance()->EnableProcessing();
 #endif  // OS_MACOSX && !NDEBUG
+    SyncPoint::GetInstance()->EnableProcessing();
   }
 
  private:
