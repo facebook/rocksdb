@@ -10,12 +10,12 @@
 #include <vector>
 
 #include "db/blob/blob_log_writer.h"
+#include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class VersionSet;
-class Env;
 class FileSystem;
 struct ImmutableCFOptions;
 struct MutableCFOptions;
@@ -30,6 +30,8 @@ class BlobFileBuilder {
                   const ImmutableCFOptions* immutable_cf_options,
                   const MutableCFOptions* mutable_cf_options,
                   const FileOptions* file_options, uint32_t column_family_id,
+                  Env::IOPriority io_priority,
+                  Env::WriteLifeTimeHint write_hint,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
   BlobFileBuilder(const BlobFileBuilder&) = delete;
@@ -56,6 +58,8 @@ class BlobFileBuilder {
   CompressionType blob_compression_type_;
   const FileOptions* file_options_;
   uint32_t column_family_id_;
+  Env::IOPriority io_priority_;
+  Env::WriteLifeTimeHint write_hint_;
   std::vector<BlobFileAddition>* blob_file_additions_;
   std::unique_ptr<BlobLogWriter> writer_;
   uint64_t blob_count_;

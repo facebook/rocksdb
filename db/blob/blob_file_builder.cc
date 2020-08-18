@@ -28,7 +28,8 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, Env* env, FileSystem* fs,
     const ImmutableCFOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    uint32_t column_family_id,
+    uint32_t column_family_id, Env::IOPriority io_priority,
+    Env::WriteLifeTimeHint write_hint,
     std::vector<BlobFileAddition>* blob_file_additions)
     : versions_(versions),
       env_(env),
@@ -39,6 +40,8 @@ BlobFileBuilder::BlobFileBuilder(
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       file_options_(file_options),
       column_family_id_(column_family_id),
+      io_priority_(io_priority),
+      write_hint_(write_hint),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
       blob_bytes_(0) {
@@ -138,7 +141,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       return s;
     }
 
-    // TODO: IO priority, lifetime hint?
+    assert(file);
+    file->SetIOPriority(io_priority_);
+    file->SetWriteLifeTimeHint(write_hint_);
   }
 
   Statistics* const statistics = immutable_cf_options_->statistics;
