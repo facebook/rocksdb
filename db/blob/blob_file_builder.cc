@@ -5,6 +5,7 @@
 
 #include "db/blob/blob_file_builder.h"
 
+#include <cassert>
 #include <limits>
 
 #include "db/blob/blob_file_addition.h"
@@ -22,6 +23,32 @@
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+BlobFileBuilder::BlobFileBuilder(
+    VersionSet* versions, Env* env, FileSystem* fs,
+    const ImmutableCFOptions* immutable_cf_options,
+    const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
+    uint32_t column_family_id,
+    std::vector<BlobFileAddition>* blob_file_additions)
+    : versions_(versions),
+      env_(env),
+      fs_(fs),
+      immutable_cf_options_(immutable_cf_options),
+      min_blob_size_(mutable_cf_options->min_blob_size),
+      blob_file_size_(mutable_cf_options->blob_file_size),
+      blob_compression_type_(mutable_cf_options->blob_compression_type),
+      file_options_(file_options),
+      column_family_id_(column_family_id),
+      blob_file_additions_(blob_file_additions),
+      blob_count_(0),
+      blob_bytes_(0) {
+  assert(versions_);
+  assert(env_);
+  assert(fs_);
+  assert(immutable_cf_options_);
+  assert(file_options_);
+  assert(blob_file_additions_);
+}
 
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
                             Slice* blob_index) {

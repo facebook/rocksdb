@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include <cassert>
 #include <cinttypes>
 #include <memory>
 #include <string>
@@ -19,6 +18,7 @@ class VersionSet;
 class Env;
 class FileSystem;
 struct ImmutableCFOptions;
+struct MutableCFOptions;
 struct FileOptions;
 class BlobFileAddition;
 class Status;
@@ -28,29 +28,9 @@ class BlobFileBuilder {
  public:
   BlobFileBuilder(VersionSet* versions, Env* env, FileSystem* fs,
                   const ImmutableCFOptions* immutable_cf_options,
-                  uint64_t min_blob_size, uint64_t blob_file_size,
-                  CompressionType blob_compression_type,
+                  const MutableCFOptions* mutable_cf_options,
                   const FileOptions* file_options, uint32_t column_family_id,
-                  std::vector<BlobFileAddition>* blob_file_additions)
-      : versions_(versions),
-        env_(env),
-        fs_(fs),
-        immutable_cf_options_(immutable_cf_options),
-        min_blob_size_(min_blob_size),
-        blob_file_size_(blob_file_size),
-        blob_compression_type_(blob_compression_type),
-        file_options_(file_options),
-        column_family_id_(column_family_id),
-        blob_file_additions_(blob_file_additions),
-        blob_count_(0),
-        blob_bytes_(0) {
-    assert(versions_);
-    assert(env_);
-    assert(fs_);
-    assert(immutable_cf_options_);
-    assert(file_options_);
-    assert(blob_file_additions_);
-  }
+                  std::vector<BlobFileAddition>* blob_file_additions);
 
   BlobFileBuilder(const BlobFileBuilder&) = delete;
   BlobFileBuilder& operator=(const BlobFileBuilder&) = delete;
