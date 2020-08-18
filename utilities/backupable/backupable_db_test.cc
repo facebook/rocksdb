@@ -648,7 +648,20 @@ class FileManager : public EnvWrapper {
 }; // FileManager
 
 // utility functions
-static size_t FillDB(DB* db, int from, int to) {
+namespace {
+
+enum FillDBFlushAction {
+  kFlushMost,
+  kFlushAll,
+  kAutoFlushOnly,
+};
+
+// Many tests in this file expect FillDB to write at least one sst file,
+// so the default behavior (if not kAutoFlushOnly) of FillDB is to force
+// a flush. But to ensure coverage of the WAL file case, we also (by default)
+// do one Put after the Flush (kFlushMost).
+size_t FillDB(DB* db, int from, int to,
+              FillDBFlushAction flush_action = kFlushMost) {
   size_t bytes_written = 0;
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
@@ -656,11 +669,18 @@ static size_t FillDB(DB* db, int from, int to) {
     bytes_written += key.size() + value.size();
 
     EXPECT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
+
+    if (flush_action == kFlushMost && i == to - 2) {
+      EXPECT_OK(db->Flush(FlushOptions()));
+    }
+  }
+  if (flush_action == kFlushAll) {
+    EXPECT_OK(db->Flush(FlushOptions()));
   }
   return bytes_written;
 }
 
-static void AssertExists(DB* db, int from, int to) {
+void AssertExists(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
     std::string value;
@@ -669,7 +689,7 @@ static void AssertExists(DB* db, int from, int to) {
   }
 }
 
-static void AssertEmpty(DB* db, int from, int to) {
+void AssertEmpty(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
     std::string value = "testvalue" + ToString(i);
@@ -678,6 +698,7 @@ static void AssertEmpty(DB* db, int from, int to) {
     ASSERT_TRUE(s.IsNotFound());
   }
 }
+}  // namespace
 
 class BackupableDBTest : public testing::Test {
  public:
@@ -1259,7 +1280,8 @@ TEST_P(BackupableDBTestWithParam, OfflineIntegrationTest) {
       // ---- insert new data and back up ----
       OpenDBAndBackupEngine(destroy_data);
       destroy_data = false;
-      FillDB(db_.get(), keys_iteration * i, fill_up_to);
+      // kAutoFlushOnly to preserve legacy test behavior (consider updating)
+      FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
       CloseDBAndBackupEngine();
       DestroyDB(dbname_, options_);
@@ -1302,7 +1324,8 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
     // in last iteration, put smaller amount of data,
     // so that backups can share sst files
     int fill_up_to = std::min(keys_iteration * (i + 1), max_key);
-    FillDB(db_.get(), keys_iteration * i, fill_up_to);
+    // kAutoFlushOnly to preserve legacy test behavior (consider updating)
+    FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
     // we should get consistent results with flush_before_backup
     // set to both true and false
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
@@ -1630,7 +1653,6 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1647,7 +1669,6 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1665,7 +1686,6 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
 
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1680,7 +1700,6 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -2251,16 +2270,12 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
   // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
   OpenDBAndBackupEngine(true);
-  FillDB(db_.get(), 0, 100);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 100, 200);
+  FillDB(db_.get(), 0, 100, kFlushAll);
+  FillDB(db_.get(), 100, 200, kFlushAll);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  FillDB(db_.get(), 200, 300);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 300, 400);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 400, 500);
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  FillDB(db_.get(), 200, 300, kFlushAll);
+  FillDB(db_.get(), 300, 400, kFlushAll);
+  FillDB(db_.get(), 400, 500, kFlushAll);
   CloseDBAndBackupEngine();
 
   // all data should be there if we call with keep_log_files = true
@@ -2471,7 +2486,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   DestroyDB(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
   OpenDBAndBackupEngine(true);
-  FillDB(db_.get(), 0, 100);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
@@ -2495,7 +2510,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
   std::string prev_manifest_path =
       DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
-  FillDB(db_.get(), 0, 100);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
@@ -2705,8 +2720,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   for (int i = 0; i < kNumBackups; ++i) {
     FillDB(db_.get(), i * kNumKeysPerBackup /* from */,
-           (i + 1) * kNumKeysPerBackup /* to */);
-    ASSERT_OK(db_->Flush(FlushOptions()));
+           (i + 1) * kNumKeysPerBackup /* to */, kFlushAll);
 
     // Clear the file open counters and then do a bunch of backup engine ops.
     // For all ops, files should be opened in direct mode.
