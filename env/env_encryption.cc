@@ -442,6 +442,7 @@ class EncryptedEnvImpl : public EnvWrapper {
       const EnvOptions& options, size_t* prefix_length,
       std::unique_ptr<BlockAccessCipherStream>* stream) {
     EncryptionProvider* provider;
+    *prefix_length = 0;
     Status status = GetWritableProvider(fname, &provider);
     if (!status.ok()) {
       return status;
@@ -477,6 +478,7 @@ class EncryptedEnvImpl : public EnvWrapper {
       const EnvOptions& options, size_t* prefix_length,
       std::unique_ptr<BlockAccessCipherStream>* stream) {
     EncryptionProvider* provider;
+    *prefix_length = 0;
     Status status = GetWritableProvider(fname, &provider);
     if (!status.ok()) {
       return status;
@@ -718,7 +720,7 @@ class EncryptedEnvImpl : public EnvWrapper {
     }
     // Create cipher stream
     std::unique_ptr<BlockAccessCipherStream> stream;
-    size_t prefix_length;
+    size_t prefix_length = 0;
     if (!isNewFile) {
       // File already exists, read prefix
       status = CreateRandomReadCipherStream(fname, underlying, options,
