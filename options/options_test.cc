@@ -98,8 +98,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"prefix_extractor", "fixed:31"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
-      {"min_blob_size", "1024"},
-      {"blob_file_size", "256000000"},
+      {"min_blob_size", "1K"},
+      {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
   };
 
@@ -226,8 +226,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
             "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
-  ASSERT_EQ(new_cf_opt.min_blob_size, 1024);
-  ASSERT_EQ(new_cf_opt.blob_file_size, 256000000);
+  ASSERT_EQ(new_cf_opt.min_blob_size, 1 << 10);
+  ASSERT_EQ(new_cf_opt.blob_file_size, 1 << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -1509,8 +1509,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"prefix_extractor", "fixed:31"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
-      {"min_blob_size", "1024"},
-      {"blob_file_size", "256000000"},
+      {"min_blob_size", "1K"},
+      {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
   };
 
@@ -1629,8 +1629,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
             "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
-  ASSERT_EQ(new_cf_opt.min_blob_size, 1024);
-  ASSERT_EQ(new_cf_opt.blob_file_size, 256000000);
+  ASSERT_EQ(new_cf_opt.min_blob_size, 1 << 10);
+  ASSERT_EQ(new_cf_opt.blob_file_size, 1 << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
 
   cf_options_map["write_buffer_size"] = "hello";
