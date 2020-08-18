@@ -138,8 +138,15 @@ class Timer {
   }
 
 #ifndef NDEBUG
+  // Wait until Timer starting waiting, call the optional callback, then wait
+  // for Timer waiting again.
+  // Tests can provide a custom env object to mock time, and use the callback
+  // here to bump current time and trigger Timer. See timer_test for example.
+  //
+  // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
     InstrumentedMutexLock l(&mutex_);
+    // It act as a spin lock
     while (!heap_.empty() &&
            heap_.top()->next_run_time_us <= env_->NowMicros()) {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
