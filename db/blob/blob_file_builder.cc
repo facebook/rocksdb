@@ -233,7 +233,11 @@ Status BlobFileBuilder::CloseBlobFile() {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
 
-  const Status s = writer_->AppendFooter(footer);
+  std::string checksum_method;
+  std::string checksum_value;
+
+  const Status s =
+      writer_->AppendFooter(footer, &checksum_method, &checksum_value);
   if (!s.ok()) {
     return s;
   }
@@ -242,8 +246,7 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   assert(blob_file_additions_);
   blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
-                                     /* TODO: checksum_method */ std::string(),
-                                     /* TODO: checksum_value */ std::string());
+                                     checksum_method, checksum_value);
 
   writer_.reset();
   blob_count_ = 0;
