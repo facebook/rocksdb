@@ -47,6 +47,7 @@ class StatsHistoryTest : public DBTestBase {
           *stats_dump_scheduler_ptr =
               StatsDumpTestScheduler::Default(mock_env_.get());
         });
+    SyncPoint::GetInstance()->EnableProcessing();
   }
 };
 
