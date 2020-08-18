@@ -11,11 +11,13 @@ namespace ROCKSDB_NAMESPACE {
 
 class TimerTest : public testing::Test {
  public:
-  TimerTest() : mock_env_(new SafeMockTimeEnv(Env::Default())) {}
+  TimerTest() : mock_env_(new MockTimeEnv(Env::Default())) {}
 
  protected:
-  std::unique_ptr<SafeMockTimeEnv> mock_env_;
+  std::unique_ptr<MockTimeEnv> mock_env_;
   const uint64_t kSecond = 1000000;  // 1sec = 1000000us
+
+  void SetUp() override { mock_env_->InstallTimeWaitCallbackForMACOS(); }
 };
 
 TEST_F(TimerTest, SingleScheduleOnceTest) {
@@ -29,12 +31,12 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
 
   ASSERT_TRUE(timer.Start());
 
+  ASSERT_EQ(0, count);
   // Wait for execution to finish
   mock_time_sec += kInitDelaySec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
 
   ASSERT_TRUE(timer.Shutdown());
-
   ASSERT_EQ(1, count);
 }
 
@@ -52,6 +54,9 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   timer.Add([&] { count2 += 5; }, "fn_sch_test2", kInitDelay2Sec * kSecond, 0);
 
   ASSERT_TRUE(timer.Start());
+  ASSERT_EQ(0, count1);
+  ASSERT_EQ(0, count2);
+
   mock_time_sec = kInitDelay1Sec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
 
@@ -80,6 +85,7 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
             kRepeatSec * kSecond);
 
   ASSERT_TRUE(timer.Start());
+  ASSERT_EQ(0, count);
 
   mock_time_sec += kInitDelaySec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
@@ -117,11 +123,12 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
 
   ASSERT_TRUE(timer.Start());
 
+  ASSERT_EQ(0, count2);
   // Wait for execution to finish
   for (; count1 < kIterations; mock_time_sec++) {
     timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
-    ASSERT_EQ(count1, (mock_time_sec + 2) / 2);
-    ASSERT_EQ(count2, (mock_time_sec + 1) / 2);
+    ASSERT_EQ((mock_time_sec + 2) / 2, count1);
+    ASSERT_EQ((mock_time_sec + 1) / 2, count2);
   }
 
   timer.Cancel("fn_sch_test1");
@@ -134,8 +141,8 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
 
   ASSERT_TRUE(timer.Shutdown());
 
-  ASSERT_EQ(count1, kIterations);
-  ASSERT_EQ(count2, kIterations);
+  ASSERT_EQ(kIterations, count1);
+  ASSERT_EQ(kIterations, count2);
 }
 
 TEST_F(TimerTest, AddAfterStartTest) {
@@ -158,7 +165,7 @@ TEST_F(TimerTest, AddAfterStartTest) {
   int count = 0;
   timer.Add([&] { count++; }, "fn_sch_test", kInitDelaySec * kSecond,
             kRepeatSec * kSecond);
-
+  ASSERT_EQ(0, count);
   // Wait for execution to finish
   mock_time_sec += kInitDelaySec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
@@ -271,19 +278,23 @@ TEST_F(TimerTest, AddSameFuncNameTest) {
   timer.Add([&] { func_counter2++; }, "duplicated_func",
             kInitDelaySec * kSecond, kRepeat1Sec * kSecond);
 
+  ASSERT_EQ(0, func_counter1);
+  ASSERT_EQ(0, func2_counter);
+  ASSERT_EQ(0, func_counter2);
+
   mock_time_sec += kInitDelaySec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
 
-  ASSERT_EQ(func_counter1, 0);
-  ASSERT_EQ(func2_counter, 1);
-  ASSERT_EQ(func_counter2, 1);
+  ASSERT_EQ(0, func_counter1);
+  ASSERT_EQ(1, func2_counter);
+  ASSERT_EQ(1, func_counter2);
 
   mock_time_sec += kRepeat1Sec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
 
-  ASSERT_EQ(func_counter1, 0);
-  ASSERT_EQ(func2_counter, 2);
-  ASSERT_EQ(func_counter2, 2);
+  ASSERT_EQ(0, func_counter1);
+  ASSERT_EQ(2, func2_counter);
+  ASSERT_EQ(2, func_counter2);
 
   ASSERT_TRUE(timer.Shutdown());
 }
