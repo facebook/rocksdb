@@ -104,6 +104,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"create_missing_column_families", "true"},
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
+      {"check_wal", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -254,6 +255,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
+  ASSERT_EQ(new_db_opt.check_wal, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);
@@ -765,6 +767,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"create_missing_column_families", "true"},
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
+      {"check_wal", "true"},
       {"max_open_files", "32"},
   };
   ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
@@ -772,6 +775,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
+  ASSERT_EQ(new_db_opt.check_wal, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
   ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
@@ -1507,6 +1511,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"create_missing_column_families", "true"},
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
+      {"check_wal", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -1651,6 +1656,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
+  ASSERT_EQ(new_db_opt.check_wal, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);

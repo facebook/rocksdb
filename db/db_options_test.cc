@@ -87,6 +87,23 @@ class DBOptionsTest : public DBTestBase {
 #endif  // ROCKSDB_LITE
 };
 
+TEST_F(DBOptionsTest, CheckWalImmutable) {
+  ASSERT_FALSE(db_options_type_info.at("check_wal").IsMutable());
+  Options options;
+  options.check_wal = true;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.check_wal);
+
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetDBOptions().check_wal);
+
+  Status s = dbfull()->SetDBOptions({{"check_wal", "false"}});
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_TRUE(s.ToString().find("Option not changeable: check_wal") !=
+              std::string::npos);
+}
+
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
 
