@@ -22,6 +22,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool check_wal;
   Env* env;
   std::shared_ptr<FileSystem> fs;
   std::shared_ptr<RateLimiter> rate_limiter;

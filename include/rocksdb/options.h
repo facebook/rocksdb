@@ -374,6 +374,14 @@ struct DBOptions {
   // Default: true
   bool paranoid_checks = true;
 
+  // If true, check on-disk WALs against WAL information stored in MANIFEST
+  // during recovery.
+  // It checks whether there are missing or corrupted WALs.
+  // No matter whether this is true or false, the WAL information are always
+  // tracked by MANIFEST.
+  // Default: false
+  bool check_wal = false;
+
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
   // future, support for doing storage operations such as read/write files
