@@ -226,8 +226,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
             "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
-  ASSERT_EQ(new_cf_opt.min_blob_size, 1 << 10);
-  ASSERT_EQ(new_cf_opt.blob_file_size, 1 << 30);
+  ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
+  ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -1629,8 +1629,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
             "rocksdb.FixedPrefix.31");
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
-  ASSERT_EQ(new_cf_opt.min_blob_size, 1 << 10);
-  ASSERT_EQ(new_cf_opt.blob_file_size, 1 << 30);
+  ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
+  ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
 
   cf_options_map["write_buffer_size"] = "hello";
