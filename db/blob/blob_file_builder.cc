@@ -256,7 +256,8 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   assert(blob_file_additions_);
   blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
-                                     checksum_method, checksum_value);
+                                     std::move(checksum_method),
+                                     std::move(checksum_value));
 
   writer_.reset();
   blob_count_ = 0;
