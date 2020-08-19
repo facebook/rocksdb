@@ -10,8 +10,12 @@
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_reader.h"
 #include "env/composite_env_wrapper.h"
 #include "env/mock_env.h"
+#include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -38,6 +42,7 @@ class BlobFileBuilderTest : public testing::Test {
 };
 
 TEST_F(BlobFileBuilderTest, Build) {
+  // Build a single blob file
   Options options;
   options.cf_paths.emplace_back(
       test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Build"), 0);
@@ -57,15 +62,52 @@ TEST_F(BlobFileBuilderTest, Build) {
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
 
-  for (int i = 0; i < 10; ++i) {
+  constexpr int number_of_blobs = 10;
+  constexpr int value_offset = 1234;
+
+  for (int i = 0; i < number_of_blobs; ++i) {
     const std::string key = std::to_string(i);
-    const std::string value = std::to_string(i + 1234);
+    const std::string value = std::to_string(i + value_offset);
 
     std::string blob_index;
     ASSERT_OK(builder.Add(key, value, &blob_index));
   }
 
   ASSERT_OK(builder.Finish());
+
+  // Read it back and check keys/values
+  constexpr uint64_t blob_file_number = 2;
+  const std::string blob_file_path = BlobFileName(
+      immutable_cf_options.cf_paths.front().path, blob_file_number);
+
+  std::unique_ptr<FSRandomAccessFile> file;
+  constexpr IODebugContext* dbg = nullptr;
+  ASSERT_OK(fs_.NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
+
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file), blob_file_path, &env_));
+
+  constexpr Statistics* statistics = nullptr;
+  BlobLogReader blob_log_reader(std::move(file_reader), &env_, statistics);
+
+  BlobLogHeader header;
+  ASSERT_OK(blob_log_reader.ReadHeader(&header));
+  ASSERT_EQ(header.version, kVersion1);
+  ASSERT_EQ(header.column_family_id, column_family_id);
+  ASSERT_EQ(header.compression, kNoCompression);
+  ASSERT_FALSE(header.has_ttl);
+  ASSERT_EQ(header.expiration_range, ExpirationRange());
+
+  for (int i = 0; i < number_of_blobs; ++i) {
+    BlobLogRecord record;
+    uint64_t blob_offset = 0;
+
+    ASSERT_OK(blob_log_reader.ReadRecord(
+        &record, BlobLogReader::kReadHeaderKeyBlob, &blob_offset));
+    ASSERT_EQ(record.expiration, 0);
+    ASSERT_EQ(record.key, std::to_string(i));
+    ASSERT_EQ(record.value, std::to_string(i + value_offset));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
