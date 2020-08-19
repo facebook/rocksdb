@@ -41,7 +41,8 @@ class DBBlobIndexTest : public DBTestBase {
                                        Tier::kImmutableMemtables,
                                        Tier::kL0SstFile, Tier::kLnSstFile};
 
-  DBBlobIndexTest() : DBTestBase("/db_blob_index_test") {}
+  DBBlobIndexTest()
+      : DBTestBase("/db_blob_index_test", /*env_do_fsync=*/true) {}
 
   ColumnFamilyHandle* cfh() { return dbfull()->DefaultColumnFamily(); }
 

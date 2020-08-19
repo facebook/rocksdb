@@ -66,17 +66,25 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
 class FileSystemPtr {
  public:
   FileSystemPtr(std::shared_ptr<FileSystem> fs,
-                std::shared_ptr<IOTracer> io_tracer)
-      : fs_(fs),
-        io_tracer_(io_tracer),
-        fs_tracer_(
-            std::make_shared<FileSystemTracingWrapper>(fs_, io_tracer_)) {}
+                const std::shared_ptr<IOTracer>& io_tracer)
+      : fs_(fs), io_tracer_(io_tracer) {
+    fs_tracer_ = std::make_shared<FileSystemTracingWrapper>(fs_, io_tracer_);
+  }
 
   std::shared_ptr<FileSystem> operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
       return fs_tracer_;
     } else {
       return fs_;
+    }
+  }
+
+  /* Returns the underlying File System pointer */
+  FileSystem* get() const {
+    if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
+      return fs_tracer_.get();
+    } else {
+      return fs_.get();
     }
   }
 

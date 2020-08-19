@@ -26,14 +26,16 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBCompactionTest : public DBTestBase {
  public:
-  DBCompactionTest() : DBTestBase("/db_compaction_test") {}
+  DBCompactionTest()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
 };
 
 class DBCompactionTestWithParam
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
-  DBCompactionTestWithParam() : DBTestBase("/db_compaction_test") {
+  DBCompactionTestWithParam()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
     max_subcompactions_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -50,6 +52,16 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
                                  public ::testing::WithParamInterface<bool> {
  public:
   DBCompactionDirectIOTest() : DBCompactionTest() {}
+};
+
+// Param = true : target level is non-empty
+// Param = false: level between target level and source level
+//  is not empty.
+class ChangeLevelConflictsWithAuto
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  ChangeLevelConflictsWithAuto() : DBCompactionTest() {}
 };
 
 namespace {
@@ -3597,10 +3609,11 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   options.compression = kNoCompression;
   options.ttl = 24 * 60 * 60;  // 24 hours
   options.max_open_files = -1;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -3627,7 +3640,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   MoveFilesToLevel(1);
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
-  env_->addon_time_.fetch_add(36 * 60 * 60);  // 36 hours
+  env_->MockSleepForSeconds(36 * 60 * 60);  // 36 hours
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
   // Just do a simple write + flush so that the Ttl expired files get
@@ -3647,7 +3660,8 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   // Test dynamically changing ttl.
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumLevelFiles; ++i) {
@@ -3675,7 +3689,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   // Move time forward by 12 hours, and make sure that compaction still doesn't
   // trigger as ttl is set to 24 hours.
-  env_->addon_time_.fetch_add(12 * 60 * 60);
+  env_->MockSleepForSeconds(12 * 60 * 60);
   ASSERT_OK(Put("a", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -3698,6 +3712,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 }
 
 TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
+  env_->SetMockSleep();
   const int kValueSize = 100;
 
   for (bool if_restart : {false, true}) {
@@ -3728,10 +3743,10 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
             }
           });
 
-      env_->time_elapse_only_sleep_ = false;
       options.env = env_;
 
-      env_->addon_time_.store(0);
+      // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
       DestroyAndReopen(options);
 
       int ttl_compactions = 0;
@@ -3759,7 +3774,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
                                       &level_to_files);
       uint64_t oldest_time = level_to_files[0][0].oldest_ancester_time;
       // Add 1 hour and do another flush.
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       for (int i = 101; i <= 200; ++i) {
         ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
@@ -3767,13 +3782,13 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       MoveFilesToLevel(6);
       ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       // Add two L4 files with key ranges: [1 .. 50], [51 .. 150].
       for (int i = 1; i <= 50; ++i) {
         ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
       Flush();
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       for (int i = 51; i <= 150; ++i) {
         ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
@@ -3781,7 +3796,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       MoveFilesToLevel(4);
       ASSERT_EQ("0,0,0,0,2,0,2", FilesPerLevel());
 
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       // Add one L1 file with key range: [26, 75].
       for (int i = 26; i <= 75; ++i) {
         ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
@@ -3811,7 +3826,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       // 4. A TTL compaction happens between L5 and L6 files. Ouptut in L6.
 
       // Add 25 hours and do a write
-      env_->addon_time_.fetch_add(25 * 60 * 60);
+      env_->MockSleepForSeconds(25 * 60 * 60);
 
       ASSERT_OK(Put(Key(1), "1"));
       if (if_restart) {
@@ -3827,7 +3842,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
                                       &level_to_files);
       ASSERT_EQ(oldest_time, level_to_files[6][0].oldest_ancester_time);
 
-      env_->addon_time_.fetch_add(25 * 60 * 60);
+      env_->MockSleepForSeconds(25 * 60 * 60);
       ASSERT_OK(Put(Key(2), "1"));
       if (if_restart) {
         Reopen(options);
@@ -3844,6 +3859,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
+  env_->SetMockSleep();
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
   const int kValueSize = 100;
@@ -3875,10 +3891,10 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
             }
           });
 
-      env_->time_elapse_only_sleep_ = false;
       options.env = env_;
 
-      env_->addon_time_.store(0);
+      // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
       DestroyAndReopen(options);
 
       int periodic_compactions = 0;
@@ -3906,7 +3922,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ASSERT_EQ(0, periodic_compactions);
 
       // Add 50 hours and do a write
-      env_->addon_time_.fetch_add(50 * 60 * 60);
+      env_->MockSleepForSeconds(50 * 60 * 60);
       ASSERT_OK(Put("a", "1"));
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -3919,7 +3935,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ASSERT_EQ("0,3", FilesPerLevel());
 
       // Add another 50 hours and do another write
-      env_->addon_time_.fetch_add(50 * 60 * 60);
+      env_->MockSleepForSeconds(50 * 60 * 60);
       ASSERT_OK(Put("b", "2"));
       if (if_restart) {
         Reopen(options);
@@ -3933,7 +3949,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ASSERT_EQ(5, periodic_compactions);
 
       // Add another 50 hours and do another write
-      env_->addon_time_.fetch_add(50 * 60 * 60);
+      env_->MockSleepForSeconds(50 * 60 * 60);
       ASSERT_OK(Put("c", "3"));
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -3957,10 +3973,11 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   int periodic_compactions = 0;
@@ -4008,7 +4025,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
 
   set_file_creation_time_to_zero = false;
   // Forward the clock by 2 days.
-  env_->addon_time_.fetch_add(2 * 24 * 60 * 60);
+  env_->MockSleepForSeconds(2 * 24 * 60 * 60);
   options.periodic_compaction_seconds = 1 * 24 * 60 * 60;  // 1 day
 
   Reopen(options);
@@ -4029,10 +4046,11 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   options.ttl = 10 * 60 * 60;  // 10 hours
   options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
   options.max_open_files = -1;   // needed for both periodic and ttl compactions
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   int periodic_compactions = 0;
@@ -4066,7 +4084,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(0, ttl_compactions);
 
   // Add some time greater than periodic_compaction_time.
-  env_->addon_time_.fetch_add(50 * 60 * 60);
+  env_->MockSleepForSeconds(50 * 60 * 60);
   ASSERT_OK(Put("a", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -4076,7 +4094,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(0, ttl_compactions);
 
   // Add a little more time than ttl
-  env_->addon_time_.fetch_add(11 * 60 * 60);
+  env_->MockSleepForSeconds(11 * 60 * 60);
   ASSERT_OK(Put("b", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -4088,7 +4106,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(3, ttl_compactions);
 
   // Add some time greater than periodic_compaction_time.
-  env_->addon_time_.fetch_add(50 * 60 * 60);
+  env_->MockSleepForSeconds(50 * 60 * 60);
   ASSERT_OK(Put("c", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -4121,9 +4139,10 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
 
   Options options = CurrentOptions();
   TestCompactionFilter test_compaction_filter;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
-  env_->addon_time_.store(0);
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   enum CompactionFilterType {
     kUseCompactionFilter,
@@ -4174,7 +4193,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
     ASSERT_EQ(0, periodic_compactions);
 
     // Add 31 days and do a write
-    env_->addon_time_.fetch_add(31 * 24 * 60 * 60);
+    env_->MockSleepForSeconds(31 * 24 * 60 * 60);
     ASSERT_OK(Put("a", "1"));
     Flush();
     dbfull()->TEST_WaitForCompact();
@@ -4808,7 +4827,8 @@ INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
 class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
  public:
-  CompactionPriTest() : DBTestBase("/compaction_pri_test") {
+  CompactionPriTest()
+      : DBTestBase("/compaction_pri_test", /*env_do_fsync=*/true) {
     compaction_pri_ = GetParam();
   }
 
@@ -5435,7 +5455,169 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
   ASSERT_TRUE(has_compaction);
 }
 
-#endif // !defined(ROCKSDB_LITE)
+TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
+  // A `CompactRange()` may race with an automatic compaction, we'll need
+  // to make sure it doesn't corrupte the data.
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // Run a qury to refitting to level 1 while another thread writing to
+  // the same level.
+  SyncPoint::GetInstance()->LoadDependency({
+      // The first two dependencies ensure the foreground creates an L0 file
+      // between the background compaction's L0->L1 and its L1->L2.
+      {
+          "DBImpl::CompactRange:BeforeRefit:1",
+          "AutoCompactionFinished1",
+      },
+      {
+          "AutoCompactionFinished2",
+          "DBImpl::CompactRange:BeforeRefit:2",
+      },
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread auto_comp([&] {
+    TEST_SYNC_POINT("AutoCompactionFinished1");
+    ASSERT_OK(Put("bar", "v2"));
+    ASSERT_OK(Put("foo", "v2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("bar", "v3"));
+    ASSERT_OK(Put("foo", "v3"));
+    ASSERT_OK(Flush());
+    dbfull()->TEST_WaitForCompact();
+    TEST_SYNC_POINT("AutoCompactionFinished2");
+  });
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = GetParam() ? 1 : 0;
+    // This should return non-OK, but it's more important for the test to
+    // make sure that the DB is not corrupted.
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+  }
+  auto_comp.join();
+  // Refitting didn't happen.
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Write something to DB just make sure that consistency check didn't
+  // fail and make the DB readable.
+}
+
+INSTANTIATE_TEST_CASE_P(ChangeLevelConflictsWithAuto,
+                        ChangeLevelConflictsWithAuto, testing::Bool());
+
+TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
+  // A `CompactRange()` with `change_level == true` needs to execute its final
+  // step, `ReFitLevel()`, in isolation. Previously there was a bug where
+  // refitting could target the same level as an ongoing manual compaction,
+  // leading to overlapping files in that level.
+  //
+  // This test ensures that case is not possible by verifying any manual
+  // compaction issued during the `ReFitLevel()` phase fails with
+  // `Status::Incomplete`.
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  Reopen(options);
+
+  // Setup an LSM with three levels populated.
+  Random rnd(301);
+  int key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
+
+  // The background thread will refit L2->L1 while the
+  // foreground thread will try to simultaneously compact L0->L1.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      // The first two dependencies ensure the foreground creates an L0 file
+      // between the background compaction's L0->L1 and its L1->L2.
+      {
+          "DBImpl::RunManualCompaction()::1",
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "PutFG",
+      },
+      {
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "FlushedFG",
+          "DBImpl::RunManualCompaction()::2",
+      },
+      // The next two dependencies ensure the foreground invokes
+      // `CompactRange()` while the background is refitting. The
+      // foreground's `CompactRange()` is guaranteed to attempt an L0->L1
+      // as we set it up with an empty memtable and a new L0 file.
+      {
+          "DBImpl::CompactRange:PreRefitLevel",
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "CompactFG",
+      },
+      {
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "CompactedFG",
+          "DBImpl::CompactRange:PostRefitLevel",
+      },
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread refit_level_thread([&] {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:PutFG");
+  // Make sure we have something new to compact in the foreground.
+  // Note key 1 is carefully chosen as it ensures the file we create here
+  // overlaps with one of the files being refitted L2->L1 in the background.
+  // If we chose key 0, the file created here would not overlap.
+  ASSERT_OK(Put(Key(1), "val"));
+  ASSERT_OK(Flush());
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:FlushedFG");
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:CompactFG");
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsIncomplete());
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+      "CompactedFG");
+  refit_level_thread.join();
+}
+
+#endif  // !defined(ROCKSDB_LITE)
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

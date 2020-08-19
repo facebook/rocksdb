@@ -74,6 +74,18 @@ class BlobDBTest : public testing::Test {
   Status TryOpen(BlobDBOptions bdb_options = BlobDBOptions(),
                  Options options = Options()) {
     options.create_if_missing = true;
+    if (options.env == mock_env_.get()) {
+      // Need to disable stats dumping and persisting which also use
+      // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
+      // With mocked time, this can hang on some platforms (MacOS)
+      // because (a) on some platforms, pthread_cond_timedwait does not appear
+      // to release the lock for other threads to operate if the deadline time
+      // is already passed, and (b) TimedWait calls are currently a bad
+      // abstraction because the deadline parameter is usually computed from
+      // Env time, but is interpreted in real clock time.
+      options.stats_dump_period_sec = 0;
+      options.stats_persist_period_sec = 0;
+    }
     return BlobDB::Open(options, bdb_options, dbname_, &blob_db_);
   }
 

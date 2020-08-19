@@ -131,11 +131,14 @@ endif
 # Figure out optimize level.
 ifneq ($(DEBUG_LEVEL), 2)
 ifeq ($(LITE), 0)
-	OPT += -O2
+	OPTIMIZE_LEVEL ?= -O2
 else
-	OPT += -Os
+	OPTIMIZE_LEVEL ?= -Os
 endif
 endif
+# `OPTIMIZE_LEVEL` is empty when the user does not set it and `DEBUG_LEVEL=2`.
+# In that case, the compiler default (`-O0` for gcc and clang) will be used.
+OPT += $(OPTIMIZE_LEVEL)
 
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
@@ -262,7 +265,7 @@ dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
 include make_config.mk
 
 export JAVAC_ARGS
-CLEAN_FILES += make_config.mk
+CLEAN_FILES += make_config.mk rocksdb.pc
 
 ifeq ($(V), 1)
 $(info $(shell uname -a))
@@ -615,7 +618,7 @@ TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
 endif
 
 	# Enable building all unit tests, but use check_some to run only tests
-	# known to pass ASC
+	# known to pass ASC (ASSERT_STATUS_CHECKED)
 	SUBSET := $(TESTS_PASSING_ASC)
 	# Alternate: only build unit tests known to pass ASC, and run them
 	# with make check
@@ -722,7 +725,7 @@ endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
+	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
@@ -1805,6 +1808,9 @@ blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRA
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+stats_dump_scheduler_test: $(OBJ_DIR)/monitoring/stats_dump_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1821,16 +1827,19 @@ uninstall:
 	  $(INSTALL_PATH)/lib/$(SHARED4) \
 	  $(INSTALL_PATH)/lib/$(SHARED3) \
 	  $(INSTALL_PATH)/lib/$(SHARED2) \
-	  $(INSTALL_PATH)/lib/$(SHARED1)
+	  $(INSTALL_PATH)/lib/$(SHARED1) \
+	  $(INSTALL_PATH)/lib/pkgconfig/rocksdb.pc
 
-install-headers:
+install-headers: gen-pc
 	install -d $(INSTALL_PATH)/lib
+	install -d $(INSTALL_PATH)/lib/pkgconfig
 	for header_dir in `$(FIND) "include/rocksdb" -type d`; do \
 		install -d $(INSTALL_PATH)/$$header_dir; \
 	done
 	for header in `$(FIND) "include/rocksdb" -type f -name *.h`; do \
 		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
 	done
+	install -C -m 644 rocksdb.pc $(INSTALL_PATH)/lib/pkgconfig/rocksdb.pc
 
 install-static: install-headers $(LIBRARY)
 	install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
@@ -1844,6 +1853,20 @@ install-shared: install-headers $(SHARED4)
 # install static by default + install shared if it exists
 install: install-static
 	[ -e $(SHARED4) ] && $(MAKE) install-shared || :
+
+# Generate the pkg-config file
+gen-pc:
+	-echo 'prefix=$(INSTALL_PATH)' > rocksdb.pc
+	-echo 'exec_prefix=$${prefix}' >> rocksdb.pc
+	-echo 'includedir=$${prefix}/include' >> rocksdb.pc
+	-echo 'libdir=$${exec_prefix}/lib' >> rocksdb.pc
+	-echo '' >> rocksdb.pc
+	-echo 'Name: rocksdb' >> rocksdb.pc
+	-echo 'Description: An embeddable persistent key-value store for fast storage' >> rocksdb.pc
+	-echo Version: $(shell ./build_tools/version.sh full) >> rocksdb.pc
+	-echo 'Libs: -L$${libdir} $(EXEC_LDFLAGS) -lrocksdb' >> rocksdb.pc
+	-echo 'Libs.private: $(PLATFORM_LDFLAGS)' >> rocksdb.pc
+	-echo 'Cflags: -I$${includedir} $(PLATFORM_CXXFLAGS)' >> rocksdb.pc
 
 #-------------------------------------------------
 

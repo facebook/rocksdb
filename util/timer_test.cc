@@ -17,10 +17,13 @@ class TimerTest : public testing::Test {
   std::unique_ptr<MockTimeEnv> mock_env_;
 
 #if defined(OS_MACOSX) && !defined(NDEBUG)
-  // On MacOS, `CondVar.TimedWait()` doesn't use the time from MockTimeEnv,
-  // instead it still uses the system time.
-  // This is just a mitigation that always trigger the CV timeout. It is not
-  // perfect, only works for this test.
+  // On some platforms (MacOS) pthread_cond_timedwait does not appear
+  // to release the lock for other threads to operate if the deadline time
+  // is already passed. This is a problem for tests in general because
+  // TimedWait calls are a bad abstraction: the deadline parameter is
+  // usually computed from Env time, but is interpreted in real clock time.
+  // Since this test doesn't even pretend to use clock times, we have
+  // to mock TimedWait to ensure it yields.
   void SetUp() override {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -116,7 +119,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
       time_counter += kSecond;
       mock_env_->set_current_time(time_counter);
       test_cv1.TimedWait(time_counter);
-      }
+    }
   }
 
   // Wait for execution to finish
@@ -278,6 +281,112 @@ TEST_F(TimerTest, AddAfterStartTest) {
   ASSERT_TRUE(timer.Shutdown());
 
   ASSERT_EQ(kIterations, count);
+}
+
+TEST_F(TimerTest, CancelRunningTask) {
+  constexpr char kTestFuncName[] = "test_func";
+  mock_env_->set_current_time(0);
+  Timer timer(mock_env_.get());
+  ASSERT_TRUE(timer.Start());
+  int* value = new int;
+  *value = 0;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"TimerTest::CancelRunningTask:test_func:0",
+       "TimerTest::CancelRunningTask:BeforeCancel"},
+      {"Timer::WaitForTaskCompleteIfNecessary:TaskExecuting",
+       "TimerTest::CancelRunningTask:test_func:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  timer.Add(
+      [&]() {
+        *value = 1;
+        TEST_SYNC_POINT("TimerTest::CancelRunningTask:test_func:0");
+        TEST_SYNC_POINT("TimerTest::CancelRunningTask:test_func:1");
+      },
+      kTestFuncName, 0, 1 * kSecond);
+  port::Thread control_thr([&]() {
+    TEST_SYNC_POINT("TimerTest::CancelRunningTask:BeforeCancel");
+    timer.Cancel(kTestFuncName);
+    // Verify that *value has been set to 1.
+    ASSERT_EQ(1, *value);
+    delete value;
+    value = nullptr;
+  });
+  mock_env_->set_current_time(1);
+  control_thr.join();
+  ASSERT_TRUE(timer.Shutdown());
+}
+
+TEST_F(TimerTest, ShutdownRunningTask) {
+  constexpr char kTestFunc1Name[] = "test_func1";
+  constexpr char kTestFunc2Name[] = "test_func2";
+  mock_env_->set_current_time(0);
+  Timer timer(mock_env_.get());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"TimerTest::ShutdownRunningTest:test_func:0",
+       "TimerTest::ShutdownRunningTest:BeforeShutdown"},
+      {"Timer::WaitForTaskCompleteIfNecessary:TaskExecuting",
+       "TimerTest::ShutdownRunningTest:test_func:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(timer.Start());
+
+  int* value = new int;
+  *value = 0;
+  timer.Add(
+      [&]() {
+        TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:test_func:0");
+        *value = 1;
+        TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:test_func:1");
+      },
+      kTestFunc1Name, 0, 1 * kSecond);
+
+  timer.Add([&]() { ++(*value); }, kTestFunc2Name, 0, 1 * kSecond);
+
+  port::Thread control_thr([&]() {
+    TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:BeforeShutdown");
+    timer.Shutdown();
+  });
+  mock_env_->set_current_time(1);
+  control_thr.join();
+  delete value;
+}
+
+TEST_F(TimerTest, AddSameFuncNameTest) {
+  mock_env_->set_current_time(0);
+  Timer timer(mock_env_.get());
+
+  ASSERT_TRUE(timer.Start());
+
+  int func_counter1 = 0;
+  timer.Add([&] { func_counter1++; }, "duplicated_func", 1 * kSecond,
+            5 * kSecond);
+
+  int func2_counter = 0;
+  timer.Add([&] { func2_counter++; }, "func2", 1 * kSecond, 4 * kSecond);
+
+  // New function with the same name should override the existing one
+  int func_counter2 = 0;
+  timer.Add([&] { func_counter2++; }, "duplicated_func", 1 * kSecond,
+            5 * kSecond);
+
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(1); });
+
+  ASSERT_EQ(func_counter1, 0);
+  ASSERT_EQ(func2_counter, 1);
+  ASSERT_EQ(func_counter2, 1);
+
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(6); });
+
+  ASSERT_EQ(func_counter1, 0);
+  ASSERT_EQ(func2_counter, 2);
+  ASSERT_EQ(func_counter2, 2);
+
+  ASSERT_TRUE(timer.Shutdown());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

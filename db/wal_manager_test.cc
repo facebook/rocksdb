@@ -50,16 +50,18 @@ class WalManagerTest : public testing::Test {
     fs_.reset(new LegacyFileSystemWrapper(env_.get()));
     db_options_.fs = fs_;
 
-    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
-                                   table_cache_.get(), &write_buffer_manager_,
-                                   &write_controller_,
-                                   /*block_cache_tracer=*/nullptr));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
 
-    wal_manager_.reset(new WalManager(db_options_, env_options_));
+    wal_manager_.reset(
+        new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));
   }
 
   void Reopen() {
-    wal_manager_.reset(new WalManager(db_options_, env_options_));
+    wal_manager_.reset(
+        new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));
   }
 
   // NOT thread safe

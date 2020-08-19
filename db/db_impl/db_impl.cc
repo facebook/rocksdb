@@ -65,6 +65,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
+#include "monitoring/stats_dump_scheduler.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 #include "options/cf_options.h"
@@ -151,8 +152,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
-      fs_(initial_db_options_.env->GetFileSystem()),
       immutable_db_options_(initial_db_options_),
+      fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
       mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
@@ -197,13 +198,17 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       unable_to_release_oldest_log_(false),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, file_options_, seq_per_batch),
+      wal_manager_(immutable_db_options_, file_options_, io_tracer_,
+                   seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
       bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false),
+#ifndef ROCKSDB_LITE
+      stats_dump_scheduler_(nullptr),
+#endif  // ROCKSDB_LITE
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       // last_sequencee_ is always maintained by the main queue that also writes
@@ -246,7 +251,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_, &block_cache_tracer_));
+                                 &write_controller_, &block_cache_tracer_,
+                                 io_tracer_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -439,14 +445,12 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Shutdown: canceling all background work");
 
-  if (thread_dump_stats_ != nullptr) {
-    thread_dump_stats_->cancel();
-    thread_dump_stats_.reset();
+#ifndef ROCKSDB_LITE
+  if (stats_dump_scheduler_ != nullptr) {
+    stats_dump_scheduler_->Unregister(this);
   }
-  if (thread_persist_stats_ != nullptr) {
-    thread_persist_stats_->cancel();
-    thread_persist_stats_.reset();
-  }
+#endif  // !ROCKSDB_LITE
+
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
@@ -680,36 +684,19 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-void DBImpl::StartTimedTasks() {
-  unsigned int stats_dump_period_sec = 0;
-  unsigned int stats_persist_period_sec = 0;
+void DBImpl::StartStatsDumpScheduler() {
+#ifndef ROCKSDB_LITE
   {
     InstrumentedMutexLock l(&mutex_);
-    stats_dump_period_sec = mutable_db_options_.stats_dump_period_sec;
-    if (stats_dump_period_sec > 0) {
-      if (!thread_dump_stats_) {
-        // In case of many `DB::Open()` in rapid succession we can have all
-        // threads dumping at once, which causes severe lock contention in
-        // jemalloc. Ensure successive `DB::Open()`s are staggered by at least
-        // one second in the common case.
-        static std::atomic<uint64_t> stats_dump_threads_started(0);
-        thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
-            [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
-            stats_dump_threads_started.fetch_add(1) %
-                static_cast<uint64_t>(stats_dump_period_sec) *
-                kMicrosInSecond));
-      }
-    }
-    stats_persist_period_sec = mutable_db_options_.stats_persist_period_sec;
-    if (stats_persist_period_sec > 0) {
-      if (!thread_persist_stats_) {
-        thread_persist_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
-            [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-            static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond));
-      }
-    }
+    stats_dump_scheduler_ = StatsDumpScheduler::Default();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::StartStatsDumpScheduler:Init",
+                             &stats_dump_scheduler_);
   }
+
+  stats_dump_scheduler_->Register(this,
+                                  mutable_db_options_.stats_dump_period_sec,
+                                  mutable_db_options_.stats_persist_period_sec);
+#endif  // !ROCKSDB_LITE
 }
 
 // esitmate the total size of stats_history_
@@ -735,7 +722,9 @@ void DBImpl::PersistStats() {
   if (shutdown_initiated_) {
     return;
   }
+  TEST_SYNC_POINT("DBImpl::PersistStats:StartRunning");
   uint64_t now_seconds = env_->NowMicros() / kMicrosInSecond;
+
   Statistics* statistics = immutable_db_options_.statistics.get();
   if (!statistics) {
     return;
@@ -826,6 +815,7 @@ void DBImpl::PersistStats() {
                    " bytes, slice count: %" ROCKSDB_PRIszt,
                    stats_history_size, stats_history_.size());
   }
+  TEST_SYNC_POINT("DBImpl::PersistStats:End");
 #endif  // !ROCKSDB_LITE
 }
 
@@ -880,6 +870,7 @@ void DBImpl::DumpStats() {
   if (shutdown_initiated_) {
     return;
   }
+  TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
     default_cf_internal_stats_->GetStringProperty(
@@ -1087,44 +1078,21 @@ Status DBImpl::SetDBOptions(
       }
 
       if (new_options.stats_dump_period_sec !=
-          mutable_db_options_.stats_dump_period_sec) {
-        if (thread_dump_stats_) {
+              mutable_db_options_.stats_dump_period_sec ||
+          new_options.stats_persist_period_sec !=
+              mutable_db_options_.stats_persist_period_sec) {
+        if (stats_dump_scheduler_) {
           mutex_.Unlock();
-          thread_dump_stats_->cancel();
+          stats_dump_scheduler_->Unregister(this);
           mutex_.Lock();
         }
-        if (new_options.stats_dump_period_sec > 0) {
-          // In case many DBs have `stats_dump_period_sec` enabled in rapid
-          // succession, we can have all threads dumping at once, which causes
-          // severe lock contention in jemalloc. Ensure successive enabling of
-          // `stats_dump_period_sec` are staggered by at least one second in the
-          // common case.
-          static std::atomic<uint64_t> stats_dump_threads_started(0);
-          thread_dump_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
-              [this]() { DBImpl::DumpStats(); }, "dump_st", env_,
-              static_cast<uint64_t>(new_options.stats_dump_period_sec) *
-                  kMicrosInSecond,
-              stats_dump_threads_started.fetch_add(1) %
-                  static_cast<uint64_t>(new_options.stats_dump_period_sec) *
-                  kMicrosInSecond));
-        } else {
-          thread_dump_stats_.reset();
-        }
-      }
-      if (new_options.stats_persist_period_sec !=
-          mutable_db_options_.stats_persist_period_sec) {
-        if (thread_persist_stats_) {
+        if (new_options.stats_dump_period_sec > 0 ||
+            new_options.stats_persist_period_sec > 0) {
           mutex_.Unlock();
-          thread_persist_stats_->cancel();
+          stats_dump_scheduler_->Register(this,
+                                          new_options.stats_dump_period_sec,
+                                          new_options.stats_persist_period_sec);
           mutex_.Lock();
-        }
-        if (new_options.stats_persist_period_sec > 0) {
-          thread_persist_stats_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
-              [this]() { DBImpl::PersistStats(); }, "pst_st", env_,
-              static_cast<uint64_t>(new_options.stats_persist_period_sec) *
-                  kMicrosInSecond));
-        } else {
-          thread_persist_stats_.reset();
         }
       }
       write_controller_.set_max_delayed_write_rate(
@@ -1583,19 +1551,32 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
+namespace {
+class GetWithTimestampReadCallback : public ReadCallback {
+ public:
+  explicit GetWithTimestampReadCallback(SequenceNumber seq)
+      : ReadCallback(seq) {}
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
+    return seq <= max_visible_seq_;
+  }
+};
+}  // namespace
+
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
          get_impl_options.merge_operands != nullptr);
 
-#ifndef NDEBUG
   assert(get_impl_options.column_family);
-  ColumnFamilyHandle* cf = get_impl_options.column_family;
-  const Comparator* const ucmp = cf->GetComparator();
+  const Comparator* ucmp = get_impl_options.column_family->GetComparator();
   assert(ucmp);
-  if (ucmp->timestamp_size() > 0) {
+  size_t ts_sz = ucmp->timestamp_size();
+  GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
+
+#ifndef NDEBUG
+  if (ts_sz > 0) {
     assert(read_options.timestamp);
-    assert(read_options.timestamp->size() == ucmp->timestamp_size());
+    assert(read_options.timestamp->size() == ts_sz);
   } else {
     assert(!read_options.timestamp);
   }
@@ -1661,6 +1642,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       snapshot = get_impl_options.callback->max_visible_seq();
     }
   }
+  // If timestamp is used, we use read callback to ensure <key,t,s> is returned
+  // only if t <= read_opts.timestamp and s <= snapshot.
+  if (ts_sz > 0 && !get_impl_options.callback) {
+    read_cb.Refresh(snapshot);
+    get_impl_options.callback = &read_cb;
+  }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
@@ -1678,9 +1665,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  const Comparator* comparator =
-      get_impl_options.column_family->GetComparator();
-  size_t ts_sz = comparator->timestamp_size();
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
     // Get value associated with key
@@ -3937,7 +3921,7 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());
   Status s = PersistRocksDBOptions(db_options, cf_names, cf_opts, file_name,
-                                   GetFileSystem());
+                                   fs_.get());
 
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
@@ -4285,7 +4269,7 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(
         env_, versions_.get(), cfd, immutable_db_options_, file_options_,
-        &snapshots_, arg.options, &directories_, &event_logger_);
+        &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
   }
   std::vector<std::pair<bool, Status>> exec_results;
   for (size_t i = 0; i != num_cfs; ++i) {
@@ -4559,7 +4543,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   auto cfd = cfh->cfd();
   ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
                                    immutable_db_options_, file_options_,
-                                   import_options, metadata.files);
+                                   import_options, metadata.files, io_tracer_);
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
