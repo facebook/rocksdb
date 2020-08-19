@@ -6,7 +6,6 @@
 #include "db/blob/blob_file_builder.h"
 
 #include <cassert>
-#include <limits>
 
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_index.h"
@@ -222,11 +221,9 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
   assert(blob_file_number);
   assert(blob_offset);
 
-  constexpr uint64_t expiration = std::numeric_limits<uint64_t>::max();
   uint64_t key_offset = 0;
 
-  const Status s =
-      writer_->AddRecord(key, blob, expiration, &key_offset, blob_offset);
+  const Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
   if (!s.ok()) {
     return s;
   }
