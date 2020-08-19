@@ -22,17 +22,17 @@ class ROT13BlockCipher : public BlockCipher {
  public:
   ROT13BlockCipher(size_t blockSize) : blockSize_(blockSize) {}
   virtual ~ROT13BlockCipher(){};
-  virtual const char* Name() const override;
+  const char* Name() const override;
   // BlockSize returns the size of each block supported by this cipher stream.
-  virtual size_t BlockSize() override { return blockSize_; }
+  size_t BlockSize() override { return blockSize_; }
 
   // Encrypt a block of data.
   // Length of data is equal to BlockSize().
-  virtual Status Encrypt(char* data) override;
+  Status Encrypt(char* data) override;
 
   // Decrypt a block of data.
   // Length of data is equal to BlockSize().
-  virtual Status Decrypt(char* data) override;
+  Status Decrypt(char* data) override;
 };
 
 // CTRCipherStream implements BlockAccessCipherStream using an
@@ -54,21 +54,19 @@ class CTRCipherStream final : public BlockAccessCipherStream {
   virtual ~CTRCipherStream(){};
 
   // BlockSize returns the size of each block supported by this cipher stream.
-  virtual size_t BlockSize() override { return cipher_->BlockSize(); }
+  size_t BlockSize() override { return cipher_->BlockSize(); }
 
  protected:
   // Allocate scratch space which is passed to EncryptBlock/DecryptBlock.
-  virtual void AllocateScratch(std::string&) override;
+  void AllocateScratch(std::string&) override;
 
   // Encrypt a block of data at the given block index.
   // Length of data is equal to BlockSize();
-  virtual Status EncryptBlock(uint64_t blockIndex, char* data,
-                              char* scratch) override;
+  Status EncryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 
   // Decrypt a block of data at the given block index.
   // Length of data is equal to BlockSize();
-  virtual Status DecryptBlock(uint64_t blockIndex, char* data,
-                              char* scratch) override;
+  Status DecryptBlock(uint64_t blockIndex, char* data, char* scratch) override;
 };
 
 // This encryption provider uses a CTR cipher stream, with a given block cipher
@@ -81,6 +79,9 @@ class CTREncryptionProvider : public EncryptionProvider {
   std::shared_ptr<BlockCipher> cipher_;
 
  protected:
+  // For optimal performance when using direct IO, the prefix length should be a
+  // multiple of the page size. This size is to ensure the first real data byte
+  // is placed at largest known alignment point for direct io.
   const static size_t defaultPrefixLength = 4096;
 
  public:
@@ -94,18 +95,18 @@ class CTREncryptionProvider : public EncryptionProvider {
   // GetPrefixLength returns the length of the prefix that is added to every
   // file
   // and used for storing encryption options.
-  // For optimal performance, the prefix length should be a multiple of
-  // the page size.
-  virtual size_t GetPrefixLength() const override;
+  // For optimal performance when using direct IO, the prefix length should be a
+  // multiple of the page size.
+  size_t GetPrefixLength() const override;
 
   // CreateNewPrefix initialized an allocated block of prefix memory
   // for a new file.
-  virtual Status CreateNewPrefix(const std::string& fname, char* prefix,
-                                 size_t prefixLength) const override;
+  Status CreateNewPrefix(const std::string& fname, char* prefix,
+                         size_t prefixLength) const override;
 
   // CreateCipherStream creates a block access cipher stream for a file given
   // given name and options.
-  virtual Status CreateCipherStream(
+  Status CreateCipherStream(
       const std::string& fname, const EnvOptions& options, Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result) override;
 
