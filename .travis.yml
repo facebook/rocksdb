@@ -239,7 +239,7 @@ install:
       CC=gcc-4.8 && CXX=g++-4.8;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      sudo snap install cmake --beta --classic || exit $?;
+      sudo apt-get install snapd && sudo snap install cmake --beta --classic || exit $?;
       export PATH=/snap/bin:$PATH;
     fi
   - |
