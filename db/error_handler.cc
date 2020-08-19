@@ -90,6 +90,16 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
                          Status::Code::kIOError, Status::SubCode::kIOFenced,
                          false),
          Status::Severity::kFatalError},
+        // Errors during BG flush with WAL disabled
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
+                         Status::SubCode::kNoSpace, true),
+         Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
+                         Status::SubCode::kNoSpace, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
+                         Status::SubCode::kSpaceLimit, true),
+         Status::Severity::kHardError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
@@ -140,6 +150,19 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
         {std::make_tuple(BackgroundErrorReason::kManifestWrite,
                          Status::Code::kIOError, false),
          Status::Severity::kFatalError},
+        // Errors during BG flush with WAL disabled
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kCorruption, true),
+         Status::Severity::kUnrecoverableError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kCorruption, false),
+         Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
+                         true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
+                         false),
+         Status::Severity::kNoError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
@@ -218,6 +241,7 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   bool paranoid = db_options_.paranoid_checks;
   Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
+  DBRecoverContext context;
   bool found = false;
 
   {
@@ -276,6 +300,7 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
     }
   }
 
+  recover_context_ = context;
   if (auto_recovery) {
     recovery_in_prog_ = true;
 
@@ -303,8 +328,10 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     // Always returns ok
     db_->DisableFileDeletionsWithLock();
   }
+
   Status new_bg_io_err = bg_io_err;
   Status s;
+  DBRecoverContext context;
   if (bg_io_err.GetDataLoss()) {
     // FIrst, data loss is treated as unrecoverable error. So it can directly
     // overwrite any existing bg_error_.
@@ -316,6 +343,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     }
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason, &s,
                                           db_mutex_, &auto_recovery);
+    recover_context_ = context;
     return bg_error_;
   } else if (bg_io_err.GetRetryable()) {
     // Second, check if the error is a retryable IO error or not. if it is
@@ -332,7 +360,24 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       if (bg_err.severity() > bg_error_.severity()) {
         bg_error_ = bg_err;
       }
+      recover_context_ = context;
       return bg_error_;
+    } else if (BackgroundErrorReason::kFlushNoWAL == reason) {
+      // When the BG Retryable IO error reason is flush without WAL
+      // We map it to soft error. At the same time, all the BG work
+      // should be stopped except the BG work from recovery.
+      Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
+      printf("set bg error\n");
+      if (recovery_in_prog_ && recovery_error_.ok()) {
+        recovery_error_ = bg_err;
+      }
+      if (bg_err.severity() > bg_error_.severity()) {
+        bg_error_ = bg_err;
+      }
+      soft_error_no_bg_work_ = true;
+      context.flush_reason = FlushReason::kFlushNoSwitchMemtable;
+      recover_context_ = context;
+      return StartRecoverFromRetryableBGIOError(bg_io_err);
     } else {
       Status bg_err(new_bg_io_err, Status::Severity::kHardError);
       if (recovery_in_prog_ && recovery_error_.ok()) {
@@ -341,6 +386,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       if (bg_err.severity() > bg_error_.severity()) {
         bg_error_ = bg_err;
       }
+      recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
   } else {
@@ -407,6 +453,7 @@ Status ErrorHandler::ClearBGError() {
     Status old_bg_error = bg_error_;
     bg_error_ = Status::OK();
     recovery_in_prog_ = false;
+    soft_error_no_bg_work_ = false;
     EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
                                                  old_bg_error, db_mutex_);
   }
@@ -438,7 +485,13 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // during the recovery process. While recovering, the only operations that
   // can generate background errors should be the flush operations
   recovery_error_ = Status::OK();
-  Status s = db_->ResumeImpl();
+  Status s = db_->ResumeImpl(recover_context_);
+
+  // If soft_error_no_bg_work_ is set and resume is successful, it should be
+  // reset to false.
+  if (soft_error_no_bg_work_ && s.ok()) {
+    soft_error_no_bg_work_ = false;
+  }
   // For manual recover, shutdown, and fatal error  cases, set
   // recovery_in_prog_ to false. For automatic background recovery, leave it
   // as is regardless of success or failure as it will be retried
@@ -491,6 +544,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   if (end_recovery_) {
     return;
   }
+  DBRecoverContext context = recover_context_;
   int resume_count = db_options_.max_bgerror_resume_count;
   uint64_t wait_interval = db_options_.bgerror_resume_retry_interval;
   // Recover from the retryable error. Create a separate thread to do it.
@@ -502,7 +556,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
     recovery_io_error_ = IOStatus::OK();
     recovery_error_ = Status::OK();
-    Status s = db_->ResumeImpl();
+    Status s = db_->ResumeImpl(context);
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume0");
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
     if (s.IsShutdownInProgress() ||
@@ -516,6 +570,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     if (!recovery_io_error_.ok() &&
         recovery_error_.severity() <= Status::Severity::kHardError &&
         recovery_io_error_.GetRetryable()) {
+      printf("resume failed first time\n");
       // If new BG IO error happens during auto recovery and it is retryable
       // and its severity is Hard Error or lower, the auto resmue sleep for
       // a period of time and redo auto resume if it is allowed.
@@ -537,6 +592,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
                                                      old_bg_error, db_mutex_);
         recovery_in_prog_ = false;
+        if (soft_error_no_bg_work_) {
+          soft_error_no_bg_work_ = false;
+        }
         return;
       } else {
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail1");
@@ -548,6 +606,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     }
     resume_count--;
   }
+  printf("auto resume failed\n");
   recovery_in_prog_ = false;
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
   return;
@@ -568,6 +627,40 @@ void ErrorHandler::EndAutoRecovery() {
   }
   db_mutex_->Lock();
   return;
+}
+
+Status ErrorHandler::FlushOnBGError() {
+  Status s;
+  FlushOptions flush_opts;
+  // We allow flush to stall write since the BG error happens
+  flush_opts.allow_write_stall = true;
+  if (db_options_.atomic_flush) {
+    autovector<ColumnFamilyData*> cfds;
+    db_->SelectColumnFamiliesForAtomicFlush(&cfds);
+    db_mutex_->Unlock();
+    s = db_->AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
+    db_mutex_->Lock();
+  } else {
+    for (auto cfd : *(db_->versions_->GetColumnFamilySet())) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      cfd->Ref();
+      db_mutex_->Unlock();
+      s = db_->FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
+      db_mutex_->Lock();
+      cfd->UnrefAndTryDelete();;
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+  if (!s.ok()) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                    "DB switch flush triggered by BG error but failed due to Flush failure [%s]",
+                    s.ToString().c_str());
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -125,7 +125,12 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, io_s);
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      if (total_log_size_ > 0) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
     }
@@ -236,10 +241,15 @@ Status DBImpl::FlushMemTableToOutputFile(
       // CURRENT file. With current code, it's just difficult to tell. So just
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
-      auto err_reason = versions_->io_status().ok()
-                            ? BackgroundErrorReason::kFlush
-                            : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason);
+      if (!versions_->io_status().ok()) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+      } else if (total_log_size_ > 0) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        printf("regular flush\n");
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
     } else {
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
@@ -632,10 +642,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // CURRENT file. With current code, it's just difficult to tell. So just
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
-      auto err_reason = versions_->io_status().ok()
-                            ? BackgroundErrorReason::kFlush
-                            : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason);
+      if (!versions_->io_status().ok()) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+      } else if (total_log_size_ > 0) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
     } else {
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
@@ -1652,7 +1666,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
+    if ((!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())
+          && flush_reason != FlushReason::kFlushNoSwitchMemtable) {
       s = SwitchMemtable(cfd, &context);
     }
     if (s.ok()) {
@@ -1661,7 +1676,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         flush_req.emplace_back(cfd, flush_memtable_id);
       }
-      if (immutable_db_options_.persist_stats_to_disk) {
+      if (immutable_db_options_.persist_stats_to_disk
+          && flush_reason != FlushReason::kFlushNoSwitchMemtable) {
         ColumnFamilyData* cfd_stats =
             versions_->GetColumnFamilySet()->GetColumnFamily(
                 kPersistentStatsColumnFamilyName);
@@ -1785,7 +1801,8 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
     for (auto cfd : cfds) {
-      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
+      if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load())
+          || flush_reason == FlushReason::kFlushNoSwitchMemtable) {
         continue;
       }
       cfd->Ref();
