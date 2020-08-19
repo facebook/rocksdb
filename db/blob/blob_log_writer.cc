@@ -81,7 +81,7 @@ Status BlobLogWriter::AppendFooter(BlobLogFooter& footer,
         if (checksum_method) {
           assert(checksum_method->empty());
 
-          const std::string method = dest_->GetFileChecksumFuncName();
+          std::string method = dest_->GetFileChecksumFuncName();
           if (method != kUnknownFileChecksumFuncName) {
             *checksum_method = std::move(method);
           }
@@ -89,7 +89,7 @@ Status BlobLogWriter::AppendFooter(BlobLogFooter& footer,
         if (checksum_value) {
           assert(checksum_value->empty());
 
-          const std::string value = dest_->GetFileChecksum();
+          std::string value = dest_->GetFileChecksum();
           if (value != kUnknownFileChecksum) {
             *checksum_value = std::move(value);
           }
