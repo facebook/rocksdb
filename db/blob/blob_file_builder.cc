@@ -29,7 +29,19 @@ BlobFileBuilder::BlobFileBuilder(
     uint32_t column_family_id, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     std::vector<BlobFileAddition>* blob_file_additions)
-    : versions_(versions),
+    : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
+                      fs, immutable_cf_options, mutable_cf_options,
+                      file_options, column_family_id, io_priority, write_hint,
+                      blob_file_additions) {}
+
+BlobFileBuilder::BlobFileBuilder(
+    std::function<uint64_t()> file_number_generator, Env* env, FileSystem* fs,
+    const ImmutableCFOptions* immutable_cf_options,
+    const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
+    uint32_t column_family_id, Env::IOPriority io_priority,
+    Env::WriteLifeTimeHint write_hint,
+    std::vector<BlobFileAddition>* blob_file_additions)
+    : file_number_generator_(std::move(file_number_generator)),
       env_(env),
       fs_(fs),
       immutable_cf_options_(immutable_cf_options),
@@ -43,7 +55,7 @@ BlobFileBuilder::BlobFileBuilder(
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
       blob_bytes_(0) {
-  assert(versions_);
+  assert(file_number_generator_);
   assert(env_);
   assert(fs_);
   assert(immutable_cf_options_);
@@ -120,8 +132,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   assert(!blob_count_);
   assert(!blob_bytes_);
 
-  assert(versions_);
-  const uint64_t blob_file_number = versions_->NewFileNumber();
+  assert(file_number_generator_);
+  const uint64_t blob_file_number = file_number_generator_();
 
   assert(immutable_cf_options_);
   assert(!immutable_cf_options_->cf_paths.empty());

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cinttypes>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,6 +35,15 @@ class BlobFileBuilder {
                   Env::WriteLifeTimeHint write_hint,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
+  BlobFileBuilder(std::function<uint64_t()> file_number_generator, Env* env,
+                  FileSystem* fs,
+                  const ImmutableCFOptions* immutable_cf_options,
+                  const MutableCFOptions* mutable_cf_options,
+                  const FileOptions* file_options, uint32_t column_family_id,
+                  Env::IOPriority io_priority,
+                  Env::WriteLifeTimeHint write_hint,
+                  std::vector<BlobFileAddition>* blob_file_additions);
+
   BlobFileBuilder(const BlobFileBuilder&) = delete;
   BlobFileBuilder& operator=(const BlobFileBuilder&) = delete;
 
@@ -49,7 +59,7 @@ class BlobFileBuilder {
   Status CloseBlobFile();
   Status CloseBlobFileIfNeeded();
 
-  VersionSet* versions_;
+  std::function<uint64_t()> file_number_generator_;
   Env* env_;
   FileSystem* fs_;
   const ImmutableCFOptions* immutable_cf_options_;
