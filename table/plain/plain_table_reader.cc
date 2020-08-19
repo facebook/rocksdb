@@ -131,10 +131,10 @@ Status PlainTableReader::Open(
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                ioptions, &props_ptr,
                                true /* compression_type_missing */);
-  std::shared_ptr<TableProperties> props(props_ptr);
   if (!s.ok()) {
     return s;
   }
+  std::shared_ptr<TableProperties> props(props_ptr);
 
   assert(hash_table_ratio >= 0.0);
   auto& user_props = props->user_collected_properties;
