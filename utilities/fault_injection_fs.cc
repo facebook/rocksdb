@@ -86,7 +86,7 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
 
 TestFSWritableFile::~TestFSWritableFile() {
   if (writable_file_opened_) {
-    Close(IOOptions(), nullptr);
+    Close(IOOptions(), nullptr).PermitUncheckedError();
   }
 }
 
@@ -112,7 +112,8 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   io_s = target_->Append(state_.buffer_, options, dbg);
   if (io_s.ok()) {
     state_.buffer_.resize(0);
-    target_->Sync(options, dbg);
+    // Ignore sync errors
+    target_->Sync(options, dbg).PermitUncheckedError();
     io_s = target_->Close(options, dbg);
   }
   if (io_s.ok()) {
@@ -125,11 +126,10 @@ IOStatus TestFSWritableFile::Flush(const IOOptions&, IODebugContext*) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
-  IOStatus io_s;
-  if (io_s.ok() && fs_->IsFilesystemActive()) {
+  if (fs_->IsFilesystemActive()) {
     state_.pos_at_last_flush_ = state_.pos_;
   }
-  return io_s;
+  return IOStatus::OK();
 }
 
 IOStatus TestFSWritableFile::Sync(const IOOptions& options,
@@ -139,7 +139,8 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   }
   IOStatus io_s = target_->Append(state_.buffer_, options, dbg);
   state_.buffer_.resize(0);
-  target_->Sync(options, dbg);
+  // Ignore sync errors
+  target_->Sync(options, dbg).PermitUncheckedError();
   state_.pos_at_last_sync_ = state_.pos_;
   fs_->WritableFileSynced(state_);
   return io_s;
@@ -154,7 +155,7 @@ TestFSRandomRWFile::TestFSRandomRWFile(const std::string& /*fname*/,
 
 TestFSRandomRWFile::~TestFSRandomRWFile() {
   if (file_opened_) {
-    Close(IOOptions(), nullptr);
+    Close(IOOptions(), nullptr).PermitUncheckedError();
   }
 }
 

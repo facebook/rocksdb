@@ -230,7 +230,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
-  env_->GetAbsolutePath(dbname, &db_absolute_path_);
+  // TODO: Check for an error here
+  env_->GetAbsolutePath(dbname, &db_absolute_path_).PermitUncheckedError();
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
@@ -497,7 +498,7 @@ Status DBImpl::CloseHelper() {
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
-  Status ret;
+  Status ret = Status::OK();
   mutex_.Lock();
   bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
   bg_compaction_scheduled_ -= compactions_unscheduled;
@@ -609,7 +610,8 @@ Status DBImpl::CloseHelper() {
   versions_.reset();
   mutex_.Unlock();
   if (db_lock_ != nullptr) {
-    env_->UnlockFile(db_lock_);
+    // TODO: Check for unlock error
+    env_->UnlockFile(db_lock_).PermitUncheckedError();
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Shutdown complete");
@@ -628,7 +630,7 @@ Status DBImpl::CloseHelper() {
 
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();
-    if (ret.ok()) {
+    if (!s.ok() && ret.ok()) {
       ret = s;
     }
   }
@@ -647,7 +649,7 @@ Status DBImpl::CloseImpl() { return CloseHelper(); }
 DBImpl::~DBImpl() {
   if (!closed_) {
     closed_ = true;
-    CloseHelper();
+    CloseHelper().PermitUncheckedError();
   }
 }
 
@@ -3785,7 +3787,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
   // log file and prevents cleanup and directory removal
   soptions.info_log.reset();
   // Ignore error in case directory does not exist
-  env->GetChildren(dbname, &filenames);
+  env->GetChildren(dbname, &filenames).PermitUncheckedError();
 
   FileLock* lock;
   const std::string lockname = LockFileName(dbname);
@@ -3807,7 +3809,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         } else {
           del = env->DeleteFile(path_to_delete);
         }
-        if (result.ok() && !del.ok()) {
+        if (!del.ok() && result.ok()) {
           result = del;
         }
       }
@@ -3830,7 +3832,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
             std::string table_path = path + "/" + fname;
             Status del = DeleteDBFile(&soptions, table_path, dbname,
                                       /*force_bg=*/false, /*force_fg=*/false);
-            if (result.ok() && !del.ok()) {
+            if (!del.ok() && result.ok()) {
               result = del;
             }
           }
@@ -3858,12 +3860,13 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           Status del =
               DeleteDBFile(&soptions, archivedir + "/" + file, archivedir,
                            /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
-          if (result.ok() && !del.ok()) {
+          if (!del.ok() && result.ok()) {
             result = del;
           }
         }
       }
-      env->DeleteDir(archivedir);
+      // TODO: Should we check for errors here?
+      env->DeleteDir(archivedir).PermitUncheckedError();
     }
 
     // Delete log files in the WAL dir
@@ -3874,7 +3877,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
               DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
                            soptions.wal_dir, /*force_bg=*/false,
                            /*force_fg=*/!wal_in_db_path);
-          if (result.ok() && !del.ok()) {
+          if (!del.ok() && result.ok()) {
             result = del;
           }
         }
@@ -3882,14 +3885,17 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       env->DeleteDir(soptions.wal_dir);
     }
 
-    env->UnlockFile(lock);  // Ignore error since state is already gone
-    env->DeleteFile(lockname);
+    // Ignore error since state is already gone
+    env->UnlockFile(lock).PermitUncheckedError();
+    env->DeleteFile(lockname).PermitUncheckedError();
 
     // sst_file_manager holds a ref to the logger. Make sure the logger is
     // gone before trying to remove the directory.
     soptions.sst_file_manager.reset();
 
-    env->DeleteDir(dbname);  // Ignore error in case dir contains other files
+    // Ignore error in case dir contains other files
+    env->DeleteDir(dbname).PermitUncheckedError();
+    ;
   }
   return result;
 }
@@ -4024,7 +4030,8 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
   }
 
   if (0 == disable_delete_obsolete_files_) {
-    DeleteObsoleteOptionsFiles();
+    // TODO: Should we check for errors here?
+    DeleteObsoleteOptionsFiles().PermitUncheckedError();
   }
   return s;
 #else
