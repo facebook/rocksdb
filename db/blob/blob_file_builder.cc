@@ -67,7 +67,7 @@ BlobFileBuilder::BlobFileBuilder(
 BlobFileBuilder::~BlobFileBuilder() = default;
 
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
-                            Slice* blob_index) {
+                            std::string* blob_index) {
   assert(blob_index);
   assert(blob_index->empty());
 
@@ -110,9 +110,8 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  BlobIndex::EncodeBlob(&blob_index_, blob_file_number, blob_offset,
+  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset,
                         blob.size(), blob_compression_type_);
-  *blob_index = blob_index_;
 
   return Status::OK();
 }

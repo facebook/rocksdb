@@ -50,7 +50,7 @@ class BlobFileBuilder {
 
   ~BlobFileBuilder();
 
-  Status Add(const Slice& key, const Slice& value, Slice* blob_index);
+  Status Add(const Slice& key, const Slice& value, std::string* blob_index);
   Status Finish();
 
  private:
@@ -77,7 +77,6 @@ class BlobFileBuilder {
   std::unique_ptr<BlobLogWriter> writer_;
   uint64_t blob_count_;
   uint64_t blob_bytes_;
-  std::string blob_index_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
