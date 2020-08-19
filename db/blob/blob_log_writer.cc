@@ -29,6 +29,8 @@ BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
       use_fsync_(use_fs),
       last_elem_type_(kEtNone) {}
 
+BlobLogWriter::~BlobLogWriter() = default;
+
 Status BlobLogWriter::Sync() {
   TEST_SYNC_POINT("BlobLogWriter::Sync");
 

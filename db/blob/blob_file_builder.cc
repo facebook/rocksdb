@@ -11,6 +11,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_writer.h"
 #include "db/version_set.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -62,6 +63,8 @@ BlobFileBuilder::BlobFileBuilder(
   assert(file_options_);
   assert(blob_file_additions_);
 }
+
+BlobFileBuilder::~BlobFileBuilder() = default;
 
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
                             Slice* blob_index) {

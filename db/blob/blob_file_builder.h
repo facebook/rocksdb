@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "db/blob/blob_log_writer.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -24,6 +24,7 @@ struct FileOptions;
 class BlobFileAddition;
 class Status;
 class Slice;
+class BlobLogWriter;
 
 class BlobFileBuilder {
  public:
@@ -46,6 +47,8 @@ class BlobFileBuilder {
 
   BlobFileBuilder(const BlobFileBuilder&) = delete;
   BlobFileBuilder& operator=(const BlobFileBuilder&) = delete;
+
+  ~BlobFileBuilder();
 
   Status Add(const Slice& key, const Slice& value, Slice* blob_index);
   Status Finish();
