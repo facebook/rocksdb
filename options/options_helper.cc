@@ -207,6 +207,12 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.compaction_options_universal =
       mutable_cf_options.compaction_options_universal;
 
+  // Blob file related options
+  cf_opts.enable_blob_files = mutable_cf_options.enable_blob_files;
+  cf_opts.min_blob_size = mutable_cf_options.min_blob_size;
+  cf_opts.blob_file_size = mutable_cf_options.blob_file_size;
+  cf_opts.blob_compression_type = mutable_cf_options.blob_compression_type;
+
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
       mutable_cf_options.max_sequential_skip_in_iterations;
