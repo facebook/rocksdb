@@ -1615,6 +1615,16 @@ struct IngestExternalFileOptions {
   // ingestion. However, if no checksum information is provided with the
   // ingested files, DB will generate the checksum and store in the Manifest.
   bool verify_file_checksum = true;
+  // Set to true if newer writes can be processed during this ingestion. Note
+  // that the same keys in the ingested files will be overwritten by newer
+  // writes.
+  // While processing the ingestion, all writes are blocked until the ingestion
+  // has been finished. This can cause very high latency up to seconds. Enable
+  // this option to reduce the latency if you can accept newer writes to
+  // overwrite data overlapped with the ingested files. For example,
+  // applications can apply upper level concurrency control that disallow writes
+  // to the same range with ingesting files.
+  bool allow_newer_writes = false;
 };
 
 enum TraceFilterType : uint64_t {
