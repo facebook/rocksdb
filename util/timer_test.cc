@@ -341,6 +341,27 @@ TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
   ASSERT_TRUE(timer.Shutdown());
 }
 
+TEST_F(TimerTest, DestroyRunningTimer) {
+  const int kInitDelaySec = 1;
+  const int kRepeatSec = 1;
+
+  int mock_time_sec = 0;
+  mock_env_->set_current_time(mock_time_sec);
+  auto timer_ptr = new Timer(mock_env_.get());
+
+  int count = 0;
+  timer_ptr->Add([&] { count++; }, "fn_sch_test", kInitDelaySec * kSecond,
+                 kRepeatSec * kSecond);
+  ASSERT_TRUE(timer_ptr->Start());
+
+  mock_time_sec += kInitDelaySec;
+  timer_ptr->TEST_WaitForRun(
+      [&] { mock_env_->set_current_time(mock_time_sec); });
+
+  // delete a running timer should not cause any exception
+  delete timer_ptr;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
