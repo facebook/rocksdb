@@ -224,33 +224,33 @@ install:
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc8 ]; then
-      sudo apt-get install -y g++-8;
+      sudo apt-get install -y g++-8 || exit $?;
       CC=gcc-8 && CXX=g++-8;
     fi
   - if [ "${JOB_NAME}" == cmake-gcc9 ] || [ "${JOB_NAME}" == cmake-gcc9-c++20 ]; then
-      sudo apt-get install -y g++-9;
+      sudo apt-get install -y g++-9 || exit $?;
       CC=gcc-9 && CXX=g++-9;
     fi
   - if [ "${JOB_NAME}" == cmake-mingw ]; then
-      sudo apt-get install -y mingw-w64 ;
+      sudo apt-get install -y mingw-w64 || exit $?;
     fi
   - if [ "${JOB_NAME}" == make-gcc4.8 ]; then
-      sudo apt-get install -y g++-4.8 ;
+      sudo apt-get install -y g++-4.8 || exit $?;
       CC=gcc-4.8 && CXX=g++-4.8;
     fi
   - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
-      sudo snap install cmake --beta --classic;
+      sudo apt-get install snapd && sudo snap install cmake --beta --classic || exit $?;
       export PATH=/snap/bin:$PATH;
     fi
   - |
     if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
       # Ensure JDK 8
       if [ "${TRAVIS_OS_NAME}" == osx ]; then
-        brew tap AdoptOpenJDK/openjdk
-        brew cask install adoptopenjdk8
+        brew tap AdoptOpenJDK/openjdk || exit $?
+        brew cask install adoptopenjdk8 || exit $?
         export JAVA_HOME=$(/usr/libexec/java_home)
       else
-        sudo apt-get install -y openjdk-8-jdk
+        sudo apt-get install -y openjdk-8-jdk || exit $?
         export PATH=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)/bin:$PATH
         export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-$(dpkg --print-architecture)
       fi
