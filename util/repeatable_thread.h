@@ -10,7 +10,9 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
+#ifndef NDEBUG
 #include "test_util/mock_time_env.h"
+#endif  // !NDEBUG
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -14,12 +14,13 @@ class StatsDumpSchedulerTest : public DBTestBase {
  public:
   StatsDumpSchedulerTest()
       : DBTestBase("/stats_dump_scheduler_test", /*env_do_fsync=*/true),
-        mock_env_(new SafeMockTimeEnv(Env::Default())) {}
+        mock_env_(new MockTimeEnv(Env::Default())) {}
 
  protected:
-  std::unique_ptr<SafeMockTimeEnv> mock_env_;
+  std::unique_ptr<MockTimeEnv> mock_env_;
 
   void SetUp() override {
+    mock_env_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::StartStatsDumpScheduler:Init", [&](void* arg) {
           auto* stats_dump_scheduler_ptr =
