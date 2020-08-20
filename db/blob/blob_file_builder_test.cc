@@ -5,6 +5,7 @@
 
 #include "db/blob/blob_file_builder.h"
 
+#include <array>
 #include <cassert>
 #include <cinttypes>
 #include <string>
@@ -24,6 +25,7 @@
 #include "rocksdb/options.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -41,6 +43,7 @@ class BlobFileBuilderTest : public testing::Test {
 
   void VerifyBlobFile(const ImmutableCFOptions& immutable_cf_options,
                       uint64_t blob_file_number, uint32_t column_family_id,
+                      CompressionType blob_compression_type,
                       const std::vector<std::pair<std::string, std::string>>&
                           expected_key_value_pairs,
                       const std::vector<std::string>& blob_indexes) {
@@ -64,7 +67,7 @@ class BlobFileBuilderTest : public testing::Test {
     ASSERT_OK(blob_log_reader.ReadHeader(&header));
     ASSERT_EQ(header.version, kVersion1);
     ASSERT_EQ(header.column_family_id, column_family_id);
-    ASSERT_EQ(header.compression, kNoCompression);
+    ASSERT_EQ(header.compression, blob_compression_type);
     ASSERT_FALSE(header.has_ttl);
     ASSERT_EQ(header.expiration_range, ExpirationRange());
 
@@ -168,7 +171,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 
   // Verify the contents of the new blob file as well as the blob references
   VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
-                 expected_key_value_pairs, blob_indexes);
+                 kNoCompression, expected_key_value_pairs, blob_indexes);
 }
 
 TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
@@ -243,7 +246,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
     std::vector<std::string> blob_index{blob_indexes[i]};
 
     VerifyBlobFile(immutable_cf_options, i + 2, column_family_id,
-                   expected_key_value_pair, blob_index);
+                   kNoCompression, expected_key_value_pair, blob_index);
   }
 }
 
@@ -290,6 +293,92 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
 
   // Check the metadata generated
   ASSERT_TRUE(blob_file_additions.empty());
+}
+
+TEST_F(BlobFileBuilderTest, Compression) {
+  // Build a blob file with compressed blobs
+
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  constexpr size_t number_of_blobs = 7;
+  constexpr size_t key_size = 1;
+  constexpr size_t value_size = 100;
+
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Compression"), 0);
+  options.enable_blob_files = true;
+  options.blob_compression_type = kSnappyCompression;
+
+  ImmutableCFOptions immutable_cf_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 123;
+  constexpr Env::IOPriority io_priority = Env::IO_HIGH;
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+                          &immutable_cf_options, &mutable_cf_options,
+                          &file_options_, column_family_id, io_priority,
+                          write_hint, &blob_file_additions);
+
+  std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
+      number_of_blobs);
+  std::vector<std::string> blob_indexes(number_of_blobs);
+
+  constexpr std::array<char, number_of_blobs> value_chars{
+      {'r', 'o', 'c', 'k', 's', 'd', 'b'}};
+
+  uint64_t expected_bytes = 0;
+
+  for (size_t i = 0; i < number_of_blobs; ++i) {
+    auto& expected_key_value = expected_key_value_pairs[i];
+
+    auto& key = expected_key_value.first;
+    key = std::to_string(i);
+
+    const std::string uncompressed_value(value_size, value_chars[i]);
+
+    auto& blob_index = blob_indexes[i];
+
+    ASSERT_OK(builder.Add(key, uncompressed_value, &blob_index));
+    ASSERT_FALSE(blob_index.empty());
+
+    CompressionOptions opts;
+    CompressionContext context(kSnappyCompression);
+    constexpr uint64_t sample_for_compression = 0;
+
+    CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
+                         kSnappyCompression, sample_for_compression);
+
+    auto& compressed_value = expected_key_value.second;
+    ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),
+                                uncompressed_value.size(), &compressed_value));
+
+    expected_bytes +=
+        BlobLogRecord::kHeaderSize + key_size + compressed_value.size();
+  }
+
+  ASSERT_OK(builder.Finish());
+
+  // Check the metadata generated
+  ASSERT_EQ(blob_file_additions.size(), 1);
+
+  const auto& blob_file_addition = blob_file_additions[0];
+
+  constexpr uint64_t blob_file_number = 2;
+
+  ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), number_of_blobs);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(), expected_bytes);
+
+  // Verify the contents of the new blob file as well as the blob references
+  VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
+                 kSnappyCompression, expected_key_value_pairs, blob_indexes);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
