@@ -105,10 +105,10 @@ class BlobFileBuilderTest : public testing::Test {
 
 TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   // Build a single blob file
-  constexpr int number_of_blobs = 10;
-  constexpr uint64_t key_size = 1;
-  constexpr uint64_t value_size = 4;
-  constexpr int value_offset = 1234;
+  constexpr size_t number_of_blobs = 10;
+  constexpr size_t key_size = 1;
+  constexpr size_t value_size = 4;
+  constexpr size_t value_offset = 1234;
 
   Options options;
   options.cf_paths.emplace_back(
@@ -134,7 +134,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
       number_of_blobs);
   std::vector<std::string> blob_indexes(number_of_blobs);
 
-  for (int i = 0; i < number_of_blobs; ++i) {
+  for (size_t i = 0; i < number_of_blobs; ++i) {
     auto& expected_key_value = expected_key_value_pairs[i];
 
     auto& key = expected_key_value.first;
@@ -169,10 +169,10 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
   // Build multiple blob files: file size limit is set to the size of a single
   // value, so each blob ends up in a file of its own
-  constexpr int number_of_blobs = 10;
-  constexpr uint64_t key_size = 1;
-  constexpr uint64_t value_size = 10;
-  constexpr int value_offset = 1234567890;
+  constexpr size_t number_of_blobs = 10;
+  constexpr size_t key_size = 1;
+  constexpr size_t value_size = 10;
+  constexpr size_t value_offset = 1234567890;
 
   Options options;
   options.cf_paths.emplace_back(
@@ -199,7 +199,7 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
       number_of_blobs);
   std::vector<std::string> blob_indexes(number_of_blobs);
 
-  for (int i = 0; i < number_of_blobs; ++i) {
+  for (size_t i = 0; i < number_of_blobs; ++i) {
     auto& expected_key_value = expected_key_value_pairs[i];
 
     auto& key = expected_key_value.first;
@@ -219,7 +219,7 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
   // Check the metadata generated
   ASSERT_EQ(blob_file_additions.size(), number_of_blobs);
 
-  for (int i = 0; i < number_of_blobs; ++i) {
+  for (size_t i = 0; i < number_of_blobs; ++i) {
     ASSERT_EQ(blob_file_additions[i].GetBlobFileNumber(), i + 2);
     ASSERT_EQ(blob_file_additions[i].GetTotalBlobCount(), 1);
     ASSERT_EQ(blob_file_additions[i].GetTotalBlobBytes(),
@@ -227,7 +227,7 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
   }
 
   // Verify the contents of the new blob files as well as the blob references
-  for (int i = 0; i < number_of_blobs; ++i) {
+  for (size_t i = 0; i < number_of_blobs; ++i) {
     std::vector<std::pair<std::string, std::string>> expected_key_value_pair{
         expected_key_value_pairs[i]};
     std::vector<std::string> blob_index{blob_indexes[i]};
@@ -239,10 +239,10 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
 
 TEST_F(BlobFileBuilderTest, InlinedValues) {
   // All values are below the min_blob_size threshold; no blob files get written
-  constexpr int number_of_blobs = 10;
-  constexpr uint64_t key_size = 1;
-  constexpr uint64_t value_size = 10;
-  constexpr int value_offset = 1234567890;
+  constexpr size_t number_of_blobs = 10;
+  constexpr size_t key_size = 1;
+  constexpr size_t value_size = 10;
+  constexpr size_t value_offset = 1234567890;
 
   Options options;
   options.cf_paths.emplace_back(
@@ -264,7 +264,7 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
 
-  for (int i = 0; i < number_of_blobs; ++i) {
+  for (size_t i = 0; i < number_of_blobs; ++i) {
     const std::string key = std::to_string(i);
     assert(key.size() == key_size);
 
