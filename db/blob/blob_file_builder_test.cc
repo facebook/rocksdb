@@ -26,6 +26,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/compression.h"
+#include "util/file_checksum_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -365,6 +366,64 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
                  kSnappyCompression, expected_key_value_pairs, blob_indexes);
+}
+
+TEST_F(BlobFileBuilderTest, Checksum) {
+  // Build a blob file with checksum
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Checksum"), 0);
+  options.enable_blob_files = true;
+  options.file_checksum_gen_factory =
+      std::make_shared<FileChecksumGenCrc32cFactory>();
+
+  ImmutableCFOptions immutable_cf_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 123;
+  constexpr Env::IOPriority io_priority = Env::IO_HIGH;
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+                          &immutable_cf_options, &mutable_cf_options,
+                          &file_options_, column_family_id, io_priority,
+                          write_hint, &blob_file_additions);
+
+  const std::string key("1");
+  const std::string value("deadbeef");
+
+  std::string blob_index;
+
+  ASSERT_OK(builder.Add(key, value, &blob_index));
+  ASSERT_FALSE(blob_index.empty());
+
+  ASSERT_OK(builder.Finish());
+
+  // Check the metadata generated
+  ASSERT_EQ(blob_file_additions.size(), 1);
+
+  const auto& blob_file_addition = blob_file_additions[0];
+
+  constexpr uint64_t blob_file_number = 2;
+
+  ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
+            BlobLogRecord::kHeaderSize + key.size() + value.size());
+  ASSERT_EQ(blob_file_addition.GetChecksumMethod(), "FileChecksumCrc32c");
+
+  constexpr char expected_checksum[] = "\xaf\xa3\x4d\xba";
+  ASSERT_EQ(blob_file_addition.GetChecksumValue(), expected_checksum);
+
+  // Verify the contents of the new blob file as well as the blob reference
+  std::vector<std::pair<std::string, std::string>> expected_key_value_pairs{
+      {key, value}};
+  std::vector<std::string> blob_indexes{blob_index};
+
+  VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
+                 kNoCompression, expected_key_value_pairs, blob_indexes);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
