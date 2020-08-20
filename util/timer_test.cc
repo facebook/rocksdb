@@ -17,10 +17,12 @@ class TimerTest : public testing::Test {
   std::unique_ptr<MockTimeEnv> mock_env_;
 
   void SetUp() override { mock_env_->InstallTimedWaitFixCallback(); }
+
+  const int kSecond = 1000000;
 };
 
 TEST_F(TimerTest, SingleScheduleOnce) {
-  const uint64_t kInitDelayUs = 1 * kMicrosInSecond;
+  const int kInitDelayUs = 1 * kSecond;
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
 
@@ -38,8 +40,8 @@ TEST_F(TimerTest, SingleScheduleOnce) {
 }
 
 TEST_F(TimerTest, MultipleScheduleOnce) {
-  const uint64_t kInitDelay1Us = 1 * kMicrosInSecond;
-  const uint64_t kInitDelay2Us = 3 * kMicrosInSecond;
+  const int kInitDelay1Us = 1 * kSecond;
+  const int kInitDelay2Us = 3 * kSecond;
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
 
@@ -70,8 +72,8 @@ TEST_F(TimerTest, MultipleScheduleOnce) {
 
 TEST_F(TimerTest, SingleScheduleRepeatedly) {
   const int kIterations = 5;
-  const uint64_t kInitDelayUs = 1 * kMicrosInSecond;
-  const uint64_t kRepeatUs = 1 * kMicrosInSecond;
+  const int kInitDelayUs = 1 * kSecond;
+  const int kRepeatUs = 1 * kSecond;
   mock_env_->set_current_time(0);
 
   Timer timer(mock_env_.get());
@@ -96,11 +98,11 @@ TEST_F(TimerTest, SingleScheduleRepeatedly) {
 
 TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   const int kIterations = 5;
-  const uint64_t kInitDelay1Us = 0 * kMicrosInSecond;
-  const uint64_t kInitDelay2Us = 1 * kMicrosInSecond;
-  const uint64_t kInitDelay3Us = 0 * kMicrosInSecond;
-  const uint64_t kRepeatUs = 2 * kMicrosInSecond;
-  const uint64_t kLargeRepeatUs = 100 * kMicrosInSecond;
+  const int kInitDelay1Us = 0 * kSecond;
+  const int kInitDelay2Us = 1 * kSecond;
+  const int kInitDelay3Us = 0 * kSecond;
+  const int kRepeatUs = 2 * kSecond;
+  const int kLargeRepeatUs = 100 * kSecond;
 
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
@@ -118,13 +120,12 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   ASSERT_TRUE(timer.Start());
 
   ASSERT_EQ(0, count2);
-  ASSERT_EQ(0, count3);
   // Wait for execution to finish
-  for (int i = 1; i < kIterations * (int)(kRepeatUs / kMicrosInSecond); i++) {
+  for (int i = 1; i < kIterations * (kRepeatUs / kSecond); i++) {
     timer.TEST_WaitForRun(
-        [&] { mock_env_->SleepForMicroseconds(1 * kMicrosInSecond); });
-    ASSERT_EQ((i + 2) / (int)(kRepeatUs / kMicrosInSecond), count1);
-    ASSERT_EQ((i + 1) / (int)(kRepeatUs / kMicrosInSecond), count2);
+        [&] { mock_env_->SleepForMicroseconds(1 * kSecond); });
+    ASSERT_EQ((i + 2) / (kRepeatUs / kSecond), count1);
+    ASSERT_EQ((i + 1) / (kRepeatUs / kSecond), count2);
 
     // large interval function should only run once (the first one).
     ASSERT_EQ(1, count3);
@@ -133,8 +134,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   timer.Cancel("fn_sch_test1");
 
   // Wait for execution to finish
-  timer.TEST_WaitForRun(
-      [&] { mock_env_->SleepForMicroseconds(1 * kMicrosInSecond); });
+  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(1 * kSecond); });
   ASSERT_EQ(kIterations, count1);
   ASSERT_EQ(kIterations, count2);
   ASSERT_EQ(1, count3);
@@ -146,7 +146,8 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
   // execute the long interval one
   timer.TEST_WaitForRun([&] {
-    mock_env_->SleepForMicroseconds(kLargeRepeatUs - mock_env_->NowMicros());
+    mock_env_->SleepForMicroseconds(kLargeRepeatUs -
+                                    static_cast<int>(mock_env_->NowMicros()));
   });
   ASSERT_EQ(2, count3);
 
@@ -155,8 +156,8 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
 TEST_F(TimerTest, AddAfterStartTest) {
   const int kIterations = 5;
-  const int kInitDelayUs = 1 * kMicrosInSecond;
-  const int kRepeatUs = 1 * kMicrosInSecond;
+  const int kInitDelayUs = 1 * kSecond;
+  const int kRepeatUs = 1 * kSecond;
 
   // wait timer to run and then add a new job
   SyncPoint::GetInstance()->LoadDependency(
@@ -185,7 +186,7 @@ TEST_F(TimerTest, AddAfterStartTest) {
 }
 
 TEST_F(TimerTest, CancelRunningTask) {
-  const int kRepeatUs = 1 * kMicrosInSecond;
+  const int kRepeatUs = 1 * kSecond;
   constexpr char kTestFuncName[] = "test_func";
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
@@ -221,7 +222,7 @@ TEST_F(TimerTest, CancelRunningTask) {
 }
 
 TEST_F(TimerTest, ShutdownRunningTask) {
-  const int kRepeatUs = 1 * kMicrosInSecond;
+  const int kRepeatUs = 1 * kSecond;
   constexpr char kTestFunc1Name[] = "test_func1";
   constexpr char kTestFunc2Name[] = "test_func2";
   mock_env_->set_current_time(0);
@@ -260,9 +261,9 @@ TEST_F(TimerTest, ShutdownRunningTask) {
 }
 
 TEST_F(TimerTest, AddSameFuncName) {
-  const int kInitDelayUs = 1 * kMicrosInSecond;
-  const int kRepeat1Us = 5 * kMicrosInSecond;
-  const int kRepeat2Us = 4 * kMicrosInSecond;
+  const int kInitDelayUs = 1 * kSecond;
+  const int kRepeat1Us = 5 * kSecond;
+  const int kRepeat2Us = 4 * kSecond;
 
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
@@ -301,9 +302,9 @@ TEST_F(TimerTest, AddSameFuncName) {
 }
 
 TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
-  const int kInitDelayUs = 1 * kMicrosInSecond;
-  const int kRepeatUs = 5 * kMicrosInSecond;
-  const int kFuncRunningTimeUs = 1 * kMicrosInSecond;
+  const int kInitDelayUs = 1 * kSecond;
+  const int kRepeatUs = 5 * kSecond;
+  const int kFuncRunningTimeUs = 1 * kSecond;
 
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
