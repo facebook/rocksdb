@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_reader.h"
 #include "env/composite_env_wrapper.h"
@@ -67,12 +68,14 @@ TEST_F(BlobFileBuilderTest, Build) {
   constexpr uint64_t value_size = 4;
   constexpr int value_offset = 1234;
 
+  std::vector<std::string> blob_indexes(number_of_blobs);
+
   for (int i = 0; i < number_of_blobs; ++i) {
     const std::string key = std::to_string(i);
     const std::string value = std::to_string(i + value_offset);
 
-    std::string blob_index;
-    ASSERT_OK(builder.Add(key, value, &blob_index));
+    ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
+    ASSERT_FALSE(blob_indexes[i].empty());
   }
 
   ASSERT_OK(builder.Finish());
@@ -87,7 +90,7 @@ TEST_F(BlobFileBuilderTest, Build) {
       blob_file_additions[0].GetTotalBlobBytes(),
       number_of_blobs * (BlobLogRecord::kHeaderSize + key_size + value_size));
 
-  // Check the contents of the new blob file
+  // Validate the contents of the new blob file as well as the blob references
   const std::string blob_file_path = BlobFileName(
       immutable_cf_options.cf_paths.front().path, blob_file_number);
 
@@ -115,9 +118,21 @@ TEST_F(BlobFileBuilderTest, Build) {
 
     ASSERT_OK(blob_log_reader.ReadRecord(
         &record, BlobLogReader::kReadHeaderKeyBlob, &blob_offset));
+
+    // Check the contents of the blob file
     ASSERT_EQ(record.expiration, 0);
     ASSERT_EQ(record.key, std::to_string(i));
     ASSERT_EQ(record.value, std::to_string(i + value_offset));
+
+    // Make sure the blob reference returned by the builder points to the right
+    // place
+    BlobIndex blob_index;
+    ASSERT_OK(blob_index.DecodeFrom(blob_indexes[i]));
+    ASSERT_FALSE(blob_index.IsInlined());
+    ASSERT_FALSE(blob_index.HasTTL());
+    ASSERT_EQ(blob_index.file_number(), blob_file_number);
+    ASSERT_EQ(blob_index.offset(), blob_offset);
+    ASSERT_EQ(blob_index.size(), value_size);
   }
 }
 
