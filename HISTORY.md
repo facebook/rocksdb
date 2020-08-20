@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug fixes
+* BackupEngine::CreateNewBackup could fail intermittently with non-OK status when backing up a read-write DB configured with a DBOptions::file_checksum_gen_factory. This issue has been worked-around such that CreateNewBackup should succeed, but (until fully fixes) BackupEngine might not see all checksums available in the DB.
 
 ## 6.12 (2020-07-28)
 ### Public API Change
