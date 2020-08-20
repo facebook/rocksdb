@@ -35,9 +35,9 @@ TEST_F(TimerTest, SingleScheduleOnceTest) {
   // Wait for execution to finish
   mock_time_sec += kInitDelaySec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
+  ASSERT_EQ(1, count);
 
   ASSERT_TRUE(timer.Shutdown());
-  ASSERT_EQ(1, count);
 }
 
 TEST_F(TimerTest, MultipleScheduleOnceTest) {
@@ -51,7 +51,7 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   timer.Add([&] { count1++; }, "fn_sch_test1", kInitDelay1Sec * kSecond, 0);
 
   int count2 = 0;
-  timer.Add([&] { count2 += 5; }, "fn_sch_test2", kInitDelay2Sec * kSecond, 0);
+  timer.Add([&] { count2++; }, "fn_sch_test2", kInitDelay2Sec * kSecond, 0);
 
   ASSERT_TRUE(timer.Start());
   ASSERT_EQ(0, count1);
@@ -66,10 +66,10 @@ TEST_F(TimerTest, MultipleScheduleOnceTest) {
   mock_time_sec = kInitDelay2Sec;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
 
-  ASSERT_TRUE(timer.Shutdown());
-
   ASSERT_EQ(1, count1);
-  ASSERT_EQ(5, count2);
+  ASSERT_EQ(1, count2);
+
+  ASSERT_TRUE(timer.Shutdown());
 }
 
 TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
@@ -97,16 +97,17 @@ TEST_F(TimerTest, SingleScheduleRepeatedlyTest) {
     mock_time_sec += kRepeatSec;
     timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
   }
+  ASSERT_EQ(kIterations, count);
 
   ASSERT_TRUE(timer.Shutdown());
-
-  ASSERT_EQ(5, count);
 }
 
 TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   const int kInitDelay1Sec = 0;
   const int kInitDelay2Sec = 1;
+  const int kInitDelay3Sec = 0;
   const int kRepeatSec = 2;
+  const int kLargeRepeatSec = 100;
   const int kIterations = 5;
 
   int mock_time_sec = 0;
@@ -121,14 +122,23 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   timer.Add([&] { count2++; }, "fn_sch_test2", kInitDelay2Sec * kSecond,
             kRepeatSec * kSecond);
 
+  // Add a function with relatively large repeat interval
+  int count3 = 0;
+  timer.Add([&] { count3++; }, "fn_sch_test3", kInitDelay3Sec * kSecond,
+            kLargeRepeatSec * kSecond);
+
   ASSERT_TRUE(timer.Start());
 
   ASSERT_EQ(0, count2);
+  ASSERT_EQ(0, count3);
   // Wait for execution to finish
   for (; count1 < kIterations; mock_time_sec++) {
     timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
-    ASSERT_EQ((mock_time_sec + 2) / 2, count1);
-    ASSERT_EQ((mock_time_sec + 1) / 2, count2);
+    ASSERT_EQ((mock_time_sec + 2) / kRepeatSec, count1);
+    ASSERT_EQ((mock_time_sec + 1) / kRepeatSec, count2);
+
+    // large interval function should only run once (the first one).
+    ASSERT_EQ(1, count3);
   }
 
   timer.Cancel("fn_sch_test1");
@@ -136,13 +146,21 @@ TEST_F(TimerTest, MultipleScheduleRepeatedlyTest) {
   // Wait for execution to finish
   mock_time_sec++;
   timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
+  ASSERT_EQ(kIterations, count1);
+  ASSERT_EQ(kIterations, count2);
+  ASSERT_EQ(1, count3);
 
   timer.Cancel("fn_sch_test2");
 
-  ASSERT_TRUE(timer.Shutdown());
-
   ASSERT_EQ(kIterations, count1);
   ASSERT_EQ(kIterations, count2);
+
+  // execute the long interval one
+  mock_time_sec = kLargeRepeatSec;
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
+  ASSERT_EQ(2, count3);
+
+  ASSERT_TRUE(timer.Shutdown());
 }
 
 TEST_F(TimerTest, AddAfterStartTest) {
@@ -175,10 +193,9 @@ TEST_F(TimerTest, AddAfterStartTest) {
     mock_time_sec += kRepeatSec;
     timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
   }
+  ASSERT_EQ(kIterations, count);
 
   ASSERT_TRUE(timer.Shutdown());
-
-  ASSERT_EQ(kIterations, count);
 }
 
 TEST_F(TimerTest, CancelRunningTask) {
@@ -254,7 +271,7 @@ TEST_F(TimerTest, ShutdownRunningTask) {
   delete value;
 }
 
-TEST_F(TimerTest, AddSameFuncNameTest) {
+TEST_F(TimerTest, AddSameFuncName) {
   const int kInitDelaySec = 1;
   const int kRepeat1Sec = 5;
   const int kRepeat2Sec = 4;
@@ -295,6 +312,45 @@ TEST_F(TimerTest, AddSameFuncNameTest) {
   ASSERT_EQ(0, func_counter1);
   ASSERT_EQ(2, func2_counter);
   ASSERT_EQ(2, func_counter2);
+
+  ASSERT_TRUE(timer.Shutdown());
+}
+
+TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
+  const int kInitDelaySec = 1;
+  const int kRepeatSec = 5;
+  const int kFuncRunningTimeSec = 1;
+
+  int mock_time_sec = 0;
+  mock_env_->set_current_time(mock_time_sec);
+  Timer timer(mock_env_.get());
+
+  ASSERT_TRUE(timer.Start());
+
+  int func_counter = 0;
+  timer.Add(
+      [&] {
+        mock_env_->set_current_time(mock_time_sec + kFuncRunningTimeSec);
+        func_counter++;
+      },
+      "func", kInitDelaySec * kSecond, kRepeatSec * kSecond);
+
+  ASSERT_EQ(0, func_counter);
+  mock_time_sec += kInitDelaySec;
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
+  ASSERT_EQ(1, func_counter);
+
+  // After repeat interval time, the function is not executed, as running
+  // the function takes some time (`kFuncRunningTimeSec`). The repeat interval
+  // is the time between ending time of the last call and starting time of the
+  // next call.
+  mock_time_sec += kRepeatSec;
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
+  ASSERT_EQ(1, func_counter);
+
+  mock_time_sec += kFuncRunningTimeSec;
+  timer.TEST_WaitForRun([&] { mock_env_->set_current_time(mock_time_sec); });
+  ASSERT_EQ(2, func_counter);
 
   ASSERT_TRUE(timer.Shutdown());
 }

@@ -42,9 +42,15 @@ class Timer {
         running_(false),
         executing_task_(false) {}
 
-  // Add a new function. If the fn_name already exists, overriding it,
-  // regardless if the function is pending removed (invalid) or not.
-  // repeat_every_us == 0 means do not repeat
+  // Add a new function to run.
+  // fn_name has to be identical, otherwise, the new one overrides the existing
+  // one, regardless if the function is pending removed (invalid) or not.
+  // start_after_us is the initial delay.
+  // repeat_every_us is the interval between ending time of the last call and
+  // starting time of the next call. For example, repeat_every_us = 2000 and
+  // the function takes 1000us to run. If it starts at time [now]us, then it
+  // finishes at [now]+1000us, 2nd run starting time will be at [now]+3000us.
+  // repeat_every_us == 0 means do not repeat.
   void Add(std::function<void()> fn,
            const std::string& fn_name,
            uint64_t start_after_us,
