@@ -296,13 +296,11 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
 }
 
 TEST_F(BlobFileBuilderTest, Compression) {
-  // Build a blob file with compressed blobs
-
+  // Build a blob file with a compressed blob
   if (!Snappy_Supported()) {
     return;
   }
 
-  constexpr size_t number_of_blobs = 7;
   constexpr size_t key_size = 1;
   constexpr size_t value_size = 100;
 
@@ -326,42 +324,13 @@ TEST_F(BlobFileBuilderTest, Compression) {
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
 
-  std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
-      number_of_blobs);
-  std::vector<std::string> blob_indexes(number_of_blobs);
+  const std::string key("1");
+  const std::string uncompressed_value(value_size, 'x');
 
-  constexpr std::array<char, number_of_blobs> value_chars{
-      {'r', 'o', 'c', 'k', 's', 'd', 'b'}};
+  std::string blob_index;
 
-  uint64_t expected_bytes = 0;
-
-  for (size_t i = 0; i < number_of_blobs; ++i) {
-    auto& expected_key_value = expected_key_value_pairs[i];
-
-    auto& key = expected_key_value.first;
-    key = std::to_string(i);
-
-    const std::string uncompressed_value(value_size, value_chars[i]);
-
-    auto& blob_index = blob_indexes[i];
-
-    ASSERT_OK(builder.Add(key, uncompressed_value, &blob_index));
-    ASSERT_FALSE(blob_index.empty());
-
-    CompressionOptions opts;
-    CompressionContext context(kSnappyCompression);
-    constexpr uint64_t sample_for_compression = 0;
-
-    CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
-                         kSnappyCompression, sample_for_compression);
-
-    auto& compressed_value = expected_key_value.second;
-    ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),
-                                uncompressed_value.size(), &compressed_value));
-
-    expected_bytes +=
-        BlobLogRecord::kHeaderSize + key_size + compressed_value.size();
-  }
+  ASSERT_OK(builder.Add(key, uncompressed_value, &blob_index));
+  ASSERT_FALSE(blob_index.empty());
 
   ASSERT_OK(builder.Finish());
 
@@ -373,10 +342,27 @@ TEST_F(BlobFileBuilderTest, Compression) {
   constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), number_of_blobs);
-  ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(), expected_bytes);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
 
-  // Verify the contents of the new blob file as well as the blob references
+  CompressionOptions opts;
+  CompressionContext context(kSnappyCompression);
+  constexpr uint64_t sample_for_compression = 0;
+
+  CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
+                       kSnappyCompression, sample_for_compression);
+
+  std::string compressed_value;
+  ASSERT_TRUE(Snappy_Compress(info, uncompressed_value.data(),
+                              uncompressed_value.size(), &compressed_value));
+
+  ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
+            BlobLogRecord::kHeaderSize + key_size + compressed_value.size());
+
+  // Verify the contents of the new blob file as well as the blob reference
+  std::vector<std::pair<std::string, std::string>> expected_key_value_pairs{
+      {key, compressed_value}};
+  std::vector<std::string> blob_indexes{blob_index};
+
   VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
                  kSnappyCompression, expected_key_value_pairs, blob_indexes);
 }
