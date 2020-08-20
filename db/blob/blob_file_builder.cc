@@ -109,8 +109,8 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     }
   }
 
-  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset,
-                        blob.size(), blob_compression_type_);
+  BlobIndex::EncodeBlob(blob_index, blob_file_number, blob_offset, blob.size(),
+                        blob_compression_type_);
 
   return Status::OK();
 }
