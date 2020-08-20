@@ -166,7 +166,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
                  expected_key_value_pairs, blob_indexes);
 }
 
-TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
+TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   // Build multiple blob files: file size limit is set to the size of a single
   // value, so each blob ends up in a file of its own
   constexpr size_t number_of_blobs = 10;
@@ -176,7 +176,8 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_BuildMultipleFiles"),
+      test::PerThreadDBPath(&env_,
+                            "BlobFileBuilderTest_BuildAndCheckMultipleFiles"),
       0);
   options.enable_blob_files = true;
   options.blob_file_size = value_size;
