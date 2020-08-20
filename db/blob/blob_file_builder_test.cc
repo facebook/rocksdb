@@ -154,11 +154,11 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   ASSERT_OK(builder.Finish());
 
   // Check the metadata generated
-  constexpr uint64_t blob_file_number = 2;
-
   ASSERT_EQ(blob_file_additions.size(), 1);
 
   const auto& blob_file_addition = blob_file_additions[0];
+
+  constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
   ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), number_of_blobs);
