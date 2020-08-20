@@ -1323,8 +1323,22 @@ Status BlockBasedTable::PutDataBlockToCache(
                             priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
-      cached_block->SetCachedValue(block_holder.release(), block_cache,
-                                   cache_handle);
+      void* ptr_in_cache = block_cache->Value(cache_handle);
+      cached_block->SetCachedValue(reinterpret_cast<TBlocklike*>(ptr_in_cache),
+                                   block_cache, cache_handle);
+      // If ptr_in_cache is equal to block_holder.get(), it means the block has
+      // been inserted into the cache without memcpy. Therefore, the block
+      // cache starts to take the responsibility of managing the underlying
+      // memory, and block_holder needs to release ownership.
+      // If ptr_in_cache is not equal to block_holder.get(), it means
+      // block_cache copies the block to some internally managed buffer. When
+      // block_holder goes out of scope, its underlying memory should be
+      // free'ed, while cached_block will point to the new buffer.
+      if (ptr_in_cache == block_holder.get()) {
+        block_holder.release();
+      } else {
+        assert(ptr_in_cache);
+      }
 
       UpdateCacheInsertionMetrics(block_type, get_context, charge,
                                   s.IsOkOverwritten());
