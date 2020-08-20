@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cinttypes>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "db/blob/blob_file_addition.h"
@@ -37,6 +38,65 @@ class BlobFileBuilderTest : public testing::Test {
   };
 
   BlobFileBuilderTest() : env_(Env::Default()), fs_(&env_) {}
+
+  void VerifyBlobFile(const ImmutableCFOptions& immutable_cf_options,
+                      uint64_t blob_file_number, uint32_t column_family_id,
+                      const std::vector<std::pair<std::string, std::string>>&
+                          expected_key_value_pairs,
+                      const std::vector<std::string>& blob_indexes) {
+    assert(expected_key_value_pairs.size() == blob_indexes.size());
+
+    const std::string blob_file_path = BlobFileName(
+        immutable_cf_options.cf_paths.front().path, blob_file_number);
+
+    std::unique_ptr<FSRandomAccessFile> file;
+    constexpr IODebugContext* dbg = nullptr;
+    ASSERT_OK(
+        fs_.NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
+
+    std::unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(file), blob_file_path, &env_));
+
+    constexpr Statistics* statistics = nullptr;
+    BlobLogReader blob_log_reader(std::move(file_reader), &env_, statistics);
+
+    BlobLogHeader header;
+    ASSERT_OK(blob_log_reader.ReadHeader(&header));
+    ASSERT_EQ(header.version, kVersion1);
+    ASSERT_EQ(header.column_family_id, column_family_id);
+    ASSERT_EQ(header.compression, kNoCompression);
+    ASSERT_FALSE(header.has_ttl);
+    ASSERT_EQ(header.expiration_range, ExpirationRange());
+
+    for (size_t i = 0; i < expected_key_value_pairs.size(); ++i) {
+      BlobLogRecord record;
+      uint64_t blob_offset = 0;
+
+      ASSERT_OK(blob_log_reader.ReadRecord(
+          &record, BlobLogReader::kReadHeaderKeyBlob, &blob_offset));
+
+      // Check the contents of the blob file
+      const auto& expected_key_value = expected_key_value_pairs[i];
+      const auto& key = expected_key_value.first;
+      const auto& value = expected_key_value.second;
+
+      ASSERT_EQ(record.key_size, key.size());
+      ASSERT_EQ(record.value_size, value.size());
+      ASSERT_EQ(record.expiration, 0);
+      ASSERT_EQ(record.key, key);
+      ASSERT_EQ(record.value, value);
+
+      // Make sure the blob reference returned by the builder points to the
+      // right place
+      BlobIndex blob_index;
+      ASSERT_OK(blob_index.DecodeFrom(blob_indexes[i]));
+      ASSERT_FALSE(blob_index.IsInlined());
+      ASSERT_FALSE(blob_index.HasTTL());
+      ASSERT_EQ(blob_index.file_number(), blob_file_number);
+      ASSERT_EQ(blob_index.offset(), blob_offset);
+      ASSERT_EQ(blob_index.size(), value.size());
+    }
+  }
 
   MockEnv env_;
   LegacyFileSystemWrapper fs_;
@@ -70,13 +130,19 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
 
+  std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
+      number_of_blobs);
   std::vector<std::string> blob_indexes(number_of_blobs);
 
   for (int i = 0; i < number_of_blobs; ++i) {
-    const std::string key = std::to_string(i);
+    auto& expected_key_value = expected_key_value_pairs[i];
+
+    auto& key = expected_key_value.first;
+    key = std::to_string(i);
     assert(key.size() == key_size);
 
-    const std::string value = std::to_string(i + value_offset);
+    auto& value = expected_key_value.second;
+    value = std::to_string(i + value_offset);
     assert(value.size() == value_size);
 
     ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
@@ -95,52 +161,9 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
       blob_file_additions[0].GetTotalBlobBytes(),
       number_of_blobs * (BlobLogRecord::kHeaderSize + key_size + value_size));
 
-  // Validate the contents of the new blob file as well as the blob references
-  const std::string blob_file_path = BlobFileName(
-      immutable_cf_options.cf_paths.front().path, blob_file_number);
-
-  std::unique_ptr<FSRandomAccessFile> file;
-  constexpr IODebugContext* dbg = nullptr;
-  ASSERT_OK(fs_.NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
-
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), blob_file_path, &env_));
-
-  constexpr Statistics* statistics = nullptr;
-  BlobLogReader blob_log_reader(std::move(file_reader), &env_, statistics);
-
-  BlobLogHeader header;
-  ASSERT_OK(blob_log_reader.ReadHeader(&header));
-  ASSERT_EQ(header.version, kVersion1);
-  ASSERT_EQ(header.column_family_id, column_family_id);
-  ASSERT_EQ(header.compression, kNoCompression);
-  ASSERT_FALSE(header.has_ttl);
-  ASSERT_EQ(header.expiration_range, ExpirationRange());
-
-  for (int i = 0; i < number_of_blobs; ++i) {
-    BlobLogRecord record;
-    uint64_t blob_offset = 0;
-
-    ASSERT_OK(blob_log_reader.ReadRecord(
-        &record, BlobLogReader::kReadHeaderKeyBlob, &blob_offset));
-
-    // Check the contents of the blob file
-    ASSERT_EQ(record.key_size, key_size);
-    ASSERT_EQ(record.value_size, value_size);
-    ASSERT_EQ(record.expiration, 0);
-    ASSERT_EQ(record.key, std::to_string(i));
-    ASSERT_EQ(record.value, std::to_string(i + value_offset));
-
-    // Make sure the blob reference returned by the builder points to the right
-    // place
-    BlobIndex blob_index;
-    ASSERT_OK(blob_index.DecodeFrom(blob_indexes[i]));
-    ASSERT_FALSE(blob_index.IsInlined());
-    ASSERT_FALSE(blob_index.HasTTL());
-    ASSERT_EQ(blob_index.file_number(), blob_file_number);
-    ASSERT_EQ(blob_index.offset(), blob_offset);
-    ASSERT_EQ(blob_index.size(), value_size);
-  }
+  // Verify the contents of the new blob file as well as the blob references
+  VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
+                 expected_key_value_pairs, blob_indexes);
 }
 
 TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
@@ -172,13 +195,19 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
 
+  std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
+      number_of_blobs);
   std::vector<std::string> blob_indexes(number_of_blobs);
 
   for (int i = 0; i < number_of_blobs; ++i) {
-    const std::string key = std::to_string(i);
+    auto& expected_key_value = expected_key_value_pairs[i];
+
+    auto& key = expected_key_value.first;
+    key = std::to_string(i);
     assert(key.size() == key_size);
 
-    const std::string value = std::to_string(i + value_offset);
+    auto& value = expected_key_value.second;
+    value = std::to_string(i + value_offset);
     assert(value.size() == value_size);
 
     ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
@@ -197,16 +226,14 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
               BlobLogRecord::kHeaderSize + key_size + value_size);
   }
 
-  // Check the blob references
+  // Verify the contents of the new blob files as well as the blob references
   for (int i = 0; i < number_of_blobs; ++i) {
-    BlobIndex blob_index;
-    ASSERT_OK(blob_index.DecodeFrom(blob_indexes[i]));
-    ASSERT_FALSE(blob_index.IsInlined());
-    ASSERT_FALSE(blob_index.HasTTL());
-    ASSERT_EQ(blob_index.file_number(), i + 2);
-    ASSERT_EQ(blob_index.offset(),
-              BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size);
-    ASSERT_EQ(blob_index.size(), value_size);
+    std::vector<std::pair<std::string, std::string>> expected_key_value_pair{
+        expected_key_value_pairs[i]};
+    std::vector<std::string> blob_index{blob_indexes[i]};
+
+    VerifyBlobFile(immutable_cf_options, i + 2, column_family_id,
+                   expected_key_value_pair, blob_index);
   }
 }
 
