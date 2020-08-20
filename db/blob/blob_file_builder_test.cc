@@ -43,11 +43,17 @@ class BlobFileBuilderTest : public testing::Test {
   FileOptions file_options_;
 };
 
-TEST_F(BlobFileBuilderTest, Build) {
+TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   // Build a single blob file
+  constexpr int number_of_blobs = 10;
+  constexpr uint64_t key_size = 1;
+  constexpr uint64_t value_size = 4;
+  constexpr int value_offset = 1234;
+
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Build"), 0);
+      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_BuildAndCheckOneFile"),
+      0);
   options.enable_blob_files = true;
 
   ImmutableCFOptions immutable_cf_options(options);
@@ -63,11 +69,6 @@ TEST_F(BlobFileBuilderTest, Build) {
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
-
-  constexpr int number_of_blobs = 10;
-  constexpr uint64_t key_size = 1;
-  constexpr uint64_t value_size = 4;
-  constexpr int value_offset = 1234;
 
   std::vector<std::string> blob_indexes(number_of_blobs);
 
@@ -139,6 +140,61 @@ TEST_F(BlobFileBuilderTest, Build) {
     ASSERT_EQ(blob_index.file_number(), blob_file_number);
     ASSERT_EQ(blob_index.offset(), blob_offset);
     ASSERT_EQ(blob_index.size(), value_size);
+  }
+}
+
+TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
+  // Build multiple blob files: file size limit is set to the size of a single
+  // value, so each blob ends up in a file of its own
+  constexpr int number_of_blobs = 10;
+  constexpr uint64_t key_size = 1;
+  constexpr uint64_t value_size = 10;
+  constexpr int value_offset = 1234567890;
+
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_BuildMultipleFiles"),
+      0);
+  options.enable_blob_files = true;
+  options.blob_file_size = value_size;
+
+  ImmutableCFOptions immutable_cf_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 123;
+  constexpr Env::IOPriority io_priority = Env::IO_HIGH;
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+                          &immutable_cf_options, &mutable_cf_options,
+                          &file_options_, column_family_id, io_priority,
+                          write_hint, &blob_file_additions);
+
+  std::vector<std::string> blob_indexes(number_of_blobs);
+
+  for (int i = 0; i < number_of_blobs; ++i) {
+    const std::string key = std::to_string(i);
+    assert(key.size() == key_size);
+
+    const std::string value = std::to_string(i + value_offset);
+    assert(value.size() == value_size);
+
+    ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
+    ASSERT_FALSE(blob_indexes[i].empty());
+  }
+
+  ASSERT_OK(builder.Finish());
+
+  // Check the metadata generated
+  ASSERT_EQ(blob_file_additions.size(), number_of_blobs);
+
+  for (int i = 0; i < number_of_blobs; ++i) {
+    ASSERT_EQ(blob_file_additions[i].GetBlobFileNumber(), i + 2);
+    ASSERT_EQ(blob_file_additions[i].GetTotalBlobCount(), 1);
+    ASSERT_EQ(blob_file_additions[i].GetTotalBlobBytes(),
+              BlobLogRecord::kHeaderSize + key_size + value_size);
   }
 }
 
