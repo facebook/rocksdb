@@ -33,13 +33,13 @@ class StatsDumpSchedulerTest : public DBTestBase {
 
 TEST_F(StatsDumpSchedulerTest, Basic) {
   constexpr int kPeriodSec = 5;
+  const uint64_t kPeriodUs = kMicrosInSecond * kPeriodSec;
   Close();
   Options options;
   options.stats_dump_period_sec = kPeriodSec;
   options.stats_persist_period_sec = kPeriodSec;
   options.create_if_missing = true;
-  int mock_time_sec = 0;
-  mock_env_->set_current_time(mock_time_sec);
+  mock_env_->set_current_time(0);
   options.env = mock_env_.get();
 
   int dump_st_counter = 0;
@@ -56,9 +56,10 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  mock_time_sec += kPeriodSec - 1;
+  const uint64_t kInitDelayUs =
+      static_cast<uint64_t>(kPeriodSec - 1) * kMicrosInSecond;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
 
   auto scheduler = dbfull()->TEST_GetStatsDumpScheduler();
   ASSERT_NE(nullptr, scheduler);
@@ -67,16 +68,14 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
 
-  mock_time_sec += kPeriodSec;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
 
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
 
-  mock_time_sec += kPeriodSec;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
 
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
@@ -100,9 +99,8 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(1, scheduler->TEST_GetValidTaskNum());
 
   dump_st_counter = 0;
-  mock_time_sec += kPeriodSec;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
   ASSERT_EQ(1, dump_st_counter);
 
   Close();
@@ -110,6 +108,7 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
 
 TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   constexpr int kPeriodSec = 5;
+  const uint64_t kPeriodUs = kMicrosInSecond * kPeriodSec;
   const int kInstanceNum = 10;
 
   Close();
@@ -117,8 +116,7 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   options.stats_dump_period_sec = kPeriodSec;
   options.stats_persist_period_sec = kPeriodSec;
   options.create_if_missing = true;
-  int mock_time_sec = 0;
-  mock_env_->set_current_time(mock_time_sec);
+  mock_env_->set_current_time(0);
   options.env = mock_env_.get();
 
   int dump_st_counter = 0;
@@ -141,23 +139,22 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   ASSERT_EQ(kInstanceNum * 2, scheduler->TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
-  mock_time_sec += kPeriodSec - 1;
+  const uint64_t kInitDelayUs =
+      static_cast<uint64_t>(kPeriodSec - 1) * kMicrosInSecond;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
-  mock_time_sec += kPeriodSec;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
-  mock_time_sec += kPeriodSec;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
@@ -168,12 +165,10 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
 
   expected_run += (kInstanceNum - half) * 2;
 
-  mock_time_sec += kPeriodSec;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
-  mock_time_sec += kPeriodSec;
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->SleepForMicroseconds(kPeriodUs); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
