@@ -5,6 +5,7 @@
 
 #include "db/blob/blob_file_builder.h"
 
+#include <cassert>
 #include <cinttypes>
 #include <string>
 #include <vector>
@@ -72,7 +73,10 @@ TEST_F(BlobFileBuilderTest, Build) {
 
   for (int i = 0; i < number_of_blobs; ++i) {
     const std::string key = std::to_string(i);
+    assert(key.size() == key_size);
+
     const std::string value = std::to_string(i + value_offset);
+    assert(value.size() == value_size);
 
     ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
     ASSERT_FALSE(blob_indexes[i].empty());
@@ -120,6 +124,8 @@ TEST_F(BlobFileBuilderTest, Build) {
         &record, BlobLogReader::kReadHeaderKeyBlob, &blob_offset));
 
     // Check the contents of the blob file
+    ASSERT_EQ(record.key_size, key_size);
+    ASSERT_EQ(record.value_size, value_size);
     ASSERT_EQ(record.expiration, 0);
     ASSERT_EQ(record.key, std::to_string(i));
     ASSERT_EQ(record.value, std::to_string(i + value_offset));
