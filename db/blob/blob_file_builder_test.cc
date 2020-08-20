@@ -196,6 +196,18 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
     ASSERT_EQ(blob_file_additions[i].GetTotalBlobBytes(),
               BlobLogRecord::kHeaderSize + key_size + value_size);
   }
+
+  // Check the blob references
+  for (int i = 0; i < number_of_blobs; ++i) {
+    BlobIndex blob_index;
+    ASSERT_OK(blob_index.DecodeFrom(blob_indexes[i]));
+    ASSERT_FALSE(blob_index.IsInlined());
+    ASSERT_FALSE(blob_index.HasTTL());
+    ASSERT_EQ(blob_index.file_number(), i + 2);
+    ASSERT_EQ(blob_index.offset(),
+              BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size);
+    ASSERT_EQ(blob_index.size(), value_size);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
