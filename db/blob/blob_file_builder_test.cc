@@ -63,6 +63,8 @@ TEST_F(BlobFileBuilderTest, Build) {
                           write_hint, &blob_file_additions);
 
   constexpr int number_of_blobs = 10;
+  constexpr uint64_t key_size = 1;
+  constexpr uint64_t value_size = 4;
   constexpr int value_offset = 1234;
 
   for (int i = 0; i < number_of_blobs; ++i) {
@@ -75,8 +77,17 @@ TEST_F(BlobFileBuilderTest, Build) {
 
   ASSERT_OK(builder.Finish());
 
-  // Read it back and check keys/values
+  // Check the metadata generated
   constexpr uint64_t blob_file_number = 2;
+
+  ASSERT_EQ(blob_file_additions.size(), 1);
+  ASSERT_EQ(blob_file_additions[0].GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(blob_file_additions[0].GetTotalBlobCount(), number_of_blobs);
+  ASSERT_EQ(
+      blob_file_additions[0].GetTotalBlobBytes(),
+      number_of_blobs * (BlobLogRecord::kHeaderSize + key_size + value_size));
+
+  // Check the contents of the new blob file
   const std::string blob_file_path = BlobFileName(
       immutable_cf_options.cf_paths.front().path, blob_file_number);
 
