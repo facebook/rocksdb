@@ -145,8 +145,10 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
     value = std::to_string(i + value_offset);
     assert(value.size() == value_size);
 
-    ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
-    ASSERT_FALSE(blob_indexes[i].empty());
+    auto& blob_index = blob_indexes[i];
+
+    ASSERT_OK(builder.Add(key, value, &blob_index));
+    ASSERT_FALSE(blob_index.empty());
   }
 
   ASSERT_OK(builder.Finish());
@@ -155,10 +157,13 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_additions.size(), 1);
-  ASSERT_EQ(blob_file_additions[0].GetBlobFileNumber(), blob_file_number);
-  ASSERT_EQ(blob_file_additions[0].GetTotalBlobCount(), number_of_blobs);
+
+  const auto& blob_file_addition = blob_file_additions[0];
+
+  ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), number_of_blobs);
   ASSERT_EQ(
-      blob_file_additions[0].GetTotalBlobBytes(),
+      blob_file_addition.GetTotalBlobBytes(),
       number_of_blobs * (BlobLogRecord::kHeaderSize + key_size + value_size));
 
   // Verify the contents of the new blob file as well as the blob references
@@ -211,8 +216,10 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
     value = std::to_string(i + value_offset);
     assert(value.size() == value_size);
 
-    ASSERT_OK(builder.Add(key, value, &blob_indexes[i]));
-    ASSERT_FALSE(blob_indexes[i].empty());
+    auto& blob_index = blob_indexes[i];
+
+    ASSERT_OK(builder.Add(key, value, &blob_index));
+    ASSERT_FALSE(blob_index.empty());
   }
 
   ASSERT_OK(builder.Finish());
@@ -221,9 +228,11 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   ASSERT_EQ(blob_file_additions.size(), number_of_blobs);
 
   for (size_t i = 0; i < number_of_blobs; ++i) {
-    ASSERT_EQ(blob_file_additions[i].GetBlobFileNumber(), i + 2);
-    ASSERT_EQ(blob_file_additions[i].GetTotalBlobCount(), 1);
-    ASSERT_EQ(blob_file_additions[i].GetTotalBlobBytes(),
+    const auto& blob_file_addition = blob_file_additions[i];
+
+    ASSERT_EQ(blob_file_addition.GetBlobFileNumber(), i + 2);
+    ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
+    ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
               BlobLogRecord::kHeaderSize + key_size + value_size);
   }
 
