@@ -210,6 +210,51 @@ TEST_F(BlobFileBuilderTest, BuildMultipleFiles) {
   }
 }
 
+TEST_F(BlobFileBuilderTest, InlinedValues) {
+  // All values are below the min_blob_size threshold; no blob files get written
+  constexpr int number_of_blobs = 10;
+  constexpr uint64_t key_size = 1;
+  constexpr uint64_t value_size = 10;
+  constexpr int value_offset = 1234567890;
+
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_InlinedValues"), 0);
+  options.enable_blob_files = true;
+  options.min_blob_size = 1024;
+
+  ImmutableCFOptions immutable_cf_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 123;
+  constexpr Env::IOPriority io_priority = Env::IO_HIGH;
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+                          &immutable_cf_options, &mutable_cf_options,
+                          &file_options_, column_family_id, io_priority,
+                          write_hint, &blob_file_additions);
+
+  for (int i = 0; i < number_of_blobs; ++i) {
+    const std::string key = std::to_string(i);
+    assert(key.size() == key_size);
+
+    const std::string value = std::to_string(i + value_offset);
+    assert(value.size() == value_size);
+
+    std::string blob_index;
+    ASSERT_OK(builder.Add(key, value, &blob_index));
+    ASSERT_TRUE(blob_index.empty());
+  }
+
+  ASSERT_OK(builder.Finish());
+
+  // Check the metadata generated
+  ASSERT_TRUE(blob_file_additions.empty());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
