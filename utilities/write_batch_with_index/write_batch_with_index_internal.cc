@@ -49,7 +49,7 @@ void BaseDeltaIterator::SeekToLast() {
   const Slice* base_upper_bound = base_iterator_upper_bound();
   if (base_upper_bound != nullptr) {
     // yes, and is base_iterator already constrained by an upper_bound?
-    if (!base_iterator_->check_upper_bound()) {
+    if (!base_iterator_->ChecksUpperBound()) {
       // no, so we have to seek it to before base_upper_bound
       base_iterator_->Seek(*(base_upper_bound));
       if (base_iterator_->Valid()) {
@@ -310,7 +310,7 @@ bool BaseDeltaIterator::BaseValid() const {
   // base_iterator if the base iterator has an
   // upper_bounds_check already
   return base_iterator_->Valid() &&
-      (base_iterator_->check_upper_bound() ? true : BaseIsWithinBounds());
+      (base_iterator_->ChecksUpperBound() ? true : BaseIsWithinBounds());
 }
 
 bool BaseDeltaIterator::DeltaValid() const {
@@ -402,7 +402,7 @@ void BaseDeltaIterator::UpdateCurrent() {
 }
 
 inline const Slice* BaseDeltaIterator::base_iterator_upper_bound() const {
-  const Slice* upper_bound = base_iterator_->iterate_upper_bound();
+  const Slice* upper_bound = base_iterator_->upper_bound();
   if (upper_bound == nullptr && read_options_ != nullptr) {
     return read_options_->iterate_upper_bound;
   }
@@ -410,7 +410,7 @@ inline const Slice* BaseDeltaIterator::base_iterator_upper_bound() const {
 }
 
 inline const Slice* BaseDeltaIterator::base_iterator_lower_bound() const {
-  const Slice* lower_bound = base_iterator_->iterate_lower_bound();
+  const Slice* lower_bound = base_iterator_->lower_bound();
   if (lower_bound == nullptr && read_options_ != nullptr) {
     return read_options_->iterate_lower_bound;
   }

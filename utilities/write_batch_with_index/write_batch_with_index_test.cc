@@ -561,25 +561,25 @@ class KVIter : public Iterator {
   Slice value() const override { return iter_->second; }
   Status status() const override { return Status::OK(); }
 
-  bool check_lower_bound() const override {
+  bool ChecksLowerBound() const override {
     return read_options_ != nullptr &&
            read_options_->iterate_lower_bound != nullptr;
   }
 
-  const Slice* iterate_lower_bound() const override {
-    if (check_lower_bound()) {
+  const Slice* lower_bound() const override {
+    if (ChecksLowerBound()) {
       return read_options_->iterate_lower_bound;
     }
     return nullptr;
   }
 
-  bool check_upper_bound() const override {
+  bool ChecksUpperBound() const override {
     return read_options_ != nullptr &&
            read_options_->iterate_upper_bound != nullptr;
   }
 
-  const Slice* iterate_upper_bound() const override {
-    if (check_upper_bound()) {
+  const Slice* upper_bound() const override {
+    if (ChecksUpperBound()) {
       return read_options_->iterate_upper_bound;
     }
     return nullptr;

@@ -121,7 +121,7 @@ class Iterator : public Cleanable {
    * checking ReadOptions::iterate_lower_bound,
    * false otherwise.
    */
-  virtual bool check_lower_bound() const { return false; }
+  virtual bool ChecksLowerBound() const { return false; }
 
   /**
    * Returns the lower bound if this iterator has a
@@ -130,16 +130,16 @@ class Iterator : public Cleanable {
    *
    * Just because a lower bound is present, it does
    * not mean that it is checked. This can however
-   * be determined by calling Iterator::check_lower_bound().
+   * be determined by calling Iterator::ChecksLowerBound().
    */
-  virtual const Slice* iterate_lower_bound() const { return nullptr; }
+  virtual const Slice* lower_bound() const { return nullptr; }
 
   /**
    * true if this iterator is already
    * checking ReadOptions::iterate_upper_bound,
    * false otherwise.
    */
-  virtual bool check_upper_bound() const { return false; }
+  virtual bool ChecksUpperBound() const { return false; }
 
   /**
    * Returns the upper bound if this iterator has a
@@ -148,9 +148,9 @@ class Iterator : public Cleanable {
    *
    * Just because an upper bound is present, it does
    * not mean that it is checked. This can however
-   * be determined by calling Iterator::check_upper_bound().
+   * be determined by calling Iterator::ChecksUpperBound().
    */
-  virtual const Slice* iterate_upper_bound() const { return nullptr; }
+  virtual const Slice* upper_bound() const { return nullptr; }
 };
 
 // Return an empty iterator (yields nothing).
