@@ -22,11 +22,11 @@
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_checksum.h"
 #include "rocksdb/options.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/compression.h"
-#include "util/file_checksum_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -370,12 +370,35 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
 TEST_F(BlobFileBuilderTest, Checksum) {
   // Build a blob file with checksum
+
+  class DummyFileChecksumGenerator : public FileChecksumGenerator {
+   public:
+    void Update(const char* /* data */, size_t /* n */) override {}
+
+    void Finalize() override {}
+
+    std::string GetChecksum() const override { return std::string("dummy"); }
+
+    const char* Name() const override { return "DummyFileChecksum"; }
+  };
+
+  class DummyFileChecksumGenFactory : public FileChecksumGenFactory {
+   public:
+    std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+        const FileChecksumGenContext& /* context */) override {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new DummyFileChecksumGenerator);
+    };
+
+    const char* Name() const override { return "DummyFileChecksumGenFactory"; };
+  };
+
   Options options;
   options.cf_paths.emplace_back(
       test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Checksum"), 0);
   options.enable_blob_files = true;
   options.file_checksum_gen_factory =
-      std::make_shared<FileChecksumGenCrc32cFactory>();
+      std::make_shared<DummyFileChecksumGenFactory>();
 
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
@@ -412,9 +435,9 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   ASSERT_EQ(blob_file_addition.GetTotalBlobCount(), 1);
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
             BlobLogRecord::kHeaderSize + key.size() + value.size());
-  ASSERT_EQ(blob_file_addition.GetChecksumMethod(), "FileChecksumCrc32c");
+  ASSERT_EQ(blob_file_addition.GetChecksumMethod(), "DummyFileChecksum");
 
-  constexpr char expected_checksum[] = "\xaf\xa3\x4d\xba";
+  constexpr char expected_checksum[] = "dummy";
   ASSERT_EQ(blob_file_addition.GetChecksumValue(), expected_checksum);
 
   // Verify the contents of the new blob file as well as the blob reference
