@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 class RepairTest : public DBTestBase {
  public:
-  RepairTest() : DBTestBase("/repair_test") {}
+  RepairTest() : DBTestBase("/repair_test", /*env_do_fsync=*/true) {}
 
   std::string GetFirstSstPath() {
     uint64_t manifest_size;

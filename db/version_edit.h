@@ -486,6 +486,10 @@ class VersionEdit {
     return is_column_family_add_ || is_column_family_drop_;
   }
 
+  bool IsColumnFamilyAdd() const { return is_column_family_add_; }
+
+  bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
+
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
     remaining_entries_ = remaining_entries;

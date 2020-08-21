@@ -388,6 +388,22 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"enable_blob_files",
+         {offsetof(struct MutableCFOptions, enable_blob_files),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"min_blob_size",
+         {offsetof(struct MutableCFOptions, min_blob_size)
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"blob_file_size",
+         {offsetof(struct MutableCFOptions, blob_file_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable }},
+        {"blob_compression_type",
+         {offsetof(struct MutableCFOptions, blob_compression_type), 
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -992,6 +1008,16 @@ void MutableCFOptions::Dump(Logger* log) const {
                  compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
+
+  // Blob file related options
+  ROCKS_LOG_INFO(log, "                        enable_blob_files: %s",
+                 enable_blob_files ? "true" : "false");
+  ROCKS_LOG_INFO(log, "                            min_blob_size: %" PRIu64,
+                 min_blob_size);
+  ROCKS_LOG_INFO(log, "                           blob_file_size: %" PRIu64,
+                 blob_file_size);
+  ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
+                 CompressionTypeToString(blob_compression_type).c_str());
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

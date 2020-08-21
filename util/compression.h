@@ -23,6 +23,7 @@
 #include "memory/memory_allocator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
 #include "util/string_util.h"
@@ -1398,6 +1399,54 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   (void)max_dict_bytes;
   return "";
 #endif  // ZSTD_VERSION_NUMBER >= 10103
+}
+
+inline bool CompressData(const Slice& raw,
+                         const CompressionInfo& compression_info,
+                         uint32_t compress_format_version,
+                         std::string* compressed_output) {
+  bool ret = false;
+
+  // Will return compressed block contents if (1) the compression method is
+  // supported in this platform and (2) the compression rate is "good enough".
+  switch (compression_info.type()) {
+    case kSnappyCompression:
+      ret = Snappy_Compress(compression_info, raw.data(), raw.size(),
+                            compressed_output);
+      break;
+    case kZlibCompression:
+      ret = Zlib_Compress(compression_info, compress_format_version, raw.data(),
+                          raw.size(), compressed_output);
+      break;
+    case kBZip2Compression:
+      ret = BZip2_Compress(compression_info, compress_format_version,
+                           raw.data(), raw.size(), compressed_output);
+      break;
+    case kLZ4Compression:
+      ret = LZ4_Compress(compression_info, compress_format_version, raw.data(),
+                         raw.size(), compressed_output);
+      break;
+    case kLZ4HCCompression:
+      ret = LZ4HC_Compress(compression_info, compress_format_version,
+                           raw.data(), raw.size(), compressed_output);
+      break;
+    case kXpressCompression:
+      ret = XPRESS_Compress(raw.data(), raw.size(), compressed_output);
+      break;
+    case kZSTD:
+    case kZSTDNotFinalCompression:
+      ret = ZSTD_Compress(compression_info, raw.data(), raw.size(),
+                          compressed_output);
+      break;
+    default:
+      // Do not recognize this compression type
+      break;
+  }
+
+  TEST_SYNC_POINT_CALLBACK("CompressData:TamperWithReturnValue",
+                           static_cast<void*>(&ret));
+
+  return ret;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

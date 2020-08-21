@@ -69,9 +69,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Note that whole DBTest and its child classes disable fsync on files
+// and directories for speed.
+// If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
  public:
-  DBTest() : DBTestBase("/db_test") {}
+  DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
 };
 
 class DBTestWithParam
@@ -972,7 +975,7 @@ class DelayFilter : public CompactionFilter {
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
               std::string* /*new_value*/,
               bool* /*value_changed*/) const override {
-    db_test->env_->addon_time_.fetch_add(1000);
+    db_test->env_->MockSleepForMicroseconds(1000);
     return true;
   }
 
@@ -1717,6 +1720,7 @@ TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, Snapshot) {
+  env_->SetMockSleep();
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   do {
@@ -1732,7 +1736,7 @@ TEST_F(DBTest, Snapshot) {
     Put(0, "foo", "0v2");
     Put(1, "foo", "1v2");
 
-    env_->addon_time_.fetch_add(1);
+    env_->MockSleepForSeconds(1);
 
     const Snapshot* s2 = db_->GetSnapshot();
     ASSERT_EQ(2U, GetNumSnapshots());
@@ -1789,7 +1793,6 @@ TEST_F(DBTest, Snapshot) {
 TEST_F(DBTest, HiddenValuesAreRemoved) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
-  env_->skip_fsync_ = true;
   do {
     Options options = CurrentOptions(options_override);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -3144,7 +3147,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
       fprintf(stderr, "step %d: Value mismatch for key '%s': '%s' vs. '%s'\n",
               step, EscapeString(miter->key()).c_str(),
               EscapeString(miter->value()).c_str(),
-              EscapeString(miter->value()).c_str());
+              EscapeString(dbiter->value()).c_str());
       ok = false;
     }
   }
@@ -3543,13 +3546,14 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   options.arena_block_size = 4096;
   options.compression = kNoCompression;
   options.create_if_missing = true;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
   // Test to make sure that all files with expired ttl are deleted on next
   // manual compaction.
   {
-    env_->addon_time_.store(0);
+    // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
     options.ttl = 1 * 60 * 60 ;  // 1 hour
@@ -3568,10 +3572,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
     // Sleep for 2 hours -- which is much greater than TTL.
-    // Note: Couldn't use SleepForMicroseconds because it takes an int instead
-    // of uint64_t. Hence used addon_time_ directly.
-    // env_->SleepForMicroseconds(2 * 60 * 60 * 1000 * 1000);
-    env_->addon_time_.fetch_add(2 * 60 * 60);
+    env_->MockSleepForSeconds(2 * 60 * 60);
 
     // Since no flushes and compactions have run, the db should still be in
     // the same state even after considerable time has passed.
@@ -3603,7 +3604,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
     // Sleep for 2 hours -- which is much greater than TTL.
-    env_->addon_time_.fetch_add(2 * 60 * 60);
+    env_->MockSleepForSeconds(2 * 60 * 60);
     // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
@@ -3645,7 +3646,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 3);
 
     // Sleep for 2 hours -- which is much greater than TTL.
-    env_->addon_time_.fetch_add(2 * 60 * 60);
+    env_->MockSleepForSeconds(2 * 60 * 60);
     // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 3);
@@ -3686,7 +3687,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
 
     // Sleep for 2 hours -- which is much greater than TTL.
-    env_->addon_time_.fetch_add(2 * 60 * 60);
+    env_->MockSleepForSeconds(2 * 60 * 60);
     // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
@@ -3999,7 +4000,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
   Options options;
-  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -5146,7 +5146,6 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
-  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.write_buffer_size = 100000;  // Small write buffer
@@ -5442,9 +5441,10 @@ class DelayedMergeOperator : public MergeOperator {
  public:
   explicit DelayedMergeOperator(DBTest* d) : db_test_(d) {}
 
-  bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+  bool FullMergeV2(const MergeOperationInput& merge_in,
                    MergeOperationOutput* merge_out) const override {
-    db_test_->env_->addon_time_.fetch_add(1000);
+    db_test_->env_->MockSleepForMicroseconds(1000 *
+                                             merge_in.operand_list.size());
     merge_out->new_value = "";
     return true;
   }
@@ -5452,8 +5452,6 @@ class DelayedMergeOperator : public MergeOperator {
   const char* Name() const override { return "DelayedMergeOperator"; }
 };
 
-// TODO: hangs in CircleCI's Windows env
-#ifndef OS_WIN
 TEST_F(DBTest, MergeTestTime) {
   std::string one, two, three;
   PutFixed64(&one, 1);
@@ -5462,13 +5460,13 @@ TEST_F(DBTest, MergeTestTime) {
 
   // Enable time profiling
   SetPerfLevel(kEnableTime);
-  this->env_->addon_time_.store(0);
-  this->env_->time_elapse_only_sleep_ = true;
-  this->env_->no_slowdown_ = true;
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
+  SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   ASSERT_EQ(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
   db_->Put(WriteOptions(), "foo", one);
@@ -5484,7 +5482,7 @@ TEST_F(DBTest, MergeTestTime) {
   std::string result;
   db_->Get(opt, "foo", &result);
 
-  ASSERT_EQ(1000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
+  ASSERT_EQ(2000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 
   ReadOptions read_options;
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
@@ -5495,34 +5493,37 @@ TEST_F(DBTest, MergeTestTime) {
   }
 
   ASSERT_EQ(1, count);
-  ASSERT_EQ(2000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
+  ASSERT_EQ(4000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 #ifdef ROCKSDB_USING_THREAD_STATUS
   ASSERT_GT(TestGetTickerCount(options, FLUSH_WRITE_BYTES), 0);
 #endif  // ROCKSDB_USING_THREAD_STATUS
-  this->env_->time_elapse_only_sleep_ = false;
 }
-#endif // OS_WIN
 
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
-  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
-  options.compaction_style = kCompactionStyleUniversal;
+  options.disable_auto_compactions = true;
   options.max_subcompactions = max_subcompactions_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
-  for (int i = 0; i < 1000; i++) {
+  constexpr unsigned n = 1000;
+  for (unsigned i = 0; i < n; i++) {
     ASSERT_OK(db_->Merge(WriteOptions(), "foo", "TEST"));
     ASSERT_OK(Flush());
   }
   dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
 
-  ASSERT_NE(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = exclusive_manual_compaction_;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  ASSERT_EQ(uint64_t{n} * 1000000U,
+            TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 }
 
 TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
@@ -5534,12 +5535,15 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.statistics->set_stats_level(kExceptTimeForMutex);
   options.max_subcompactions = max_subcompactions_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   DestroyAndReopen(options);
 
+  unsigned n = 0;
   // put some data
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
       Put(ToString(table * 100 + i), "val");
+      ++n;
     }
     Flush();
   }
@@ -5553,7 +5557,8 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
 
   Iterator* itr = db_->NewIterator(ReadOptions());
   itr->SeekToFirst();
-  ASSERT_NE(TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME), 0);
+  ASSERT_EQ(uint64_t{n} * 1000000U,
+            TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME));
   delete itr;
 }
 #endif  // ROCKSDB_LITE
@@ -6005,7 +6010,6 @@ TEST_F(DBTest, DelayedWriteRate) {
   Options options = CurrentOptions();
   env_->SetBackgroundThreads(1, Env::LOW);
   options.env = env_;
-  env_->no_slowdown_ = true;
   options.write_buffer_size = 100000000;
   options.max_write_buffer_number = 256;
   options.max_background_compactions = 1;
@@ -6016,6 +6020,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   options.memtable_factory.reset(
       new SpecialSkipListFactory(kEntriesPerMemTable));
 
+  SetTimeElapseOnlySleepOnReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Block compactions
@@ -6054,12 +6059,9 @@ TEST_F(DBTest, DelayedWriteRate) {
                                      kIncSlowdownRatio * kIncSlowdownRatio);
   }
   // Estimate the total sleep time fall into the rough range.
-  ASSERT_GT(env_->addon_time_.load(),
-            static_cast<int64_t>(estimated_sleep_time / 2));
-  ASSERT_LT(env_->addon_time_.load(),
-            static_cast<int64_t>(estimated_sleep_time * 2));
+  ASSERT_GT(env_->NowMicros(), estimated_sleep_time / 2);
+  ASSERT_LT(env_->NowMicros(), estimated_sleep_time * 2);
 
-  env_->no_slowdown_ = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
@@ -6573,10 +6575,11 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
 
   Options options = CurrentOptions();
   options.max_open_files = -1;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   bool set_file_creation_time_to_zero = true;
@@ -6587,7 +6590,7 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   const uint64_t uint_time_1 = static_cast<uint64_t>(time_1);
 
   // Add 50 hours
-  env_->addon_time_.fetch_add(50 * 60 * 60);
+  env_->MockSleepForSeconds(50 * 60 * 60);
 
   int64_t time_2 = 0;
   env_->GetCurrentTime(&time_2);
@@ -6641,10 +6644,10 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   set_file_creation_time_to_zero = false;
   options = CurrentOptions();
   options.max_open_files = -1;
-  env_->time_elapse_only_sleep_ = false;
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumLevelFiles; ++i) {

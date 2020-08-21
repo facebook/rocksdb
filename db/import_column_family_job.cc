@@ -100,8 +100,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync, io_tracer_);
     }
     if (!status.ok()) {
       break;

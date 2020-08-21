@@ -155,6 +155,10 @@ struct MutableCFOptions {
             options.max_bytes_for_level_multiplier_additional),
         compaction_options_fifo(options.compaction_options_fifo),
         compaction_options_universal(options.compaction_options_universal),
+        enable_blob_files(options.enable_blob_files),
+        min_blob_size(options.min_blob_size),
+        blob_file_size(options.blob_file_size),
+        blob_compression_type(options.blob_compression_type),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
@@ -192,6 +196,10 @@ struct MutableCFOptions {
         ttl(0),
         periodic_compaction_seconds(0),
         compaction_options_fifo(),
+        enable_blob_files(false),
+        min_blob_size(0),
+        blob_file_size(0),
+        blob_compression_type(kNoCompression),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
@@ -246,6 +254,12 @@ struct MutableCFOptions {
   std::vector<int> max_bytes_for_level_multiplier_additional;
   CompactionOptionsFIFO compaction_options_fifo;
   CompactionOptionsUniversal compaction_options_universal;
+
+  // Blob file related options
+  bool enable_blob_files;
+  uint64_t min_blob_size;
+  uint64_t blob_file_size;
+  CompressionType blob_compression_type;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

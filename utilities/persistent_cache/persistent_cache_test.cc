@@ -295,7 +295,8 @@ TEST_F(PersistentCacheTierTest, FactoryTest) {
   }
 }
 
-PersistentCacheDBTest::PersistentCacheDBTest() : DBTestBase("/cache_test") {
+PersistentCacheDBTest::PersistentCacheDBTest()
+    : DBTestBase("/cache_test", /*env_do_fsync=*/true) {
 #ifdef OS_LINUX
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

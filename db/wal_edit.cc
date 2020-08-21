@@ -126,7 +126,7 @@ Status WalSet::AddWal(const WalAddition& wal) {
       ss << "WAL " << wal.GetLogNumber() << " is created more than once";
       return Status::Corruption("WalSet", ss.str());
     }
-    wals_[wal.GetLogNumber()] = wal.GetMetadata();
+    wals_.insert(it, {wal.GetLogNumber(), wal.GetMetadata()});
   }
   return Status::OK();
 }
@@ -143,9 +143,9 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWal(const WalDeletion& wal) {
-  auto it = wals_.lower_bound(wal.GetLogNumber());
+  auto it = wals_.find(wal.GetLogNumber());
   // The WAL must exist and has been closed.
-  if (it == wals_.end() || it->first != wal.GetLogNumber()) {
+  if (it == wals_.end()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
     return Status::Corruption("WalSet", ss.str());

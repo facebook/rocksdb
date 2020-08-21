@@ -1428,6 +1428,7 @@ class MemTableInserter : public WriteBatch::Handler {
       MaybeAdvanceSeq(batch_boundry);
       return seek_status;
     }
+    seek_status.PermitUncheckedError();  // Ignore errors
     Status ret_status;
 
     MemTable* mem = cf_mems_->GetMemTable();
