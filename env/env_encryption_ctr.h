@@ -110,8 +110,8 @@ class CTREncryptionProvider : public EncryptionProvider {
       const std::string& fname, const EnvOptions& options, Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result) override;
 
-  Status AddCipher(const char* /*cipher*/, size_t /*len*/,
-                   bool /*for_write*/) override;
+  Status AddCipher(const std::string& descriptor, const char* /*cipher*/,
+                   size_t /*len*/, bool /*for_write*/) override;
 
  protected:
   Status TEST_Initialize() override;

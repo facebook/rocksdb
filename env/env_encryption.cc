@@ -971,7 +971,8 @@ Status CTREncryptionProvider::TEST_Initialize() {
   return Status::OK();
 }
 
-Status CTREncryptionProvider::AddCipher(const char* cipher, size_t len,
+Status CTREncryptionProvider::AddCipher(const std::string& /*descriptor*/,
+                                        const char* cipher, size_t len,
                                         bool /*for_write*/) {
   if (cipher_) {
     return Status::NotSupported("Cannot add keys to CTREncryptionProvider");

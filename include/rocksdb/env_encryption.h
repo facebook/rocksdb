@@ -142,6 +142,7 @@ class EncryptionProvider {
                                  size_t prefixLength) const = 0;
 
   // Method to add a new cipher key for use by the EncryptionProvider.
+  // @param description  Descriptor for this key.
   // @param cipher       The cryptographic key to use
   // @param len          The length of the cipher key
   // @param for_write If true, this cipher should be used for writing files.
@@ -149,7 +150,8 @@ class EncryptionProvider {
   //                  files
   // @return OK if the cipher was successfully added to the provider, non-OK
   // otherwise
-  virtual Status AddCipher(const char* cipher, size_t len, bool for_write) = 0;
+  virtual Status AddCipher(const std::string& descriptor, const char* cipher,
+                           size_t len, bool for_write) = 0;
 
   // CreateCipherStream creates a block access cipher stream for a file given
   // given name and options.
