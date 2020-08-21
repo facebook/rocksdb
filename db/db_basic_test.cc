@@ -664,12 +664,29 @@ TEST_F(DBBasicTest, Snapshot) {
 
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBBasicTest, CompactBetweenSnapshots) {
+class DBBasicMultiConfigs : public DBBasicTest,
+                            public ::testing::WithParamInterface<int> {
+ public:
+  DBBasicMultiConfigs() { option_config_ = GetParam(); }
+
+  static std::vector<int> GenerateOptionConfigs() {
+    std::vector<int> option_configs;
+    for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+      option_configs.push_back(option_config);
+    }
+    return option_configs;
+  }
+};
+
+TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
+  if (option_config_ == kFIFOCompaction) {
+    return;
+  }
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
-  do {
     Options options = CurrentOptions(options_override);
     options.disable_auto_compactions = true;
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
     Random rnd(301);
     FillLevels("a", "z", 1);
@@ -715,8 +732,11 @@ TEST_F(DBBasicTest, CompactBetweenSnapshots) {
                            nullptr);
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
-  } while (ChangeOptions(kSkipFIFOCompaction));
 }
+
+INSTANTIATE_TEST_CASE_P(
+    DBBasicMultiConfigs, DBBasicMultiConfigs,
+    ::testing::ValuesIn(DBBasicMultiConfigs::GenerateOptionConfigs()));
 
 TEST_F(DBBasicTest, DBOpen_Options) {
   Options options = CurrentOptions();
