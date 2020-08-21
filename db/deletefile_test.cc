@@ -35,7 +35,7 @@ class DeleteFileTest : public DBTestBase {
   const std::string wal_dir_;
 
   DeleteFileTest()
-      : DBTestBase("/deletefile_test"),
+      : DBTestBase("/deletefile_test", /*env_do_fsync=*/true),
         numlevels_(7),
         wal_dir_(dbname_ + "/wal_files") {}
 

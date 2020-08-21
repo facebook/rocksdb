@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBSSTTest : public DBTestBase {
  public:
-  DBSSTTest() : DBTestBase("/db_sst_test") {}
+  DBSSTTest() : DBTestBase("/db_sst_test", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE

@@ -44,7 +44,7 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest()
-      : DBTestBase("/external_sst_file_test"),
+      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true),
         test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyDir(env_, sst_files_dir_);
@@ -72,7 +72,8 @@ class ExternalSSTFileTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest() : DBTestBase("/external_sst_file_test") {
+  ExternalSSTFileTest()
+      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
   }

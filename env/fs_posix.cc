@@ -56,6 +56,7 @@
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -1045,5 +1046,16 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
       &default_fs, [](PosixFileSystem*) {});
   return default_fs_ptr;
 }
+
+#ifndef ROCKSDB_LITE
+static FactoryFunc<FileSystem> posix_filesystem_reg =
+    ObjectLibrary::Default()->Register<FileSystem>(
+        "posix://.*",
+        [](const std::string& /* uri */, std::unique_ptr<FileSystem>* f,
+           std::string* /* errmsg */) {
+          f->reset(new PosixFileSystem());
+          return f->get();
+        });
+#endif
 
 }  // namespace ROCKSDB_NAMESPACE

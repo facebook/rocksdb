@@ -2235,6 +2235,49 @@ int main(int argc, char** argv) {
     rocksdb_options_destroy(o);
   }
 
+  StartPhase("read_options");
+  {
+    rocksdb_readoptions_t* ro;
+    ro = rocksdb_readoptions_create();
+
+    rocksdb_readoptions_set_verify_checksums(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_verify_checksums(ro));
+
+    rocksdb_readoptions_set_fill_cache(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_fill_cache(ro));
+
+    rocksdb_readoptions_set_read_tier(ro, 2);
+    CheckCondition(2 == rocksdb_readoptions_get_read_tier(ro));
+
+    rocksdb_readoptions_set_tailing(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_tailing(ro));
+
+    rocksdb_readoptions_set_readahead_size(ro, 100);
+    CheckCondition(100 == rocksdb_readoptions_get_readahead_size(ro));
+
+    rocksdb_readoptions_set_prefix_same_as_start(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_prefix_same_as_start(ro));
+
+    rocksdb_readoptions_set_pin_data(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_pin_data(ro));
+
+    rocksdb_readoptions_set_total_order_seek(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_total_order_seek(ro));
+
+    rocksdb_readoptions_set_max_skippable_internal_keys(ro, 200);
+    CheckCondition(200 ==
+                   rocksdb_readoptions_get_max_skippable_internal_keys(ro));
+
+    rocksdb_readoptions_set_background_purge_on_iterator_cleanup(ro, 1);
+    CheckCondition(
+        1 == rocksdb_readoptions_get_background_purge_on_iterator_cleanup(ro));
+
+    rocksdb_readoptions_set_ignore_range_deletions(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_ignore_range_deletions(ro));
+
+    rocksdb_readoptions_destroy(ro);
+  }
+
   StartPhase("iterate_upper_bound");
   {
     // Create new empty database

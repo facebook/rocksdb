@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size,
-                  bool use_fsync) {
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   const FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
@@ -44,7 +44,8 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
         return io_s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
+    src_reader.reset(
+        new SequentialFileReader(std::move(srcfile), source, io_tracer));
     dest_writer.reset(
         new WritableFileWriter(std::move(destfile), destination, soptions));
   }

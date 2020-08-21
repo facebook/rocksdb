@@ -1729,7 +1729,7 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
     for (const auto& prop : collector->GetReadableProperties()) {
       ret.readable_properties.insert(prop);
     }
-    collector->Finish(&ret.user_collected_properties);
+    collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
   }
   return ret;
 }

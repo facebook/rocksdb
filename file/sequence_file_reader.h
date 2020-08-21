@@ -10,6 +10,8 @@
 #pragma once
 #include <atomic>
 #include <string>
+
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -21,20 +23,23 @@ namespace ROCKSDB_NAMESPACE {
 // cache disabled) reads appropriately, and also updates the IO stats.
 class SequentialFileReader {
  private:
-  std::unique_ptr<FSSequentialFile> file_;
   std::string file_name_;
+  FSSequentialFilePtr file_;
   std::atomic<size_t> offset_{0};  // read offset
 
  public:
-  explicit SequentialFileReader(std::unique_ptr<FSSequentialFile>&& _file,
-                                const std::string& _file_name)
-      : file_(std::move(_file)), file_name_(_file_name) {}
+  explicit SequentialFileReader(
+      std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr)
+      : file_name_(_file_name), file_(std::move(_file), io_tracer) {}
 
-  explicit SequentialFileReader(std::unique_ptr<FSSequentialFile>&& _file,
-                                const std::string& _file_name,
-                                size_t _readahead_size)
-      : file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size)),
-        file_name_(_file_name) {}
+  explicit SequentialFileReader(
+      std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
+      size_t _readahead_size,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr)
+      : file_name_(_file_name),
+        file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
+              io_tracer) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);

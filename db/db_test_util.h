@@ -877,7 +877,10 @@ class DBTestBase : public testing::Test {
       // requires.
       kSkipMmapReads;
 
-  explicit DBTestBase(const std::string path);
+  // `env_do_fsync` decides whether the special Env would do real
+  // fsync for files and directories. Skipping fsync can speed up
+  // tests, but won't cover the exact fsync logic.
+  DBTestBase(const std::string path, bool env_do_fsync);
 
   ~DBTestBase();
 
@@ -1145,30 +1148,6 @@ class DBTestBase : public testing::Test {
   void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);
 
   bool time_elapse_only_sleep_on_reopen_ = false;
-};
-
-class SafeMockTimeEnv : public MockTimeEnv {
- public:
-  explicit SafeMockTimeEnv(Env* base) : MockTimeEnv(base) {
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-#if defined(OS_MACOSX) && !defined(NDEBUG)
-    // This is an alternate way (vs. SpecialEnv) of dealing with the fact
-    // that on some platforms, pthread_cond_timedwait does not appear to
-    // release the lock for other threads to operate if the deadline time
-    // is already passed. (TimedWait calls are currently a bad abstraction
-    // because the deadline parameter is usually computed from Env time,
-    // but is interpreted in real clock time.)
-    SyncPoint::GetInstance()->SetCallBack(
-        "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-          uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-          if (time_us < this->RealNowMicros()) {
-            *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
-          }
-        });
-#endif  // OS_MACOSX && !NDEBUG
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

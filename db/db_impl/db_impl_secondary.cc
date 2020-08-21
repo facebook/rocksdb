@@ -153,7 +153,8 @@ Status DBImplSecondary::MaybeInitLogReader(
         return status;
       }
       file_reader.reset(new SequentialFileReader(
-          std::move(file), fname, immutable_db_options_.log_readahead_size));
+          std::move(file), fname, immutable_db_options_.log_readahead_size,
+          io_tracer_));
     }
 
     // Create the log reader.

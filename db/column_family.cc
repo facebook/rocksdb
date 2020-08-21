@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -148,6 +149,16 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           "should be nonzero if we're using zstd's dictionary generator.");
     }
   }
+
+  if (!CompressionTypeSupported(cf_options.blob_compression_type)) {
+    std::ostringstream oss;
+    oss << "The specified blob compression type "
+        << CompressionTypeToString(cf_options.blob_compression_type)
+        << " is not available.";
+
+    return Status::InvalidArgument(oss.str());
+  }
+
   return Status::OK();
 }
 

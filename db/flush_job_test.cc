@@ -179,7 +179,6 @@ TEST_F(FlushJobTest, NonEmpty) {
     inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
   }
 
-#ifndef ROCKSDB_LITE
   // Note: the first two blob references will not be considered when resolving
   // the oldest blob file referenced (the first one is inlined TTL, while the
   // second one is TTL and thus points to a TTL blob file).
@@ -208,7 +207,6 @@ TEST_F(FlushJobTest, NonEmpty) {
     inserted_keys.emplace_hint(inserted_keys.end(),
                                internal_key.Encode().ToString(), blob_index);
   }
-#endif
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -239,12 +237,8 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
   ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
-#ifndef ROCKSDB_LITE
   ASSERT_EQ(10006, file_meta.fd.largest_seqno);
   ASSERT_EQ(17, file_meta.oldest_blob_file_number);
-#else
-  ASSERT_EQ(10000, file_meta.fd.largest_seqno);
-#endif
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }

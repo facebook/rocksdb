@@ -42,9 +42,15 @@ class Timer {
         running_(false),
         executing_task_(false) {}
 
-  // Add a new function. If the fn_name already exists, overriding it,
-  // regardless if the function is pending removed (invalid) or not.
-  // repeat_every_us == 0 means do not repeat
+  // Add a new function to run.
+  // fn_name has to be identical, otherwise, the new one overrides the existing
+  // one, regardless if the function is pending removed (invalid) or not.
+  // start_after_us is the initial delay.
+  // repeat_every_us is the interval between ending time of the last call and
+  // starting time of the next call. For example, repeat_every_us = 2000 and
+  // the function takes 1000us to run. If it starts at time [now]us, then it
+  // finishes at [now]+1000us, 2nd run starting time will be at [now]+3000us.
+  // repeat_every_us == 0 means do not repeat.
   void Add(std::function<void()> fn,
            const std::string& fn_name,
            uint64_t start_after_us,
@@ -138,10 +144,18 @@ class Timer {
   }
 
 #ifndef NDEBUG
+  // Wait until Timer starting waiting, call the optional callback, then wait
+  // for Timer waiting again.
+  // Tests can provide a custom env object to mock time, and use the callback
+  // here to bump current time and trigger Timer. See timer_test for example.
+  //
+  // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
     InstrumentedMutexLock l(&mutex_);
-    while (!heap_.empty() &&
-           heap_.top()->next_run_time_us <= env_->NowMicros()) {
+    // It act as a spin lock
+    while (executing_task_ ||
+           (!heap_.empty() &&
+            heap_.top()->next_run_time_us <= env_->NowMicros())) {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
     }
     if (callback != nullptr) {
@@ -150,8 +164,9 @@ class Timer {
     cond_var_.SignalAll();
     do {
       cond_var_.TimedWait(env_->NowMicros() + 1000);
-    } while (!heap_.empty() &&
-             heap_.top()->next_run_time_us <= env_->NowMicros());
+    } while (
+        executing_task_ ||
+        (!heap_.empty() && heap_.top()->next_run_time_us <= env_->NowMicros()));
   }
 
   size_t TEST_GetPendingTaskNum() const {

@@ -90,12 +90,22 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
   if (result.recycle_log_file_num &&
-      (result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
+      (result.wal_recovery_mode ==
+           WALRecoveryMode::kTolerateCorruptedTailRecords ||
+       result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
        result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
-    // kPointInTimeRecovery is inconsistent with recycle log file feature since
-    // we define the "end" of the log as the first corrupt record we encounter.
-    // kAbsoluteConsistency doesn't make sense because even a clean
-    // shutdown leaves old junk at the end of the log file.
+    // - kTolerateCorruptedTailRecords is inconsistent with recycle log file
+    //   feature. WAL recycling expects recovery success upon encountering a
+    //   corrupt record at the point where new data ends and recycled data
+    //   remains at the tail. However, `kTolerateCorruptedTailRecords` must fail
+    //   upon encountering any such corrupt record, as it cannot differentiate
+    //   between this and a real corruption, which would cause committed updates
+    //   to be truncated -- a violation of the recovery guarantee.
+    // - kPointInTimeRecovery and kAbsoluteConsistency are incompatible with
+    //   recycle log file feature temporarily due to a bug found introducing a
+    //   hole in the recovered data
+    //   (https://github.com/facebook/rocksdb/pull/7252#issuecomment-673766236).
+    //   Besides this bug, we believe the features are fundamentally compatible.
     result.recycle_log_file_num = 0;
   }
 
@@ -851,7 +861,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         }
       }
       file_reader.reset(new SequentialFileReader(
-          std::move(file), fname, immutable_db_options_.log_readahead_size));
+          std::move(file), fname, immutable_db_options_.log_readahead_size,
+          io_tracer_));
     }
 
     // Create the log reader.
@@ -1673,7 +1684,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
     for (auto& path : paths) {
       std::vector<std::string> existing_files;
-      impl->immutable_db_options_.env->GetChildren(path, &existing_files);
+      // TODO: Check for errors here?
+      impl->immutable_db_options_.env->GetChildren(path, &existing_files)
+          .PermitUncheckedError();
       for (auto& file_name : existing_files) {
         uint64_t file_number;
         FileType file_type;
