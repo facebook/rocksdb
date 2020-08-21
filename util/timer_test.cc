@@ -18,12 +18,11 @@ class TimerTest : public testing::Test {
 
   void SetUp() override { mock_env_->InstallTimedWaitFixCallback(); }
 
-  const int kSecond = 1000000;
+  const int kUsPerSec = 1000000;
 };
 
 TEST_F(TimerTest, SingleScheduleOnce) {
-  const int kInitDelayUs = 1 * kSecond;
-  mock_env_->set_current_time(0);
+  const int kInitDelayUs = 1 * kUsPerSec;
   Timer timer(mock_env_.get());
 
   int count = 0;
@@ -33,16 +32,16 @@ TEST_F(TimerTest, SingleScheduleOnce) {
 
   ASSERT_EQ(0, count);
   // Wait for execution to finish
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(1, count);
 
   ASSERT_TRUE(timer.Shutdown());
 }
 
 TEST_F(TimerTest, MultipleScheduleOnce) {
-  const int kInitDelay1Us = 1 * kSecond;
-  const int kInitDelay2Us = 3 * kSecond;
-  mock_env_->set_current_time(0);
+  const int kInitDelay1Us = 1 * kUsPerSec;
+  const int kInitDelay2Us = 3 * kUsPerSec;
   Timer timer(mock_env_.get());
 
   int count1 = 0;
@@ -56,13 +55,14 @@ TEST_F(TimerTest, MultipleScheduleOnce) {
   ASSERT_EQ(0, count2);
 
   timer.TEST_WaitForRun(
-      [&] { mock_env_->SleepForMicroseconds(kInitDelay1Us); });
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelay1Us); });
 
   ASSERT_EQ(1, count1);
   ASSERT_EQ(0, count2);
 
-  timer.TEST_WaitForRun(
-      [&] { mock_env_->SleepForMicroseconds(kInitDelay2Us - kInitDelay1Us); });
+  timer.TEST_WaitForRun([&] {
+    mock_env_->MockSleepForMicroseconds(kInitDelay2Us - kInitDelay1Us);
+  });
 
   ASSERT_EQ(1, count1);
   ASSERT_EQ(1, count2);
@@ -72,9 +72,8 @@ TEST_F(TimerTest, MultipleScheduleOnce) {
 
 TEST_F(TimerTest, SingleScheduleRepeatedly) {
   const int kIterations = 5;
-  const int kInitDelayUs = 1 * kSecond;
-  const int kRepeatUs = 1 * kSecond;
-  mock_env_->set_current_time(0);
+  const int kInitDelayUs = 1 * kUsPerSec;
+  const int kRepeatUs = 1 * kUsPerSec;
 
   Timer timer(mock_env_.get());
   int count = 0;
@@ -83,13 +82,15 @@ TEST_F(TimerTest, SingleScheduleRepeatedly) {
   ASSERT_TRUE(timer.Start());
   ASSERT_EQ(0, count);
 
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelayUs); });
 
   ASSERT_EQ(1, count);
 
   // Wait for execution to finish
   for (int i = 1; i < kIterations; i++) {
-    timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kRepeatUs); });
+    timer.TEST_WaitForRun(
+        [&] { mock_env_->MockSleepForMicroseconds(kRepeatUs); });
   }
   ASSERT_EQ(kIterations, count);
 
@@ -98,13 +99,12 @@ TEST_F(TimerTest, SingleScheduleRepeatedly) {
 
 TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   const int kIterations = 5;
-  const int kInitDelay1Us = 0 * kSecond;
-  const int kInitDelay2Us = 1 * kSecond;
-  const int kInitDelay3Us = 0 * kSecond;
-  const int kRepeatUs = 2 * kSecond;
-  const int kLargeRepeatUs = 100 * kSecond;
+  const int kInitDelay1Us = 0 * kUsPerSec;
+  const int kInitDelay2Us = 1 * kUsPerSec;
+  const int kInitDelay3Us = 0 * kUsPerSec;
+  const int kRepeatUs = 2 * kUsPerSec;
+  const int kLargeRepeatUs = 100 * kUsPerSec;
 
-  mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
 
   int count1 = 0;
@@ -121,11 +121,11 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
   ASSERT_EQ(0, count2);
   // Wait for execution to finish
-  for (int i = 1; i < kIterations * (kRepeatUs / kSecond); i++) {
+  for (int i = 1; i < kIterations * (kRepeatUs / kUsPerSec); i++) {
     timer.TEST_WaitForRun(
-        [&] { mock_env_->SleepForMicroseconds(1 * kSecond); });
-    ASSERT_EQ((i + 2) / (kRepeatUs / kSecond), count1);
-    ASSERT_EQ((i + 1) / (kRepeatUs / kSecond), count2);
+        [&] { mock_env_->MockSleepForMicroseconds(1 * kUsPerSec); });
+    ASSERT_EQ((i + 2) / (kRepeatUs / kUsPerSec), count1);
+    ASSERT_EQ((i + 1) / (kRepeatUs / kUsPerSec), count2);
 
     // large interval function should only run once (the first one).
     ASSERT_EQ(1, count3);
@@ -134,7 +134,8 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   timer.Cancel("fn_sch_test1");
 
   // Wait for execution to finish
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(1 * kSecond); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(1 * kUsPerSec); });
   ASSERT_EQ(kIterations, count1);
   ASSERT_EQ(kIterations, count2);
   ASSERT_EQ(1, count3);
@@ -146,8 +147,8 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
   // execute the long interval one
   timer.TEST_WaitForRun([&] {
-    mock_env_->SleepForMicroseconds(kLargeRepeatUs -
-                                    static_cast<int>(mock_env_->NowMicros()));
+    mock_env_->MockSleepForMicroseconds(
+        kLargeRepeatUs - static_cast<int>(mock_env_->NowMicros()));
   });
   ASSERT_EQ(2, count3);
 
@@ -156,15 +157,14 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
 
 TEST_F(TimerTest, AddAfterStartTest) {
   const int kIterations = 5;
-  const int kInitDelayUs = 1 * kSecond;
-  const int kRepeatUs = 1 * kSecond;
+  const int kInitDelayUs = 1 * kUsPerSec;
+  const int kRepeatUs = 1 * kUsPerSec;
 
   // wait timer to run and then add a new job
   SyncPoint::GetInstance()->LoadDependency(
       {{"Timer::Run::Waiting", "TimerTest:AddAfterStartTest:1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
 
   ASSERT_TRUE(timer.Start());
@@ -174,11 +174,13 @@ TEST_F(TimerTest, AddAfterStartTest) {
   timer.Add([&] { count++; }, "fn_sch_test", kInitDelayUs, kRepeatUs);
   ASSERT_EQ(0, count);
   // Wait for execution to finish
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(1, count);
 
   for (int i = 1; i < kIterations; i++) {
-    timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kRepeatUs); });
+    timer.TEST_WaitForRun(
+        [&] { mock_env_->MockSleepForMicroseconds(kRepeatUs); });
   }
   ASSERT_EQ(kIterations, count);
 
@@ -186,9 +188,8 @@ TEST_F(TimerTest, AddAfterStartTest) {
 }
 
 TEST_F(TimerTest, CancelRunningTask) {
-  const int kRepeatUs = 1 * kSecond;
+  const int kRepeatUs = 1 * kUsPerSec;
   constexpr char kTestFuncName[] = "test_func";
-  mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
   ASSERT_TRUE(timer.Start());
   int* value = new int;
@@ -216,16 +217,15 @@ TEST_F(TimerTest, CancelRunningTask) {
     delete value;
     value = nullptr;
   });
-  mock_env_->SleepForMicroseconds(kRepeatUs);
+  mock_env_->MockSleepForMicroseconds(kRepeatUs);
   control_thr.join();
   ASSERT_TRUE(timer.Shutdown());
 }
 
 TEST_F(TimerTest, ShutdownRunningTask) {
-  const int kRepeatUs = 1 * kSecond;
+  const int kRepeatUs = 1 * kUsPerSec;
   constexpr char kTestFunc1Name[] = "test_func1";
   constexpr char kTestFunc2Name[] = "test_func2";
-  mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -255,19 +255,17 @@ TEST_F(TimerTest, ShutdownRunningTask) {
     TEST_SYNC_POINT("TimerTest::ShutdownRunningTest:BeforeShutdown");
     timer.Shutdown();
   });
-  mock_env_->SleepForMicroseconds(kRepeatUs);
+  mock_env_->MockSleepForMicroseconds(kRepeatUs);
   control_thr.join();
   delete value;
 }
 
 TEST_F(TimerTest, AddSameFuncName) {
-  const int kInitDelayUs = 1 * kSecond;
-  const int kRepeat1Us = 5 * kSecond;
-  const int kRepeat2Us = 4 * kSecond;
+  const int kInitDelayUs = 1 * kUsPerSec;
+  const int kRepeat1Us = 5 * kUsPerSec;
+  const int kRepeat2Us = 4 * kUsPerSec;
 
-  mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
-
   ASSERT_TRUE(timer.Start());
 
   int func_counter1 = 0;
@@ -286,13 +284,15 @@ TEST_F(TimerTest, AddSameFuncName) {
   ASSERT_EQ(0, func2_counter);
   ASSERT_EQ(0, func_counter2);
 
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelayUs); });
 
   ASSERT_EQ(0, func_counter1);
   ASSERT_EQ(1, func2_counter);
   ASSERT_EQ(1, func_counter2);
 
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kRepeat1Us); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kRepeat1Us); });
 
   ASSERT_EQ(0, func_counter1);
   ASSERT_EQ(2, func2_counter);
@@ -302,25 +302,24 @@ TEST_F(TimerTest, AddSameFuncName) {
 }
 
 TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
-  const int kInitDelayUs = 1 * kSecond;
-  const int kRepeatUs = 5 * kSecond;
-  const int kFuncRunningTimeUs = 1 * kSecond;
+  const int kInitDelayUs = 1 * kUsPerSec;
+  const int kRepeatUs = 5 * kUsPerSec;
+  const int kFuncRunningTimeUs = 1 * kUsPerSec;
 
-  mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
-
   ASSERT_TRUE(timer.Start());
 
   int func_counter = 0;
   timer.Add(
       [&] {
-        mock_env_->SleepForMicroseconds(kFuncRunningTimeUs);
+        mock_env_->MockSleepForMicroseconds(kFuncRunningTimeUs);
         func_counter++;
       },
       "func", kInitDelayUs, kRepeatUs);
 
   ASSERT_EQ(0, func_counter);
-  timer.TEST_WaitForRun([&] { mock_env_->SleepForMicroseconds(kInitDelayUs); });
+  timer.TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelayUs); });
   ASSERT_EQ(1, func_counter);
   ASSERT_EQ(kInitDelayUs + kFuncRunningTimeUs, mock_env_->NowMicros());
 
@@ -330,13 +329,13 @@ TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
   // next call.
   uint64_t next_abs_interval_time_us = kInitDelayUs + kRepeatUs;
   timer.TEST_WaitForRun([&] {
-    mock_env_->set_current_time(next_abs_interval_time_us / 1000000);
+    mock_env_->set_current_time(next_abs_interval_time_us / kUsPerSec);
   });
   ASSERT_EQ(1, func_counter);
 
   // After the function running time, it's executed again
   timer.TEST_WaitForRun(
-      [&] { mock_env_->SleepForMicroseconds(kFuncRunningTimeUs); });
+      [&] { mock_env_->MockSleepForMicroseconds(kFuncRunningTimeUs); });
   ASSERT_EQ(2, func_counter);
 
   ASSERT_TRUE(timer.Shutdown());
