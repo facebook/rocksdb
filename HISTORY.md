@@ -21,6 +21,9 @@
 * Added file_checksum and file_checksum_func_name to TableFileCreationInfo, which can pass the table file checksum information through the OnTableFileCreated callback during flush and compaction.
 
 
+### Others
+* Error in prefetching partitioned index blocks will not be swallowed. It will fail the query and return the IOError users.
+
 ## 6.12 (2020-07-28)
 ### Public API Change
 * Encryption file classes now exposed for inheritance in env_encryption.h
