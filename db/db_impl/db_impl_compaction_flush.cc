@@ -167,7 +167,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 #endif  // ROCKSDB_LITE
 
   Status s;
-  IOStatus io_s;
+  IOStatus io_s = IOStatus::OK();
   if (logfile_number_ > 0 &&
       versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
     // If there are more than one column families, we need to make sure that
@@ -225,6 +225,10 @@ Status DBImpl::FlushMemTableToOutputFile(
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
+  } else {
+    // If we got here, then we decided not to care about the i_os status (either
+    // from never needing it or ignoring the flush job status
+    io_s.PermitUncheckedError();
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
