@@ -30,16 +30,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class FileNumberGenerator {
+ public:
+  uint64_t operator()() { return ++next_file_number_; }
+
+ private:
+  uint64_t next_file_number_ = 1;
+};
+
 class BlobFileBuilderTest : public testing::Test {
  protected:
-  class FileNumberGenerator {
-   public:
-    uint64_t operator()() { return ++next_file_number_; }
-
-   private:
-    uint64_t next_file_number_ = 1;
-  };
-
   BlobFileBuilderTest() : env_(Env::Default()), fs_(&env_) {}
 
   void VerifyBlobFile(const ImmutableCFOptions& immutable_cf_options,
