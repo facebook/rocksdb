@@ -27,6 +27,7 @@
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/compression.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -447,6 +448,75 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
   VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
                  kNoCompression, expected_key_value_pairs, blob_indexes);
+}
+
+class BlobFileBuilderFailureTest
+    : public testing::Test,
+      public testing::WithParamInterface<const char*> {
+ protected:
+  BlobFileBuilderFailureTest()
+      : env_(Env::Default()),
+        fault_injection_env_(&env_),
+        fs_(&fault_injection_env_),
+        sync_point_(GetParam()) {}
+
+  MockEnv env_;
+  FaultInjectionTestEnv fault_injection_env_;
+  LegacyFileSystemWrapper fs_;
+  FileOptions file_options_;
+  std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    BlobFileBuilderTest, BlobFileBuilderFailureTest,
+    ::testing::ValuesIn(
+        {"BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile",
+         "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader",
+         "BlobFileBuilder::WriteBlobToFile:AddRecord",
+         "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+
+TEST_P(BlobFileBuilderFailureTest, IOError) {
+  // Note: blob_file_size will be set to value_size in order for the first blob
+  // to trigger close
+  constexpr size_t value_size = 8;
+
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&fault_injection_env_,
+                            "BlobFileBuilderFailureTest_IOError"),
+      0);
+  options.enable_blob_files = true;
+  options.blob_file_size = value_size;
+
+  ImmutableCFOptions immutable_cf_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 123;
+  constexpr Env::IOPriority io_priority = Env::IO_HIGH;
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(FileNumberGenerator(), &fault_injection_env_, &fs_,
+                          &immutable_cf_options, &mutable_cf_options,
+                          &file_options_, column_family_id, io_priority,
+                          write_hint, &blob_file_additions);
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr char key[] = "1";
+  constexpr char value[] = "deadbeef";
+
+  std::string blob_index;
+
+  ASSERT_TRUE(builder.Add(key, value, &blob_index).IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

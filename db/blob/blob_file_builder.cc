@@ -18,6 +18,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "test_util/sync_point.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -144,6 +145,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::unique_ptr<FSWritableFile> file;
 
   {
+    TEST_SYNC_POINT("BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile");
+
     assert(file_options_);
     const Status s =
         NewWritableFile(fs_, blob_file_path, &file, *file_options_);
@@ -174,6 +177,8 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
                        expiration_range);
 
   {
+    TEST_SYNC_POINT("BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader");
+
     const Status s = blob_log_writer->WriteHeader(header);
     if (!s.ok()) {
       return s;
@@ -223,6 +228,8 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 
   uint64_t key_offset = 0;
 
+  TEST_SYNC_POINT("BlobFileBuilder::WriteBlobToFile:AddRecord");
+
   const Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
   if (!s.ok()) {
     return s;
@@ -244,6 +251,8 @@ Status BlobFileBuilder::CloseBlobFile() {
 
   std::string checksum_method;
   std::string checksum_value;
+
+  TEST_SYNC_POINT("BlobFileBuilder::WriteBlobToFile:AppendFooter");
 
   const Status s =
       writer_->AppendFooter(footer, &checksum_method, &checksum_value);
