@@ -631,6 +631,24 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, sample_for_compression)}},
+        {"enable_blob_files",
+         {offset_of(&ColumnFamilyOptions::enable_blob_files),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, enable_blob_files)}},
+        {"min_blob_size",
+         {offset_of(&ColumnFamilyOptions::min_blob_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, min_blob_size)}},
+        {"blob_file_size",
+         {offset_of(&ColumnFamilyOptions::blob_file_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, blob_file_size)}},
+        {"blob_compression_type",
+         {offset_of(&ColumnFamilyOptions::blob_compression_type),
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, blob_compression_type)}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -920,6 +938,16 @@ void MutableCFOptions::Dump(Logger* log) const {
                  compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
+
+  // Blob file related options
+  ROCKS_LOG_INFO(log, "                        enable_blob_files: %s",
+                 enable_blob_files ? "true" : "false");
+  ROCKS_LOG_INFO(log, "                            min_blob_size: %" PRIu64,
+                 min_blob_size);
+  ROCKS_LOG_INFO(log, "                           blob_file_size: %" PRIu64,
+                 blob_file_size);
+  ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
+                 CompressionTypeToString(blob_compression_type).c_str());
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

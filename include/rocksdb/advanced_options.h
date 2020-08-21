@@ -717,6 +717,51 @@ struct AdvancedColumnFamilyOptions {
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
 
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // When set, large values (blobs) are written to separate blob files, and
+  // only pointers to them are stored in SST files. This can reduce write
+  // amplification for large-value use cases at the cost of introducing a level
+  // of indirection for reads. See also the options min_blob_size,
+  // blob_file_size, and blob_compression_type below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_files = false;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size of the smallest value to be stored separately in a blob file.
+  // Values which have an uncompressed size smaller than this threshold are
+  // stored alongside the keys in SST files in the usual fashion. A value of
+  // zero for this option means that all values are stored in blob files. Note
+  // that enable_blob_files has to be set in order for this option to have any
+  // effect.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t min_blob_size = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size limit for blob files. When writing blob files, a new file is
+  // opened once this limit is reached. Note that enable_blob_files has to be
+  // set in order for this option to have any effect.
+  //
+  // Default: 256 MB
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_file_size = 1ULL << 28;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The compression algorithm to use for large values stored in blob files.
+  // Note that enable_blob_files has to be set in order for this option to have
+  // any effect.
+  //
+  // Default: no compression
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionType blob_compression_type = kNoCompression;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

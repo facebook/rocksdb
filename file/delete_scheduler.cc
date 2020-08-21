@@ -258,7 +258,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
             ((total_deleted_bytes * kMicrosInSecond) / current_delete_rate);
         ROCKS_LOG_INFO(info_log_,
                        "Rate limiting is enabled with penalty %" PRIu64
-                       "after deleting file %s",
+                       " after deleting file %s",
                        total_penalty, path_in_trash.c_str());
         while (!closing_ && !cv_.TimedWait(start_time + total_penalty)) {
         }
