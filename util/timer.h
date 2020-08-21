@@ -42,6 +42,8 @@ class Timer {
         running_(false),
         executing_task_(false) {}
 
+  ~Timer() { Shutdown(); }
+
   // Add a new function to run.
   // fn_name has to be identical, otherwise, the new one overrides the existing
   // one, regardless if the function is pending removed (invalid) or not.
