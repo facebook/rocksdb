@@ -42,6 +42,7 @@
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/file_checksum_helper.h"
 #include "util/string_util.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
 
@@ -484,9 +485,6 @@ class BackupEngineImpl : public BackupEngine {
                                               const BackupID& backup_id,
                                               const BackupMeta* backup,
                                               FileChecksumList* checksum_list);
-
-  Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
-                                      FileChecksumList* checksum_list);
 
   Status VerifyFileWithCrc32c(Env* src_env, const BackupMeta* backup,
                               const std::string& rel_path);
@@ -2159,6 +2157,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
     return s;
   }
 }
+
 Status BackupEngineImpl::GetFileChecksumsFromManifestInBackup(
     Env* src_env, const BackupID& backup_id, const BackupMeta* backup,
     FileChecksumList* checksum_list) {
@@ -2197,87 +2196,11 @@ Status BackupEngineImpl::GetFileChecksumsFromManifestInBackup(
     return s;
   }
 
-  s = GetFileChecksumsFromManifest(src_env, GetAbsolutePath(manifest_rel_path),
-                                   checksum_list);
-  return s;
-}
-
-Status BackupEngineImpl::GetFileChecksumsFromManifest(
-    Env* src_env, const std::string& abs_path,
-    FileChecksumList* checksum_list) {
-  if (checksum_list == nullptr) {
-    return Status::InvalidArgument("checksum_list is nullptr");
-  }
-
-  checksum_list->reset();
-  Status s;
-
-  std::unique_ptr<SequentialFileReader> file_reader;
-  {
-    std::unique_ptr<FSSequentialFile> file;
-    const std::shared_ptr<FileSystem>& fs = src_env->GetFileSystem();
-    s = fs->NewSequentialFile(abs_path,
-                              fs->OptimizeForManifestRead(FileOptions()), &file,
-                              nullptr /* dbg */);
-    if (!s.ok()) {
-      return s;
-    }
-    file_reader.reset(new SequentialFileReader(std::move(file), abs_path));
-  }
-
-  LogReporter reporter;
-  reporter.status = &s;
-  log::Reader reader(nullptr, std::move(file_reader), &reporter,
-                     true /* checksum */, 0 /* log_number */);
-  Slice record;
-  std::string scratch;
-  // Set of column families initialized with default CF
-  std::unordered_set<uint32_t> cf_set = {0};
-  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-    VersionEdit edit;
-    s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
-    }
-    // Check current CF status
-    uint32_t column_family = edit.GetColumnFamily();
-    auto cf_set_itr = cf_set.find(column_family);
-    bool cf_exist = (cf_set_itr != cf_set.end());
-    if (edit.IsColumnFamilyAdd()) {
-      if (cf_exist) {
-        s = Status::Corruption("Manifest adding the same column family twice");
-        break;
-      }
-      cf_set.insert(column_family);
-    } else if (edit.IsColumnFamilyDrop()) {
-      if (!cf_exist) {
-        s = Status::Corruption(
-            "Manifest dropping non-existing column family: " +
-            ToString(column_family));
-        break;
-      }
-      cf_set.erase(cf_set_itr);
-    } else {
-      if (!cf_exist) {
-        s = Status::Corruption("Manifest referencing unknown column family: " +
-                               ToString(column_family));
-        break;
-      }
-      assert(cf_set.find(column_family) != cf_set.end());
-
-      // Remove the deleted files from the checksum_list
-      for (const auto& deleted_file : edit.GetDeletedFiles()) {
-        checksum_list->RemoveOneFileChecksum(deleted_file.second);
-      }
-
-      // Add the new files to the checksum_list
-      for (const auto& new_file : edit.GetNewFiles()) {
-        checksum_list->InsertOneFileChecksum(
-            new_file.second.fd.GetNumber(), new_file.second.file_checksum,
-            new_file.second.file_checksum_func_name);
-      }
-    }
-  }
+  // Read whole manifest file in backup
+  s = GetFileChecksumsFromManifest(
+      src_env, GetAbsolutePath(manifest_rel_path),
+      std::numeric_limits<uint64_t>::max() /*manifest_file_size*/,
+      checksum_list);
   return s;
 }
 
