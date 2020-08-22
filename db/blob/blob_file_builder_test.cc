@@ -481,9 +481,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   ASSERT_EQ(blob_file_addition.GetTotalBlobBytes(),
             BlobLogRecord::kHeaderSize + key.size() + value.size());
   ASSERT_EQ(blob_file_addition.GetChecksumMethod(), "DummyFileChecksum");
-
-  constexpr char expected_checksum[] = "dummy";
-  ASSERT_EQ(blob_file_addition.GetChecksumValue(), expected_checksum);
+  ASSERT_EQ(blob_file_addition.GetChecksumValue(), "dummy");
 
   // Verify the contents of the new blob file as well as the blob reference
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs{
