@@ -494,11 +494,11 @@ TEST_F(BlobFileBuilderTest, Checksum) {
                  kNoCompression, expected_key_value_pairs, blob_indexes);
 }
 
-class BlobFileBuilderFailureTest
+class BlobFileBuilderIOErrorTest
     : public testing::Test,
       public testing::WithParamInterface<const char*> {
  protected:
-  BlobFileBuilderFailureTest()
+  BlobFileBuilderIOErrorTest()
       : env_(Env::Default()),
         fault_injection_env_(&env_),
         fs_(&fault_injection_env_),
@@ -512,14 +512,14 @@ class BlobFileBuilderFailureTest
 };
 
 INSTANTIATE_TEST_CASE_P(
-    BlobFileBuilderTest, BlobFileBuilderFailureTest,
+    BlobFileBuilderTest, BlobFileBuilderIOErrorTest,
     ::testing::ValuesIn(
         {"BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile",
          "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader",
          "BlobFileBuilder::WriteBlobToFile:AddRecord",
          "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
 
-TEST_P(BlobFileBuilderFailureTest, IOError) {
+TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   // Simulate an I/O error during the specified step of Add()
   // Note: blob_file_size will be set to value_size in order for the first blob
   // to trigger close
@@ -528,7 +528,7 @@ TEST_P(BlobFileBuilderFailureTest, IOError) {
   Options options;
   options.cf_paths.emplace_back(
       test::PerThreadDBPath(&fault_injection_env_,
-                            "BlobFileBuilderFailureTest_IOError"),
+                            "BlobFileBuilderIOErrorTest_IOError"),
       0);
   options.enable_blob_files = true;
   options.blob_file_size = value_size;
