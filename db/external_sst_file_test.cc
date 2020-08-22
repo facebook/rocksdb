@@ -990,6 +990,7 @@ TEST_F(ExternalSSTFileTest, SkipSnapshot) {
 }
 
 TEST_F(ExternalSSTFileTest, MultiThreaded) {
+  env_->skip_fsync_ = true;
   // Bulk load 10 files every file contain 1000 keys
   int num_files = 10;
   int keys_per_file = 1000;
@@ -1102,6 +1103,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 }
 
 TEST_F(ExternalSSTFileTest, OverlappingRanges) {
+  env_->skip_fsync_ = true;
   Random rnd(301);
   SequenceNumber assigned_seqno = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1234,6 +1236,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
 }
 
 TEST_P(ExternalSSTFileTest, PickedLevel) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;
@@ -1300,6 +1303,7 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelBug) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 3;
@@ -1420,6 +1424,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
 }
 
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 2;
@@ -1477,6 +1482,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;
