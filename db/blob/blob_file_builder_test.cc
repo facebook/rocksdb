@@ -369,6 +369,50 @@ TEST_F(BlobFileBuilderTest, Compression) {
                  kSnappyCompression, expected_key_value_pairs, blob_indexes);
 }
 
+TEST_F(BlobFileBuilderTest, CompressionError) {
+  // Simulate an error during compression
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Options options;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_CompressionError"), 0);
+  options.enable_blob_files = true;
+  options.blob_compression_type = kSnappyCompression;
+
+  ImmutableCFOptions immutable_cf_options(options);
+  MutableCFOptions mutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 123;
+  constexpr Env::IOPriority io_priority = Env::IO_HIGH;
+  constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
+  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+                          &immutable_cf_options, &mutable_cf_options,
+                          &file_options_, column_family_id, io_priority,
+                          write_hint, &blob_file_additions);
+
+  SyncPoint::GetInstance()->SetCallBack("CompressData:TamperWithReturnValue",
+                                        [](void* arg) {
+                                          bool* ret = static_cast<bool*>(arg);
+                                          *ret = false;
+                                        });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr char key[] = "1";
+  constexpr char value[] = "deadbeef";
+
+  std::string blob_index;
+
+  ASSERT_TRUE(builder.Add(key, value, &blob_index).IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(BlobFileBuilderTest, Checksum) {
   // Build a blob file with checksum
 
@@ -476,6 +520,7 @@ INSTANTIATE_TEST_CASE_P(
          "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
 
 TEST_P(BlobFileBuilderFailureTest, IOError) {
+  // Simulate an I/O error during the specified step of Add()
   // Note: blob_file_size will be set to value_size in order for the first blob
   // to trigger close
   constexpr size_t value_size = 8;
