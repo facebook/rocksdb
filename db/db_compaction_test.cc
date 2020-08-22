@@ -3646,12 +3646,20 @@ TEST_F(DBCompactionTest, NoCompactBottomLevelFilesWithDeletions) {
   // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
   // files does not need to be preserved in case of a future snapshot.
   ASSERT_OK(Put(Key(0), "val"));
+
   // release snapshot and no compaction should be triggered.
+  std::atomic<int> num_compactions{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start",
+      [&](void* /*arg*/) { num_compactions.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   db_->ReleaseSnapshot(snapshot);
   dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, num_compactions);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
   db_->GetLiveFilesMetaData(&post_release_metadata);
   ASSERT_EQ(pre_release_metadata.size(), post_release_metadata.size());
-
   for (size_t i = 0; i < pre_release_metadata.size(); ++i) {
     const auto& pre_file = pre_release_metadata[i];
     const auto& post_file = post_release_metadata[i];
