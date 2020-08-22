@@ -488,6 +488,8 @@ struct HistogramData {
 // Usage:
 //   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
 enum StatsLevel : uint8_t {
+  // Disable tickers
+  kExceptTickers,
   // Disable timer stats, and skip histogram stats
   kExceptHistogramOrTimers,
   // Skip timer stats
