@@ -498,7 +498,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
 class BlobFileBuilderIOErrorTest
     : public testing::Test,
-      public testing::WithParamInterface<const char*> {
+      public testing::WithParamInterface<std::string> {
  protected:
   BlobFileBuilderIOErrorTest()
       : env_(Env::Default()),
@@ -515,11 +515,11 @@ class BlobFileBuilderIOErrorTest
 
 INSTANTIATE_TEST_CASE_P(
     BlobFileBuilderTest, BlobFileBuilderIOErrorTest,
-    ::testing::ValuesIn(
-        {"BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile",
-         "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader",
-         "BlobFileBuilder::WriteBlobToFile:AddRecord",
-         "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+    ::testing::ValuesIn(std::vector<std::string>{
+        "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile",
+        "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader",
+        "BlobFileBuilder::WriteBlobToFile:AddRecord",
+        "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
 
 TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   // Simulate an I/O error during the specified step of Add()
