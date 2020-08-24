@@ -437,9 +437,9 @@ TEST_F(BlobFileBuilderTest, Checksum) {
         const FileChecksumGenContext& /* context */) override {
       return std::unique_ptr<FileChecksumGenerator>(
           new DummyFileChecksumGenerator);
-    };
+    }
 
-    const char* Name() const override { return "DummyFileChecksumGenFactory"; };
+    const char* Name() const override { return "DummyFileChecksumGenFactory"; }
   };
 
   Options options;
