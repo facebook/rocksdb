@@ -5,7 +5,6 @@
 
 #include "db/blob/blob_file_builder.h"
 
-#include <array>
 #include <cassert>
 #include <cinttypes>
 #include <string>
@@ -31,7 +30,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class FileNumberGenerator {
+class TestFileNumberGenerator {
  public:
   uint64_t operator()() { return ++next_file_number_; }
 
@@ -135,7 +134,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -206,7 +205,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -279,7 +278,7 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -326,7 +325,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -395,7 +394,7 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -459,7 +458,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -545,8 +544,8 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(FileNumberGenerator(), &fault_injection_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &fault_injection_env_,
+                          &fs_, &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
 
