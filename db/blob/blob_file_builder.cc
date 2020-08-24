@@ -69,6 +69,7 @@ BlobFileBuilder::~BlobFileBuilder() = default;
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
                             std::string* blob_index) {
   assert(blob_index);
+  assert(blob_index->empty());
 
   if (value.size() < min_blob_size_) {
     return Status::OK();
