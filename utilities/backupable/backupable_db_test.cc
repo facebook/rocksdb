@@ -1814,6 +1814,38 @@ TEST_F(BackupableDBTest, InterruptCreationTest) {
   AssertBackupConsistency(0, 0, keys_iteration);
 }
 
+TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
+  const int keys_iteration = 5000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    // That FillDB leaves a mix of flushed and unflushed data
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1",
+          "BackupableDBTest::FlushDuringBackupCheckpoint:BeforeFlush"},
+         {"BackupableDBTest::FlushDuringBackupCheckpoint:AfterFlush",
+          "CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::port::Thread flush_thread{[this]() {
+      TEST_SYNC_POINT(
+          "BackupableDBTest::FlushDuringBackupCheckpoint:BeforeFlush");
+      FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
+      ASSERT_OK(db_->Flush(FlushOptions()));
+      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+      dbi->TEST_WaitForFlushMemTable();
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      dbi->TEST_WaitForCompact();
+      TEST_SYNC_POINT(
+          "BackupableDBTest::FlushDuringBackupCheckpoint:AfterFlush");
+    }};
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    flush_thread.join();
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(0, 0, keys_iteration);
+  }
+}
+
 inline std::string OptionsPath(std::string ret, int backupID) {
   ret += "/private/";
   ret += std::to_string(backupID);
