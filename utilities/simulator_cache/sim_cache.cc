@@ -26,6 +26,7 @@ class CacheActivityLogger {
     MutexLock l(&mutex_);
 
     StopLoggingInternal();
+    bg_status_.PermitUncheckedError();
   }
 
   Status StartLogging(const std::string& activity_log_file, Env* env,
@@ -177,9 +178,11 @@ class SimCacheImpl : public SimCache {
     // *Lambda function without capture can be assgined to a function pointer
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
-      key_only_cache_->Insert(key, nullptr, charge,
-                              [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
-                              priority);
+      // TODO: Check for error here?
+      auto s = key_only_cache_->Insert(
+          key, nullptr, charge, [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
+          priority);
+      s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
     }

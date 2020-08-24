@@ -609,6 +609,10 @@ ifdef ASSERT_STATUS_CHECKED
 		timer_queue_test \
 		timer_test \
 		util_merge_operators_test \
+		block_cache_trace_analyzer_test \
+		block_cache_tracer_test \
+		cache_simulator_test \
+		sim_cache_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \

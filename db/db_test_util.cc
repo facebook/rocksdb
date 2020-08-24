@@ -19,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 int64_t MaybeCurrentTime(Env* env) {
   int64_t time = 1337346000;  // arbitrary fallback default
-  (void)env->GetCurrentTime(&time);
+  env->GetCurrentTime(&time).PermitUncheckedError();
   return time;
 }
 }  // namespace

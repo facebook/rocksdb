@@ -1209,7 +1209,8 @@ void DBIter::Seek(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
+    // TODO: What do we do if this returns an error?
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -1270,7 +1271,9 @@ void DBIter::SeekForPrev(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
+    // TODO: What do we do if this returns an error?
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
