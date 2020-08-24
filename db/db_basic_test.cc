@@ -672,16 +672,15 @@ class DBBasicMultiConfigs : public DBBasicTest,
   static std::vector<int> GenerateOptionConfigs() {
     std::vector<int> option_configs;
     for (int option_config = kDefault; option_config < kEnd; ++option_config) {
-      option_configs.push_back(option_config);
+      if (!ShouldSkipOptions(option_config, kSkipFIFOCompaction)) {
+        option_configs.push_back(option_config);
+      }
     }
     return option_configs;
   }
 };
 
 TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
-  if (option_config_ == kFIFOCompaction) {
-    return;
-  }
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   Options options = CurrentOptions(options_override);
