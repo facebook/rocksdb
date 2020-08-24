@@ -1,9 +1,25 @@
-## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
-
-[![CircleCI Status](https://circleci.com/gh/facebook/rocksdb.svg?style=svg)](https://circleci.com/gh/facebook/rocksdb)
-[![TravisCI Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
-[![Appveyor Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
-[![PPC64le Build Status](http://140.211.168.68:8080/buildStatus/icon?job=Rocksdb)](http://140.211.168.68:8080/job/Rocksdb)
+<p align="center">
+  <a href="https://rocksdb.org/">
+    <img src="https://rocksdb.org/static/logo.svg" alt="logo" width="316" />
+  </a>
+</p>
+<h2 align="center">
+  RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
+</h2>
+<p align="center">
+  <a href="https://circleci.com/gh/facebook/rocksdb">
+    <img src="https://circleci.com/gh/facebook/rocksdb.svg?style=svg" alt="CircleCI Status" />
+  </a>
+  <a href="https://travis-ci.org/facebook/rocksdb">
+    <img src="https://travis-ci.org/facebook/rocksdb.svg?branch=master" alt="CircleCI Status" />
+  </a>
+  <a href="https://ci.appveyor.com/project/Facebook/rocksdb/branch/master">
+    <img src="https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true" alt="Appveyor Build status" />
+  </a>
+  <a href="http://140.211.168.68:8080/job/Rocksdb">
+    <img src="https://140.211.168.68:8080/buildStatus/icon?job=Rocksdb" alt="PPC64le Build Status" />
+  </a>
+</p>
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on [LevelDB](https://github.com/google/leveldb) by Sanjay Ghemawat (sanjay@google.com)
