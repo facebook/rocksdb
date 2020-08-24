@@ -69,7 +69,6 @@ BlobFileBuilder::~BlobFileBuilder() = default;
 Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
                             std::string* blob_index) {
   assert(blob_index);
-  assert(blob_index->empty());
 
   if (value.size() < min_blob_size_) {
     return Status::OK();
@@ -196,6 +195,7 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
     Slice* blob, std::string* compressed_blob) const {
   assert(blob);
   assert(compressed_blob);
+  assert(compressed_blob->empty());
 
   if (blob_compression_type_ == kNoCompression) {
     return Status::OK();
