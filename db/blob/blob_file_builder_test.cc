@@ -101,6 +101,11 @@ class BlobFileBuilderTest : public testing::Test {
       ASSERT_EQ(blob_index.offset(), blob_offset);
       ASSERT_EQ(blob_index.size(), value.size());
     }
+
+    BlobLogFooter footer;
+    ASSERT_OK(blob_log_reader.ReadFooter(&footer));
+    ASSERT_EQ(footer.blob_count, expected_key_value_pairs.size());
+    ASSERT_EQ(footer.expiration_range, ExpirationRange());
   }
 
   MockEnv env_;
