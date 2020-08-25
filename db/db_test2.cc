@@ -4829,9 +4829,6 @@ TEST_F(DBTest2, PartitionedIndexPrefetchFailure) {
 
   // Try different random failures in table open for 300 times.
   for (int i = 0; i < 300; i++) {
-    // Make table cache to keep one entry.
-    // dbfull()->TEST_table_cache()->SetCapacity(1);
-
     env_->num_reads_fails_ = 0;
     env_->rand_reads_fail_odd_ = 8;
 
