@@ -134,6 +134,7 @@ struct CompactionJob::SubcompactionState {
   std::vector<Output> outputs;
   std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
+
   Output* current_output() {
     if (outputs.empty()) {
       // This subcompaction's output could be empty if compaction was aborted
@@ -147,13 +148,13 @@ struct CompactionJob::SubcompactionState {
     }
   }
 
-  uint64_t current_output_file_size;
+  uint64_t current_output_file_size = 0;
 
   // State during the subcompaction
-  uint64_t total_bytes;
-  uint64_t num_output_records;
+  uint64_t total_bytes = 0;
+  uint64_t num_output_records = 0;
   CompactionJobStats compaction_job_stats;
-  uint64_t approx_size;
+  uint64_t approx_size = 0;
   // An index that used to speed up ShouldStopBefore().
   size_t grandparent_index = 0;
   // The number of bytes overlapping between the current output and
@@ -162,49 +163,10 @@ struct CompactionJob::SubcompactionState {
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
-                     uint64_t size = 0)
-      : compaction(c),
-        start(_start),
-        end(_end),
-        outfile(nullptr),
-        builder(nullptr),
-        current_output_file_size(0),
-        total_bytes(0),
-        num_output_records(0),
-        approx_size(size),
-        grandparent_index(0),
-        overlapped_bytes(0),
-        seen_key(false) {
+  SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size)
+      : compaction(c), start(_start), end(_end), approx_size(size) {
     assert(compaction != nullptr);
   }
-
-  SubcompactionState(SubcompactionState&& o) { *this = std::move(o); }
-
-  SubcompactionState& operator=(SubcompactionState&& o) {
-    compaction = std::move(o.compaction);
-    start = std::move(o.start);
-    end = std::move(o.end);
-    status = std::move(o.status);
-    io_status = std::move(o.io_status);
-    outputs = std::move(o.outputs);
-    outfile = std::move(o.outfile);
-    builder = std::move(o.builder);
-    current_output_file_size = std::move(o.current_output_file_size);
-    total_bytes = std::move(o.total_bytes);
-    num_output_records = std::move(o.num_output_records);
-    compaction_job_stats = std::move(o.compaction_job_stats);
-    approx_size = std::move(o.approx_size);
-    grandparent_index = std::move(o.grandparent_index);
-    overlapped_bytes = std::move(o.overlapped_bytes);
-    seen_key = std::move(o.seen_key);
-    return *this;
-  }
-
-  // Because member std::unique_ptrs do not have these.
-  SubcompactionState(const SubcompactionState&) = delete;
-
-  SubcompactionState& operator=(const SubcompactionState&) = delete;
 
   // Adds the key and value to the builder
   // If paranoid is true, adds the key-value to the paranoid hash
@@ -450,7 +412,11 @@ void CompactionJob::Prepare() {
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
   } else {
-    compact_->sub_compact_states.emplace_back(c, nullptr, nullptr);
+    constexpr Slice* start = nullptr;
+    constexpr Slice* end = nullptr;
+    constexpr uint64_t size = 0;
+
+    compact_->sub_compact_states.emplace_back(c, start, end, size);
   }
 }
 
