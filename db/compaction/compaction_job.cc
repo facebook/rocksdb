@@ -1533,14 +1533,13 @@ Status CompactionJob::InstallCompactionResults(
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
     VersionEdit* const edit = compaction->edit();
+    assert(edit);
 
     for (const auto& out : sub_compact.outputs) {
       edit->AddFile(compaction->output_level(), out.meta);
     }
 
-    for (auto& blob_file_addition : sub_compact.blob_file_additions) {
-      edit->AddBlobFile(std::move(blob_file_addition));
-    }
+    edit->SetBlobFileAdditions(std::move(sub_compact.blob_file_additions));
   }
 
   return versions_->LogAndApply(compaction->column_family_data(),
