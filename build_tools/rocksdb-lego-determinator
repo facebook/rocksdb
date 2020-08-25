@@ -1101,6 +1101,7 @@ run_regression()
   strip librocksdb.a
   send_size_to_ods static_lib_stripped $(stat --printf="%s" librocksdb.a)
 
+  make clean
   make -j$(nproc) shared_lib
   send_size_to_ods shared_lib $(stat --printf="%s" `readlink -f librocksdb.so`)
   strip `readlink -f librocksdb.so`
@@ -1113,6 +1114,7 @@ run_regression()
   strip librocksdb.a
   send_size_to_ods static_lib_lite_stripped $(stat --printf="%s" librocksdb.a)
 
+  make clean
   make LITE=1 -j$(nproc) shared_lib
   send_size_to_ods shared_lib_lite $(stat --printf="%s" `readlink -f librocksdb.so`)
   strip `readlink -f librocksdb.so`

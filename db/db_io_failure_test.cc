@@ -15,7 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBIOFailureTest : public DBTestBase {
  public:
-  DBIOFailureTest() : DBTestBase("/db_io_failure_test") {}
+  DBIOFailureTest()
+      : DBTestBase("/db_io_failure_test", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE
@@ -34,7 +35,7 @@ TEST_F(DBIOFailureTest, DropWrites) {
     // Force out-of-space errors
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
-    env_->no_slowdown_ = true;
+    env_->SetMockSleep();
     for (int i = 0; i < 5; i++) {
       if (option_config_ != kUniversalCompactionMultiLevel &&
           option_config_ != kUniversalSubcompactions) {

@@ -205,7 +205,7 @@ class FileChecksumTestHelper {
     WriteBufferManager wb(options_.db_write_buffer_size);
     ImmutableDBOptions immutable_db_options(options_);
     VersionSet versions(dbname_, &immutable_db_options, sopt, tc.get(), &wb,
-                        &wc, nullptr);
+                        &wc, nullptr, nullptr);
     std::vector<std::string> cf_name_list;
     Status s;
     s = versions.ListColumnFamilies(&cf_name_list, dbname_,

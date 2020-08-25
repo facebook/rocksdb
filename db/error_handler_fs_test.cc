@@ -24,7 +24,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBErrorHandlingFSTest : public DBTestBase {
  public:
-  DBErrorHandlingFSTest() : DBTestBase("/db_error_handling_fs_test") {}
+  DBErrorHandlingFSTest()
+      : DBTestBase("/db_error_handling_fs_test", /*env_do_fsync=*/true) {}
 
   std::string GetManifestNameFromLiveFiles() {
     std::vector<std::string> live_files;

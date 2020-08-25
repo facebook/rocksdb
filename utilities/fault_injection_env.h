@@ -122,7 +122,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
  public:
   explicit FaultInjectionTestEnv(Env* base)
       : EnvWrapper(base), filesystem_active_(true) {}
-  virtual ~FaultInjectionTestEnv() {}
+  virtual ~FaultInjectionTestEnv() { error_.PermitUncheckedError(); }
 
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override;

@@ -32,6 +32,8 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntryPut;
     case kTypeDeletion:
       return kEntryDelete;
+    case kTypeDeletionWithTimestamp:
+      return kEntryDeleteWithTimestamp;
     case kTypeSingleDeletion:
       return kEntrySingleDelete;
     case kTypeMerge:

@@ -69,6 +69,7 @@ class CorruptionTest : public testing::Test {
 
   ~CorruptionTest() override {
     delete db_;
+    db_ = nullptr;
     DestroyDB(dbname_, Options());
   }
 
@@ -565,19 +566,21 @@ static const auto& corruption_modes = {mock::MockTableFactory::kCorruptNone,
                                        mock::MockTableFactory::kCorruptKey,
                                        mock::MockTableFactory::kCorruptValue};
 
-TEST_F(CorruptionTest, ParaniodFileChecksOnFlush) {
+TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
   Options options;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   Status s;
   for (const auto& mode : corruption_modes) {
     delete db_;
+    db_ = nullptr;
     s = DestroyDB(dbname_, options);
     std::shared_ptr<mock::MockTableFactory> mock =
         std::make_shared<mock::MockTableFactory>();
     options.table_factory = mock;
     mock->SetCorruptionMode(mode);
     ASSERT_OK(DB::Open(options, dbname_, &db_));
+    assert(db_ != nullptr);
     Build(10);
     s = db_->Flush(FlushOptions());
     if (mode == mock::MockTableFactory::kCorruptNone) {
@@ -588,18 +591,20 @@ TEST_F(CorruptionTest, ParaniodFileChecksOnFlush) {
   }
 }
 
-TEST_F(CorruptionTest, ParaniodFileChecksOnCompact) {
+TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   Options options;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   Status s;
   for (const auto& mode : corruption_modes) {
     delete db_;
+    db_ = nullptr;
     s = DestroyDB(dbname_, options);
     std::shared_ptr<mock::MockTableFactory> mock =
         std::make_shared<mock::MockTableFactory>();
     options.table_factory = mock;
     ASSERT_OK(DB::Open(options, dbname_, &db_));
+    assert(db_ != nullptr);
     Build(100, 2);
     // ASSERT_OK(db_->Flush(FlushOptions()));
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);

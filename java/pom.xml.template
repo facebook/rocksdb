@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project
-        xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
-        xmlns="http://maven.apache.org/POM/4.0.0"
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <modelVersion>4.0.0</modelVersion>
-    <name>RocksDB JNI</name>
-    <url>http://rocksdb.org/</url>
+
     <groupId>org.rocksdb</groupId>
     <artifactId>rocksdbjni</artifactId>
-    <!-- Version will be automatically replaced -->
-    <version>-</version>
+    <version>${ROCKSDB_JAVA_VERSION}</version>  <!-- this will be replaced by the Makefile's rocksdbjavageneratepom target -->
+
+    <name>RocksDB JNI</name>
     <description>RocksDB fat jar that contains .so files for linux32 and linux64 (glibc and musl-libc), jnilib files
         for Mac OSX, and a .dll for Windows x64.
     </description>
+    <url>https://rocksdb.org</url>
+    <inceptionYear>2012</inceptionYear>
+
     <licenses>
         <license>
             <name>Apache License 2.0</name>
@@ -25,12 +25,18 @@
             <distribution>repo</distribution>
         </license>
     </licenses>
+
     <scm>
-        <connection>scm:git:git://github.com/dropwizard/metrics.git</connection>
-        <developerConnection>scm:git:git@github.com:dropwizard/metrics.git</developerConnection>
-        <url>http://github.com/dropwizard/metrics/</url>
-        <tag>HEAD</tag>
+        <connection>scm:git:https://github.com/facebook/rocksdb.git</connection>
+        <developerConnection>scm:git:https://github.com/facebook/rocksdb.git</developerConnection>
+        <url>scm:git:https://github.com/facebook/rocksdb.git</url>
     </scm>
+
+    <organization>
+        <name>Facebook</name>
+        <url>https://www.facebook.com</url>
+    </organization>
+
     <developers>
         <developer>
             <name>Facebook</name>
@@ -41,6 +47,16 @@
             </roles>
         </developer>
     </developers>
+
+    <mailingLists>
+        <mailingList>
+            <name>rocksdb - Google Groups</name>
+            <subscribe>rocksdb-subscribe@googlegroups.com</subscribe>
+            <unsubscribe>rocksdb-unsubscribe@googlegroups.com</unsubscribe>
+            <post>rocksdb@googlegroups.com</post>
+            <archive>https://groups.google.com/forum/#!forum/rocksdb</archive>
+        </mailingList>
+    </mailingLists>
 
     <properties>
         <project.build.source>1.7</project.build.source>

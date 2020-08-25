@@ -250,6 +250,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
     db_->FlushWAL(false /* sync */);
   }
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
   // if we have more than one column family, we need to also get WAL files
   if (s.ok()) {
     s = db_->GetSortedWalFiles(live_wal_files);
@@ -314,8 +316,15 @@ Status CheckpointImpl::CreateCustomCheckpoint(
         // find checksum info for table files
         s = checksum_list->SearchOneFileChecksum(number, &checksum_value,
                                                  &checksum_name);
+
+        // XXX/FIXME(peterd): There's currently a race between GetLiveFiles
+        // and GetLiveFilesChecksumInfo that could lead to not finding
+        // checksum info on a file that has it. For now, we can accept
+        // that and treat it like a legacy file lacking checksum info.
         if (!s.ok()) {
-          return Status::NotFound("Can't find checksum for " + src_fname);
+          assert(checksum_name == kUnknownFileChecksumFuncName);
+          assert(checksum_value == kUnknownFileChecksum);
+          s = Status::OK();
         }
       }
       s = copy_file_cb(db_->GetName(), src_fname,

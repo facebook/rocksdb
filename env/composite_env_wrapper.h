@@ -613,6 +613,11 @@ class CompositeEnvWrapper : public Env {
     return file_system_->OptimizeForCompactionTableRead(
         FileOptions(env_options), db_options);
   }
+
+  // This seems to clash with a macro on Windows, so #undef it here
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     IOOptions io_opts;
     IODebugContext dbg;
@@ -1089,6 +1094,11 @@ class LegacyFileSystemWrapper : public FileSystem {
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
   }
+
+// This seems to clash with a macro on Windows, so #undef it here
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& /*options*/,
                         uint64_t* diskfree, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->GetFreeSpace(path, diskfree));

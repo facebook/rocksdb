@@ -207,6 +207,12 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.compaction_options_universal =
       mutable_cf_options.compaction_options_universal;
 
+  // Blob file related options
+  cf_opts.enable_blob_files = mutable_cf_options.enable_blob_files;
+  cf_opts.min_blob_size = mutable_cf_options.min_blob_size;
+  cf_opts.blob_file_size = mutable_cf_options.blob_file_size;
+  cf_opts.blob_compression_type = mutable_cf_options.blob_compression_type;
+
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
       mutable_cf_options.max_sequential_skip_in_iterations;
@@ -1044,7 +1050,7 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
   }
   try {
     if (opt_addr == nullptr) {
-      return Status::NotFound("Could not find option: ", opt_name);
+      return Status::NotFound("Could not find option", opt_name);
     } else if (parse_func_ != nullptr) {
       return parse_func_(config_options, opt_name, opt_value, opt_addr);
     } else if (ParseOptionHelper(opt_addr, type_, opt_value)) {
@@ -1081,7 +1087,7 @@ Status OptionTypeInfo::ParseStruct(
             iter->second.Parse(config_options, map_iter.first, map_iter.second,
                                opt_addr + iter->second.offset_);
       } else {
-        status = Status::InvalidArgument("Unrecognized option: ",
+        status = Status::InvalidArgument("Unrecognized option",
                                          struct_name + "." + map_iter.first);
       }
     }
@@ -1094,7 +1100,7 @@ Status OptionTypeInfo::ParseStruct(
       status = opt_info->Parse(config_options, elem_name, opt_value,
                                opt_addr + opt_info->offset_);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
     // This option represents a field in the struct (e.g. field)
@@ -1104,7 +1110,7 @@ Status OptionTypeInfo::ParseStruct(
       status = opt_info->Parse(config_options, elem_name, opt_value,
                                opt_addr + opt_info->offset_);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ",
+      status = Status::InvalidArgument("Unrecognized option",
                                        struct_name + "." + opt_name);
     }
   }
@@ -1121,7 +1127,7 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
     if (serialize_func_ != nullptr) {
       return serialize_func_(config_options, opt_name, opt_addr, opt_value);
     } else if (!SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
-      return Status::InvalidArgument("Cannot serialize option: ", opt_name);
+      return Status::InvalidArgument("Cannot serialize option", opt_name);
     }
   }
   return Status::OK();
@@ -1164,14 +1170,14 @@ Status OptionTypeInfo::SerializeStruct(
       status = opt_info->Serialize(config_options, elem_name,
                                    opt_addr + opt_info->offset_, value);
     } else {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     }
   } else {
     // This option represents a field in the struct (e.g. field)
     std::string elem_name;
     const auto opt_info = Find(opt_name, *struct_map, &elem_name);
     if (opt_info == nullptr) {
-      status = Status::InvalidArgument("Unrecognized option: ", opt_name);
+      status = Status::InvalidArgument("Unrecognized option", opt_name);
     } else if (opt_info->ShouldSerialize()) {
       status = opt_info->Serialize(config_options, opt_name + "." + elem_name,
                                    opt_addr + opt_info->offset_, value);

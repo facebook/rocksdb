@@ -19,6 +19,7 @@
 
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
@@ -52,33 +53,6 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
-
-// DB contents are stored in a set of blocks, each of which holds a
-// sequence of key,value pairs.  Each block may be compressed before
-// being stored in a file.  The following enum describes which
-// compression method (if any) is used to compress a block.
-enum CompressionType : unsigned char {
-  // NOTE: do not change the values of existing entries, as these are
-  // part of the persistent format on disk.
-  kNoCompression = 0x0,
-  kSnappyCompression = 0x1,
-  kZlibCompression = 0x2,
-  kBZip2Compression = 0x3,
-  kLZ4Compression = 0x4,
-  kLZ4HCCompression = 0x5,
-  kXpressCompression = 0x6,
-  kZSTD = 0x7,
-
-  // Only use kZSTDNotFinalCompression if you have to use ZSTD lib older than
-  // 0.8.0 or consider a possibility of downgrading the service or copying
-  // the database files to another service running with an older version of
-  // RocksDB that doesn't have kZSTD. Otherwise, you should use kZSTD. We will
-  // eventually remove the option from the public API.
-  kZSTDNotFinalCompression = 0x40,
-
-  // kDisableCompressionOption is used to disable some compression options.
-  kDisableCompressionOption = 0xff,
-};
 
 struct Options;
 struct DbPath;
@@ -329,8 +303,24 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
 enum class WALRecoveryMode : char {
   // Original levelDB recovery
-  // We tolerate incomplete record in trailing data on all logs
-  // Use case : This is legacy behavior
+  //
+  // We tolerate the last record in any log to be incomplete due to a crash
+  // while writing it. Zeroed bytes from preallocation are also tolerated in the
+  // trailing data of any log.
+  //
+  // Use case: Applications for which updates, once applied, must not be rolled
+  // back even after a crash-recovery. In this recovery mode, RocksDB guarantees
+  // this as long as `WritableFile::Append()` writes are durable. In case the
+  // user needs the guarantee in more situations (e.g., when
+  // `WritableFile::Append()` writes to page cache, but the user desires this
+  // guarantee in face of power-loss crash-recovery), RocksDB offers various
+  // mechanisms to additionally invoke `WritableFile::Sync()` in order to
+  // strengthen the guarantee.
+  //
+  // This differs from `kPointInTimeRecovery` in that, in case a corruption is
+  // detected during recovery, this mode will refuse to open the DB. Whereas,
+  // `kPointInTimeRecovery` will stop recovery just before the corruption since
+  // that is a valid point-in-time to which to recover.
   kTolerateCorruptedTailRecords = 0x00,
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
@@ -1283,7 +1273,8 @@ struct ReadOptions {
   // block cache?
   // Callers may wish to set this field to false for bulk scans.
   // This would help not to the change eviction order of existing items in the
-  // block cache. Default: true
+  // block cache.
+  // Default: true
   bool fill_cache;
 
   // Specify to create a tailing iterator -- a special iterator that has a
@@ -1304,6 +1295,7 @@ struct ReadOptions {
   // If true when calling Get(), we also skip prefix bloom when reading from
   // block based table. It provides a way to read existing data after
   // changing implementation of prefix extractor.
+  // Default: false
   bool total_order_seek;
 
   // When true, by default use total_order_seek = true, and RocksDB can
@@ -1311,6 +1303,7 @@ struct ReadOptions {
   // from total_order_seek, based on seek key, and iterator upper bound.
   // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // Default: false
   bool auto_prefix_mode;
 
   // Enforce that the iterator only iterates over the same prefix as the seek.
@@ -1366,10 +1359,12 @@ struct ReadOptions {
   // only the most recent version visible to timestamp is returned.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
+  // Default: nullptr
   const Slice* timestamp;
   const Slice* iter_start_ts;
 
-  // Deadline for completing the read request (only Get/MultiGet for now) in us.
+  // Deadline for completing an API call (Get/MultiGet/Seek/Next for now)
+  // in microseconds.
   // It should be set to microseconds since epoch, i.e, gettimeofday or
   // equivalent plus allowed duration in microseconds. The best way is to use
   // env->NowMicros() + some timeout.
@@ -1378,6 +1373,12 @@ struct ReadOptions {
   // checking for deadline periodically rather than for every key if
   // processing a batch
   std::chrono::microseconds deadline;
+
+  // A timeout in microseconds to be passed to the underlying FileSystem for
+  // reads. As opposed to deadline, this determines the timeout for each
+  // individual file read request. If a MultiGet/Get/Seek/Next etc call
+  // results in multiple reads, each read can last upto io_timeout us.
+  std::chrono::microseconds io_timeout;
 
   // It limits the maximum cumulative value size of the keys in batch while
   // reading through MultiGet. Once the cumulative value size exceeds this

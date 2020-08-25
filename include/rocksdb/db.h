@@ -1587,6 +1587,16 @@ class DB {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
 
+  // StartIOTrace and EndIOTrace are experimental. They are not enabled yet.
+  virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
+                              std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartTrace() is not implemented.");
+  }
+
+  virtual Status EndIOTrace() {
+    return Status::NotSupported("StartTrace() is not implemented.");
+  }
+
   // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.
   virtual Status StartBlockCacheTrace(
       const TraceOptions& /*options*/,

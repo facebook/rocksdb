@@ -13,13 +13,15 @@
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "trace_replay/io_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
 extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
                          const std::string& destination, uint64_t size,
-                         bool use_fsync);
+                         bool use_fsync,
+                         const std::shared_ptr<IOTracer>& io_tracer = nullptr);
 
 extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
                            const std::string& contents, bool use_fsync);
@@ -45,10 +47,17 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
 
   if (ro.deadline.count()) {
     std::chrono::microseconds now = std::chrono::microseconds(env->NowMicros());
-    if (now > ro.deadline) {
+    // Ensure there is atleast 1us available. We don't want to pass a value of
+    // 0 as that means no timeout
+    if (now >= ro.deadline) {
       return IOStatus::TimedOut("Deadline exceeded");
     }
     opts.timeout = ro.deadline - now;
+  }
+
+  if (ro.io_timeout.count() &&
+      (!opts.timeout.count() || ro.io_timeout < opts.timeout)) {
+    opts.timeout = ro.io_timeout;
   }
   return IOStatus::OK();
 }

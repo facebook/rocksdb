@@ -42,6 +42,7 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
+#include "env/file_system_tracer.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -119,7 +120,7 @@ class VersionStorageInfo {
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
-  void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
+  void AddFile(int level, FileMetaData* f);
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
@@ -627,13 +628,19 @@ class Version {
  public:
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, const FileOptions& soptions,
+  // @param read_options Must outlive any iterator built by
+  // `merger_iter_builder`.
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo).
+  void AddIterators(const ReadOptions& read_options,
+                    const FileOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder,
                     RangeDelAggregator* range_del_agg,
                     bool allow_unprepared_value);
 
-  void AddIteratorsForLevel(const ReadOptions&, const FileOptions& soptions,
+  // @param read_options Must outlive any iterator built by
+  // `merger_iter_builder`.
+  void AddIteratorsForLevel(const ReadOptions& read_options,
+                            const FileOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg,
                             bool allow_unprepared_value);
@@ -757,7 +764,6 @@ class Version {
 
  private:
   Env* env_;
-  FileSystem* fs_;
   friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class VersionEditHandler;
@@ -891,7 +897,8 @@ class VersionSet {
              const FileOptions& file_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
-             BlockCacheTracer* const block_cache_tracer);
+             BlockCacheTracer* const block_cache_tracer,
+             const std::shared_ptr<IOTracer>& io_tracer);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
@@ -1120,8 +1127,10 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
+  // @param read_options Must outlive the returned iterator.
   InternalIterator* MakeInputIterator(
-      const Compaction* c, RangeDelAggregator* range_del_agg,
+      const ReadOptions& read_options, const Compaction* c,
+      RangeDelAggregator* range_del_agg,
       const FileOptions& file_options_compactions);
 
   // Add all files listed in any live version to *live_table_files and
@@ -1176,6 +1185,8 @@ class VersionSet {
 
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
+
+  const WalSet& GetWalSet() const { return wals_; }
 
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
@@ -1263,9 +1274,11 @@ class VersionSet {
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
+  WalSet wals_;
+
   std::unique_ptr<ColumnFamilySet> column_family_set_;
   Env* const env_;
-  FileSystem* const fs_;
+  FileSystemPtr const fs_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
@@ -1318,6 +1331,8 @@ class VersionSet {
   // Store the IO status when Manifest is written
   IOStatus io_status_;
 
+  std::shared_ptr<IOTracer> io_tracer_;
+
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
@@ -1340,7 +1355,8 @@ class ReactiveVersionSet : public VersionSet {
                      const ImmutableDBOptions* _db_options,
                      const FileOptions& _file_options, Cache* table_cache,
                      WriteBufferManager* write_buffer_manager,
-                     WriteController* write_controller);
+                     WriteController* write_controller,
+                     const std::shared_ptr<IOTracer>& io_tracer);
 
   ~ReactiveVersionSet() override;
 

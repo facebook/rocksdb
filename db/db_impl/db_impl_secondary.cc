@@ -153,7 +153,8 @@ Status DBImplSecondary::MaybeInitLogReader(
         return status;
       }
       file_reader.reset(new SequentialFileReader(
-          std::move(file), fname, immutable_db_options_.log_readahead_size));
+          std::move(file), fname, immutable_db_options_.log_readahead_size,
+          io_tracer_));
     }
 
     // Create the log reader.
@@ -415,10 +416,10 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
-  auto internal_iter =
-      NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot,
-                          /* allow_unprepared_value */ true);
+  auto internal_iter = NewInternalIterator(
+      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
+      db_iter->GetRangeDelAggregator(), snapshot,
+      /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -611,7 +612,7 @@ Status DB::OpenAsSecondary(
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,
-      &impl->write_controller_));
+      &impl->write_controller_, impl->io_tracer_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
@@ -623,7 +624,7 @@ Status DB::OpenAsSecondary(
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (nullptr == cfd) {
-        s = Status::InvalidArgument("Column family not found: ", cf.name);
+        s = Status::InvalidArgument("Column family not found", cf.name);
         break;
       }
       handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));

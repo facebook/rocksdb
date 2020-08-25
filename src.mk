@@ -67,6 +67,7 @@ LIB_SOURCES =                                                   \
   db/version_edit.cc                                            \
   db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
+  db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
@@ -114,6 +115,7 @@ LIB_SOURCES =                                                   \
   monitoring/perf_level.cc                                      \
   monitoring/persistent_stats_history.cc                        \
   monitoring/statistics.cc                                      \
+  monitoring/stats_dump_scheduler.cc                            \
   monitoring/thread_status_impl.cc                              \
   monitoring/thread_status_updater.cc                           \
   monitoring/thread_status_updater_debug.cc                     \
@@ -237,6 +239,8 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
+  utilities/transactions/lock/lock_tracker.cc                   \
+  utilities/transactions/lock/point_lock_tracker.cc             \
   utilities/transactions/optimistic_transaction.cc              \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
@@ -430,6 +434,7 @@ TEST_MAIN_SOURCES =                                                     \
   monitoring/histogram_test.cc                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
+  monitoring/stats_dump_scheduler_test.cc                               \
   monitoring/stats_history_test.cc                                      \
   options/options_settable_test.cc                                      \
   options/options_test.cc                                               \
