@@ -1856,7 +1856,8 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
         if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
           continue;
         }
-        EXPECT_EQ("match", std::regex_replace(child.name, expected, "match"));
+        const std::string match("match");
+        EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
       }
     }
     AssertBackupConsistency(0, 0, keys_iteration);
