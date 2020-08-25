@@ -289,7 +289,8 @@ CompactionJob::CompactionJob(
     const FileOptions& file_options, VersionSet* versions,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-    FSDirectory* db_directory, FSDirectory* output_directory, Statistics* stats,
+    FSDirectory* db_directory, FSDirectory* output_directory,
+    FSDirectory* blob_output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
@@ -320,6 +321,7 @@ CompactionJob::CompactionJob(
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_directory_(output_directory),
+      blob_output_directory_(blob_output_directory),
       stats_(stats),
       db_mutex_(db_mutex),
       db_error_handler_(db_error_handler),
@@ -607,18 +609,34 @@ Status CompactionJob::Run() {
   // Check if any thread encountered an error during execution
   Status status;
   IOStatus io_s;
+  bool wrote_new_blob_files = false;
+
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
       status = state.status;
       io_s = state.io_status;
       break;
     }
+
+    if (!state.blob_file_additions.empty()) {
+      wrote_new_blob_files = true;
+    }
   }
+
   if (io_status_.ok()) {
     io_status_ = io_s;
   }
-  if (status.ok() && output_directory_) {
-    io_s = output_directory_->Fsync(IOOptions(), nullptr);
+  if (status.ok()) {
+    constexpr IODebugContext* dbg = nullptr;
+
+    if (output_directory_) {
+      io_s = output_directory_->Fsync(IOOptions(), dbg);
+    }
+
+    if (io_s.ok() && blob_output_directory_ &&
+        blob_output_directory_ != output_directory_ && wrote_new_blob_files) {
+      io_s = blob_output_directory_->Fsync(IOOptions(), dbg);
+    }
   }
   if (io_status_.ok()) {
     io_status_ = io_s;
