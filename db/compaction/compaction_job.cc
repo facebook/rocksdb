@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_builder.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
@@ -138,6 +140,7 @@ struct CompactionJob::SubcompactionState {
 
   // State kept for output being generated
   std::vector<Output> outputs;
+  std::vector<BlobFileAddition> blob_file_additions;
   std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
 
@@ -828,7 +831,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
-  assert(sub_compact != nullptr);
+  assert(sub_compact);
+  assert(sub_compact->compaction);
 
   uint64_t prev_cpu_micros = env_->NowCPUNanos() / 1000;
 
@@ -899,6 +903,19 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       snapshot_checker_, compact_->compaction->level(),
       db_options_.statistics.get());
 
+  const MutableCFOptions* mutable_cf_options =
+      sub_compact->compaction->mutable_cf_options();
+  assert(mutable_cf_options);
+
+  std::unique_ptr<BlobFileBuilder> blob_file_builder(
+      mutable_cf_options->enable_blob_files
+          ? new BlobFileBuilder(versions_, env_, fs_.get(),
+                                sub_compact->compaction->immutable_cf_options(),
+                                mutable_cf_options, &file_options_,
+                                cfd->GetID(), Env::IOPriority::IO_LOW,
+                                write_hint_, &sub_compact->blob_file_additions)
+          : nullptr);
+
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
   TEST_SYNC_POINT_CALLBACK(
       "CompactionJob::Run():PausingManualCompaction:1",
@@ -921,7 +938,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
-      /* blob_file_builder */ nullptr, db_options_.allow_data_in_errors,
+      blob_file_builder.get(), db_options_.allow_data_in_errors,
       sub_compact->compaction, compaction_filter, shutting_down_,
       preserve_deletes_seqnum_, manual_compaction_paused_,
       db_options_.info_log));
