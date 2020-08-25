@@ -442,9 +442,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.oldest_ancester_time, meta_.file_creation_time,
                    meta_.file_checksum, meta_.file_checksum_func_name);
 
-    for (auto& blob_file_addition : blob_file_additions) {
-      edit_->AddBlobFile(std::move(blob_file_addition));
-    }
+    edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
 #ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.
