@@ -632,6 +632,13 @@ class FSRandomAccessFile {
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const = 0;
 
+  // Indicate if the file system supports prefetch or not.
+  // If it's true, the file `prefetch()` will be used for readahead. Otherwise
+  // an internal buffer `FilePrefetchBuffer` will be used for prefetch.
+  // For a file system that doesn't support prefetch, overriding it to false can
+  // improve the scan performance by leveraging the internal prefetch buffer.
+  virtual bool SupportPrefetch() const { return true; }
+
   // Readahead the file starting from offset by n bytes for caching.
   virtual IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
                             const IOOptions& /*options*/,
@@ -1254,6 +1261,7 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
                      const IOOptions& options, IODebugContext* dbg) override {
     return target_->MultiRead(reqs, num_reqs, options, dbg);
   }
+  bool SupportPrefetch() const override { return target_->SupportPrefetch(); }
   IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
                     IODebugContext* dbg) override {
     return target_->Prefetch(offset, n, options, dbg);

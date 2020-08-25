@@ -1368,6 +1368,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "prefetch_test",
+        "file/prefetch_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "prefix_test",
         "db/prefix_test.cc",
         "serial",

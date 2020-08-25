@@ -127,6 +127,7 @@ class RandomAccessFileReader {
   Status MultiRead(const IOOptions& opts, FSReadRequest* reqs, size_t num_reqs,
                    AlignedBuf* aligned_buf) const;
 
+  bool SupportPrefetch() const { return file_->SupportPrefetch(); }
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);
   }

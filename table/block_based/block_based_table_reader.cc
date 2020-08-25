@@ -749,11 +749,8 @@ Status BlockBasedTable::PrefetchTail(
                            &tail_prefetch_size);
   Status s;
   // TODO should not have this special logic in the future.
-  if (!file->use_direct_io() && !force_direct_prefetch) {
-    prefetch_buffer->reset(new FilePrefetchBuffer(
-        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
-    s = file->Prefetch(prefetch_off, prefetch_len);
-  } else {
+  if (file->use_direct_io() || force_direct_prefetch ||
+      !file->SupportPrefetch()) {
     prefetch_buffer->reset(new FilePrefetchBuffer(
         nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
     IOOptions opts;
@@ -761,6 +758,10 @@ Status BlockBasedTable::PrefetchTail(
     if (s.ok()) {
       s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
     }
+  } else {
+    prefetch_buffer->reset(new FilePrefetchBuffer(
+        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
+    s = file->Prefetch(prefetch_off, prefetch_len);
   }
 
   return s;
