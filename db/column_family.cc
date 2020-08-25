@@ -1054,7 +1054,8 @@ void ColumnFamilyData::CreateNewMemtable(
 }
 
 bool ColumnFamilyData::NeedsCompaction() const {
-  return compaction_picker_->NeedsCompaction(current_->storage_info());
+  return !mutable_cf_options_.disable_auto_compactions &&
+         compaction_picker_->NeedsCompaction(current_->storage_info());
 }
 
 Compaction* ColumnFamilyData::PickCompaction(
