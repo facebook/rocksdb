@@ -1110,6 +1110,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
   }
 
+  if (status.ok()) {
+    if (blob_file_builder) {
+      status = blob_file_builder->Finish();
+    }
+  }
+
   sub_compact->compaction_job_stats.cpu_micros =
       env_->NowCPUNanos() / 1000 - prev_cpu_micros;
 
