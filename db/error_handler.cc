@@ -91,14 +91,17 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
                          false),
          Status::Severity::kFatalError},
         // Errors during BG flush with WAL disabled
-        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
-                         Status::SubCode::kNoSpace, true),
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         true),
          Status::Severity::kHardError},
-        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
-                         Status::SubCode::kNoSpace, false),
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         false),
          Status::Severity::kNoError},
-        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
-                         Status::SubCode::kSpaceLimit, true),
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kSpaceLimit,
+                         true),
          Status::Severity::kHardError},
 };
 
@@ -157,11 +160,11 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
         {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
                          Status::Code::kCorruption, false),
          Status::Severity::kNoError},
-        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
-                         true),
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, true),
          Status::Severity::kFatalError},
-        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL, Status::Code::kIOError,
-                         false),
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, false),
          Status::Severity::kNoError},
 };
 
@@ -363,11 +366,14 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       recover_context_ = context;
       return bg_error_;
     } else if (BackgroundErrorReason::kFlushNoWAL == reason) {
-      // When the BG Retryable IO error reason is flush without WAL
-      // We map it to soft error. At the same time, all the BG work
-      // should be stopped except the BG work from recovery.
+      // When the BG Retryable IO error reason is flush without WAL,
+      // We map it to a soft error. At the same time, all the background work
+      // should be stopped except the BG work from recovery. Therefore, we
+      // set the soft_error_no_bg_work_ to true. At the same time, since DB
+      // continues to receive writes when BG error is soft error, to avoid
+      // to many small memtable being generated during auto resume, the flush
+      // reason is set to kFlushNoSwitchMemtable.
       Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
-      printf("set bg error\n");
       if (recovery_in_prog_ && recovery_error_.ok()) {
         recovery_error_ = bg_err;
       }
@@ -466,6 +472,7 @@ Status ErrorHandler::ClearBGError() {
 Status ErrorHandler::RecoverFromBGError(bool is_manual) {
 #ifndef ROCKSDB_LITE
   InstrumentedMutexLock l(db_mutex_);
+  bool no_bg_work_original_flag = soft_error_no_bg_work_;
   if (is_manual) {
     // If its a manual recovery and there's a background recovery in progress
     // return busy status
@@ -473,9 +480,17 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
       return Status::Busy();
     }
     recovery_in_prog_ = true;
+
+    // In manual resume, we allow the bg work to run. If it is a auto resume,
+    // the bg work should follow this tag.
+    soft_error_no_bg_work_ = false;
+
+    // In manual resume, the flush reason is kErrorRecovery.
+    recover_context_.flush_reason = FlushReason::kErrorRecovery;
   }
 
-  if (bg_error_.severity() == Status::Severity::kSoftError) {
+  if (bg_error_.severity() == Status::Severity::kSoftError &&
+      no_bg_work_original_flag == false) {
     // Simply clear the background error and return
     recovery_error_ = Status::OK();
     return ClearBGError();
@@ -486,12 +501,12 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
   // can generate background errors should be the flush operations
   recovery_error_ = Status::OK();
   Status s = db_->ResumeImpl(recover_context_);
-
-  // If soft_error_no_bg_work_ is set and resume is successful, it should be
-  // reset to false.
-  if (soft_error_no_bg_work_ && s.ok()) {
+  if (s.ok()) {
     soft_error_no_bg_work_ = false;
+  } else {
+    soft_error_no_bg_work_ = no_bg_work_original_flag;
   }
+
   // For manual recover, shutdown, and fatal error  cases, set
   // recovery_in_prog_ to false. For automatic background recovery, leave it
   // as is regardless of success or failure as it will be retried
@@ -570,7 +585,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     if (!recovery_io_error_.ok() &&
         recovery_error_.severity() <= Status::Severity::kHardError &&
         recovery_io_error_.GetRetryable()) {
-      printf("resume failed first time\n");
       // If new BG IO error happens during auto recovery and it is retryable
       // and its severity is Hard Error or lower, the auto resmue sleep for
       // a period of time and redo auto resume if it is allowed.
@@ -606,7 +620,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     }
     resume_count--;
   }
-  printf("auto resume failed\n");
   recovery_in_prog_ = false;
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
   return;
@@ -627,40 +640,6 @@ void ErrorHandler::EndAutoRecovery() {
   }
   db_mutex_->Lock();
   return;
-}
-
-Status ErrorHandler::FlushOnBGError() {
-  Status s;
-  FlushOptions flush_opts;
-  // We allow flush to stall write since the BG error happens
-  flush_opts.allow_write_stall = true;
-  if (db_options_.atomic_flush) {
-    autovector<ColumnFamilyData*> cfds;
-    db_->SelectColumnFamiliesForAtomicFlush(&cfds);
-    db_mutex_->Unlock();
-    s = db_->AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
-    db_mutex_->Lock();
-  } else {
-    for (auto cfd : *(db_->versions_->GetColumnFamilySet())) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      cfd->Ref();
-      db_mutex_->Unlock();
-      s = db_->FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
-      db_mutex_->Lock();
-      cfd->UnrefAndTryDelete();;
-      if (!s.ok()) {
-        break;
-      }
-    }
-  }
-  if (!s.ok()) {
-    ROCKS_LOG_INFO(db_options_.info_log,
-                    "DB switch flush triggered by BG error but failed due to Flush failure [%s]",
-                    s.ToString().c_str());
-  }
-  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

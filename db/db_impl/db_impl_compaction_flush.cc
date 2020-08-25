@@ -247,7 +247,6 @@ Status DBImpl::FlushMemTableToOutputFile(
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        printf("regular flush\n");
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
@@ -1651,6 +1650,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return s;
     }
   }
+
   FlushRequest flush_req;
   {
     WriteContext context;
@@ -1666,8 +1666,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if ((!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())
-          && flush_reason != FlushReason::kFlushNoSwitchMemtable) {
+    if ((!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) &&
+        flush_reason != FlushReason::kFlushNoSwitchMemtable) {
       s = SwitchMemtable(cfd, &context);
     }
     if (s.ok()) {
@@ -1676,8 +1676,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         flush_req.emplace_back(cfd, flush_memtable_id);
       }
-      if (immutable_db_options_.persist_stats_to_disk
-          && flush_reason != FlushReason::kFlushNoSwitchMemtable) {
+      if (immutable_db_options_.persist_stats_to_disk &&
+          flush_reason != FlushReason::kFlushNoSwitchMemtable) {
         ColumnFamilyData* cfd_stats =
             versions_->GetColumnFamilySet()->GetColumnFamily(
                 kPersistentStatsColumnFamilyName);
@@ -1706,7 +1706,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
     }
-
     if (s.ok() && !flush_req.empty()) {
       for (auto& elem : flush_req) {
         ColumnFamilyData* loop_cfd = elem.first;
@@ -1742,8 +1741,10 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              (flush_reason == FlushReason::kErrorRecovery));
+    s = WaitForFlushMemTables(
+        cfds, flush_memtable_ids,
+        (flush_reason == FlushReason::kErrorRecovery ||
+         flush_reason == FlushReason::kFlushNoSwitchMemtable));
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -1801,8 +1802,8 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
     for (auto cfd : cfds) {
-      if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load())
-          || flush_reason == FlushReason::kFlushNoSwitchMemtable) {
+      if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
+          flush_reason == FlushReason::kFlushNoSwitchMemtable) {
         continue;
       }
       cfd->Ref();
@@ -1845,8 +1846,10 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              (flush_reason == FlushReason::kErrorRecovery));
+    s = WaitForFlushMemTables(
+        cfds, flush_memtable_ids,
+        (flush_reason == FlushReason::kErrorRecovery ||
+         flush_reason == FlushReason::kFlushNoSwitchMemtable));
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
@@ -1956,6 +1959,12 @@ Status DBImpl::WaitForFlushMemTables(
     if (!error_handler_.GetRecoveryError().ok()) {
       break;
     }
+    // If BGWorkStopped, which indicate that there is a BG error and
+    // 1) soft error but requires no BG work, 2) no in auto_recovery_
+    if (!resuming_from_bg_err && error_handler_.IsSoftErrorNoBGWork()) {
+      return error_handler_.GetBGError();
+    }
+
     // Number of column families that have been dropped.
     int num_dropped = 0;
     // Number of column families that have finished flush.
