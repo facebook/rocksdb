@@ -1361,9 +1361,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.oldest_ancester_time, meta.file_creation_time,
                   meta.file_checksum, meta.file_checksum_func_name);
 
-    for (auto& blob_file_addition : blob_file_additions) {
-      edit->AddBlobFile(std::move(blob_file_addition));
-    }
+    edit->SetBlobFileAdditions(std::move(blob_file_additions));
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
