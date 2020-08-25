@@ -424,6 +424,10 @@ class VersionEdit {
     return blob_file_additions_;
   }
 
+  void SetBlobFileAdditions(BlobFileAdditions blob_file_additions) {
+    blob_file_additions_ = std::move(blob_file_additions);
+  }
+
   // Add garbage for an existing blob file.  Note: intentionally broken English
   // follows.
   void AddBlobFileGarbage(uint64_t blob_file_number,
@@ -441,6 +445,10 @@ class VersionEdit {
   using BlobFileGarbages = std::vector<BlobFileGarbage>;
   const BlobFileGarbages& GetBlobFileGarbages() const {
     return blob_file_garbages_;
+  }
+
+  void SetBlobFileGarbages(BlobFileGarbages blob_file_garbages) {
+    blob_file_garbages_ = std::move(blob_file_garbages);
   }
 
   // Add a WAL (either just created or closed).
