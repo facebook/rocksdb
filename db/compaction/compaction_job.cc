@@ -1505,6 +1505,8 @@ Status CompactionJob::InstallCompactionResults(
   db_mutex_->AssertHeld();
 
   auto* compaction = compact_->compaction;
+  assert(compaction);
+
   // paranoia: verify that the files that we started with
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
@@ -1530,10 +1532,17 @@ Status CompactionJob::InstallCompactionResults(
   compaction->AddInputDeletions(compact_->compaction->edit());
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
+    VersionEdit* const edit = compaction->edit();
+
     for (const auto& out : sub_compact.outputs) {
-      compaction->edit()->AddFile(compaction->output_level(), out.meta);
+      edit->AddFile(compaction->output_level(), out.meta);
+    }
+
+    for (auto& blob_file_addition : sub_compact.blob_file_additions) {
+      edit->AddBlobFile(std::move(blob_file_addition));
     }
   }
+
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),
                                 db_mutex_, db_directory_);
