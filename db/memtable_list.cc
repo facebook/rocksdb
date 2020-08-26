@@ -448,7 +448,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
       if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
         batch_file_number = m->file_number_;
         ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Level-0 commit table #%" PRIu64 " started %s",
+                         "[%s] Level-0 commit table #%" PRIu64
+                         " started"
+                         "%s",
                          cfd->GetName().c_str(), m->file_number_,
                          GetBlobAdditionInfo(m->edit_).c_str());
         edit_list.push_back(&m->edit_);
@@ -507,7 +509,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
           MemTable* m = current_->memlist_.back();
           ROCKS_LOG_BUFFER(log_buffer,
                            "[%s] Level-0 commit table #%" PRIu64
-                           ": memtable #%" PRIu64 " done %s",
+                           ": memtable #%" PRIu64
+                           " done"
+                           "%s",
                            cfd->GetName().c_str(), m->file_number_, mem_id,
                            GetBlobAdditionInfo(m->edit_).c_str());
           assert(m->file_number_ > 0);
@@ -520,11 +524,12 @@ Status MemTableList::TryInstallMemtableFlushResults(
         for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
           MemTable* m = *it;
           // commit failed. setup state so that we can flush again.
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "Level-0 commit table #%" PRIu64
-                           ": memtable #%" PRIu64 " failed %s",
-                           m->file_number_, mem_id,
-                           GetBlobAdditionInfo(m->edit_).c_str());
+          ROCKS_LOG_BUFFER(
+              log_buffer,
+              "Level-0 commit table #%" PRIu64 ": memtable #%" PRIu64
+              " failed"
+              "%s",
+              m->file_number_, mem_id, GetBlobAdditionInfo(m->edit_).c_str());
           m->flush_completed_ = false;
           m->flush_in_progress_ = false;
           m->edit_.Clear();
@@ -727,7 +732,9 @@ Status InstallMemtableAtomicFlushResults(
         uint64_t mem_id = m->GetID();
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit table #%" PRIu64
-                         ": memtable #%" PRIu64 " done %s",
+                         ": memtable #%" PRIu64
+                         " done"
+                         "%s",
                          cfds[i]->GetName().c_str(), m->GetFileNumber(), mem_id,
                          MemTableList::GetBlobAdditionInfo(*edit).c_str());
         imm->current_->Remove(m, to_delete);
@@ -747,7 +754,9 @@ Status InstallMemtableAtomicFlushResults(
 
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit table #%" PRIu64
-                         ": memtable #%" PRIu64 " failed %s",
+                         ": memtable #%" PRIu64
+                         " failed"
+                         "%s",
                          cfds[i]->GetName().c_str(), m->GetFileNumber(), mem_id,
                          MemTableList::GetBlobAdditionInfo(*edit).c_str());
         m->SetFlushCompleted(false);
@@ -797,7 +806,7 @@ std::string MemTableList::GetBlobAdditionInfo(const VersionEdit& edit) {
 
   std::ostringstream oss;
 
-  oss << "(blobs";
+  oss << " (blobs";
 
   for (const auto& blob_file_addition : edit.GetBlobFileAdditions()) {
     oss << " #" << blob_file_addition.GetBlobFileNumber();
