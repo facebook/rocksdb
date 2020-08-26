@@ -254,7 +254,6 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   RecordFlushIOStats();
 
   // When measure_io_stats_ is true, the default 512 bytes is not enough.
-  // TODO log blob files
   auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
   stream << "job" << job_context_->job_id << "event"
          << "flush_finished";
@@ -267,6 +266,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     stream << vstorage->NumLevelFiles(level);
   }
   stream.EndArray();
+
+  const auto& blob_files = vstorage->GetBlobFiles();
+  if (!blob_files.empty()) {
+    stream << "blob_file_head" << blob_files.begin()->first;
+    stream << "blob_file_tail" << blob_files.rbegin()->first;
+  }
+
   stream << "immutable_memtables" << cfd_->imm()->NumNotFlushed();
 
   if (measure_io_stats_) {
