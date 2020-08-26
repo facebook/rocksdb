@@ -1340,6 +1340,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
           db_id_, db_session_id_);
       LogFlush(immutable_db_options_.info_log);
+      // TODO log blob files
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
                       " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
@@ -1366,6 +1367,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = env_->NowMicros() - start_micros;
+  // TODO consider blob files
   stats.bytes_written = meta.fd.GetFileSize();
   stats.num_output_files = 1;
   cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
