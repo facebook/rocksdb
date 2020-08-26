@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  win: circleci/windows@2.4.0
+  win: circleci/windows@2.3.1
 
 executors:
   windows-2xlarge:
