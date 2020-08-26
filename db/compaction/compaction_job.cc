@@ -942,9 +942,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       mutable_cf_options->enable_blob_files
           ? new BlobFileBuilder(versions_, env_, fs_.get(),
                                 sub_compact->compaction->immutable_cf_options(),
-                                mutable_cf_options, &file_options_,
-                                cfd->GetID(), Env::IOPriority::IO_LOW,
-                                write_hint_, &sub_compact->blob_file_additions)
+                                mutable_cf_options, &file_options_, job_id_,
+                                cfd->GetID(), cfd->GetName(),
+                                Env::IOPriority::IO_LOW, write_hint_,
+                                &sub_compact->blob_file_additions)
           : nullptr);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
