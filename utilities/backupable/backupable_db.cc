@@ -461,14 +461,16 @@ class BackupEngineImpl : public BackupEngine {
   //
   // @param src If non-empty, the file is copied from this pathname.
   // @param contents If non-empty, the file will be created with these contents.
-  Status CopyOrCreateFile(
-      const std::string& src, const std::string& dst,
-      const std::string& contents, Env* src_env, Env* dst_env,
-      const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
-      const std::string& backup_checksum_func_name, uint64_t* size = nullptr,
-      std::string* checksum_hex = nullptr,
-      std::string* custom_checksum_hex = nullptr, uint64_t size_limit = 0,
-      std::function<void()> progress_callback = []() {});
+  Status CopyOrCreateFile(const std::string& src, const std::string& dst,
+                          const std::string& contents, Env* src_env,
+                          Env* dst_env, const EnvOptions& src_env_options,
+                          bool sync, RateLimiter* rate_limiter,
+                          const std::string& backup_checksum_func_name,
+                          uint64_t* size = nullptr,
+                          std::string* checksum_hex = nullptr,
+                          std::string* custom_checksum_hex = nullptr,
+                          uint64_t size_limit = 0,
+                          std::function<void()> progress_callback = []() {});
 
   Status CalculateChecksum(
       const std::string& src, Env* src_env, const EnvOptions& src_env_options,
@@ -575,18 +577,19 @@ class BackupEngineImpl : public BackupEngine {
       return *this;
     }
 
-    CopyOrCreateWorkItem(
-        std::string _src_path, std::string _dst_path, std::string _contents,
-        Env* _src_env, Env* _dst_env, EnvOptions _src_env_options, bool _sync,
-        RateLimiter* _rate_limiter, uint64_t _size_limit,
-        std::function<void()> _progress_callback = []() {},
-        bool _verify_checksum_after_work = false,
-        const std::string& _src_checksum_func_name =
-            kUnknownFileChecksumFuncName,
-        const std::string& _src_checksum_hex = "",
-        const std::string& _backup_checksum_func_name =
-            kUnknownFileChecksumFuncName,
-        const std::string& _db_id = "", const std::string& _db_session_id = "")
+    CopyOrCreateWorkItem(std::string _src_path, std::string _dst_path,
+                         std::string _contents, Env* _src_env, Env* _dst_env,
+                         EnvOptions _src_env_options, bool _sync,
+                         RateLimiter* _rate_limiter, uint64_t _size_limit,
+                         std::function<void()> _progress_callback = []() {},
+                         bool _verify_checksum_after_work = false,
+                         const std::string& _src_checksum_func_name =
+                             kUnknownFileChecksumFuncName,
+                         const std::string& _src_checksum_hex = "",
+                         const std::string& _backup_checksum_func_name =
+                             kUnknownFileChecksumFuncName,
+                         const std::string& _db_id = "",
+                         const std::string& _db_session_id = "")
         : src_path(std::move(_src_path)),
           dst_path(std::move(_dst_path)),
           contents(std::move(_contents)),

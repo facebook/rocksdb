@@ -2427,7 +2427,7 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   // Make sure the task is sleeping. Otherwise, it might start to execute
   // after sleeping_task.WaitUntilDone() and cause TSAN warning.
   sleeping_task.WaitUntilSleeping();
-  
+
   // 1MB should create ~10 files for each CF
   int kKeysNum = 10000;
   PutRandomData(1, kKeysNum, 100);

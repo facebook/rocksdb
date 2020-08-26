@@ -179,9 +179,9 @@ class SimCacheImpl : public SimCache {
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
       // TODO: Check for error here?
-      auto s = key_only_cache_->Insert(
-          key, nullptr, charge, [](const Slice& /*k*/, void* /*v*/) {}, nullptr,
-          priority);
+      auto s = key_only_cache_->Insert(key, nullptr, charge,
+                                       [](const Slice& /*k*/, void* /*v*/) {},
+                                       nullptr, priority);
       s.PermitUncheckedError();
     } else {
       key_only_cache_->Release(h);
