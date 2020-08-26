@@ -106,6 +106,8 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+  std::string file_checksum = kUnknownFileChecksum;
+  std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
@@ -133,7 +135,8 @@ Status BuildTable(
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
-            job_id, meta->fd, kInvalidBlobFileNumber, tp, reason, s);
+            job_id, meta->fd, kInvalidBlobFileNumber, tp, reason, s,
+            file_checksum, file_checksum_func_name);
         return s;
       }
       file->SetIOPriority(io_priority);
@@ -232,6 +235,8 @@ Status BuildTable(
       // Add the checksum information to file metadata.
       meta->file_checksum = file_writer->GetFileChecksum();
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
+      file_checksum = meta->file_checksum;
+      file_checksum_func_name = meta->file_checksum_func_name;
     }
 
     if (s.ok()) {
@@ -292,7 +297,8 @@ Status BuildTable(
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s);
+      job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s,
+      file_checksum, file_checksum_func_name);
 
   return s;
 }

@@ -1015,7 +1015,10 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
   if (prefetch_all) {
-    rep_->index_reader->CacheDependencies(ro, pin_all);
+    s = rep_->index_reader->CacheDependencies(ro, pin_all);
+  }
+  if (!s.ok()) {
+    return s;
   }
 
   // prefetch the first level of filter
