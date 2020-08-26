@@ -203,6 +203,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     if (made_progress) {
       *made_progress = true;
     }
+    // TODO blob file summary?
     VersionStorageInfo::LevelSummaryStorage tmp;
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                      cfd->GetName().c_str(),
@@ -550,6 +551,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
                                          all_mutable_cf_options[i]);
+      // TODO blob file summary?
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
                        cfds[i]->GetName().c_str(),

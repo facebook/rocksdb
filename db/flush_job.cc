@@ -254,6 +254,7 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
   RecordFlushIOStats();
 
   // When measure_io_stats_ is true, the default 512 bytes is not enough.
+  // TODO log blob files
   auto stream = event_logger_->LogToBuffer(log_buffer_, 1024);
   stream << "job" << job_context_->job_id << "event"
          << "flush_finished";
@@ -410,6 +411,7 @@ Status FlushJob::WriteLevel0Table() {
       }
       LogFlush(db_options_.info_log);
     }
+    // TODO log blob files
     ROCKS_LOG_INFO(db_options_.info_log,
                    "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
                    " bytes %s"
@@ -450,6 +452,7 @@ Status FlushJob::WriteLevel0Table() {
 #endif  // !ROCKSDB_LITE
 
   // Note that here we treat flush as level 0 compaction in internal stats
+  // TODO consider blob files
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;

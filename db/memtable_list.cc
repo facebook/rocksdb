@@ -445,6 +445,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
       }
       if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
         batch_file_number = m->file_number_;
+        // TODO log blob files
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit table #%" PRIu64 " started",
                          cfd->GetName().c_str(), m->file_number_);
@@ -502,6 +503,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
       if (s.ok() && !cfd->IsDropped()) {  // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();
+          // TODO log blob files
           ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
                                        ": memtable #%" PRIu64 " done",
                            cfd->GetName().c_str(), m->file_number_, mem_id);
@@ -515,6 +517,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
         for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
           MemTable* m = *it;
           // commit failed. setup state so that we can flush again.
+          // TODO log blob files
           ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
                                        ": memtable #%" PRIu64 " failed",
                            m->file_number_, mem_id);
@@ -713,6 +716,7 @@ Status InstallMemtableAtomicFlushResults(
       for (auto m : *mems_list[i]) {
         assert(m->GetFileNumber() > 0);
         uint64_t mem_id = m->GetID();
+        // TODO log blob files
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit table #%" PRIu64
                          ": memtable #%" PRIu64 " done",
@@ -728,6 +732,7 @@ Status InstallMemtableAtomicFlushResults(
       auto* imm = (imm_lists == nullptr) ? cfds[i]->imm() : imm_lists->at(i);
       for (auto m : *mems_list[i]) {
         uint64_t mem_id = m->GetID();
+        // TODO log blob files
         ROCKS_LOG_BUFFER(log_buffer,
                          "[%s] Level-0 commit table #%" PRIu64
                          ": memtable #%" PRIu64 " failed",
