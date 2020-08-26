@@ -3670,14 +3670,8 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
 
   e1 = e2;
   ASSERT_NOK(basic_info.Parse(config_options, "b", "{i=33;s=33;j=44}", &e1.b));
-  ASSERT_TRUE(
-      basic_info.AreEqual(config_options, "b.i", &e1.b, &e2.b, &mismatch));
   ASSERT_NOK(basic_info.Parse(config_options, "b.j", "44", &e1.b));
-  ASSERT_TRUE(
-      basic_info.AreEqual(config_options, "b.i", &e1.b, &e2.b, &mismatch));
   ASSERT_NOK(basic_info.Parse(config_options, "j", "44", &e1.b));
-  ASSERT_TRUE(
-      basic_info.AreEqual(config_options, "b.i", &e1.b, &e2.b, &mismatch));
 
   TestAndCompareOption(config_options, extended_info, "e",
                        "b={i=55;s=55}; j=22;", &e1, &e2);
