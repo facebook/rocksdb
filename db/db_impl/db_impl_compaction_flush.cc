@@ -1233,6 +1233,7 @@ Status DBImpl::CompactFilesImpl(
                                    newf.second.fd.GetNumber(),
                                    newf.second.fd.GetPathId()));
     }
+    // TODO
   }
 
   c.reset();

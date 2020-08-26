@@ -160,8 +160,10 @@ struct CompactionJob::SubcompactionState {
   uint64_t current_output_file_size = 0;
 
   // State during the subcompaction
+  // TODO consider blob files
   uint64_t total_bytes = 0;
   uint64_t num_output_records = 0;
+  // TODO consider blob files
   CompactionJobStats compaction_job_stats;
   uint64_t approx_size = 0;
   // An index that used to speed up ShouldStopBefore().
@@ -740,6 +742,7 @@ Status CompactionJob::Run() {
   compact_->compaction->SetOutputTableProperties(std::move(tp));
 
   // Finish up all book-keeping to unify the subcompaction results
+  // TODO consider blob files
   AggregateStatistics();
   UpdateCompactionStats();
   RecordCompactionIOStats();
@@ -765,6 +768,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (!versions_->io_status().ok()) {
     io_status_ = versions_->io_status();
   }
+
+  // TODO consider blob files
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
   const auto& stats = compaction_stats_;
@@ -789,6 +794,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
         stats.bytes_written / static_cast<double>(stats.micros);
   }
 
+  // TODO log blob file summary + info
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
@@ -810,6 +816,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   UpdateCompactionJobStats(stats);
 
+  // TODO log blob files
   auto stream = event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_id_ << "event"
          << "compaction_finished"
@@ -837,6 +844,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
            << compaction_job_stats_->file_prepare_write_nanos;
   }
 
+  // TODO log blob files
   stream << "lsm_state";
   stream.StartArray();
   for (int level = 0; level < vstorage->num_levels(); ++level) {
@@ -1460,6 +1468,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     meta = nullptr;
   }
 
+  // TODO log blob files (somewhere else)
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
     // Output to event logger and fire events.
     sub_compact->current_output()->table_properties =
@@ -1738,6 +1747,7 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 #endif  // !ROCKSDB_LITE
 
 void CompactionJob::UpdateCompactionStats() {
+  // TODO
   Compaction* compaction = compact_->compaction;
   compaction_stats_.num_input_files_in_non_output_levels = 0;
   compaction_stats_.num_input_files_in_output_level = 0;
@@ -1809,6 +1819,7 @@ void CompactionJob::UpdateCompactionJobStats(
   compaction_job_stats_->num_input_files_at_output_level =
       stats.num_input_files_in_output_level;
 
+  // TODO
   // output information
   compaction_job_stats_->total_output_bytes = stats.bytes_written;
   compaction_job_stats_->num_output_records = compact_->num_output_records;
