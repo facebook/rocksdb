@@ -1474,7 +1474,6 @@ Status CompactionJob::FinishCompactionOutputFile(
     meta = nullptr;
   }
 
-  // TODO log blob files (somewhere else)
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
     // Output to event logger and fire events.
     sub_compact->current_output()->table_properties =
