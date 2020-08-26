@@ -105,8 +105,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                  : file_size;
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
-    prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                             static_cast<size_t>(prefetch_size));
+    s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
+                                 static_cast<size_t>(prefetch_size));
 
     s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
                            &footer);
@@ -130,9 +130,9 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                 ? &prefetch_buffer
                                 : nullptr)
             .ok()) {
-      SetTableOptionsByMagicNumber(magic_number);
+      s = SetTableOptionsByMagicNumber(magic_number);
     } else {
-      SetOldTableOptions();
+      s = SetOldTableOptions();
     }
   }
 
@@ -178,7 +178,10 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
   Env* env = options_.env;
   env->NewWritableFile(out_filename, &out_file, soptions_);
   Status s = table_reader_->DumpTable(out_file.get());
-  out_file->Close();
+  if (!s.ok()) {
+    return s;
+  }
+  s = out_file->Close();
   return s;
 }
 
@@ -187,7 +190,11 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     uint64_t* num_data_blocks) {
   std::unique_ptr<WritableFile> out_file;
   std::unique_ptr<Env> env(NewMemEnv(options_.env));
-  env->NewWritableFile(testFileName, &out_file, soptions_);
+  Status s = env->NewWritableFile(testFileName, &out_file, soptions_);
+  if (!s.ok()) {
+    fputs(s.ToString().c_str(), stderr);
+    exit(1);
+  }
   std::unique_ptr<WritableFileWriter> dest_writer;
   dest_writer.reset(
       new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(out_file)),
@@ -210,7 +217,7 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
     fputs(iter->status().ToString().c_str(), stderr);
     exit(1);
   }
-  Status s = table_builder->Finish();
+  s = table_builder->Finish();
   if (!s.ok()) {
     fputs(s.ToString().c_str(), stderr);
     exit(1);
@@ -218,7 +225,11 @@ uint64_t SstFileDumper::CalculateCompressedTableSize(
   uint64_t size = table_builder->FileSize();
   assert(num_data_blocks != nullptr);
   *num_data_blocks = table_builder->GetTableProperties().num_data_blocks;
-  env->DeleteFile(testFileName);
+  s = env->DeleteFile(testFileName);
+  if (!s.ok()) {
+    fputs(s.ToString().c_str(), stderr);
+    exit(1);
+  }
   return size;
 }
 

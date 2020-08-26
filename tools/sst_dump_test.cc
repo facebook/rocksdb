@@ -71,16 +71,16 @@ void createSST(const Options& opts, const std::string& file_name) {
   for (uint32_t i = 0; i < num_keys; i++) {
     tb->Add(MakeKey(i), MakeValue(i));
   }
-  tb->Finish();
+  ASSERT_OK(tb->Finish());
   file_writer->Close();
 }
 
 void cleanup(const Options& opts, const std::string& file_name) {
   Env* env = opts.env;
-  env->DeleteFile(file_name);
+  ASSERT_OK(env->DeleteFile(file_name));
   std::string outfile_name = file_name.substr(0, file_name.length() - 4);
   outfile_name.append("_dump.txt");
-  env->DeleteFile(outfile_name);
+  env->DeleteFile(outfile_name).PermitUncheckedError();
 }
 }  // namespace
 

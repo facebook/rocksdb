@@ -35,6 +35,7 @@ class FSRandomAccessFile;
 class TableCache;
 class TableReader;
 class WritableFile;
+class WritableFileStringStreamHelper;
 struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
@@ -472,10 +473,10 @@ class BlockBasedTable : public TableReader {
       uint64_t data_size) const;
 
   // Helper functions for DumpTable()
-  Status DumpIndexBlock(WritableFile* out_file);
-  Status DumpDataBlocks(WritableFile* out_file);
+  Status DumpIndexBlock(WritableFileStringStreamHelper& out_stream);
+  Status DumpDataBlocks(WritableFileStringStreamHelper& out_stream);
   void DumpKeyValue(const Slice& key, const Slice& value,
-                    WritableFile* out_file);
+                    WritableFileStringStreamHelper& out_stream);
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
