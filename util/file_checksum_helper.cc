@@ -114,9 +114,9 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status_ptr;
-    virtual void Corruption(size_t /*bytes*/, const Status& s) override {
+    virtual void Corruption(size_t /*bytes*/, const Status& st) override {
       if (status_ptr->ok()) {
-        *status_ptr = s;
+        *status_ptr = st;
       }
     }
   } reporter;
