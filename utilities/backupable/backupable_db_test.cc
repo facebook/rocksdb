@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <regex>
 #include <string>
 #include <utility>
 
@@ -1823,13 +1824,13 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
     // That FillDB leaves a mix of flushed and unflushed data
     SyncPoint::GetInstance()->LoadDependency(
         {{"CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1",
-          "BackupableDBTest::FlushDuringBackupCheckpoint:BeforeFlush"},
-         {"BackupableDBTest::FlushDuringBackupCheckpoint:AfterFlush",
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before"},
+         {"BackupableDBTest::FlushCompactDuringBackupCheckpoint:After",
           "CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2"}});
     SyncPoint::GetInstance()->EnableProcessing();
     ROCKSDB_NAMESPACE::port::Thread flush_thread{[this]() {
       TEST_SYNC_POINT(
-          "BackupableDBTest::FlushDuringBackupCheckpoint:BeforeFlush");
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before");
       FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
       ASSERT_OK(db_->Flush(FlushOptions()));
       DBImpl* dbi = static_cast<DBImpl*>(db_.get());
@@ -1837,11 +1838,28 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
       dbi->TEST_WaitForCompact();
       TEST_SYNC_POINT(
-          "BackupableDBTest::FlushDuringBackupCheckpoint:AfterFlush");
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:After");
     }};
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
     flush_thread.join();
     CloseDBAndBackupEngine();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    if (sopt == kShareWithChecksum) {
+      // Ensure we actually got DB manifest checksums by inspecting
+      // shared_checksum file names for hex checksum component
+      std::regex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
+      std::vector<FileAttributes> children;
+      const std::string dir = backupdir_ + "/shared_checksum";
+      ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+      for (const auto& child : children) {
+        if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+          continue;
+        }
+        const std::string match("match");
+        EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
+      }
+    }
     AssertBackupConsistency(0, 0, keys_iteration);
   }
 }

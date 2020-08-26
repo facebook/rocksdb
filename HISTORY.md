@@ -5,7 +5,7 @@
 * Fix a possible corruption to the LSM state (overlapping files within a level) when a `CompactRange()` for refitting levels (`CompactRangeOptions::change_level == true`) and another manual compaction are executed in parallel.
 * Sanitize `recycle_log_file_num` to zero when the user attempts to enable it in combination with `WALRecoveryMode::kTolerateCorruptedTailRecords`. Previously the two features were allowed together, which compromised the user's configured crash-recovery guarantees.
 * Fix a bug where a level refitting in CompactRange() might race with an automatic compaction that puts the data to the target level of the refitting. The bug has been there for years.
-* BackupEngine::CreateNewBackup could fail intermittently with non-OK status when backing up a read-write DB configured with a DBOptions::file_checksum_gen_factory. This issue has been worked-around such that CreateNewBackup should succeed, but (until fully fixed) BackupEngine might not see all checksums available in the DB.
+* Fixed a bug in version 6.12 in which BackupEngine::CreateNewBackup could fail intermittently with non-OK status when backing up a read-write DB configured with a DBOptions::file_checksum_gen_factory.
 * Fix a bug where immutable flushed memtable is never destroyed because  a memtable is not added to delete list because of refernce hold by super version and super version doesn't switch because of empty delete list. So memory usage increases beyond write_buffer_size + max_write_buffer_size_to_maintain.
 * Fix useless no-op compactions scheduled upon snapshot release when options.disable-auto-compactions = true.
 
