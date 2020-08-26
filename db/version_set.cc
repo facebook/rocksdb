@@ -1109,15 +1109,16 @@ void LevelIterator::Seek(const Slice& target) {
 
 void LevelIterator::SeekIfSeqnoSmaller(const Slice& target,
                                        SequenceNumber limit) {
-  assert(Valid());
-  const FdWithKeyRange& cur_file = flevel_->files[file_index_];
-  if (cur_file.fd.largest_seqno < limit) {
+  uint32_t prev_file_index = flevel_->num_files;
+  while (Valid() && prev_file_index != file_index_ &&
+         flevel_->files[file_index_].fd.largest_seqno < limit) {
+    prev_file_index = file_index_;
     file_iter_.Seek(target);
     SkipEmptyFileForward();
-    // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
-    // receiving updates to its bounds in this function, so we omit the call to
-    // `CheckMayBeOutOfLowerBound()`.
   }
+  // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
+  // receiving updates to its bounds in this function, so we omit the call to
+  // `CheckMayBeOutOfLowerBound()`.
 }
 
 void LevelIterator::SeekForPrev(const Slice& target) {
@@ -1136,15 +1137,19 @@ void LevelIterator::SeekForPrev(const Slice& target) {
 
 void LevelIterator::SeekForPrevIfSeqnoSmaller(const Slice& target,
                                               SequenceNumber limit) {
-  assert(Valid());
-  const FdWithKeyRange& cur_file = flevel_->files[file_index_];
-  if (cur_file.fd.largest_seqno < limit) {
+  uint32_t prev_file_index = flevel_->num_files;
+  while (Valid() && prev_file_index != file_index_ &&
+         flevel_->files[file_index_].fd.largest_seqno < limit) {
+    prev_file_index = file_index_;
     file_iter_.SeekForPrev(target);
     SkipEmptyFileBackward();
-    // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
-    // receiving updates to its bounds in this function, so we omit the call to
-    // `CheckMayBeOutOfLowerBound()`.
+    if (!Valid()) {
+      break;
+    }
   }
+  // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
+  // receiving updates to its bounds in this function, so we omit the call to
+  // `CheckMayBeOutOfLowerBound()`.
 }
 
 void LevelIterator::SeekToFirst() {
