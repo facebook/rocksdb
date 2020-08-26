@@ -400,10 +400,10 @@ Status FlushJob::WriteLevel0Table() {
           output_compression_, mutable_cf_options_.sample_for_compression,
           mutable_cf_options_.compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          TableFileCreationReason::kFlush, &io_s, event_logger_,
-          job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
-          creation_time, oldest_key_time, write_hint, current_time, db_id_,
-          db_session_id_);
+          TableFileCreationReason::kFlush, &io_s, nullptr /*IOTracer*/,
+          event_logger_, job_context_->job_id, Env::IO_HIGH, &table_properties_,
+          0 /* level */, creation_time, oldest_key_time, write_hint,
+          current_time, db_id_, db_session_id_);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }

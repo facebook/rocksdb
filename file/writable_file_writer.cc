@@ -129,7 +129,7 @@ IOStatus WritableFileWriter::Close() {
   // in __dtor, simply flushing is not enough
   // Windows when pre-allocating does not fill with zeros
   // also with unbuffered access we also set the end of data.
-  if (!writable_file_) {
+  if (writable_file_.get() == nullptr) {
     return s;
   }
 
@@ -197,7 +197,7 @@ IOStatus WritableFileWriter::Close() {
     s = interim;
   }
 
-  writable_file_.reset();
+  writable_file_.Reset();
   TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
 
   if (s.ok() && checksum_generator_ != nullptr && !checksum_finalized_) {

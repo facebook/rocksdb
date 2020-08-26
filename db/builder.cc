@@ -83,7 +83,8 @@ Status BuildTable(
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     bool paranoid_file_checks, InternalStats* internal_stats,
     TableFileCreationReason reason, IOStatus* io_status,
-    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+    int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
@@ -143,8 +144,9 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, env, ioptions.statistics,
-          ioptions.listeners, ioptions.file_checksum_gen_factory));
+          std::move(file), fname, file_options, env, io_tracer,
+          ioptions.statistics, ioptions.listeners,
+          ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
