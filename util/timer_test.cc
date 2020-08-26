@@ -341,6 +341,55 @@ TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
   ASSERT_TRUE(timer.Shutdown());
 }
 
+TEST_F(TimerTest, DestroyRunningTimer) {
+  const int kInitDelayUs = 1 * kUsPerSec;
+  const int kRepeatUs = 1 * kUsPerSec;
+
+  auto timer_ptr = new Timer(mock_env_.get());
+
+  int count = 0;
+  timer_ptr->Add([&] { count++; }, "fn_sch_test", kInitDelayUs, kRepeatUs);
+  ASSERT_TRUE(timer_ptr->Start());
+
+  timer_ptr->TEST_WaitForRun(
+      [&] { mock_env_->MockSleepForMicroseconds(kInitDelayUs); });
+
+  // delete a running timer should not cause any exception
+  delete timer_ptr;
+}
+
+TEST_F(TimerTest, DestroyTimerWithRunningFunc) {
+  const int kRepeatUs = 1 * kUsPerSec;
+  auto timer_ptr = new Timer(mock_env_.get());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"TimerTest::DestroyTimerWithRunningFunc:test_func:0",
+       "TimerTest::DestroyTimerWithRunningFunc:BeforeDelete"},
+      {"Timer::WaitForTaskCompleteIfNecessary:TaskExecuting",
+       "TimerTest::DestroyTimerWithRunningFunc:test_func:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(timer_ptr->Start());
+
+  int count = 0;
+  timer_ptr->Add(
+      [&]() {
+        TEST_SYNC_POINT("TimerTest::DestroyTimerWithRunningFunc:test_func:0");
+        count++;
+        TEST_SYNC_POINT("TimerTest::DestroyTimerWithRunningFunc:test_func:1");
+      },
+      "fn_running_test", 0, kRepeatUs);
+
+  port::Thread control_thr([&] {
+    TEST_SYNC_POINT("TimerTest::DestroyTimerWithRunningFunc:BeforeDelete");
+    delete timer_ptr;
+  });
+  mock_env_->MockSleepForMicroseconds(kRepeatUs);
+  control_thr.join();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
