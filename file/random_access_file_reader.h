@@ -102,21 +102,6 @@ class RandomAccessFileReader {
 #endif
   }
 
-  RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
-    *this = std::move(o);
-  }
-
-  RandomAccessFileReader& operator=(RandomAccessFileReader&& o)
-      ROCKSDB_NOEXCEPT {
-    file_ = std::move(o.file_);
-    env_ = std::move(o.env_);
-    stats_ = std::move(o.stats_);
-    hist_type_ = std::move(o.hist_type_);
-    file_read_hist_ = std::move(o.file_read_hist_);
-    rate_limiter_ = std::move(o.rate_limiter_);
-    return *this;
-  }
-
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
