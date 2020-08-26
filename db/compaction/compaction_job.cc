@@ -844,13 +844,18 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
            << compaction_job_stats_->file_prepare_write_nanos;
   }
 
-  // TODO log blob files
   stream << "lsm_state";
   stream.StartArray();
   for (int level = 0; level < vstorage->num_levels(); ++level) {
     stream << vstorage->NumLevelFiles(level);
   }
   stream.EndArray();
+
+  const auto& blob_files = vstorage->GetBlobFiles();
+  if (!blob_files.empty()) {
+    stream << "blob_file_head" << blob_files.begin()->first;
+    stream << "blob_file_tail" << blob_files.rbegin()->first;
+  }
 
   CleanupCompaction();
   return status;
