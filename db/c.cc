@@ -711,7 +711,8 @@ rocksdb_t* rocksdb_open_column_families_with_ttl(
     const rocksdb_options_t* db_options, const char* name,
     int num_column_families, const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
-    rocksdb_column_family_handle_t** column_family_handles, const int* ttls, char** errptr) {
+    rocksdb_column_family_handle_t** column_family_handles, const int* ttls,
+    char** errptr) {
   std::vector<int32_t> ttls_vec;
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
@@ -722,16 +723,17 @@ rocksdb_t* rocksdb_open_column_families_with_ttl(
         ColumnFamilyOptions(column_family_options[i]->rep)));
   }
 
-
   ROCKSDB_NAMESPACE::DBWithTTL* db;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr, ROCKSDB_NAMESPACE::DBWithTTL::Open(DBOptions(db_options->rep),
-          std::string(name), column_families, &handles, &db, ttls_vec))) {
+  if (SaveError(errptr, ROCKSDB_NAMESPACE::DBWithTTL::Open(
+                            DBOptions(db_options->rep), std::string(name),
+                            column_families, &handles, &db, ttls_vec))) {
     return nullptr;
   }
 
   for (size_t i = 0; i < handles.size(); i++) {
-    rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+    rocksdb_column_family_handle_t* c_handle =
+        new rocksdb_column_family_handle_t;
     c_handle->rep = handles[i];
     column_family_handles[i] = c_handle;
   }
