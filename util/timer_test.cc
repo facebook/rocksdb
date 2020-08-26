@@ -199,7 +199,7 @@ TEST_F(TimerTest, AddAfterStartTest) {
 }
 
 TEST_F(TimerTest, CancelRunningTask) {
-  constexpr char kTestFuncName[] = "test_func";
+  static constexpr char kTestFuncName[] = "test_func";
   mock_env_->set_current_time(0);
   Timer timer(mock_env_.get());
   ASSERT_TRUE(timer.Start());
