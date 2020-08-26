@@ -113,14 +113,14 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   }
 
   struct LogReporter : public log::Reader::Reporter {
-    Status* status;
+    Status* status_ptr;
     virtual void Corruption(size_t /*bytes*/, const Status& s) override {
-      if (status->ok()) {
-        *status = s;
+      if (status_ptr->ok()) {
+        *status_ptr = s;
       }
     }
   } reporter;
-  reporter.status = &s;
+  reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
   Slice record;
