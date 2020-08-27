@@ -98,7 +98,13 @@ TEST_P(PrefetchTest, Basic) {
                                         [&](void*) { buff_prefetch_count++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  Reopen(options);
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
 
   // create first key range
   WriteBatch batch;
