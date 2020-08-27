@@ -26,8 +26,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
-      SequenceNumber largest_seqno,
-      size_t compaction_readahead_size = 0, bool allow_unprepared_value = false)
+      SequenceNumber largest_seqno, size_t compaction_readahead_size = 0,
+      bool allow_unprepared_value = false)
       : table_(table),
         read_options_(read_options),
         icomp_(icomp),

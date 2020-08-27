@@ -304,7 +304,8 @@ void ReverseRangeDelIterator::Invalidate() {
   inactive_iters_.clear();
 }
 
-void RangeDelAggregator::StripeRep::MoveForward(const ParsedInternalKey& parsed) {
+void RangeDelAggregator::StripeRep::MoveForward(
+    const ParsedInternalKey& parsed) {
   InvalidateReverseIter();
 
   // Pick up previously unseen iterators.
@@ -315,7 +316,8 @@ void RangeDelAggregator::StripeRep::MoveForward(const ParsedInternalKey& parsed)
   }
 }
 
-void RangeDelAggregator::StripeRep::MoveBackward(const ParsedInternalKey& parsed) {
+void RangeDelAggregator::StripeRep::MoveBackward(
+    const ParsedInternalKey& parsed) {
   InvalidateForwardIter();
 
   // Pick up previously unseen iterators.

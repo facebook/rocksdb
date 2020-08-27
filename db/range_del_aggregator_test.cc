@@ -187,9 +187,8 @@ void VerifyGetEndpoint(ReadRangeDelAggregator* range_del_agg,
         test_case.result.endpoint, RangeDelPositioningMode::kForwardTraversal,
         test_case.result.seqno);
     VerifyPartialTombstonesEq(
-        expected,
-        range_del_agg->GetEndpoint(key,
-                                   RangeDelPositioningMode::kForwardTraversal));
+        expected, range_del_agg->GetEndpoint(
+                      key, RangeDelPositioningMode::kForwardTraversal));
   }
   for (auto it = test_cases.rbegin(); it != test_cases.rend(); ++it) {
     const auto& test_case = *it;
@@ -200,9 +199,8 @@ void VerifyGetEndpoint(ReadRangeDelAggregator* range_del_agg,
         RangeDelPositioningMode::kBackwardTraversal,
         test_case.reverse_result.seqno);
     VerifyPartialTombstonesEq(
-        expected,
-        range_del_agg->GetEndpoint(
-            key, RangeDelPositioningMode::kBackwardTraversal));
+        expected, range_del_agg->GetEndpoint(
+                      key, RangeDelPositioningMode::kBackwardTraversal));
   }
 }
 
