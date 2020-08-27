@@ -184,11 +184,6 @@ enum Tickers : uint32_t {
   // user key.
   NUMBER_OF_RESEEKS_IN_ITERATION,
 
-  // Number of times we had to reseek inside an iteration, specifically to skip
-  // after or before a range of keys covered by a range deletion in a newer LSM
-  // component.
-  NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION,
-
   // Record the number of calls to GetUpadtesSince. Useful to keep track of
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,

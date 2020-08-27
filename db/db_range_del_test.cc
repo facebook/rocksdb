@@ -875,22 +875,22 @@ TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
       {
           BytewiseComparator(),
           {"a", "b", "c"},
-          {{"", "b"}},
-          {"b", "c"},
+          {{"", "c"}},
+          {"c"},
       },
       // Empty range tombstone start key and empty key.
       {
           BytewiseComparator(),
           {"", "b", "c"},
-          {{"", "b"}},
-          {"b", "c"},
+          {{"", "c"}},
+          {"c"},
       },
       // Range tombstone overlaps the end of the sstable.
       {
           BytewiseComparator(),
           {"a", "b", "c"},
-          {{"c", "d"}},
-          {"a", "b"},
+          {{"b", "d"}},
+          {"a"},
       },
       // Range tombstones overlap both the start and the end of the
       // sstable.
@@ -927,6 +927,8 @@ TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
     options.comparator = tc.comparator;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     DestroyAndReopen(options);
+    SetPerfLevel(kEnableCount);
+    get_perf_context()->Reset();
 
     for (auto key : tc.table_keys) {
       db_->Put(WriteOptions(), key, "");
@@ -941,7 +943,7 @@ TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
     }
 
     uint64_t prev_range_del_reseeks =
-        TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+        get_perf_context()->internal_range_del_reseek_count;
     {
       std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
       std::vector<std::string> keys;
@@ -950,7 +952,7 @@ TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
       }
       ASSERT_EQ(tc.expected_keys, keys);
       uint64_t range_del_reseeks =
-          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+          get_perf_context()->internal_range_del_reseek_count;
       ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
       prev_range_del_reseeks = range_del_reseeks;
     }
@@ -964,33 +966,7 @@ TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
       std::reverse(keys.begin(), keys.end());
       ASSERT_EQ(tc.expected_keys, keys);
       uint64_t range_del_reseeks =
-          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
-      ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
-      prev_range_del_reseeks = range_del_reseeks;
-    }
-
-    {
-      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-      for (auto key : tc.expected_keys) {
-        iter->Seek(key);
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(key, iter->key());
-      }
-      uint64_t range_del_reseeks =
-          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
-      ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
-      prev_range_del_reseeks = range_del_reseeks;
-    }
-
-    {
-      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-      for (auto key : tc.expected_keys) {
-        iter->SeekForPrev(key);
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(key, iter->key());
-      }
-      uint64_t range_del_reseeks =
-          TestGetTickerCount(options, NUMBER_OF_RANGE_DEL_RESEEKS_IN_ITERATION);
+          get_perf_context()->internal_range_del_reseek_count;
       ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
       prev_range_del_reseeks = range_del_reseeks;
     }

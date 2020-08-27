@@ -106,9 +106,19 @@ class IteratorWrapperBase {
     iter_->Seek(k);
     Update();
   }
+  void SeekIfSeqnoSmaller(const Slice& k, SequenceNumber limit) {
+    assert(iter_);
+    iter_->SeekIfSeqnoSmaller(k, limit);
+    Update();
+  }
   void SeekForPrev(const Slice& k) {
     assert(iter_);
     iter_->SeekForPrev(k);
+    Update();
+  }
+  void SeekForPrevIfSeqnoSmaller(const Slice& k, SequenceNumber limit) {
+    assert(iter_);
+    iter_->SeekForPrevIfSeqnoSmaller(k, limit);
     Update();
   }
   void SeekToFirst() {

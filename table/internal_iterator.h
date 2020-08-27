@@ -63,10 +63,15 @@ class InternalIteratorBase : public Cleanable {
   // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
-  // Seek forwards as far as the first key in the source at or after `target`,
-  // only skipping over keys with seqnos strictly less than `limit`. The
-  // implementation can be a no-op or seek only part of the way forward to
-  // the largest allowed key.
+  // Seek all underlying iterators forwards as far as the first key in the
+  // source at or after `target`, only skipping over keys with seqnos strictly
+  // less than `limit`.  The implementation can be a no-op or seek only part of
+  // the way forward to the largest allowed key.
+  //
+  // N.B.: after calling this function, the forward scan is no longer required
+  // to return all keys until passing `target`. In case of a composite iterator,
+  // underlying iterators may seek forward by varying distances, resulting in a
+  // subset of keys visible to an ensuing forward scan.
   //
   // REQUIRES: The iterator is `Valid()` before this call.
   virtual void SeekIfSeqnoSmaller(const Slice& /* target */,
@@ -77,10 +82,15 @@ class InternalIteratorBase : public Cleanable {
   // an entry that comes at or before target.
   virtual void SeekForPrev(const Slice& target) = 0;
 
-  // Seek backwards as far as the last key in the source at or before `target`,
-  // only skipping over keys with seqnos strictly less than `limit`. The
-  // implementation can be a no-op or seek only part of the way backward to
-  // the smallest allowed key.
+  // Seek all underlying iterators backwards as far as the last key in the
+  // source at or before `target`, only skipping over keys with seqnos strictly
+  // less than `limit`.  The implementation can be a no-op or seek only part of
+  // the way backward to the smallest allowed key.
+  //
+  // N.B.: after calling this function, the backward scan is no longer required
+  // to return all keys until passing `target`. In case of a composite iterator,
+  // underlying iterators may seek backward by varying distances, resulting in a
+  // subset of keys visible to an ensuing backward scan.
   //
   // REQUIRES: The iterator is `Valid()` before this call.
   virtual void SeekForPrevIfSeqnoSmaller(const Slice& /* target */,

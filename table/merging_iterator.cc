@@ -134,6 +134,17 @@ class MergingIterator : public InternalIterator {
     }
   }
 
+  void SeekIfSeqnoSmaller(const Slice& target, SequenceNumber limit) override {
+    assert(Valid());
+    ClearHeaps();
+    for (auto& child : children_) {
+      child.SeekIfSeqnoSmaller(target, limit);
+      AddToMinHeapOrCheckStatus(&child);
+    }
+    direction_ = kForward;
+    current_ = CurrentForward();
+  }
+
   void SeekForPrev(const Slice& target) override {
     ClearHeaps();
     InitMaxHeap();
@@ -156,6 +167,18 @@ class MergingIterator : public InternalIterator {
       PERF_TIMER_GUARD(seek_max_heap_time);
       current_ = CurrentReverse();
     }
+  }
+
+  void SeekForPrevIfSeqnoSmaller(const Slice& target,
+                                 SequenceNumber limit) override {
+    assert(Valid());
+    ClearHeaps();
+    for (auto& child : children_) {
+      child.SeekForPrevIfSeqnoSmaller(target, limit);
+      AddToMaxHeapOrCheckStatus(&child);
+    }
+    direction_ = kReverse;
+    current_ = CurrentReverse();
   }
 
   void Next() override {
@@ -189,6 +212,20 @@ class MergingIterator : public InternalIterator {
       minHeap_.pop();
     }
     current_ = CurrentForward();
+
+    if (range_del_agg_ != nullptr && Valid()) {
+      // When we cross over to a new range tombstone, we use an optimization to
+      // seek the iterators whose keys are all covered by the range tombstone.
+      // TODO(ajkr): this must be optimized to seek only when tombstone changed.
+      auto optimized_seek_endpoint = range_del_agg_->GetEndpoint(
+          key(), RangeDelPositioningMode::kForwardTraversal);
+      if (optimized_seek_endpoint.endpoint() != nullptr &&
+          optimized_seek_endpoint.seq() > 0) {
+        std::string endpoint_ikey;
+        AppendInternalKey(&endpoint_ikey, *optimized_seek_endpoint.endpoint());
+        SeekIfSeqnoSmaller(endpoint_ikey, optimized_seek_endpoint.seq());
+      }
+    }
   }
 
   bool NextAndGetResult(IterateResult* result) override {
@@ -231,6 +268,20 @@ class MergingIterator : public InternalIterator {
       maxHeap_->pop();
     }
     current_ = CurrentReverse();
+
+    if (range_del_agg_ != nullptr && Valid()) {
+      // When we cross over to a new range tombstone, we use an optimization to
+      // seek the iterators whose keys are all covered by the range tombstone.
+      // TODO(ajkr): this must be optimized to seek only when tombstone changed.
+      auto optimized_seek_endpoint = range_del_agg_->GetEndpoint(
+          key(), RangeDelPositioningMode::kBackwardTraversal);
+      if (optimized_seek_endpoint.endpoint() != nullptr &&
+          optimized_seek_endpoint.seq() > 0) {
+        std::string endpoint_ikey;
+        AppendInternalKey(&endpoint_ikey, *optimized_seek_endpoint.endpoint());
+        SeekForPrevIfSeqnoSmaller(endpoint_ikey, optimized_seek_endpoint.seq());
+      }
+    }
   }
 
   Slice key() const override {

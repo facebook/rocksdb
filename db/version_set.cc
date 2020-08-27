@@ -1113,7 +1113,7 @@ void LevelIterator::SeekIfSeqnoSmaller(const Slice& target,
   while (Valid() && prev_file_index != file_index_ &&
          flevel_->files[file_index_].fd.largest_seqno < limit) {
     prev_file_index = file_index_;
-    file_iter_.Seek(target);
+    file_iter_.SeekIfSeqnoSmaller(target, limit);
     SkipEmptyFileForward();
   }
   // Unlike the `Seek*()` APIs exposed to users, the iterator should not be
@@ -1141,7 +1141,7 @@ void LevelIterator::SeekForPrevIfSeqnoSmaller(const Slice& target,
   while (Valid() && prev_file_index != file_index_ &&
          flevel_->files[file_index_].fd.largest_seqno < limit) {
     prev_file_index = file_index_;
-    file_iter_.SeekForPrev(target);
+    file_iter_.SeekForPrevIfSeqnoSmaller(target, limit);
     SkipEmptyFileBackward();
     if (!Valid()) {
       break;

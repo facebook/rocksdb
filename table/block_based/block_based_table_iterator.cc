@@ -14,6 +14,7 @@ void BlockBasedTableIterator::Seek(const Slice& target) { SeekImpl(&target); }
 void BlockBasedTableIterator::SeekIfSeqnoSmaller(const Slice& target,
                                                  SequenceNumber limit) {
   if (largest_seqno_ < limit) {
+    PERF_COUNTER_ADD(internal_range_del_reseek_count, 1);
     Seek(target);
   }
 }
@@ -169,6 +170,7 @@ void BlockBasedTableIterator::SeekForPrev(const Slice& target) {
 void BlockBasedTableIterator::SeekForPrevIfSeqnoSmaller(const Slice& target,
                                                         SequenceNumber limit) {
   if (largest_seqno_ < limit) {
+    PERF_COUNTER_ADD(internal_range_del_reseek_count, 1);
     SeekForPrev(target);
   }
 }
