@@ -731,6 +731,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       Flush();
 
       if (r->state == Rep::State::kBuffered &&
+          r->target_file_size != 0 &&
           r->data_begin_offset > r->target_file_size) {
         EnterUnbuffered();
       }
