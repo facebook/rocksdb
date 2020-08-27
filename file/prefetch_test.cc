@@ -62,8 +62,9 @@ class MockFS : public FileSystemWrapper {
   std::atomic_int prefetch_count_{0};
 };
 
-class PrefetchTest : public DBTestBase,
-                     public ::testing::WithParamInterface<bool> {
+class PrefetchTest
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   PrefetchTest() : DBTestBase("/prefetch_test", true) {}
 };
@@ -73,7 +74,11 @@ std::string BuildKey(int num, std::string postfix = "") {
 }
 
 TEST_P(PrefetchTest, Basic) {
-  bool support_prefetch = GetParam();
+  // First param is if the mockFS support_prefetch or not
+  bool support_prefetch = std::get<0>(GetParam());
+
+  // Second param is if directIO is enabled or not
+  bool use_direct_io = std::get<1>(GetParam());
 
   const int kNumKeys = 1100;
   std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(support_prefetch);
@@ -83,6 +88,10 @@ TEST_P(PrefetchTest, Basic) {
   options.create_if_missing = true;
   options.compression = kNoCompression;
   options.env = env.get();
+  if (use_direct_io) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
 
   int buff_prefetch_count = 0;
   SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
@@ -121,15 +130,16 @@ TEST_P(PrefetchTest, Basic) {
   // commenting out the line below causes the example to work correctly
   db_->CompactRange(CompactRangeOptions(), &least, &greatest);
 
-  if (support_prefetch) {
-    // If underline file system supports prefetch, make sure prefetch() is
-    // called and FilePrefetchBuffer is not used
+  if (support_prefetch && !use_direct_io) {
+    // If underline file system supports prefetch, and directIO is not enabled
+    // make sure prefetch() is called and FilePrefetchBuffer is not used.
     ASSERT_TRUE(fs->IsPrefetchCalled());
     fs->ClearPrefetchCount();
     ASSERT_EQ(0, buff_prefetch_count);
   } else {
-    // If underline file system doesn't support prefetch, make sure prefetch()
-    // is not called and FilePrefetchBuffer is used
+    // If underline file system doesn't support prefetch, or directIO is
+    // enabled, make sure prefetch() is not called and FilePrefetchBuffer is
+    // used.
     ASSERT_FALSE(fs->IsPrefetchCalled());
     ASSERT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
@@ -145,16 +155,21 @@ TEST_P(PrefetchTest, Basic) {
   }
 
   // Make sure prefetch is called only if file system support prefetch.
-  if (support_prefetch) {
+  if (support_prefetch && !use_direct_io) {
     ASSERT_TRUE(fs->IsPrefetchCalled());
+    fs->ClearPrefetchCount();
     ASSERT_EQ(0, buff_prefetch_count);
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
+    ASSERT_GT(buff_prefetch_count, 0);
+    buff_prefetch_count = 0;
   }
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest, ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool()));
 
 }  // namespace ROCKSDB_NAMESPACE
 

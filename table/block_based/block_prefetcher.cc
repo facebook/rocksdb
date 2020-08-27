@@ -36,8 +36,9 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   }
 
   if (rep->file->use_direct_io()) {
-    rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
-                                             &prefetch_buffer_);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        BlockBasedTable::kInitAutoReadaheadSize,
+        BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
     return;
   }
 
@@ -51,8 +52,9 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   // we can fallback to reading from disk if Prefetch fails.
   Status s = rep->file->Prefetch(handle.offset(), readahead_size_);
   if (s.IsNotSupported()) {
-    rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
-                                             &prefetch_buffer_);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        BlockBasedTable::kInitAutoReadaheadSize,
+        BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
     return;
   }
   readahead_limit_ = static_cast<size_t>(handle.offset() + readahead_size_);
