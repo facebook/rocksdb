@@ -1109,7 +1109,7 @@ void LevelIterator::Seek(const Slice& target) {
 
 void LevelIterator::SeekIfSeqnoSmaller(const Slice& target,
                                        SequenceNumber limit) {
-  uint32_t prev_file_index = flevel_->num_files;
+  size_t prev_file_index = flevel_->num_files;
   while (Valid() && prev_file_index != file_index_ &&
          flevel_->files[file_index_].fd.largest_seqno < limit) {
     prev_file_index = file_index_;
@@ -1137,7 +1137,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
 
 void LevelIterator::SeekForPrevIfSeqnoSmaller(const Slice& target,
                                               SequenceNumber limit) {
-  uint32_t prev_file_index = flevel_->num_files;
+  size_t prev_file_index = flevel_->num_files;
   while (Valid() && prev_file_index != file_index_ &&
          flevel_->files[file_index_].fd.largest_seqno < limit) {
     prev_file_index = file_index_;
