@@ -198,7 +198,7 @@ Status ExternalSstFileIngestionJob::Prepare(
             db_options_.file_checksum_gen_factory.get(), &generated_checksum,
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
-            db_options_.allow_mmap_reads);
+            db_options_.allow_mmap_reads, io_tracer_);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -509,8 +509,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),
@@ -835,7 +835,7 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
       db_options_.file_checksum_gen_factory.get(), &file_checksum,
       &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
-      db_options_.allow_mmap_reads);
+      db_options_.allow_mmap_reads, io_tracer_);
   if (!io_s.ok()) {
     return io_s;
   }

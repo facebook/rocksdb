@@ -41,15 +41,6 @@ class SequentialFileReader {
         file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
               io_tracer) {}
 
-  SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
-    *this = std::move(o);
-  }
-
-  SequentialFileReader& operator=(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
-    file_ = std::move(o.file_);
-    return *this;
-  }
-
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
 
