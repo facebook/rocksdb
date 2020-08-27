@@ -253,6 +253,11 @@ rocksdb_create_column_family(rocksdb_t* db,
                              const rocksdb_options_t* column_family_options,
                              const char* column_family_name, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t*
+rocksdb_create_column_family_with_ttl(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name, int ttl, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_drop_column_family(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, char** errptr);
 
