@@ -40,7 +40,7 @@ class TestFileNumberGenerator {
 
 class BlobFileBuilderTest : public testing::Test {
  protected:
-  BlobFileBuilderTest() : env_(Env::Default()), fs_(&env_) {}
+  BlobFileBuilderTest() : mock_env_(Env::Default()), fs_(&mock_env_) {}
 
   void VerifyBlobFile(const ImmutableCFOptions& immutable_cf_options,
                       uint64_t blob_file_number, uint32_t column_family_id,
@@ -59,10 +59,12 @@ class BlobFileBuilderTest : public testing::Test {
         fs_.NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
 
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(file), blob_file_path, &env_));
+        new RandomAccessFileReader(std::move(file), blob_file_path,
+                                   &mock_env_));
 
     constexpr Statistics* statistics = nullptr;
-    BlobLogReader blob_log_reader(std::move(file_reader), &env_, statistics);
+    BlobLogReader blob_log_reader(std::move(file_reader), &mock_env_,
+                                  statistics);
 
     BlobLogHeader header;
     ASSERT_OK(blob_log_reader.ReadHeader(&header));
@@ -107,7 +109,7 @@ class BlobFileBuilderTest : public testing::Test {
     ASSERT_EQ(footer.expiration_range, ExpirationRange());
   }
 
-  MockEnv env_;
+  MockEnv mock_env_;
   LegacyFileSystemWrapper fs_;
   FileOptions file_options_;
 };
@@ -121,7 +123,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_BuildAndCheckOneFile"),
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileBuilderTest_BuildAndCheckOneFile"),
       0);
   options.enable_blob_files = true;
 
@@ -134,7 +137,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -190,7 +193,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_,
+      test::PerThreadDBPath(&mock_env_,
                             "BlobFileBuilderTest_BuildAndCheckMultipleFiles"),
       0);
   options.enable_blob_files = true;
@@ -205,7 +208,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -265,7 +268,8 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_InlinedValues"), 0);
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_InlinedValues"),
+      0);
   options.enable_blob_files = true;
   options.min_blob_size = 1024;
 
@@ -278,7 +282,7 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -312,7 +316,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Compression"), 0);
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_Compression"), 0);
   options.enable_blob_files = true;
   options.blob_compression_type = kSnappyCompression;
 
@@ -325,7 +329,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -381,7 +385,8 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_CompressionError"), 0);
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_CompressionError"),
+      0);
   options.enable_blob_files = true;
   options.blob_compression_type = kSnappyCompression;
 
@@ -394,7 +399,7 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -444,7 +449,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
   Options options;
   options.cf_paths.emplace_back(
-      test::PerThreadDBPath(&env_, "BlobFileBuilderTest_Checksum"), 0);
+      test::PerThreadDBPath(&mock_env_, "BlobFileBuilderTest_Checksum"), 0);
   options.enable_blob_files = true;
   options.file_checksum_gen_factory =
       std::make_shared<DummyFileChecksumGenFactory>();
@@ -458,7 +463,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, column_family_id, io_priority,
                           write_hint, &blob_file_additions);
@@ -501,12 +506,12 @@ class BlobFileBuilderIOErrorTest
       public testing::WithParamInterface<std::string> {
  protected:
   BlobFileBuilderIOErrorTest()
-      : env_(Env::Default()),
-        fault_injection_env_(&env_),
+      : mock_env_(Env::Default()),
+        fault_injection_env_(&mock_env_),
         fs_(&fault_injection_env_),
         sync_point_(GetParam()) {}
 
-  MockEnv env_;
+  MockEnv mock_env_;
   FaultInjectionTestEnv fault_injection_env_;
   LegacyFileSystemWrapper fs_;
   FileOptions file_options_;
