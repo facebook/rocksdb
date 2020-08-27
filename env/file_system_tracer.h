@@ -272,9 +272,9 @@ class FSWritableFilePtr {
  public:
   FSWritableFilePtr(std::unique_ptr<FSWritableFile>&& fs,
                     const std::shared_ptr<IOTracer>& io_tracer)
-      : fs_(std::move(fs)),
-        io_tracer_(io_tracer),
-        fs_tracer_.reset(new FSWritableFileTracingWrapper(fs_.get(), io_tracer_)) {}
+      : fs_(std::move(fs)), io_tracer_(io_tracer) {
+    fs_tracer_.reset(new FSWritableFileTracingWrapper(fs_.get(), io_tracer_));
+  }
 
   FSWritableFile* operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
@@ -292,7 +292,7 @@ class FSWritableFilePtr {
     }
   }
 
-  void Reset() {
+  void reset() {
     fs_.reset();
     fs_tracer_.reset();
     io_tracer_ = nullptr;

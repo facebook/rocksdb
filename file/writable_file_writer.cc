@@ -197,7 +197,7 @@ IOStatus WritableFileWriter::Close() {
     s = interim;
   }
 
-  writable_file_.Reset();
+  writable_file_.reset();
   TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
 
   if (s.ok() && checksum_generator_ != nullptr && !checksum_finalized_) {
