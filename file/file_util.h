@@ -37,7 +37,8 @@ extern IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory, std::string* file_checksum,
     std::string* file_checksum_func_name,
-    size_t verify_checksums_readahead_size, bool allow_mmap_reads);
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
                                          IOOptions& opts) {

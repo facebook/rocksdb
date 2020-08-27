@@ -156,8 +156,8 @@ TEST_F(SimCacheTest, SimCacheLogging) {
 
   int num_block_entries = 20;
   for (int i = 0; i < num_block_entries; i++) {
-    Put(Key(i), "val");
-    Flush();
+    ASSERT_OK(Put(Key(i), "val"));
+    ASSERT_OK(Flush());
   }
 
   std::string log_file = test::PerThreadDBPath(env_, "cache_log.txt");
@@ -172,7 +172,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_OK(sim_cache->GetActivityLoggingStatus());
 
   std::string file_contents = "";
-  ReadFileToString(env_, log_file, &file_contents);
+  ASSERT_OK(ReadFileToString(env_, log_file, &file_contents));
 
   int lookup_num = 0;
   int add_num = 0;

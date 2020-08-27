@@ -1198,6 +1198,8 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   const Comparator* ucmp = cfd->user_comparator();
+  std::string file_checksum = kUnknownFileChecksum;
+  std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
 
   // Check for iterator errors
   Status s = input_status;
@@ -1397,6 +1399,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     meta->file_checksum = sub_compact->outfile->GetFileChecksum();
     meta->file_checksum_func_name =
         sub_compact->outfile->GetFileChecksumFuncName();
+    file_checksum = meta->file_checksum;
+    file_checksum_func_name = meta->file_checksum_func_name;
   }
   if (s.ok()) {
     s = io_s;
@@ -1453,7 +1457,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
       job_id_, output_fd, oldest_blob_file_number, tp,
-      TableFileCreationReason::kCompaction, s);
+      TableFileCreationReason::kCompaction, s, file_checksum,
+      file_checksum_func_name);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
@@ -1582,7 +1587,8 @@ Status CompactionJob::OpenCompactionOutputFile(
     EventHelpers::LogAndNotifyTableFileCreationFinished(
         event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
         fname, job_id_, FileDescriptor(), kInvalidBlobFileNumber,
-        TableProperties(), TableFileCreationReason::kCompaction, s);
+        TableProperties(), TableFileCreationReason::kCompaction, s,
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     return s;
   }
 

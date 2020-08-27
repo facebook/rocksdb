@@ -111,7 +111,8 @@ Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   }
 
   // this will close the file and reset the Writable File Pointer.
-  Status s = log_writer_->AppendFooter(footer);
+  Status s = log_writer_->AppendFooter(footer, /* checksum_method */ nullptr,
+                                       /* checksum_value */ nullptr);
   if (s.ok()) {
     closed_ = true;
     immutable_sequence_ = sequence;

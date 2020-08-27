@@ -38,8 +38,6 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   options.stats_dump_period_sec = kPeriodSec;
   options.stats_persist_period_sec = kPeriodSec;
   options.create_if_missing = true;
-  int mock_time_sec = 0;
-  mock_env_->set_current_time(mock_time_sec);
   options.env = mock_env_.get();
 
   int dump_st_counter = 0;
@@ -56,9 +54,8 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  mock_time_sec += kPeriodSec - 1;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec - 1); });
 
   auto scheduler = dbfull()->TEST_GetStatsDumpScheduler();
   ASSERT_NE(nullptr, scheduler);
@@ -67,16 +64,14 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
 
-  mock_time_sec += kPeriodSec;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
 
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
 
-  mock_time_sec += kPeriodSec;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
 
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
@@ -100,9 +95,8 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(1, scheduler->TEST_GetValidTaskNum());
 
   dump_st_counter = 0;
-  mock_time_sec += kPeriodSec;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(1, dump_st_counter);
 
   Close();
@@ -117,8 +111,6 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   options.stats_dump_period_sec = kPeriodSec;
   options.stats_persist_period_sec = kPeriodSec;
   options.create_if_missing = true;
-  int mock_time_sec = 0;
-  mock_env_->set_current_time(mock_time_sec);
   options.env = mock_env_.get();
 
   int dump_st_counter = 0;
@@ -141,23 +133,20 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   ASSERT_EQ(kInstanceNum * 2, scheduler->TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
-  mock_time_sec += kPeriodSec - 1;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec - 1); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
-  mock_time_sec += kPeriodSec;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
-  mock_time_sec += kPeriodSec;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
@@ -168,12 +157,10 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
 
   expected_run += (kInstanceNum - half) * 2;
 
-  mock_time_sec += kPeriodSec;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
-  mock_time_sec += kPeriodSec;
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->set_current_time(mock_time_sec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
@@ -191,7 +178,6 @@ TEST_F(StatsDumpSchedulerTest, MultiEnv) {
   options1.stats_dump_period_sec = kDumpPeriodSec;
   options1.stats_persist_period_sec = kPersistPeriodSec;
   options1.create_if_missing = true;
-  mock_env_->set_current_time(0);
   options1.env = mock_env_.get();
 
   Reopen(options1);
@@ -201,7 +187,6 @@ TEST_F(StatsDumpSchedulerTest, MultiEnv) {
   options2.stats_dump_period_sec = kDumpPeriodSec;
   options2.stats_persist_period_sec = kPersistPeriodSec;
   options2.create_if_missing = true;
-  mock_env2->set_current_time(0);
   options1.env = mock_env2.get();
 
   std::string dbname = test::PerThreadDBPath("multi_env_test");

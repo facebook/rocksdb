@@ -5,6 +5,9 @@
 * Fix a possible corruption to the LSM state (overlapping files within a level) when a `CompactRange()` for refitting levels (`CompactRangeOptions::change_level == true`) and another manual compaction are executed in parallel.
 * Sanitize `recycle_log_file_num` to zero when the user attempts to enable it in combination with `WALRecoveryMode::kTolerateCorruptedTailRecords`. Previously the two features were allowed together, which compromised the user's configured crash-recovery guarantees.
 * Fix a bug where a level refitting in CompactRange() might race with an automatic compaction that puts the data to the target level of the refitting. The bug has been there for years.
+* Fixed a bug in version 6.12 in which BackupEngine::CreateNewBackup could fail intermittently with non-OK status when backing up a read-write DB configured with a DBOptions::file_checksum_gen_factory.
+* Fix a bug where immutable flushed memtable is never destroyed because  a memtable is not added to delete list because of refernce hold by super version and super version doesn't switch because of empty delete list. So memory usage increases beyond write_buffer_size + max_write_buffer_size_to_maintain.
+* Fix useless no-op compactions scheduled upon snapshot release when options.disable-auto-compactions = true.
 
 ### New Features
 * A new option `std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory` is added to `BackupableDBOptions`. The default value for this option is `nullptr`. If this option is null, the default backup engine checksum function (crc32c) will be used for creating, verifying, or restoring backups. If it is not null and is set to the DB custom checksum factory, the custom checksum function used in DB will also be used for creating, verifying, or restoring backups, in addition to the default checksum function (crc32c). If it is not null and is set to a custom checksum factory different than the DB custom checksum factory (which may be null), BackupEngine will return `Status::InvalidArgument()`.
@@ -15,6 +18,11 @@
 
 ### Public API Change
 * Expose kTypeDeleteWithTimestamp in EntryType and update GetEntryType() accordingly.
+* Added file_checksum and file_checksum_func_name to TableFileCreationInfo, which can pass the table file checksum information through the OnTableFileCreated callback during flush and compaction.
+
+
+### Others
+* Error in prefetching partitioned index blocks will not be swallowed. It will fail the query and return the IOError users.
 
 ## 6.12 (2020-07-28)
 ### Public API Change

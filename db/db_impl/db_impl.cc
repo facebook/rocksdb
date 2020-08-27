@@ -3821,7 +3821,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
             }
           }
         }
-        env->DeleteDir(path);
+        // TODO: Should we return an error if we cannot delete the directory?
+        env->DeleteDir(path).PermitUncheckedError();
       }
     }
 
@@ -3849,7 +3850,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           }
         }
       }
-      // TODO: Should we check for errors here?
+      // Ignore error in case dir contains other files
       env->DeleteDir(archivedir).PermitUncheckedError();
     }
 
@@ -3866,7 +3867,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
           }
         }
       }
-      env->DeleteDir(soptions.wal_dir);
+      // Ignore error in case dir contains other files
+      env->DeleteDir(soptions.wal_dir).PermitUncheckedError();
     }
 
     // Ignore error since state is already gone

@@ -664,59 +664,76 @@ TEST_F(DBBasicTest, Snapshot) {
 
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBBasicTest, CompactBetweenSnapshots) {
+class DBBasicMultiConfigs : public DBBasicTest,
+                            public ::testing::WithParamInterface<int> {
+ public:
+  DBBasicMultiConfigs() { option_config_ = GetParam(); }
+
+  static std::vector<int> GenerateOptionConfigs() {
+    std::vector<int> option_configs;
+    for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+      if (!ShouldSkipOptions(option_config, kSkipFIFOCompaction)) {
+        option_configs.push_back(option_config);
+      }
+    }
+    return option_configs;
+  }
+};
+
+TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
-  do {
-    Options options = CurrentOptions(options_override);
-    options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"}, options);
-    Random rnd(301);
-    FillLevels("a", "z", 1);
+  Options options = CurrentOptions(options_override);
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Random rnd(301);
+  FillLevels("a", "z", 1);
 
-    Put(1, "foo", "first");
-    const Snapshot* snapshot1 = db_->GetSnapshot();
-    Put(1, "foo", "second");
-    Put(1, "foo", "third");
-    Put(1, "foo", "fourth");
-    const Snapshot* snapshot2 = db_->GetSnapshot();
-    Put(1, "foo", "fifth");
-    Put(1, "foo", "sixth");
+  Put(1, "foo", "first");
+  const Snapshot* snapshot1 = db_->GetSnapshot();
+  Put(1, "foo", "second");
+  Put(1, "foo", "third");
+  Put(1, "foo", "fourth");
+  const Snapshot* snapshot2 = db_->GetSnapshot();
+  Put(1, "foo", "fifth");
+  Put(1, "foo", "sixth");
 
-    // All entries (including duplicates) exist
-    // before any compaction or flush is triggered.
-    ASSERT_EQ(AllEntriesFor("foo", 1),
-              "[ sixth, fifth, fourth, third, second, first ]");
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
-    ASSERT_EQ("first", Get(1, "foo", snapshot1));
+  // All entries (including duplicates) exist
+  // before any compaction or flush is triggered.
+  ASSERT_EQ(AllEntriesFor("foo", 1),
+            "[ sixth, fifth, fourth, third, second, first ]");
+  ASSERT_EQ("sixth", Get(1, "foo"));
+  ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
+  ASSERT_EQ("first", Get(1, "foo", snapshot1));
 
-    // After a flush, "second", "third" and "fifth" should
-    // be removed
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth, first ]");
+  // After a flush, "second", "third" and "fifth" should
+  // be removed
+  ASSERT_OK(Flush(1));
+  ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth, first ]");
 
-    // after we release the snapshot1, only two values left
-    db_->ReleaseSnapshot(snapshot1);
-    FillLevels("a", "z", 1);
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+  // after we release the snapshot1, only two values left
+  db_->ReleaseSnapshot(snapshot1);
+  FillLevels("a", "z", 1);
+  dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
 
-    // We have only one valid snapshot snapshot2. Since snapshot1 is
-    // not valid anymore, "first" should be removed by a compaction.
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth ]");
+  // We have only one valid snapshot snapshot2. Since snapshot1 is
+  // not valid anymore, "first" should be removed by a compaction.
+  ASSERT_EQ("sixth", Get(1, "foo"));
+  ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
+  ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth ]");
 
-    // after we release the snapshot2, only one value should be left
-    db_->ReleaseSnapshot(snapshot2);
-    FillLevels("a", "z", 1);
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
-  } while (ChangeOptions(kSkipFIFOCompaction));
+  // after we release the snapshot2, only one value should be left
+  db_->ReleaseSnapshot(snapshot2);
+  FillLevels("a", "z", 1);
+  dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_EQ("sixth", Get(1, "foo"));
+  ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
 }
+
+INSTANTIATE_TEST_CASE_P(
+    DBBasicMultiConfigs, DBBasicMultiConfigs,
+    ::testing::ValuesIn(DBBasicMultiConfigs::GenerateOptionConfigs()));
 
 TEST_F(DBBasicTest, DBOpen_Options) {
   Options options = CurrentOptions();

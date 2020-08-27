@@ -1415,8 +1415,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // else insert the values to the memtable right away
     }
 
-    Status seek_status;
-    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+    Status ret_status;
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
@@ -1426,10 +1426,8 @@ class MemTableInserter : public WriteBatch::Handler {
         batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
-      return seek_status;
+      return ret_status;
     }
-    seek_status.PermitUncheckedError();  // Ignore errors
-    Status ret_status;
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
@@ -1544,8 +1542,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // else insert the values to the memtable right away
     }
 
-    Status seek_status;
-    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+    Status ret_status;
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
@@ -1555,7 +1553,7 @@ class MemTableInserter : public WriteBatch::Handler {
         batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
-      return seek_status;
+      return ret_status;
     }
 
     ColumnFamilyData* cfd = cf_mems_->current();
@@ -1565,7 +1563,7 @@ class MemTableInserter : public WriteBatch::Handler {
                              : 0;
     const ValueType delete_type =
         (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
-    auto ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
+    ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
@@ -1584,8 +1582,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // else insert the values to the memtable right away
     }
 
-    Status seek_status;
-    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+    Status ret_status;
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
@@ -1596,10 +1594,10 @@ class MemTableInserter : public WriteBatch::Handler {
         batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
-      return seek_status;
+      return ret_status;
     }
 
-    auto ret_status =
+    ret_status =
         DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
@@ -1621,8 +1619,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // else insert the values to the memtable right away
     }
 
-    Status seek_status;
-    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+    Status ret_status;
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
@@ -1635,7 +1633,7 @@ class MemTableInserter : public WriteBatch::Handler {
         batch_boundry = IsDuplicateKeySeq(column_family_id, begin_key);
       }
       MaybeAdvanceSeq(batch_boundry);
-      return seek_status;
+      return ret_status;
     }
     if (db_ != nullptr) {
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
@@ -1661,7 +1659,7 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
-    auto ret_status =
+    ret_status =
         DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
     // optimize for non-recovery mode
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
@@ -1683,8 +1681,8 @@ class MemTableInserter : public WriteBatch::Handler {
       // else insert the values to the memtable right away
     }
 
-    Status seek_status;
-    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &seek_status))) {
+    Status ret_status;
+    if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
       bool batch_boundry = false;
       if (rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
@@ -1695,10 +1693,9 @@ class MemTableInserter : public WriteBatch::Handler {
         batch_boundry = IsDuplicateKeySeq(column_family_id, key);
       }
       MaybeAdvanceSeq(batch_boundry);
-      return seek_status;
+      return ret_status;
     }
 
-    Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
     bool perform_merge = false;

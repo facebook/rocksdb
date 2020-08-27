@@ -147,13 +147,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     // DeleteScheduler::CleanupDirectory on the same dir later, it will be
     // safe
     std::vector<std::string> filenames;
-    result.env->GetChildren(result.wal_dir, &filenames);
+    result.env->GetChildren(result.wal_dir, &filenames).PermitUncheckedError();
     for (std::string& filename : filenames) {
       if (filename.find(".log.trash", filename.length() -
                                           std::string(".log.trash").length()) !=
           std::string::npos) {
         std::string trash_file = result.wal_dir + "/" + filename;
-        result.env->DeleteFile(trash_file);
+        result.env->DeleteFile(trash_file).PermitUncheckedError();
       }
     }
   }
@@ -901,7 +901,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                             Status::Corruption("log record too small"));
         continue;
       }
-      WriteBatchInternal::SetContents(&batch, record);
+
+      status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        return status;
+      }
       SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
 
       if (immutable_db_options_.wal_recovery_mode ==
@@ -1292,7 +1296,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
 
     int64_t _current_time = 0;
-    env_->GetCurrentTime(&_current_time);  // ignore error
+    env_->GetCurrentTime(&_current_time)
+        .PermitUncheckedError();  // ignore error
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     meta.oldest_ancester_time = current_time;
 
@@ -1693,13 +1698,15 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::string file_path = path + "/" + file_name;
         if (ParseFileName(file_name, &file_number, &file_type) &&
             file_type == kTableFile) {
+          // TODO: Check for errors from OnAddFile?
           if (known_file_sizes.count(file_name)) {
             // We're assuming that each sst file name exists in at most one of
             // the paths.
             sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
-                           /* compaction */ false);
+                           /* compaction */ false)
+                .PermitUncheckedError();
           } else {
-            sfm->OnAddFile(file_path);
+            sfm->OnAddFile(file_path).PermitUncheckedError();
           }
         }
       }
