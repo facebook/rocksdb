@@ -19,13 +19,14 @@ class MockRandomAccessFile : public FSRandomAccessFileWrapper {
         support_prefetch_(support_prefetch),
         prefetch_count_(prefetch_count) {}
 
-  bool SupportPrefetch() const override { return support_prefetch_; }
-
   IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
                     IODebugContext* dbg) override {
-    assert(support_prefetch_);
-    prefetch_count_.fetch_add(1);
-    return target()->Prefetch(offset, n, options, dbg);
+    if (support_prefetch_) {
+      prefetch_count_.fetch_add(1);
+      return target()->Prefetch(offset, n, options, dbg);
+    } else {
+      return IOStatus::NotSupported();
+    }
   }
 
  private:

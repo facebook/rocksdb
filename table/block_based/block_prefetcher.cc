@@ -35,9 +35,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
     return;
   }
 
-  // If directIO is enabled or file system doesn't support prefetch, create the
-  // prefetch buffer.
-  if (rep->file->use_direct_io() || !rep->file->SupportPrefetch()) {
+  if (rep->file->use_direct_io()) {
     rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
                                              &prefetch_buffer_);
     return;
@@ -48,10 +46,15 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
     return;
   }
 
-  // Buffered I/O
-  // Discarding the return status of Prefetch calls intentionally, as
+  // If prefetch is not supported, fall back to use internal prefetch buffer.
+  // Discarding other return status of Prefetch calls intentionally, as
   // we can fallback to reading from disk if Prefetch fails.
-  rep->file->Prefetch(handle.offset(), readahead_size_).PermitUncheckedError();
+  Status s = rep->file->Prefetch(handle.offset(), readahead_size_);
+  if (s.IsNotSupported()) {
+    rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
+                                             &prefetch_buffer_);
+    return;
+  }
   readahead_limit_ = static_cast<size_t>(handle.offset() + readahead_size_);
   // Keep exponentially increasing readahead size until
   // kMaxAutoReadaheadSize.
