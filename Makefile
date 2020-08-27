@@ -566,6 +566,7 @@ ifdef ASSERT_STATUS_CHECKED
 		cache_test \
 		lru_cache_test \
 		blob_file_addition_test \
+		blob_file_builder_test \
 		blob_file_garbage_test \
 		bloom_test \
 		cassandra_format_test \
@@ -1804,6 +1805,9 @@ defer_test: $(OBJ_DIR)/util/defer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
