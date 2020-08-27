@@ -968,7 +968,6 @@ TEST_F(DBRangeDelTest, IteratorRangeTombstoneOverlapsSstable) {
       uint64_t range_del_reseeks =
           get_perf_context()->internal_range_del_reseek_count;
       ASSERT_LT(prev_range_del_reseeks, range_del_reseeks);
-      prev_range_del_reseeks = range_del_reseeks;
     }
   }
 }
