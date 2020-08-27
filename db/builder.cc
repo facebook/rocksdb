@@ -212,18 +212,20 @@ Status BuildTable(
     }
 
     // Finish and check for builder errors
-    bool empty = builder->IsEmpty();
     s = c_iter.status();
+
+    if (s.ok()) {
+      if (blob_file_builder) {
+        s = blob_file_builder->Finish();
+      }
+    }
+
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
+    bool empty = builder->IsEmpty();
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
       s = builder->Finish();
-      if (s.ok()) {
-        if (blob_file_builder) {
-          s = blob_file_builder->Finish();
-        }
-      }
     }
     io_s = builder->io_status();
     if (io_status->ok()) {
