@@ -17,6 +17,9 @@
 * Introduce options.check_flush_compaction_key_order with default value to be true. With this option, during flush and compaction, key order will be checked when writing to each SST file. If the order is violated, the flush or compaction will fail.
 * Added is_full_compaction to CompactionJobStats, so that the information is available through the EventListener interface.
 
+### Performance Improvements
+* Upon encountering a range tombstone in forward or reverse iteration, seek directly to the end or beginning key, respectively, in LSM components older than the range tombstone. This saves key comparisons.
+
 ## 6.13 (09/12/2020)
 ### Bug fixes
 * Fix a performance regression introduced in 6.4 that makes a upper bound check for every Next() even if keys are within a data block that is within the upper bound.
