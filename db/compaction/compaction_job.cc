@@ -1124,6 +1124,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status = c_iter->status();
   }
 
+  if (status.ok()) {
+    if (blob_file_builder) {
+      status = blob_file_builder->Finish();
+    }
+  }
+
   if (status.ok() && sub_compact->builder == nullptr &&
       sub_compact->outputs.size() == 0 && !range_del_agg.IsEmpty()) {
     // handle subcompaction containing only range deletions
@@ -1140,12 +1146,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       status = s;
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
-  }
-
-  if (status.ok()) {
-    if (blob_file_builder) {
-      status = blob_file_builder->Finish();
-    }
   }
 
   sub_compact->compaction_job_stats.cpu_micros =
