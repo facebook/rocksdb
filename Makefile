@@ -1830,36 +1830,40 @@ prefetch_test: $(OBJ_DIR)/file/prefetch_test.o $(TEST_LIBRARY) $(LIBRARY)
 
 #-------------------------------------------------
 # make install related stuff
-INSTALL_PATH ?= /usr/local
+PREFIX ?= /usr/local
+LIBDIR ?= $(PREFIX)/lib
+INSTALL_LIBDIR = $(DESTDIR)$(LIBDIR)
 
 uninstall:
-	rm -rf $(INSTALL_PATH)/include/rocksdb \
-	  $(INSTALL_PATH)/lib/$(LIBRARY) \
-	  $(INSTALL_PATH)/lib/$(SHARED4) \
-	  $(INSTALL_PATH)/lib/$(SHARED3) \
-	  $(INSTALL_PATH)/lib/$(SHARED2) \
-	  $(INSTALL_PATH)/lib/$(SHARED1) \
-	  $(INSTALL_PATH)/lib/pkgconfig/rocksdb.pc
+	rm -rf $(DESTDIR)$(PREFIX)/include/rocksdb \
+	  $(INSTALL_LIBDIR)/$(LIBRARY) \
+	  $(INSTALL_LIBDIR)/$(SHARED4) \
+	  $(INSTALL_LIBDIR)/$(SHARED3) \
+	  $(INSTALL_LIBDIR)/$(SHARED2) \
+	  $(INSTALL_LIBDIR)/$(SHARED1) \
+	  $(INSTALL_LIBDIR)/pkgconfig/rocksdb.pc
 
 install-headers: gen-pc
-	install -d $(INSTALL_PATH)/lib
-	install -d $(INSTALL_PATH)/lib/pkgconfig
+	install -d $(INSTALL_LIBDIR)
+	install -d $(INSTALL_LIBDIR)/pkgconfig
 	for header_dir in `$(FIND) "include/rocksdb" -type d`; do \
-		install -d $(INSTALL_PATH)/$$header_dir; \
+		install -d $(DESTDIR)/$(PREFIX)/$$header_dir; \
 	done
 	for header in `$(FIND) "include/rocksdb" -type f -name *.h`; do \
-		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+		install -C -m 644 $$header $(DESTDIR)/$(PREFIX)/$$header; \
 	done
-	install -C -m 644 rocksdb.pc $(INSTALL_PATH)/lib/pkgconfig/rocksdb.pc
+	install -C -m 644 rocksdb.pc $(INSTALL_LIBDIR)/pkgconfig/rocksdb.pc
 
 install-static: install-headers $(LIBRARY)
-	install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
+	install -d $(INSTALL_LIBDIR)
+	install -C -m 755 $(LIBRARY) $(INSTALL_LIBDIR)
 
 install-shared: install-headers $(SHARED4)
-	install -C -m 755 $(SHARED4) $(INSTALL_PATH)/lib && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED3) && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED2) && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED1)
+	install -d $(INSTALL_LIBDIR)
+	install -C -m 755 $(SHARED4) $(INSTALL_LIBDIR)
+	ln -fs $(SHARED4) $(INSTALL_LIBDIR)/$(SHARED3)
+	ln -fs $(SHARED4) $(INSTALL_LIBDIR)/$(SHARED2)
+	ln -fs $(SHARED4) $(INSTALL_LIBDIR)/$(SHARED1)
 
 # install static by default + install shared if it exists
 install: install-static
@@ -1867,10 +1871,10 @@ install: install-static
 
 # Generate the pkg-config file
 gen-pc:
-	-echo 'prefix=$(INSTALL_PATH)' > rocksdb.pc
+	-echo 'prefix=$(PREFIX)' > rocksdb.pc
 	-echo 'exec_prefix=$${prefix}' >> rocksdb.pc
 	-echo 'includedir=$${prefix}/include' >> rocksdb.pc
-	-echo 'libdir=$${exec_prefix}/lib' >> rocksdb.pc
+	-echo 'libdir=$(LIBDIR)' >> rocksdb.pc
 	-echo '' >> rocksdb.pc
 	-echo 'Name: rocksdb' >> rocksdb.pc
 	-echo 'Description: An embeddable persistent key-value store for fast storage' >> rocksdb.pc
