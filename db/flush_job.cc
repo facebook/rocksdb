@@ -457,15 +457,22 @@ Status FlushJob::WriteLevel0Table() {
 #endif  // !ROCKSDB_LITE
 
   // Note that here we treat flush as level 0 compaction in internal stats
-  // TODO consider blob files
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
+
+  const auto& blobs = edit_->GetBlobFileAdditions();
+  for (const auto& blob : blobs) {
+    stats.bytes_written += blob.GetTotalBlobBytes();
+  }
+
+  stats.num_output_files = blobs.size() + 1;
+
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                     meta_.fd.GetFileSize());
+                                     stats.bytes_written);
   RecordFlushIOStats();
   return s;
 }
