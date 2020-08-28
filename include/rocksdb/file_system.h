@@ -633,10 +633,12 @@ class FSRandomAccessFile {
                         IODebugContext* dbg) const = 0;
 
   // Readahead the file starting from offset by n bytes for caching.
+  // If it's not implemented (default: `NotSupported`), RocksDB will create
+  // internal prefetch buffer to improve read performance.
   virtual IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::OK();
+    return IOStatus::NotSupported();
   }
 
   // Read a bunch of blocks as described by reqs. The blocks can
