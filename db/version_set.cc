@@ -2490,8 +2490,8 @@ void VersionStorageInfo::ComputeCompactionScore(
                          static_cast<uint64_t>(level_max_bytes_[base_level_] /
                                                level_multiplier_));
           }
-          score = std::max(
-              score, static_cast<double>(total_size) / l0_target_size);
+          score =
+              std::max(score, static_cast<double>(total_size) / l0_target_size);
         }
       }
     } else {
