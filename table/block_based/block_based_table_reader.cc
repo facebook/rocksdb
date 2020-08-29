@@ -747,22 +747,23 @@ Status BlockBasedTable::PrefetchTail(
   }
   TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::TailPrefetchLen",
                            &tail_prefetch_size);
-  Status s;
-  // TODO should not have this special logic in the future.
+
+  // Try file system prefetch
   if (!file->use_direct_io() && !force_direct_prefetch) {
-    prefetch_buffer->reset(new FilePrefetchBuffer(
-        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
-    s = file->Prefetch(prefetch_off, prefetch_len);
-  } else {
-    prefetch_buffer->reset(new FilePrefetchBuffer(
-        nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
-    IOOptions opts;
-    s = PrepareIOFromReadOptions(ro, file->env(), opts);
-    if (s.ok()) {
-      s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+    if (!file->Prefetch(prefetch_off, prefetch_len).IsNotSupported()) {
+      prefetch_buffer->reset(
+          new FilePrefetchBuffer(nullptr, 0, 0, false, true));
+      return Status::OK();
     }
   }
 
+  // Use `FilePrefetchBuffer`
+  prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
+  IOOptions opts;
+  Status s = PrepareIOFromReadOptions(ro, file->env(), opts);
+  if (s.ok()) {
+    s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+  }
   return s;
 }
 

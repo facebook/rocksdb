@@ -633,5 +633,13 @@ struct BlockBasedTable::Rep {
                                       max_readahead_size,
                                       !ioptions.allow_mmap_reads /* enable */));
   }
+
+  void CreateFilePrefetchBufferIfNotExists(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    if (!(*fpb)) {
+      CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb);
+    }
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
