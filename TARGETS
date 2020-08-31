@@ -1196,6 +1196,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "io_tracer_parser_test",
+        "tools/io_tracer_parser_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "io_tracer_test",
         "trace_replay/io_tracer_test.cc",
         "serial",

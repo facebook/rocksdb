@@ -127,12 +127,12 @@ int io_tracer_parser(int argc, char** argv) {
 
   if (FLAGS_io_trace_file.empty()) {
     fprintf(stderr, "IO Trace file path is empty\n");
-    exit(1);
+    return 1;
   }
 
   if (FLAGS_output_file.empty()) {
     fprintf(stderr, "Output file path is empty\n");
-    exit(1);
+    return 1;
   }
 
   IOTraceRecordParser io_tracer_parser(FLAGS_io_trace_file, FLAGS_output_file);
