@@ -3180,8 +3180,8 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
 }
 
 // It's an output stream helper to build string to WritableFile.
-// Which auto flushes to file when the object is destroyed (like RAII), the
-// flush error is ignored, unless manually call `flush()`.
+// Which auto flushes to file when the object is destroyed (like RAII) or the
+// data size is bigger than `kBuffFlushThreshold`, the flush error is ignored.
 class WritableFileStringStreamHelper {
  public:
   WritableFileStringStreamHelper(WritableFile* writable_file)
@@ -3191,6 +3191,7 @@ class WritableFileStringStreamHelper {
 
   bool flush() {
     Status s = file_->Append(stream_buff_.str());
+    stream_buff_.str("");
     stream_buff_.clear();
     return s.ok();
   }
@@ -3199,12 +3200,16 @@ class WritableFileStringStreamHelper {
   template <typename T>
   WritableFileStringStreamHelper& operator<<(const T& t) {
     stream_buff_ << t;
+    if (stream_buff_.tellp() > kBuffFlushThreshold) {
+      flush();
+    }
     return *this;
   }
 
  private:
   WritableFile* file_;
   std::ostringstream stream_buff_;
+  constexpr static long kBuffFlushThreshold = 4 * 1024;
 };
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {
