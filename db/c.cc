@@ -1237,12 +1237,6 @@ void rocksdb_approximate_sizes_cf(
   delete[] ranges;
 }
 
-void rocksdb_delete_file(
-    rocksdb_t* db,
-    const char* name) {
-  db->rep->DeleteFile(name);
-}
-
 const rocksdb_livefiles_t* rocksdb_livefiles(
     rocksdb_t* db) {
   rocksdb_livefiles_t* result = new rocksdb_livefiles_t;

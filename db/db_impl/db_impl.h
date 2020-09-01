@@ -390,7 +390,21 @@ class DBImpl : public DB {
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options =
           TransactionLogIterator::ReadOptions()) override;
-  virtual Status DeleteFile(std::string name) override;
+
+// Windows API macro interference
+#undef DeleteFile
+  // `DeleteFile()` currently has a loose API contract. It should be used with
+  // caution and the implementation should be read carefully before use.
+  //
+  // Delete the file name from the db directory and update the internal state to
+  // reflect that. Supports deletion of sst and log files only. 'name' must be
+  // path relative to the db directory. eg. 000001.sst, /archive/000003.log.
+  //
+  // Note it fails to delete the file and returns non-OK `Status` in various
+  // cases, like when the file is undergoing compaction or is not in the
+  // bottommost level.
+  virtual Status DeleteFile(std::string name);
+
   Status DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                              const RangePtr* ranges, size_t n,
                              bool include_end = true);

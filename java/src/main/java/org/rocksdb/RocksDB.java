@@ -3989,19 +3989,6 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Delete the file name from the db directory and update the internal state to
-   * reflect that. Supports deletion of sst and log files only. 'name' must be
-   * path relative to the db directory. eg. 000001.sst, /archive/000003.log
-   *
-   * @param name the file name
-   *
-   * @throws RocksDBException if an error occurs whilst deleting the file
-   */
-  public void deleteFile(final String name) throws RocksDBException {
-    deleteFile(nativeHandle_, name);
-  }
-
-  /**
    * Gets a list of all table files metadata.
    *
    * @return table files metadata.
@@ -4630,8 +4617,6 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native long getUpdatesSince(final long handle,
       final long sequenceNumber) throws RocksDBException;
-  private native void deleteFile(final long handle, final String name)
-      throws RocksDBException;
   private native LiveFileMetaData[] getLiveFilesMetaData(final long handle);
   private native ColumnFamilyMetaData getColumnFamilyMetaData(
       final long handle, final long columnFamilyHandle);

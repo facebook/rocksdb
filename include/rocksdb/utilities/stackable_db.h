@@ -397,10 +397,6 @@ class StackableDB : public DB {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
-  virtual Status DeleteFile(std::string name) override {
-    return db_->DeleteFile(name);
-  }
-
   virtual Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
   }

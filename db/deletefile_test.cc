@@ -172,15 +172,15 @@ TEST_F(DeleteFileTest, AddKeysAndQueryLevels) {
   ASSERT_EQ(level1keycount, 50000);
   ASSERT_EQ(level2keycount, 50000);
 
-  Status status = db_->DeleteFile("0.sst");
+  Status status = dbfull()->DeleteFile("0.sst");
   ASSERT_TRUE(status.IsInvalidArgument());
 
   // intermediate level files cannot be deleted.
-  status = db_->DeleteFile(level1file);
+  status = dbfull()->DeleteFile(level1file);
   ASSERT_TRUE(status.IsInvalidArgument());
 
   // Lowest level file deletion should succeed.
-  ASSERT_OK(db_->DeleteFile(level2file));
+  ASSERT_OK(dbfull()->DeleteFile(level2file));
 }
 
 TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
@@ -429,7 +429,7 @@ TEST_F(DeleteFileTest, DeleteFileWithIterator) {
     level2file = metadata[0].name;
   }
 
-  Status status = db_->DeleteFile(level2file);
+  Status status = dbfull()->DeleteFile(level2file);
   fprintf(stdout, "Deletion status %s: %s\n",
           level2file.c_str(), status.ToString().c_str());
   ASSERT_TRUE(status.ok());
@@ -461,7 +461,7 @@ TEST_F(DeleteFileTest, DeleteLogFiles) {
   ASSERT_OK(env_->FileExists(wal_dir_ + "/" + alive_log->PathName()));
   fprintf(stdout, "Deleting alive log file %s\n",
           alive_log->PathName().c_str());
-  ASSERT_TRUE(!db_->DeleteFile(alive_log->PathName()).ok());
+  ASSERT_TRUE(!dbfull()->DeleteFile(alive_log->PathName()).ok());
   ASSERT_OK(env_->FileExists(wal_dir_ + "/" + alive_log->PathName()));
   logfiles.clear();
 
@@ -479,7 +479,7 @@ TEST_F(DeleteFileTest, DeleteLogFiles) {
   ASSERT_OK(env_->FileExists(wal_dir_ + "/" + archived_log->PathName()));
   fprintf(stdout, "Deleting archived log file %s\n",
           archived_log->PathName().c_str());
-  ASSERT_OK(db_->DeleteFile(archived_log->PathName()));
+  ASSERT_OK(dbfull()->DeleteFile(archived_log->PathName()));
   ASSERT_EQ(Status::NotFound(),
             env_->FileExists(wal_dir_ + "/" + archived_log->PathName()));
 }
@@ -515,8 +515,8 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
   auto new_file = metadata[0].smallest_seqno > metadata[1].smallest_seqno
                       ? metadata[0].name
                       : metadata[1].name;
-  ASSERT_TRUE(db_->DeleteFile(new_file).IsInvalidArgument());
-  ASSERT_OK(db_->DeleteFile(old_file));
+  ASSERT_TRUE(dbfull()->DeleteFile(new_file).IsInvalidArgument());
+  ASSERT_OK(dbfull()->DeleteFile(old_file));
 
   {
     std::unique_ptr<Iterator> itr(db_->NewIterator(ReadOptions(), handles_[1]));
