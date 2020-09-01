@@ -7,6 +7,8 @@ package org.rocksdb;
 
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.rocksdb.limiter.ConcurrentTaskLimiter;
+import org.rocksdb.limiter.ConcurrentTaskLimiterImpl;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import java.util.ArrayList;
@@ -643,4 +645,12 @@ public class ColumnFamilyOptionsTest {
     }
   }
 
+  @Test
+  public void compactionThreadFilter() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions();
+        final ConcurrentTaskLimiter compactionThreadLimiter = new ConcurrentTaskLimiterImpl("name", 3)) {
+      options.setCompactionThreadLimiter(compactionThreadLimiter);
+      assertThat(options.compactionThreadLimiter()).isEqualTo(compactionThreadLimiter);
+    }
+  }
 }

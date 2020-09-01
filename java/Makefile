@@ -36,6 +36,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.HdfsEnv\
+	org.rocksdb.limiter.ConcurrentTaskLimiter\
+	org.rocksdb.limiter.ConcurrentTaskLimiterImpl\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -248,10 +250,12 @@ java:
 	$(AM_V_GEN)mkdir -p $(MAIN_CLASSES)
 ifeq ($(shell java -version 2>&1 | grep 1.7.0 > /dev/null; printf $$?), 0)
 	$(AM_V_at)javac $(JAVAC_ARGS) -d $(MAIN_CLASSES)\
+		$(MAIN_SRC)/org/rocksdb/limiter/*.java\
 		$(MAIN_SRC)/org/rocksdb/util/*.java\
 		$(MAIN_SRC)/org/rocksdb/*.java
 else
 	$(AM_V_at)javac $(JAVAC_ARGS) -h $(NATIVE_INCLUDE) -d $(MAIN_CLASSES)\
+		$(MAIN_SRC)/org/rocksdb/limiter/*.java\
 		$(MAIN_SRC)/org/rocksdb/util/*.java\
 		$(MAIN_SRC)/org/rocksdb/*.java
 endif

@@ -10,6 +10,8 @@ import java.util.*;
 
 import org.junit.ClassRule;
 import org.junit.Test;
+import org.rocksdb.limiter.ConcurrentTaskLimiter;
+import org.rocksdb.limiter.ConcurrentTaskLimiterImpl;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1308,4 +1310,12 @@ public class OptionsTest {
     }
   }
 
+  @Test
+  public void compactionThreadFilter() {
+    try (final Options options = new Options();
+         final ConcurrentTaskLimiter compactionThreadLimiter = new ConcurrentTaskLimiterImpl("name", 3)) {
+      options.setCompactionThreadLimiter(compactionThreadLimiter);
+      assertThat(options.compactionThreadLimiter()).isEqualTo(compactionThreadLimiter);
+    }
+  }
 }
