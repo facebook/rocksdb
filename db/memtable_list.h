@@ -389,8 +389,6 @@ class MemTableList {
   // DB mutex held
   void InstallNewVersion();
 
-  static std::string GetBlobAdditionInfo(const VersionEdit& edit);
-
   const int min_write_buffer_number_to_merge_;
 
   MemTableListVersion* current_;
