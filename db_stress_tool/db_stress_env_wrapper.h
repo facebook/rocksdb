@@ -17,7 +17,7 @@ class DbStressEnvWrapper : public EnvWrapper {
   explicit DbStressEnvWrapper(Env* t) : EnvWrapper(t) {}
 
   Status DeleteFile(const std::string& f) override {
-    // We determine whether it is a manifest file by searching a strong,
+    // We determine whether it is a manifest file by searching a string,
     // so that there will be false positive if the directory path contains the
     // keyword but it is unlikely.
     // Checkpoint directory needs to be exempted.

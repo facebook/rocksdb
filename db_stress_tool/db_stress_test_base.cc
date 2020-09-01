@@ -655,6 +655,11 @@ void StressTest::OperateDb(ThreadState* thread) {
         }
       }
 
+      if (thread->rand.OneInOpt(
+              FLAGS_inject_random_corruption_and_verify_checksum_one_in)) {
+        TestInjectCorruptionAndVerify(thread);
+      }
+
       if (thread->rand.OneInOpt(FLAGS_get_property_one_in)) {
         TestGetProperty(thread);
       }
@@ -1283,6 +1288,170 @@ Status StressTest::TestBackupRestore(
             s.ToString().c_str());
   }
   return s;
+}
+
+namespace {
+inline Status FlipBitsInFile(
+    const std::string& file_name, const EnvOptions& env_opts,
+    const std::set<std::pair<size_t, uint8_t>>& locations,
+    uint8_t* num_bits_flipped) {
+  Status s = db_stress_env->FileExists(file_name);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<RandomRWFile> rwfile;
+  s = db_stress_env->NewRandomRWFile(file_name, &rwfile, env_opts);
+  if (!s.ok()) {
+    return s;
+  }
+
+  uint64_t offset = 0;
+  Slice buf;
+  char scratch[1] = {0};
+  for (const auto& loc : locations) {
+    offset = loc.first;
+    buf.clear();
+    scratch[0] &= 0;
+    s = rwfile->Read(offset, sizeof(scratch), &buf, scratch);
+    if (!s.ok()) {
+      return s;
+    }
+    if (!buf.empty()) {
+      scratch[0] ^= loc.second;
+      Status write_status = rwfile->Write(offset, buf);
+      if (write_status.ok() && num_bits_flipped != nullptr) {
+        ++(*num_bits_flipped);
+      }
+    }
+  }
+  return s;
+}
+}  // namespace
+
+void StressTest::TestInjectCorruptionAndVerify(ThreadState* thread) const {
+  db_->DisableFileDeletions();
+  std::vector<LiveFileMetaData> table_file_meta;
+  db_->GetLiveFilesMetaData(&table_file_meta);
+  auto meta_size = table_file_meta.size();
+  if (meta_size == 0) {
+    // Nothing to corrupt
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+
+  // Select a table file to corrupt
+  //
+  uint32_t file_index = 0;
+  size_t file_size = 0;
+  size_t file_size_without_footer = 0;
+  for (auto i = meta_size; i > 0; --i) {
+    // This loop does not gurantee finding a large enough file to corrupt.
+    // But since this function will probably be called multiple times, we
+    // simply return after meta_size random trials.
+    file_index = thread->rand.Uniform(static_cast<int>(meta_size));
+    file_size = table_file_meta[file_index].size;
+    if (file_size - sizeof(Footer) > 0) {
+      file_size_without_footer = file_size - sizeof(Footer);
+      break;
+    }
+  }
+  if (file_size_without_footer == 0) {
+    // Nothing to corrupt
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+  std::string file_name = db_->GetName() + table_file_meta[file_index].name;
+
+  // Choose the bit-flip locations
+  //
+  const uint8_t kNumBitsToCorrupt = 8;
+  // Pairs of {byte_location_in_a_file, bit_flip_pattern_in_a_byte}
+  std::set<std::pair<size_t, uint8_t>> locations;
+  for (auto i = 0; i < kNumBitsToCorrupt || locations.empty(); ++i) {
+    // Select at most 8 locations to flip
+    locations.insert(
+        {thread->rand.Uniform(static_cast<int>(file_size_without_footer)),
+         1 << thread->rand.Uniform(8)});
+  }
+
+  Status s;
+  EnvOptions env_opts(db_->GetDBOptions());
+  // Make a copy of the file to be corrupted and tamper the copy instead
+  // of the original file.
+  std::string file_copy = file_name;
+  file_copy.insert(file_copy.find_last_of('/') + 1,
+                   "." + ToString(thread->tid) + ".");
+  s = CopyFile(db_->GetFileSystem(), file_name, file_copy, 0 /* size */,
+               options_.use_fsync);
+  if (!s.ok()) {
+    fprintf(stderr,
+            "Failed to copy due to %s No corruption injected "
+            "and no checksum verification performed for %s\n",
+            s.ToString().c_str(), file_name.c_str());
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+  file_name = file_copy;
+  uint64_t copy_size = 0;
+  db_stress_env->GetFileSize(file_name, &copy_size);
+  // Sanity check after copying
+  if (static_cast<size_t>(copy_size) != file_size) {
+    fprintf(stderr,
+            "File size mismatch after file copy. No corruption "
+            "injected and no checksum verification performed for %s\n",
+            file_name.c_str());
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+
+  // Verify checksum before corruption
+  //
+  s = VerifySstFileChecksum(options_, env_opts, file_name);
+  if (!s.ok()) {
+    fprintf(stderr,
+            "%s already corrupted before injecting corruption:\n"
+            "%s\n",
+            file_name.c_str(), s.ToString().c_str());
+    thread->shared->SetVerificationFailure();
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+
+  // Corrupte the file by flipping the chosen bits
+  //
+  uint8_t num_bits_flipped = 0;
+  s = FlipBitsInFile(file_name, env_opts, locations, &num_bits_flipped);
+  if (!s.ok()) {
+    fprintf(stderr,
+            "Fail to corrupt %s due to %s No corruption was "
+            "injected\nSkipping...\n",
+            file_name.c_str(), s.ToString().c_str());
+    db_->EnableFileDeletions(false /* force */);
+    return;
+  }
+
+  if (num_bits_flipped > 0) {
+    // Verify checksum of the file
+    s = VerifySstFileChecksum(options_, env_opts, file_name);
+    if (s.ok()) {
+      fprintf(stderr,
+              "Fail to detect the injected corruption in %s "
+              "at the following locations:\n",
+              file_name.c_str());
+      for (const auto& loc : locations) {
+        fprintf(stderr, "Offset at %zu: Bit-flip pattern (hex) is %02x\n",
+                loc.first, loc.second);
+      }
+      thread->shared->SetVerificationFailure();
+    }
+  }
+
+  // Delete the file copy created for injecting corruption
+  //
+  db_->EnableFileDeletions(false /* force */);
+  db_stress_env->DeleteFile(file_name);
+  return;
 }
 
 Status StressTest::TestApproximateSize(
