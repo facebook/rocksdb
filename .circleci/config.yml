@@ -31,7 +31,7 @@ jobs:
       - checkout # check out the code in the project directory
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 ASSERT_STATUS_CHECKED=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
       - store_test_results:
           path: /tmp/test-results
 
