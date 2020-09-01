@@ -218,10 +218,13 @@ Status DBImpl::FlushMemTableToOutputFile(
                      column_family_name.c_str(),
                      storage_info->LevelSummary(&tmp));
 
-    const std::string blob_file_summary = storage_info->BlobFileSummary();
-    if (!blob_file_summary.empty()) {
-      ROCKS_LOG_BUFFER(log_buffer, "[%s] Blob file summary: %s\n",
-                       column_family_name.c_str(), blob_file_summary.c_str());
+    const auto& blob_files = storage_info->GetBlobFiles();
+    if (!blob_files.empty()) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
+                       "\n",
+                       column_family_name.c_str(), blob_files.begin()->first,
+                       blob_files.rbegin()->first);
     }
   }
 
@@ -582,10 +585,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
                        column_family_name.c_str(),
                        storage_info->LevelSummary(&tmp));
 
-      const std::string blob_file_summary = storage_info->BlobFileSummary();
-      if (!blob_file_summary.empty()) {
-        ROCKS_LOG_BUFFER(log_buffer, "[%s] Blob file summary: %s\n",
-                         column_family_name.c_str(), blob_file_summary.c_str());
+      const auto& blob_files = storage_info->GetBlobFiles();
+      if (!blob_files.empty()) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
+                         "\n",
+                         column_family_name.c_str(), blob_files.begin()->first,
+                         blob_files.rbegin()->first);
       }
     }
     if (made_progress) {
