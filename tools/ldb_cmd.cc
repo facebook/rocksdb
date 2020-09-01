@@ -276,6 +276,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == ListFileRangeDeletesCommand::Name()) {
     return new ListFileRangeDeletesCommand(parsed_params.option_map,
                                            parsed_params.flags);
+  } else if (parsed_params.cmd == UnsafeRemoveSstFileCommand::Name()) {
+    return new UnsafeRemoveSstFileCommand(parsed_params.cmd_params,
+                                          parsed_params.option_map,
+                                          parsed_params.flags);
   }
   return nullptr;
 }
@@ -3447,8 +3451,79 @@ void ListFileRangeDeletesCommand::DoCommand() {
     TEST_SYNC_POINT_CALLBACK(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", &out_str);
     fprintf(stdout, "%s\n", out_str.c_str());
+  }
+}
+
+void UnsafeRemoveSstFileCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(UnsafeRemoveSstFileCommand::Name());
+  ret.append(" <SST file number>");
+  ret.append("\n");
+}
+
+UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({})) {
+  if (params.size() != 1) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("SST file number must be specified");
   } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+    char* endptr = nullptr;
+    sst_file_number_ = strtoull(params.at(0).c_str(), &endptr, 10 /* base */);
+    if (endptr == nullptr || *endptr != '\0') {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Failed to parse SST file number " + params.at(0));
+    }
+  }
+}
+
+void UnsafeRemoveSstFileCommand::DoCommand() {
+  PrepareOptions();
+
+  if (options_.db_paths.empty()) {
+    // `VersionSet` expects options that have been through `SanitizeOptions()`,
+    // which would sanitize an empty `db_paths`.
+    options_.db_paths.emplace_back(db_path_, 0 /* target_size */);
+  }
+
+  WriteController wc(options_.delayed_write_rate);
+  WriteBufferManager wb(options_.db_write_buffer_size);
+  ImmutableDBOptions immutable_db_options(options_);
+  std::shared_ptr<Cache> tc(
+      NewLRUCache(1 << 20 /* capacity */, options_.table_cache_numshardbits));
+  EnvOptions sopt;
+  VersionSet versions(db_path_, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr);
+  Status s = versions.Recover(column_families_);
+
+  ColumnFamilyData* cfd = nullptr;
+  int level = -1;
+  if (s.ok()) {
+    FileMetaData* metadata = nullptr;
+    s = versions.GetMetadataForFile(sst_file_number_, &level, &metadata, &cfd);
+  }
+
+  if (s.ok()) {
+    VersionEdit edit;
+    edit.SetColumnFamily(cfd->GetID());
+    edit.DeleteFile(level, sst_file_number_);
+    // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
+    InstrumentedMutex mutex;
+    mutex.Lock();
+    s = versions.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
+                             &mutex, nullptr /* db_directory */,
+                             false /* new_descriptor_log */);
+    mutex.Unlock();
+  }
+
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "failed to unsafely remove SST file: " + s.ToString());
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Succeed("unsafely removed SST file");
   }
 }
 
