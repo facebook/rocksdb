@@ -700,7 +700,7 @@ TEST_F(BlobDBTest, ChangeCompressionGC) {
 
   bdb_options.compression = kLZ4Compression;
   Reopen(bdb_options);
-  for (; data_idx < 400; data_idx++) {
+  for (; data_idx < 500; data_idx++) {
     PutRandom("put-key" + ToString(data_idx), &rnd, &data);
   }
   VerifyDB(data);

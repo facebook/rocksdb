@@ -373,11 +373,14 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
       const Status status =
           blob_db_impl->DecompressSlice(blob, compression_type, &blob);
       if (!status.ok()) {
+        gc_stats_.SetError();
         return BlobDecision::kCorruption;
       }
     }
     if (blob_db_impl->bdb_options_.compression != kNoCompression) {
-      blob.PinSelf(blob_db_impl->GetCompressedSlice(blob, &compression_output));
+      blob_db_impl->GetCompressedSlice(blob, &compression_output);
+      blob = PinnableSlice(&compression_output);
+      blob.PinSelf();
     }
   }
 
