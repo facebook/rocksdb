@@ -511,7 +511,7 @@ class RepairCommand : public LDBCommand {
 
   virtual bool NoDBOpen() override { return true; }
 
-  virtual void OverrideBaseOptions();
+  virtual void OverrideBaseOptions() override;
 
   static void Help(std::string& ret);
 };
