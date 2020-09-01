@@ -908,7 +908,7 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
   auto* table_factory = cfd_->ioptions()->table_factory;
   assert(table_factory != nullptr);
   *block_cache =
-      table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts);
+      table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
   return *block_cache != nullptr;
 }
 

@@ -597,8 +597,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
             if (table_factory->get() != nullptr) {
               old_opts =
-                  table_factory->get()->GetOptions<BlockBasedTableOptions>(
-                      TableFactory::kBlockBasedTableOpts);
+                  table_factory->get()->GetOptions<BlockBasedTableOptions>();
             }
             if (name == "block_based_table_factory") {
               std::unique_ptr<TableFactory> new_factory;
@@ -629,8 +628,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto table_factory =
                 reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
             if (table_factory->get() != nullptr) {
-              old_opts = table_factory->get()->GetOptions<PlainTableOptions>(
-                  TableFactory::kPlainTableOpts);
+              old_opts = table_factory->get()->GetOptions<PlainTableOptions>();
             }
             if (name == "plain_table_factory") {
               std::unique_ptr<TableFactory> new_factory;
@@ -687,15 +685,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
-const std::string OptionsHelper::kMutableCFOptionsName = "MutableCFOptions";
 
 class ConfigurableMutableCFOptions : public Configurable {
  public:
   ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
     mutable_ = mcf;
-    ConfigurableHelper::RegisterOptions(
-        *this, OptionsHelper::kMutableCFOptionsName, &mutable_,
-        &cf_mutable_options_type_info);
+    ConfigurableHelper::RegisterOptions(*this, &mutable_,
+                                        &cf_mutable_options_type_info);
   }
 
  protected:

@@ -2967,11 +2967,10 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
   options.OptimizeForSmallDb();
 
   // Find the cache object
-  ASSERT_EQ(std::string(TableFactory::kBlockBasedTableName),
-            std::string(options.table_factory->Name()));
+  ASSERT_TRUE(options.table_factory->IsInstanceOf(
+      TableFactory::kBlockBasedTableName()));
   auto table_options =
-      options.table_factory->GetOptions<BlockBasedTableOptions>(
-          TableFactory::kBlockBasedTableOpts);
+      options.table_factory->GetOptions<BlockBasedTableOptions>();
 
   ASSERT_TRUE(table_options != nullptr);
   std::shared_ptr<Cache> cache = table_options->block_cache;

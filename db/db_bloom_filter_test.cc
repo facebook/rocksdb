@@ -85,8 +85,7 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     Options options = CurrentOptions(options_override);
     if (partition_filters_) {
       auto* table_options =
-          options.table_factory->GetOptions<BlockBasedTableOptions>(
-              TableFactory::kBlockBasedTableOpts);
+          options.table_factory->GetOptions<BlockBasedTableOptions>();
       if (table_options != nullptr &&
           table_options->index_type !=
               BlockBasedTableOptions::kTwoLevelIndexSearch) {

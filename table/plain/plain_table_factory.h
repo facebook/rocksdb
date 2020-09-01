@@ -156,7 +156,7 @@ class PlainTableFactory : public TableFactory {
   explicit PlainTableFactory(
       const PlainTableOptions& _table_options = PlainTableOptions());
 
-  const char* Name() const override { return kPlainTableName.c_str(); }
+  const char* Name() const override { return kPlainTableName(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions& ro,
                         const TableReaderOptions& table_reader_options,

@@ -68,6 +68,14 @@ class Configurable {
   // Developers should use DB::SetOption() instead to dynamically change
   // options while the DB is open.
   template <typename T>
+  const T* GetOptions() const {
+    return GetOptions<T>(T::kName());
+  }
+  template <typename T>
+  T* GetOptions() {
+    return GetOptions<T>(T::kName());
+  }
+  template <typename T>
   const T* GetOptions(const std::string& name) const {
     return reinterpret_cast<const T*>(GetOptionsPtr(name));
   }

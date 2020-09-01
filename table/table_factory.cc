@@ -10,13 +10,6 @@
 #include "table/plain/plain_table_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
-const std::string TableFactory::kBlockBasedTableName = "BlockBasedTable";
-const std::string TableFactory::kBlockBasedTableOpts = "BlockTableOptions";
-const std::string TableFactory::kPlainTableName = "PlainTable";
-const std::string TableFactory::kPlainTableOpts = "PlainTableOptions";
-const std::string TableFactory::kCuckooTableName = "CuckooTable";
-const std::string TableFactory::kCuckooTableOpts = "CuckooTableOptions";
-const std::string TableFactory::kBlockCacheOpts = "BlockCacheOptions";
 
 Status TableFactory::CreateFromString(const ConfigOptions& config_options_in,
                                       const std::string& id,
@@ -35,12 +28,12 @@ Status TableFactory::CreateFromString(const ConfigOptions& config_options_in,
       return status;
     }
   }
-  if (name == kBlockBasedTableName) {
+  if (name == TableFactory::kBlockBasedTableName()) {
     factory->reset(new BlockBasedTableFactory());
 #ifndef ROCKSDB_LITE
-  } else if (name == kPlainTableName) {
+  } else if (name == TableFactory::kPlainTableName()) {
     factory->reset(new PlainTableFactory());
-  } else if (name == kCuckooTableName) {
+  } else if (name == TableFactory::kCuckooTableName()) {
     factory->reset(new CuckooTableFactory());
 #endif  // ROCKSDB_LITE
   } else {

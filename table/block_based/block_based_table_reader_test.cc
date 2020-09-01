@@ -94,8 +94,7 @@ class BlockBasedTableReaderTest
     std::unique_ptr<TableReader> table_reader;
     ReadOptions ro;
     const auto* table_options =
-        table_factory_->GetOptions<BlockBasedTableOptions>(
-            TableFactory::kBlockBasedTableOpts);
+        table_factory_->GetOptions<BlockBasedTableOptions>();
     ASSERT_NE(table_options, nullptr);
     ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
                                     comparator, std::move(file), file_size,

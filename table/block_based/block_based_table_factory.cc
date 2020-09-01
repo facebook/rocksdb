@@ -377,8 +377,7 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   InitializeOptions();
-  ConfigurableHelper::RegisterOptions(*this, kBlockBasedTableOpts,
-                                      &table_options_,
+  ConfigurableHelper::RegisterOptions(*this, &table_options_,
                                       &block_based_table_type_info);
 }
 
@@ -646,7 +645,7 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
 
 const void* BlockBasedTableFactory::GetOptionsPtr(
     const std::string& name) const {
-  if (name == kBlockCacheOpts) {
+  if (name == kBlockCacheOpts()) {
     if (table_options_.no_block_cache) {
       return nullptr;
     } else {
@@ -759,8 +758,7 @@ Status GetBlockBasedTableOptionsFromMap(
   BlockBasedTableFactory bbtf(table_options);
   Status s = bbtf.ConfigureFromMap(config_options, opts_map);
   if (s.ok()) {
-    *new_table_options = *(bbtf.GetOptions<BlockBasedTableOptions>(
-        TableFactory::kBlockBasedTableOpts));
+    *new_table_options = *(bbtf.GetOptions<BlockBasedTableOptions>());
   } else {
     *new_table_options = table_options;
   }

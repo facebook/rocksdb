@@ -1128,8 +1128,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
   const auto new_bbto =
-      new_options.table_factory->GetOptions<BlockBasedTableOptions>(
-          TableFactory::kBlockBasedTableOpts);
+      new_options.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(new_bbto, nullptr);
   ASSERT_EQ(new_bbto->block_cache->GetCapacity(), 1U << 20);
   ASSERT_EQ(new_bbto->block_size, 4U);
@@ -1273,9 +1272,9 @@ TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
   ASSERT_OK(TableFactory::CreateFromString(config_opts, "BlockBasedTable",
                                            &cf_opts.table_factory));
   ASSERT_NE(cf_opts.table_factory.get(), nullptr);
-  ASSERT_EQ(cf_opts.table_factory->Name(), TableFactory::kBlockBasedTableName);
-  auto bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>(
-      TableFactory::kBlockBasedTableOpts);
+  ASSERT_TRUE(cf_opts.table_factory->IsInstanceOf(
+      TableFactory::kBlockBasedTableName()));
+  auto bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_OK(cf_opts.table_factory->ConfigureFromString(
       config_opts,
       "block_cache={capacity=1M;num_shard_bits=4;};"
@@ -1293,8 +1292,7 @@ TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
   ASSERT_FALSE(bbto->partition_filters);
   ASSERT_OK(TableFactory::CreateFromString(config_opts, "BlockBasedTable",
                                            &cf_opts.table_factory));
-  bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>(
-      TableFactory::kBlockBasedTableOpts);
+  bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
 
   ASSERT_OK(cf_opts.table_factory->ConfigureFromString(config_opts,
                                                        "no_block_cache=0;"));
@@ -1306,8 +1304,7 @@ TEST_F(OptionsTest, MutableTableOptions) {
   ConfigOptions config_options;
   std::shared_ptr<TableFactory> bbtf;
   bbtf.reset(NewBlockBasedTableFactory());
-  auto bbto = bbtf->GetOptions<BlockBasedTableOptions>(
-      TableFactory::kBlockBasedTableOpts);
+  auto bbto = bbtf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(bbto, nullptr);
   ASSERT_FALSE(bbtf->IsPrepared());
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_align", "true"));
@@ -1543,8 +1540,7 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   ASSERT_EQ(converted_opt.compression, leveldb_opt.compression);
 
   std::shared_ptr<TableFactory> table_factory = converted_opt.table_factory;
-  const auto table_opt = table_factory->GetOptions<BlockBasedTableOptions>(
-      TableFactory::kBlockBasedTableOpts);
+  const auto table_opt = table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(table_opt, nullptr);
 
   ASSERT_EQ(table_opt->block_cache->GetCapacity(), 8UL << 20);
@@ -2291,8 +2287,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
 
   auto new_block_based_table_options =
-      new_options.table_factory->GetOptions<BlockBasedTableOptions>(
-          TableFactory::kBlockBasedTableOpts);
+      new_options.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(new_block_based_table_options, nullptr);
   ASSERT_EQ(new_block_based_table_options->block_cache->GetCapacity(),
             1U << 20);
@@ -2871,9 +2866,8 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   // Make sure block-based table factory options was deserialized correctly
   std::shared_ptr<TableFactory> ttf = (*parser.cf_opts())[4].table_factory;
-  ASSERT_EQ(TableFactory::kBlockBasedTableName, std::string(ttf->Name()));
-  const auto parsed_bbto = ttf->GetOptions<BlockBasedTableOptions>(
-      TableFactory::kBlockBasedTableOpts);
+  ASSERT_EQ(TableFactory::kBlockBasedTableName(), std::string(ttf->Name()));
+  const auto parsed_bbto = ttf->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(parsed_bbto, nullptr);
   ASSERT_EQ(special_bbto.block_size, parsed_bbto->block_size);
   ASSERT_EQ(special_bbto.cache_index_and_filter_blocks,

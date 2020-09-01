@@ -56,7 +56,7 @@ class CuckooTableFactory : public TableFactory {
       const CuckooTableOptions& table_option = CuckooTableOptions());
   ~CuckooTableFactory() {}
 
-  const char* Name() const override { return kCuckooTableName.c_str(); }
+  const char* Name() const override { return kCuckooTableName(); }
 
   using TableFactory::NewTableReader;
   Status NewTableReader(

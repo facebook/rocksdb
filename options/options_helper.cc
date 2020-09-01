@@ -581,9 +581,9 @@ Status GetMutableOptionsFromStrings(
   *new_options = base_options;
   ConfigOptions config_options;
   const auto config = CFOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<MutableCFOptions>(
-      config_options, options_map, OptionsHelper::kMutableCFOptionsName,
-      config.get(), new_options);
+  return ConfigureFromMap<MutableCFOptions>(config_options, options_map,
+                                            MutableCFOptions::kName(),
+                                            config.get(), new_options);
 }
 
 Status GetMutableDBOptionsFromStrings(
@@ -595,9 +595,9 @@ Status GetMutableDBOptionsFromStrings(
   ConfigOptions config_options;
 
   auto config = DBOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<MutableDBOptions>(
-      config_options, options_map, OptionsHelper::kMutableDBOptionsName,
-      config.get(), new_options);
+  return ConfigureFromMap<MutableDBOptions>(config_options, options_map,
+                                            MutableDBOptions::kName(),
+                                            config.get(), new_options);
 }
 
 Status StringToMap(const std::string& opts_str,

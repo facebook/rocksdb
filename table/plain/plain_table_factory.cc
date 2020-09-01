@@ -52,7 +52,7 @@ static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
 
 PlainTableFactory::PlainTableFactory(const PlainTableOptions& options)
     : table_options_(options) {
-  ConfigurableHelper::RegisterOptions(*this, kPlainTableOpts, &table_options_,
+  ConfigurableHelper::RegisterOptions(*this, &table_options_,
                                       &plain_table_type_info);
 }
 
@@ -232,8 +232,7 @@ Status GetPlainTableOptionsFromMap(
   PlainTableFactory ptf(table_options);
   Status s = ptf.ConfigureFromMap(config_options, opts_map);
   if (s.ok()) {
-    *new_table_options =
-        *(ptf.GetOptions<PlainTableOptions>(TableFactory::kPlainTableOpts));
+    *new_table_options = *(ptf.GetOptions<PlainTableOptions>());
   } else {
     // Restore "new_options" to the default "base_options".
     *new_table_options = table_options;

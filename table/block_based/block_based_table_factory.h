@@ -46,7 +46,7 @@ class BlockBasedTableFactory : public TableFactory {
 
   ~BlockBasedTableFactory() {}
 
-  const char* Name() const override { return kBlockBasedTableName.c_str(); }
+  const char* Name() const override { return kBlockBasedTableName(); }
 
   using TableFactory::NewTableReader;
   Status NewTableReader(

@@ -133,8 +133,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
     auto* loaded_bbt_opt =
         loaded_cf_descs[i]
-            .options.table_factory->GetOptions<BlockBasedTableOptions>(
-                TableFactory::kBlockBasedTableOpts);
+            .options.table_factory->GetOptions<BlockBasedTableOptions>();
     // Expect the same cache will be loaded
     if (loaded_bbt_opt != nullptr) {
       ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
@@ -147,8 +146,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   for (size_t i = 0; i < loaded_cf_descs.size(); i++) {
     auto* loaded_bbt_opt =
         loaded_cf_descs[i]
-            .options.table_factory->GetOptions<BlockBasedTableOptions>(
-                TableFactory::kBlockBasedTableOpts);
+            .options.table_factory->GetOptions<BlockBasedTableOptions>();
     // Expect the same cache will be loaded
     if (loaded_bbt_opt != nullptr) {
       ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());

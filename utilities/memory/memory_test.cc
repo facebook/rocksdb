@@ -38,8 +38,7 @@ class MemoryTest : public testing::Test {
   void GetCachePointersFromTableFactory(
       const TableFactory* factory,
       std::unordered_set<const Cache*>* cache_set) {
-    const auto bbto = factory->GetOptions<BlockBasedTableOptions>(
-        TableFactory::kBlockBasedTableOpts);
+    const auto bbto = factory->GetOptions<BlockBasedTableOptions>();
     if (bbto != nullptr) {
       cache_set->insert(bbto->block_cache.get());
       cache_set->insert(bbto->block_cache_compressed.get());

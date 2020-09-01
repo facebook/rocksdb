@@ -75,10 +75,7 @@ extern Status StringToMap(
 
 struct OptionsHelper {
   static const std::string kCFOptionsName /*= "ColumnFamilyOptions"*/;
-  static const std::string kMutableCFOptionsName /*= "MutableCFOptions"*/;
   static const std::string kDBOptionsName /*= "DBOptions" */;
-  static const std::string kImmutableDBOptionsName /*= "ImmutableDBOptions"*/;
-  static const std::string kMutableDBOptionsName /*= "MutableDBOptions" */;
   static std::map<CompactionStyle, std::string> compaction_style_to_string;
   static std::map<CompactionPri, std::string> compaction_pri_to_string;
   static std::map<CompactionStopStyle, std::string>

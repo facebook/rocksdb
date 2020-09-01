@@ -48,8 +48,7 @@ Status LoadOptionsFromFile(const ConfigOptions& config_options,
     if (cache != nullptr) {
       TableFactory* tf = cf_opts[i].table_factory.get();
       if (tf != nullptr) {
-        auto* opts = tf->GetOptions<BlockBasedTableOptions>(
-            TableFactory::kBlockBasedTableOpts);
+        auto* opts = tf->GetOptions<BlockBasedTableOptions>();
         if (opts != nullptr) {
           opts->block_cache = *cache;
         }

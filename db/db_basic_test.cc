@@ -3252,7 +3252,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
 
     if (options.table_factory) {
       block_cache = options.table_factory->GetOptions<Cache>(
-          TableFactory::kBlockCacheOpts);
+          TableFactory::kBlockCacheOpts());
     }
 
     Random rnd(301);
@@ -3335,7 +3335,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
 
     if (options.table_factory) {
       block_cache = options.table_factory->GetOptions<Cache>(
-          TableFactory::kBlockCacheOpts);
+          TableFactory::kBlockCacheOpts());
     }
 
     Random rnd(301);

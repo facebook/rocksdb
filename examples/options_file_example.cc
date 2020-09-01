@@ -89,8 +89,7 @@ int main() {
   for (size_t i = 0; i < loaded_cf_descs.size(); ++i) {
     auto* loaded_bbt_opt =
         loaded_cf_descs[0]
-            .options.table_factory->GetOptions<BlockBasedTableOptions>(
-                TableFactory::kBlockBasedTableOpts);
+            .options.table_factory->GetOptions<BlockBasedTableOptions>();
     // Expect the same as BlockBasedTableOptions will be loaded form file.
     assert(loaded_bbt_opt->block_size == bbt_opts.block_size);
     // However, block_cache needs to be manually initialized as documented

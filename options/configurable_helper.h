@@ -39,6 +39,12 @@ class ConfigurableHelper {
   // @param name    The name of this set of options (@see GetOptionsPtr)
   // @param opt_ptr Pointer to the options to associate with this name
   // @param opt_map Options map that controls how this option is configured.
+  template <typename T>
+  static void RegisterOptions(
+      Configurable& configurable, T* opt_ptr,
+      const std::unordered_map<std::string, OptionTypeInfo>* opt_map) {
+    RegisterOptions(configurable, T::kName(), opt_ptr, opt_map);
+  }
   static void RegisterOptions(
       Configurable& configurable, const std::string& name, void* opt_ptr,
       const std::unordered_map<std::string, OptionTypeInfo>* opt_map);

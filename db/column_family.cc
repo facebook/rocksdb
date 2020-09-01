@@ -357,8 +357,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
-  bool is_block_based_table =
-      (result.table_factory->Name() == TableFactory::kBlockBasedTableName);
+  bool is_block_based_table = (result.table_factory->IsInstanceOf(
+      TableFactory::kBlockBasedTableName()));
 
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
@@ -1316,8 +1316,8 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0 && cf_options.ttl != kDefaultTtl) {
-    if (cf_options.table_factory->Name() !=
-        TableFactory::kBlockBasedTableName) {
+    if (!cf_options.table_factory->IsInstanceOf(
+            TableFactory::kBlockBasedTableName())) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
     }
@@ -1325,8 +1325,8 @@ Status ColumnFamilyData::ValidateOptions(
 
   if (cf_options.periodic_compaction_seconds > 0 &&
       cf_options.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
-    if (cf_options.table_factory->Name() !=
-        TableFactory::kBlockBasedTableName) {
+    if (!cf_options.table_factory->IsInstanceOf(
+            TableFactory::kBlockBasedTableName())) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
           "Block-Based Table format. ");

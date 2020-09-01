@@ -95,7 +95,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cuckoo_table_type_info =
 
 CuckooTableFactory::CuckooTableFactory(const CuckooTableOptions& table_options)
     : table_options_(table_options) {
-  ConfigurableHelper::RegisterOptions(*this, kCuckooTableOpts, &table_options_,
+  ConfigurableHelper::RegisterOptions(*this, &table_options_,
                                       &cuckoo_table_type_info);
 }
 
