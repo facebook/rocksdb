@@ -17,7 +17,6 @@
 #include <list>
 #include <map>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -3237,19 +3236,6 @@ const char* VersionStorageInfo::LevelFileSummary(FileSummaryStorage* scratch,
   }
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
   return scratch->buffer;
-}
-
-std::string VersionStorageInfo::BlobFileSummary() const {
-  if (blob_files_.empty()) {
-    return std::string();
-  }
-
-  std::ostringstream oss;
-
-  oss << "head: " << blob_files_.begin()->first
-      << ", tail: " << blob_files_.rbegin()->first;
-
-  return oss.str();
 }
 
 int64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {

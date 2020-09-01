@@ -427,9 +427,6 @@ class VersionStorageInfo {
   // in a specified level.  Uses *scratch as backing store.
   const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
 
-  // Returns a human-readable single-line summary of the blob files.
-  std::string BlobFileSummary() const;
-
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t MaxNextLevelOverlappingBytes();
