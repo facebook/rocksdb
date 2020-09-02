@@ -444,17 +444,32 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
 #endif  // !ROCKSDB_LITE
 
 TEST_F(DBFlushTest, FlushWithBlob) {
+  constexpr uint64_t min_blob_size = 10;
+
   Options options;
   options.enable_blob_files = true;
-  options.min_blob_size = 10;
+  options.min_blob_size = min_blob_size;
   options.disable_auto_compactions = true;
 
   Reopen(options);
 
-  ASSERT_OK(Put("key1", "short"));
-  ASSERT_OK(Put("key2", "long_value"));
+  constexpr char short_value[] = "short";
+  static_assert(sizeof(short_value) - 1 < min_blob_size,
+                "short_value too long");
+
+  constexpr char long_value[] = "long_value";
+  static_assert(sizeof(long_value) - 1 >= min_blob_size,
+                "long_value too short");
+
+  ASSERT_OK(Put("key1", short_value));
+  ASSERT_OK(Put("key2", long_value));
 
   ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("key1"), short_value);
+
+  // TODO: enable once Get support is implemented for blobs
+  // ASSERT_EQ(Get("key2"), long_value);
 
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
