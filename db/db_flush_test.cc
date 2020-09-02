@@ -521,7 +521,63 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 #endif  // ROCKSDB_LITE
 }
 
-TEST_F(DBFlushTest, FlushWithBlobAddError) {}
+TEST_F(DBFlushTest, FlushWithBlobAddError) {
+  FaultInjectionTestEnv fault_injection_env(env_);
+
+  Options options;
+  options.enable_blob_files = true;
+  options.disable_auto_compactions = true;
+  options.env = &fault_injection_env;
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "blob"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileBuilder::WriteBlobToFile:AddRecord", [&](void* /* arg */) {
+        fault_injection_env.SetFilesystemActive(false,
+                                                Status::IOError("AddRecord"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_NOK(Flush());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& l0_files = storage_info->LevelFiles(0);
+  ASSERT_TRUE(l0_files.empty());
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_TRUE(blob_files.empty());
+
+#ifndef ROCKSDB_LITE
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_FALSE(compaction_stats.empty());
+  ASSERT_EQ(compaction_stats[0].bytes_written, 0);
+  ASSERT_EQ(compaction_stats[0].num_output_files, 0);
+
+  const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED], 0);
+#endif  // ROCKSDB_LITE
+
+  Close();
+}
 
 TEST_F(DBFlushTest, FlushWithBlobFinishError) {}
 
