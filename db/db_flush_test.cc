@@ -11,6 +11,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "test_util/sync_point.h"
@@ -544,6 +545,9 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   SyncPoint::GetInstance()->SetCallBack(GetParam(), [&](void* /* arg */) {
     fault_injection_env.SetFilesystemActive(false, Status::IOError());
   });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void* /* arg */) { fault_injection_env.SetFilesystemActive(true); });
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_NOK(Flush());
@@ -568,6 +572,20 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 
   const auto& blob_files = storage_info->GetBlobFiles();
   ASSERT_TRUE(blob_files.empty());
+
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  for (const auto& file : files) {
+    uint64_t number = 0;
+    FileType type = kTableFile;
+
+    if (!ParseFileName(file, &number, &type)) {
+      continue;
+    }
+
+    ASSERT_NE(type, kTableFile);
+    ASSERT_NE(type, kBlobFile);
+  }
 
 #ifndef ROCKSDB_LITE
   const InternalStats* const internal_stats = cfd->internal_stats();
