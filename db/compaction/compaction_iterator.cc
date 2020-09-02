@@ -125,6 +125,7 @@ CompactionIterator::CompactionIterator(
 CompactionIterator::~CompactionIterator() {
   // input_ Iteartor lifetime is longer than pinned_iters_mgr_ lifetime
   input_->SetPinnedItersMgr(nullptr);
+  status_.PermitUncheckedError();
 }
 
 void CompactionIterator::ResetRecordCounts() {

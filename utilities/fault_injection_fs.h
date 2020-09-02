@@ -214,12 +214,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   virtual IOStatus GetFreeSpace(const std::string& path,
                                 const IOOptions& options, uint64_t* disk_free,
                                 IODebugContext* dbg) override {
+    IOStatus io_s;
     if (!IsFilesystemActive() && error_ == IOStatus::NoSpace()) {
       *disk_free = 0;
-      return IOStatus::OK();
     } else {
-      return target()->GetFreeSpace(path, options, disk_free, dbg);
+      io_s = target()->GetFreeSpace(path, options, disk_free, dbg);
     }
+    return io_s;
   }
 
   void WritableFileClosed(const FSFileState& state);
@@ -262,6 +263,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
+    error.PermitUncheckedError();
     filesystem_active_ = active;
     if (!active) {
       error_ = error;
@@ -270,6 +272,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void SetFilesystemActive(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
     MutexLock l(&mutex_);
+    error.PermitUncheckedError();
     SetFilesystemActiveNoLock(active, error);
   }
   void SetFilesystemDirectWritable(
@@ -283,6 +286,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void SetFileSystemIOError(IOStatus io_error) {
     MutexLock l(&mutex_);
+    io_error.PermitUncheckedError();
     error_ = io_error;
   }
 

@@ -407,7 +407,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // during previous error handling.
     if (file_deletion_disabled) {
       // Always return ok
-      EnableFileDeletions(/*force=*/true);
+      s = EnableFileDeletions(/*force=*/true);
     }
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
@@ -2609,6 +2609,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     NewThreadStatusCfInfo(
         static_cast_with_check<ColumnFamilyHandleImpl>(*handle)->cfd());
   }
+  persist_options_status.PermitUncheckedError();
   return s;
 }
 
@@ -4553,7 +4554,8 @@ Status DBImpl::IngestExternalFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       const IOStatus& io_s = versions_->io_status();
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
+          .PermitUncheckedError();
     }
 
     // Resume writes to the DB
