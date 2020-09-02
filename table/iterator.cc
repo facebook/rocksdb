@@ -35,13 +35,13 @@ Cleanable& Cleanable::operator=(Cleanable&& other) {
 }
 
 // If the entire linked list was on heap we could have simply add attach one
-// link list to another. However the head is an embeded object to avoid the cost
+// link list to another. However the head is an embedded object to avoid the cost
 // of creating objects for most of the use cases when the Cleanable has only one
 // Cleanup to do. We could put evernything on heap if benchmarks show no
 // negative impact on performance.
 // Also we need to iterate on the linked list since there is no pointer to the
-// tail. We can add the tail pointer but maintainin it might negatively impact
-// the perforamnce for the common case of one cleanup where tail pointer is not
+// tail. We can add the tail pointer but maintain it might negatively impact
+// the performance for the common case of one cleanup where tail pointer is not
 // needed. Again benchmarks could clarify that.
 // Even without a tail pointer we could iterate on the list, find the tail, and
 // have only that node updated without the need to insert the Cleanups one by
