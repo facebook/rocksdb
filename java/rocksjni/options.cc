@@ -1150,7 +1150,7 @@ void Java_org_rocksdb_Options_setSstPartitionerFactory(JNIEnv*, jobject,
  * Method:    setCompactionThreadLimiter
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setCompactionThreadLimiter(JNIEnv *, jobject,
+void Java_org_rocksdb_Options_setCompactionThreadLimiter(JNIEnv *, jclass,
                                                          jlong jhandle,
                                                          jlong jlimiter_handle) {
   auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
@@ -3669,7 +3669,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setSstPartitionerFactory(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setCompactionThreadLimiter(
-    JNIEnv *, jobject, jlong jhandle, jlong jlimiter_handle) {
+    JNIEnv *, jclass, jlong jhandle, jlong jlimiter_handle) {
   auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   auto* limiter = reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::ConcurrentTaskLimiter>*>(
       jlimiter_handle);

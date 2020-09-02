@@ -1034,7 +1034,7 @@ public class ColumnFamilyOptions extends RocksObject
     final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
-  private native void setCompactionThreadLimiter(final long nativeHandle_, final long compactionThreadLimiterHandle);
+  private static native void setCompactionThreadLimiter(final long nativeHandle_, final long compactionThreadLimiterHandle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
