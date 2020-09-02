@@ -1646,7 +1646,7 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
 
     void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
       count++;
-      assert(FlushReason::kWriteBufferManager == flush_job_info.flush_reason);
+      ASSERT_EQ(FlushReason::kWriteBufferManager, flush_job_info.flush_reason);
     }
   };
   std::shared_ptr<TestFlushListener> test_listener =

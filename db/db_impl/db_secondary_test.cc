@@ -748,10 +748,12 @@ TEST_F(DBSecondaryTest, SwitchWALMultiColumnFamilies) {
     }
   };
   for (int k = 0; k != 8; ++k) {
-    ASSERT_OK(
-        Put(0 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
-    ASSERT_OK(
-        Put(1 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(0 /*cf*/, "key" + std::to_string(k),
+                    "value" + std::to_string(k)));
+      ASSERT_OK(Put(1 /*cf*/, "key" + std::to_string(k),
+                    "value" + std::to_string(k)));
+    }
     TEST_SYNC_POINT(
         "DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp");
     ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
