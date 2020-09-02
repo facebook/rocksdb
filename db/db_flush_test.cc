@@ -521,7 +521,15 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 #endif  // ROCKSDB_LITE
 }
 
-TEST_F(DBFlushTest, FlushWithBlobAddError) {
+class DBFlushTestBlobError : public DBFlushTest,
+                             public testing::WithParamInterface<std::string> {};
+
+INSTANTIATE_TEST_CASE_P(DBFlushTestBlobError, DBFlushTestBlobError,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileBuilder::WriteBlobToFile:AddRecord",
+                            "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+
+TEST_P(DBFlushTestBlobError, FlushError) {
   FaultInjectionTestEnv fault_injection_env(env_);
 
   Options options;
@@ -533,11 +541,9 @@ TEST_F(DBFlushTest, FlushWithBlobAddError) {
 
   ASSERT_OK(Put("key", "blob"));
 
-  SyncPoint::GetInstance()->SetCallBack(
-      "BlobFileBuilder::WriteBlobToFile:AddRecord", [&](void* /* arg */) {
-        fault_injection_env.SetFilesystemActive(false,
-                                                Status::IOError("AddRecord"));
-      });
+  SyncPoint::GetInstance()->SetCallBack(GetParam(), [&](void* /* arg */) {
+    fault_injection_env.SetFilesystemActive(false, Status::IOError());
+  });
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_NOK(Flush());
