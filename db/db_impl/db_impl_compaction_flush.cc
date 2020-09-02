@@ -588,8 +588,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       const auto& blob_files = storage_info->GetBlobFiles();
       if (!blob_files.empty()) {
         ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
-                         "\n",
+                         "[%s] Blob file summary: head=%" PRIu64
+                         ", tail=%" PRIu64 "\n",
                          column_family_name.c_str(), blob_files.begin()->first,
                          blob_files.rbegin()->first);
       }
