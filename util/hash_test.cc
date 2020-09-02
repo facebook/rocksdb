@@ -389,23 +389,17 @@ static void test_BitOps() {
   // This complex code is to generalize to 128-bit values. Otherwise
   // we could just use = static_cast<T>(0x5555555555555555ULL);
   T everyOtherBit = 0;
-  for (;;) {
-    T next = (everyOtherBit << 8) | T{0x55};
-    if (next == everyOtherBit) {
-      // overflow -> done
-      break;
-    }
-    everyOtherBit = next;
+  for (unsigned i = 0; i < sizeof(T); ++i) {
+    everyOtherBit = (everyOtherBit << 8) | T{0x55};
   }
 
-  // These are also built using bit operations, as our 128-bit layer
+  // This one built using bit operations, as our 128-bit layer
   // might not implement arithmetic such as subtraction.
-  T v = 1;
   T vm1 = 0;  // "v minus one"
 
   for (int i = 0; i < int{8 * sizeof(T)}; ++i) {
+    T v = T{1} << i;
     // If we could directly use arithmetic:
-    // T v = T{1} << i;
     // T vm1 = static_cast<T>(v - 1);
 
     // FloorLog2
@@ -438,7 +432,6 @@ static void test_BitOps() {
     EXPECT_EQ(BitParity(vm1), i & 1);
     EXPECT_EQ(BitParity(vm1 & everyOtherBit), ((i + 1) / 2) & 1);
 
-    v = v << 1;
     vm1 = (vm1 << 1) | 1;
   }
 }
