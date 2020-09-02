@@ -436,7 +436,10 @@ Status FlushJob::WriteLevel0Table() {
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
-  if (s.ok() && meta_.fd.GetFileSize() > 0) {
+  const bool has_output = meta_.fd.GetFileSize() > 0;
+  assert(has_output || blob_file_additions.empty());
+
+  if (s.ok() && has_output) {
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
@@ -460,14 +463,17 @@ Status FlushJob::WriteLevel0Table() {
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
-  stats.bytes_written = meta_.fd.GetFileSize();
 
-  const auto& blobs = edit_->GetBlobFileAdditions();
-  for (const auto& blob : blobs) {
-    stats.bytes_written += blob.GetTotalBlobBytes();
+  if (has_output) {
+    stats.bytes_written = meta_.fd.GetFileSize();
+
+    const auto& blobs = edit_->GetBlobFileAdditions();
+    for (const auto& blob : blobs) {
+      stats.bytes_written += blob.GetTotalBlobBytes();
+    }
+
+    stats.num_output_files = blobs.size() + 1;
   }
-
-  stats.num_output_files = blobs.size() + 1;
 
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
