@@ -473,10 +473,10 @@ class BlockBasedTable : public TableReader {
       uint64_t data_size) const;
 
   // Helper functions for DumpTable()
-  Status DumpIndexBlock(WritableFileStringStreamHelper& out_stream);
-  Status DumpDataBlocks(WritableFileStringStreamHelper& out_stream);
+  Status DumpIndexBlock(std::ostream& out_stream);
+  Status DumpDataBlocks(std::ostream& out_stream);
   void DumpKeyValue(const Slice& key, const Slice& value,
-                    WritableFileStringStreamHelper& out_stream);
+                    std::ostream& out_stream);
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer

@@ -3179,41 +3179,44 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
   return Status::OK();
 }
 
-// It's an output stream helper to build string to WritableFile.
-// Which auto flushes to file when the object is destroyed (like RAII) or the
-// data size is bigger than `kBuffFlushThreshold`, the flush error is ignored.
-class WritableFileStringStreamHelper {
+// This is an adapter class for `WritableFile` to be used for `std::ostream`.
+// The adapter wraps a `WritableFile`, which can be passed to a `std::ostream`
+// constructor for storing streaming data.
+// Note:
+//  * This adapter doesn't provide any buffering, each write is forwarded to
+//    `WritableFile->Append()` directly.
+//  * For a failed write, the user needs to check the status by `ostream.good()`
+class WritableFileStringStreamAdapter : public std::stringbuf {
  public:
-  WritableFileStringStreamHelper(WritableFile* writable_file)
+  explicit WritableFileStringStreamAdapter(WritableFile* writable_file)
       : file_(writable_file) {}
 
-  ~WritableFileStringStreamHelper() { assert(flush()); }
-
-  bool flush() {
-    Status s = file_->Append(stream_buff_.str());
-    stream_buff_.str("");
-    stream_buff_.clear();
-    return s.ok();
+  // This is to handle `std::endl`, `endl` is written by `os.put()` directly
+  // without going through `xsputn()`. As we explicitly disabled buffering,
+  // every write, not captured by xsputn, is an overflow.
+  int overflow(int ch = EOF) {
+    if (ch == '\n') {
+      file_->Append("\n");
+      return ch;
+    }
+    return EOF;
   }
 
-  // Simple template just forward the input to stringstream buffer
-  template <typename T>
-  WritableFileStringStreamHelper& operator<<(const T& t) {
-    stream_buff_ << t;
-    if (stream_buff_.tellp() > kBuffFlushThreshold) {
-      flush();
+  std::streamsize xsputn(char const* p, std::streamsize n) {
+    Status s = file_->Append(Slice(p, n));
+    if (!s.ok()) {
+      return 0;
     }
-    return *this;
+    return n;
   }
 
  private:
   WritableFile* file_;
-  std::ostringstream stream_buff_;
-  constexpr static long kBuffFlushThreshold = 4 * 1024;
 };
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {
-  WritableFileStringStreamHelper out_stream(out_file);
+  auto out_file_wrapper = WritableFileStringStreamAdapter(out_file);
+  std::ostream out_stream(&out_file_wrapper);
   // Output Footer
   out_stream << "Footer Details:\n"
                 "--------------------------------------\n";
@@ -3314,11 +3317,17 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   // Output Data blocks
   s = DumpDataBlocks(out_stream);
 
-  return s;
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!out_stream.good()) {
+    return Status::IOError("Failed to write to output file");
+  }
+  return Status::OK();
 }
 
-Status BlockBasedTable::DumpIndexBlock(
-    WritableFileStringStreamHelper& out_stream) {
+Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
   out_stream << "Index Details:\n"
                 "--------------------------------------\n";
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
@@ -3368,8 +3377,7 @@ Status BlockBasedTable::DumpIndexBlock(
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpDataBlocks(
-    WritableFileStringStreamHelper& out_stream) {
+Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
@@ -3436,14 +3444,15 @@ Status BlockBasedTable::DumpDataBlocks(
     out_stream << "  # data blocks: " << num_datablocks << "\n";
     out_stream << "  min data block size: " << datablock_size_min << "\n";
     out_stream << "  max data block size: " << datablock_size_max << "\n";
-    out_stream << "  avg data block size: " << datablock_size_avg << "\n";
+    out_stream << "  avg data block size: " << ToString(datablock_size_avg)
+               << "\n";
   }
 
   return Status::OK();
 }
 
 void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
-                                   WritableFileStringStreamHelper& out_stream) {
+                                   std::ostream& out_stream) {
   InternalKey ikey;
   ikey.DecodeFrom(key);
 
