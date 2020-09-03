@@ -1,8 +1,7 @@
 package org.rocksdb;
 
 public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
-  public ConcurrentTaskLimiterImpl(final String name,
-                                   final int maxOutstandingTask) {
+  public ConcurrentTaskLimiterImpl(final String name, final int maxOutstandingTask) {
     super(newConcurrentTaskLimiterImpl0(name, maxOutstandingTask));
   }
 
@@ -33,12 +32,11 @@ public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
   }
 
   private static native long newConcurrentTaskLimiterImpl0(
-          final String name, final int maxOutstandingTask);
+      final String name, final int maxOutstandingTask);
   private static native String name(final long handle);
   private static native void setMaxOutstandingTask(final long handle, final int limit);
   private static native void resetMaxOutstandingTask(final long handle);
   private static native int outstandingTask(final long handle);
 
-  @Override
-  protected final native void disposeInternal(final long handle);
+  @Override protected final native void disposeInternal(final long handle);
 }

@@ -1830,7 +1830,7 @@ public class Options extends RocksObject
 
   @Override
   public ConcurrentTaskLimiter compactionThreadLimiter() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return this.compactionThreadLimiter_;
   }
 
@@ -2205,7 +2205,8 @@ public class Options extends RocksObject
       final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
-  private static native void setCompactionThreadLimiter(final long nativeHandle_, final long newLimiterHandle);
+  private static native void setCompactionThreadLimiter(
+      final long nativeHandle_, final long newLimiterHandle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
