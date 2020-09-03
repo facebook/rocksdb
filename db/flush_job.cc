@@ -472,7 +472,7 @@ Status FlushJob::WriteLevel0Table() {
       stats.bytes_written += blob.GetTotalBlobBytes();
     }
 
-    stats.num_output_files = blobs.size() + 1;
+    stats.num_output_files = static_cast<int>(blobs.size()) + 1;
   }
 
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
