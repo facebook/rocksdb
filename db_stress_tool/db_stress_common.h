@@ -542,6 +542,7 @@ extern StressTest* CreateNonBatchedOpsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
-std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(const std::string &name);
+std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
+    const std::string& name);
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

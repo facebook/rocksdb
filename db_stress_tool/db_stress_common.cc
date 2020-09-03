@@ -238,9 +238,7 @@ class MyXXH64Checksum : public FileChecksumGenerator {
     XXH64_reset(state_, 0);
   }
 
-  virtual ~MyXXH64Checksum() {
-    XXH64_freeState(state_);
-  }
+  virtual ~MyXXH64Checksum() { XXH64_freeState(state_); }
 
   void Update(const char* data, size_t n) override {
     XXH64_update(state_, data, n);
@@ -267,18 +265,21 @@ class MyXXH64Checksum : public FileChecksumGenerator {
     return str_;
   }
 
-  const char* Name() const override { return big_ ? "MyBigChecksum" : "MyXXH64Checksum"; }
+  const char* Name() const override {
+    return big_ ? "MyBigChecksum" : "MyXXH64Checksum";
+  }
 
  private:
   bool big_;
-  XXH64_state_t *state_;
+  XXH64_state_t* state_;
   std::string str_;
 };
 
 class DbStressChecksumGenFactory : public FileChecksumGenFactory {
   std::string default_func_name_;
 
-  std::unique_ptr<FileChecksumGenerator> CreateFromFuncName(const std::string& func_name) {
+  std::unique_ptr<FileChecksumGenerator> CreateFromFuncName(
+      const std::string& func_name) {
     std::unique_ptr<FileChecksumGenerator> rv;
     if (func_name == "FileChecksumCrc32c") {
       rv.reset(new FileChecksumGenCrc32c(FileChecksumGenContext()));
@@ -292,8 +293,10 @@ class DbStressChecksumGenFactory : public FileChecksumGenFactory {
     }
     return rv;
   }
+
  public:
-  DbStressChecksumGenFactory(const std::string& default_func_name) : default_func_name_(default_func_name) {}
+  DbStressChecksumGenFactory(const std::string& default_func_name)
+      : default_func_name_(default_func_name) {}
 
   std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenContext& context) override {
@@ -307,7 +310,8 @@ class DbStressChecksumGenFactory : public FileChecksumGenFactory {
   const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
 };
 
-std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(const std::string &name) {
+std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
+    const std::string& name) {
   // Translate from friendly names to internal names
   std::string internal_name;
   if (name == "crc32c") {
