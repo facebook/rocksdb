@@ -3,9 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <cinttypes>
-
 #include "db/compaction/compaction_iterator.h"
+
+#include <cinttypes>
 
 #include "db/blob/blob_file_builder.h"
 #include "db/snapshot_checker.h"
