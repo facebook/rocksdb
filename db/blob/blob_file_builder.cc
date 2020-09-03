@@ -165,6 +165,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
     }
   }
 
+  // Note: files get added to blob_file_paths_ right after the open, so they
+  // can be cleaned up upon failure. Contrast this with blob_file_additions_,
+  // which only contains successfully written files.
   assert(blob_file_paths_);
   blob_file_paths_->emplace_back(std::move(blob_file_path));
 
