@@ -637,11 +637,11 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  constexpr uint64_t blob_file_number = 2;
-
   if (sync_point_ == "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile") {
     ASSERT_TRUE(blob_file_paths.empty());
   } else {
+    constexpr uint64_t blob_file_number = 2;
+
     ASSERT_EQ(blob_file_paths.size(), 1);
     ASSERT_EQ(blob_file_paths[0],
               BlobFileName(immutable_cf_options.cf_paths.front().path,
