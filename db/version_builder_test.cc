@@ -1107,6 +1107,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   ASSERT_EQ(base_meta->GetTotalBlobBytes(), base_total_blob_bytes);
   ASSERT_EQ(base_meta->GetGarbageBlobCount(), garbage_blob_count);
   ASSERT_EQ(base_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+  ASSERT_EQ(base_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(base_meta->GetChecksumValue(), checksum_value);
 
   const auto added_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
 
@@ -1116,6 +1118,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   ASSERT_EQ(added_meta->GetTotalBlobBytes(), total_blob_bytes);
   ASSERT_EQ(added_meta->GetGarbageBlobCount(), garbage_blob_count);
   ASSERT_EQ(added_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+  ASSERT_EQ(added_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(added_meta->GetChecksumValue(), checksum_value);
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
