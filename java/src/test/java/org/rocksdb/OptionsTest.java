@@ -1311,7 +1311,7 @@ public class OptionsTest {
   }
 
   @Test
-  public void compactionThreadFilter() {
+  public void compactionThreadLimiter() {
     try (final Options options = new Options();
          final ConcurrentTaskLimiter compactionThreadLimiter = new ConcurrentTaskLimiterImpl("name", 3)) {
       options.setCompactionThreadLimiter(compactionThreadLimiter);

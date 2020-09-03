@@ -646,7 +646,7 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void compactionThreadFilter() {
+  public void compactionThreadLimiter() {
     try (final ColumnFamilyOptions options = new ColumnFamilyOptions();
         final ConcurrentTaskLimiter compactionThreadLimiter = new ConcurrentTaskLimiterImpl("name", 3)) {
       options.setCompactionThreadLimiter(compactionThreadLimiter);
