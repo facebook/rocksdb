@@ -29,6 +29,9 @@ expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
+    "backup_max_size": 100 * 1024 * 1024,
+    # Consider larger number when backups considered more stable
+    "backup_one_in": 100000,
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),

@@ -479,6 +479,10 @@ DEFINE_int32(backup_one_in, 0,
              "every N operations on average.  0 indicates CreateNewBackup() "
              "is disabled.");
 
+DEFINE_uint64(backup_max_size, 100 * 1024 * 1024,
+              "If non-zero, skip checking backup/restore when DB size in "
+              "bytes exceeds this setting.");
+
 DEFINE_int32(checkpoint_one_in, 0,
              "If non-zero, then CreateCheckpoint() will be called once for "
              "every N operations on average.  0 indicates CreateCheckpoint() "
