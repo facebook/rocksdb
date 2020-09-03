@@ -1373,7 +1373,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     stats.bytes_written += blob.GetTotalBlobBytes();
   }
 
-  stats.num_output_files = blobs.size() + 1;
+  stats.num_output_files = static_cast<int>(blobs.size()) + 1;
 
   cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
   cfd->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
