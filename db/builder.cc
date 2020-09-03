@@ -109,6 +109,7 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+  std::vector<std::string> blob_file_paths;
   std::string file_checksum = kUnknownFileChecksum;
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
 #ifndef ROCKSDB_LITE
@@ -170,7 +171,8 @@ Status BuildTable(
             ? new BlobFileBuilder(versions, env, fs, &ioptions,
                                   &mutable_cf_options, &file_options, job_id,
                                   column_family_id, column_family_name,
-                                  io_priority, write_hint, blob_file_additions)
+                                  io_priority, write_hint, &blob_file_paths,
+                                  blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -309,7 +311,13 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
-    fs->DeleteFile(fname, IOOptions(), nullptr);
+    constexpr IODebugContext* dbg = nullptr;
+
+    fs->DeleteFile(fname, IOOptions(), dbg);
+
+    for (const std::string& blob_file_path : blob_file_paths) {
+      fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+    }
   }
 
   if (meta->fd.GetFileSize() == 0) {
