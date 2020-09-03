@@ -42,16 +42,14 @@ class BlobFileBuilderTest : public testing::Test {
  protected:
   BlobFileBuilderTest() : mock_env_(Env::Default()), fs_(&mock_env_) {}
 
-  void VerifyBlobFile(const ImmutableCFOptions& immutable_cf_options,
-                      uint64_t blob_file_number, uint32_t column_family_id,
+  void VerifyBlobFile(uint64_t blob_file_number,
+                      const std::string& blob_file_path,
+                      uint32_t column_family_id,
                       CompressionType blob_compression_type,
                       const std::vector<std::pair<std::string, std::string>>&
                           expected_key_value_pairs,
                       const std::vector<std::string>& blob_indexes) {
     assert(expected_key_value_pairs.size() == blob_indexes.size());
-
-    const std::string blob_file_path = BlobFileName(
-        immutable_cf_options.cf_paths.front().path, blob_file_number);
 
     std::unique_ptr<FSRandomAccessFile> file;
     constexpr IODebugContext* dbg = nullptr;
@@ -173,7 +171,10 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_paths.size(), 1);
-  ASSERT_EQ(blob_file_paths[0],
+
+  const std::string& blob_file_path = blob_file_paths[0];
+
+  ASSERT_EQ(blob_file_path,
             BlobFileName(immutable_cf_options.cf_paths.front().path,
                          blob_file_number));
 
@@ -188,7 +189,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
       number_of_blobs * (BlobLogRecord::kHeaderSize + key_size + value_size));
 
   // Verify the contents of the new blob file as well as the blob references
-  VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
+  VerifyBlobFile(blob_file_number, blob_file_path, column_family_id,
                  kNoCompression, expected_key_value_pairs, blob_indexes);
 }
 
@@ -274,8 +275,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
         expected_key_value_pairs[i]};
     std::vector<std::string> blob_index{blob_indexes[i]};
 
-    VerifyBlobFile(immutable_cf_options, i + 2, column_family_id,
-                   kNoCompression, expected_key_value_pair, blob_index);
+    VerifyBlobFile(i + 2, blob_file_paths[i], column_family_id, kNoCompression,
+                   expected_key_value_pair, blob_index);
   }
 }
 
@@ -377,7 +378,10 @@ TEST_F(BlobFileBuilderTest, Compression) {
   constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_paths.size(), 1);
-  ASSERT_EQ(blob_file_paths[0],
+
+  const std::string& blob_file_path = blob_file_paths[0];
+
+  ASSERT_EQ(blob_file_path,
             BlobFileName(immutable_cf_options.cf_paths.front().path,
                          blob_file_number));
 
@@ -407,7 +411,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
       {key, compressed_value}};
   std::vector<std::string> blob_indexes{blob_index};
 
-  VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
+  VerifyBlobFile(blob_file_number, blob_file_path, column_family_id,
                  kSnappyCompression, expected_key_value_pairs, blob_indexes);
 }
 
@@ -533,7 +537,10 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   constexpr uint64_t blob_file_number = 2;
 
   ASSERT_EQ(blob_file_paths.size(), 1);
-  ASSERT_EQ(blob_file_paths[0],
+
+  const std::string& blob_file_path = blob_file_paths[0];
+
+  ASSERT_EQ(blob_file_path,
             BlobFileName(immutable_cf_options.cf_paths.front().path,
                          blob_file_number));
 
@@ -553,7 +560,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
       {key, value}};
   std::vector<std::string> blob_indexes{blob_index};
 
-  VerifyBlobFile(immutable_cf_options, blob_file_number, column_family_id,
+  VerifyBlobFile(blob_file_number, blob_file_path, column_family_id,
                  kNoCompression, expected_key_value_pairs, blob_indexes);
 }
 
