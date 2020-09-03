@@ -778,7 +778,10 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       ThreadStatus::STAGE_COMPACTION_INSTALL);
   db_mutex_->AssertHeld();
   Status status = compact_->status;
+
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  assert(cfd);
+
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
@@ -813,16 +816,18 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
         stats.bytes_written / static_cast<double>(stats.micros);
   }
 
+  const std::string& column_family_name = cfd->GetName();
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
-      "[%s] compacted to: %s (%s), MB/sec: %.1f rd, %.1f wr, level %d, "
+      "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
-      cfd->GetName().c_str(), vstorage->LevelSummary(&tmp),
-      vstorage->BlobFileSummary().c_str(), bytes_read_per_sec,
-      bytes_written_per_sec, compact_->compaction->output_level(),
+      column_family_name.c_str(), vstorage->LevelSummary(&tmp),
+      bytes_read_per_sec, bytes_written_per_sec,
+      compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
       stats.bytes_read_non_output_levels / 1048576.0,
@@ -832,6 +837,15 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       stats.num_dropped_records,
       CompressionTypeToString(compact_->compaction->output_compression())
           .c_str());
+
+  const auto& blob_files = vstorage->GetBlobFiles();
+  if (!blob_files.empty()) {
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
+                     "\n",
+                     column_family_name.c_str(), blob_files.begin()->first,
+                     blob_files.rbegin()->first);
+  }
 
   UpdateCompactionJobStats(stats);
 
@@ -877,7 +891,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   }
   stream.EndArray();
 
-  const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {
     stream << "blob_file_head" << blob_files.begin()->first;
     stream << "blob_file_tail" << blob_files.rbegin()->first;
@@ -964,14 +977,16 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       sub_compact->compaction->mutable_cf_options();
   assert(mutable_cf_options);
 
+  std::vector<std::string> blob_file_paths;
+
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       mutable_cf_options->enable_blob_files
-          ? new BlobFileBuilder(versions_, env_, fs_.get(),
-                                sub_compact->compaction->immutable_cf_options(),
-                                mutable_cf_options, &file_options_, job_id_,
-                                cfd->GetID(), cfd->GetName(),
-                                Env::IOPriority::IO_LOW, write_hint_,
-                                &sub_compact->blob_file_additions)
+          ? new BlobFileBuilder(
+                versions_, env_, fs_.get(),
+                sub_compact->compaction->immutable_cf_options(),
+                mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
+                cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
+                &blob_file_paths, &sub_compact->blob_file_additions)
           : nullptr);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
