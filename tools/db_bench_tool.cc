@@ -2900,9 +2900,17 @@ class Benchmark {
     fprintf(stderr, "...Verified\n");
   }
 
+  void ErrorExit() {
+    db_.DeleteDBs();
+    for (size_t i = 0; i < multi_dbs_.size(); i++) {
+      delete multi_dbs_[i].db;
+    }
+    exit(1);
+  }
+
   void Run() {
     if (!SanityCheck()) {
-      exit(1);
+      ErrorExit();
     }
     Open(&open_options_);
     PrintHeader();
@@ -2941,7 +2949,7 @@ class Benchmark {
         auto it = name.find('[');
         if (it == std::string::npos) {
           fprintf(stderr, "unknown benchmark arguments '%s'\n", name.c_str());
-          exit(1);
+          ErrorExit();
         }
         std::string args = name.substr(it + 1);
         args.resize(args.size() - 1);
@@ -2974,7 +2982,7 @@ class Benchmark {
           fprintf(stderr,
                   "Please disable_auto_compactions in FillDeterministic "
                   "benchmark\n");
-          exit(1);
+          ErrorExit();
         }
         if (num_threads > 1) {
           fprintf(stderr,
@@ -3026,7 +3034,7 @@ class Benchmark {
           fprintf(stderr,
                   "Please set use_existing_keys to true and specify a "
                   "row cache size in readtorowcache benchmark\n");
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::ReadToRowCache;
       } else if (name == "readtocache") {
@@ -3091,7 +3099,7 @@ class Benchmark {
         if (FLAGS_merge_operator.empty()) {
           fprintf(stdout, "%-12s : skipped (--merge_operator is unknown)\n",
                   name.c_str());
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::ReadRandomMergeRandom;
       } else if (name == "updaterandom") {
@@ -3157,18 +3165,18 @@ class Benchmark {
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
-          exit(1);
+          ErrorExit();
         }
         if (FLAGS_trace_file == "") {
           fprintf(stderr, "Please set --trace_file to be replayed from\n");
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::Replay;
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
-        exit(1);
+        ErrorExit();
       }
 
       if (fresh_db) {
@@ -3209,13 +3217,13 @@ class Benchmark {
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           s = db_.db->StartTrace(trace_options_, std::move(trace_writer));
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           fprintf(stdout, "Tracing the workload to: [%s]\n",
                   FLAGS_trace_file.c_str());
@@ -3227,13 +3235,13 @@ class Benchmark {
             fprintf(stderr,
                     "Block cache trace sampling frequency must be higher than "
                     "0.\n");
-            exit(1);
+            ErrorExit();
           }
           if (FLAGS_block_cache_trace_max_trace_file_size_in_bytes <= 0) {
             fprintf(stderr,
                     "The maximum file size for block cache tracing must be "
                     "higher than 0.\n");
-            exit(1);
+            ErrorExit();
           }
           block_cache_trace_options_.max_trace_file_size =
               FLAGS_block_cache_trace_max_trace_file_size_in_bytes;
@@ -3247,7 +3255,7 @@ class Benchmark {
             fprintf(stderr,
                     "Encountered an error when creating trace writer, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           s = db_.db->StartBlockCacheTrace(block_cache_trace_options_,
                                            std::move(block_cache_trace_writer));
@@ -3256,7 +3264,7 @@ class Benchmark {
                 stderr,
                 "Encountered an error when starting block cache tracing, %s\n",
                 s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           fprintf(stdout, "Tracing block cache accesses to: [%s]\n",
                   FLAGS_block_cache_trace_file.c_str());
@@ -4575,7 +4583,7 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
     }
     thread->stats.AddBytes(bytes);
@@ -5663,7 +5671,7 @@ class Benchmark {
             gen.Generate(static_cast<unsigned int>(val_size)));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
+          ErrorExit();
         }
 
         if (thread->shared->write_rate_limiter) {
@@ -6222,7 +6230,7 @@ class Benchmark {
         Status s = db->Put(write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
+          ErrorExit();
         }
         put_weight--;
         writes_done++;
@@ -6327,7 +6335,7 @@ class Benchmark {
       Status s = db->Put(write_options_, key, Slice(new_value));
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       thread->stats.FinishedOps(nullptr, db, 1);
     }
@@ -6380,7 +6388,7 @@ class Benchmark {
       Status s = db->Put(write_options_, key, value);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       bytes += key.size() + value.size();
       thread->stats.FinishedOps(nullptr, db, 1, kUpdate);
@@ -6917,7 +6925,7 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       bytes = key.size() + val.size();
       thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
