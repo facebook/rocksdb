@@ -1,4 +1,4 @@
-package org.rocksdb.limiter;
+package org.rocksdb;
 
 public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
   public ConcurrentTaskLimiterImpl(final String name,
@@ -13,9 +13,9 @@ public class ConcurrentTaskLimiterImpl extends ConcurrentTaskLimiter {
   }
 
   @Override
-  public ConcurrentTaskLimiter setMaxOutstandingTask(final int maxOutstandinsTask) {
+  public ConcurrentTaskLimiter setMaxOutstandingTask(final int maxOutstandingTask) {
     assert (isOwningHandle());
-    setMaxOutstandingTask(nativeHandle_, maxOutstandinsTask);
+    setMaxOutstandingTask(nativeHandle_, maxOutstandingTask);
     return this;
   }
 

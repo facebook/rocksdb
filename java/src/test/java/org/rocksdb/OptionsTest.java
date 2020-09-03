@@ -10,8 +10,6 @@ import java.util.*;
 
 import org.junit.ClassRule;
 import org.junit.Test;
-import org.rocksdb.limiter.ConcurrentTaskLimiter;
-import org.rocksdb.limiter.ConcurrentTaskLimiterImpl;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;

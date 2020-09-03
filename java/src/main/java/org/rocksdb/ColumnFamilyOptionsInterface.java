@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import org.rocksdb.limiter.ConcurrentTaskLimiter;
-
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
   /**

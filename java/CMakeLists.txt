@@ -154,8 +154,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
   src/main/java/org/rocksdb/LevelMetaData.java
-  src/main/java/org/rocksdb/limiter/ConcurrentTaskLimiter.java
-  src/main/java/org/rocksdb/limiter/ConcurrentTaskLimiterImpl.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java

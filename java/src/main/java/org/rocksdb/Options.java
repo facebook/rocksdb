@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import org.rocksdb.limiter.ConcurrentTaskLimiter;
-
 import java.nio.file.Paths;
 import java.util.*;
 

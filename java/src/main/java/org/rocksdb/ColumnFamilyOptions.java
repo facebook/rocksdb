@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import org.rocksdb.limiter.ConcurrentTaskLimiter;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;

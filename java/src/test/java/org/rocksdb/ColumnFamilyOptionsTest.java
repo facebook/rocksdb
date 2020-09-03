@@ -7,8 +7,6 @@ package org.rocksdb;
 
 import org.junit.ClassRule;
 import org.junit.Test;
-import org.rocksdb.limiter.ConcurrentTaskLimiter;
-import org.rocksdb.limiter.ConcurrentTaskLimiterImpl;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import java.util.ArrayList;

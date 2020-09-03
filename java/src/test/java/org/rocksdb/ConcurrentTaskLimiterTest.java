@@ -1,10 +1,9 @@
-package org.rocksdb.limiter;
+package org.rocksdb;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
-import org.rocksdb.RocksNativeLibraryResource;
 
 import static org.junit.Assert.assertEquals;
 
