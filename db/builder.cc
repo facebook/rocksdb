@@ -315,8 +315,14 @@ Status BuildTable(
 
     fs->DeleteFile(fname, IOOptions(), dbg);
 
-    for (const std::string& blob_file_path : blob_file_paths) {
-      fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+    assert(blob_file_additions || blob_file_paths.empty());
+
+    if (blob_file_additions) {
+      for (const std::string& blob_file_path : blob_file_paths) {
+        fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+      }
+
+      blob_file_additions->clear();
     }
   }
 
