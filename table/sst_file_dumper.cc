@@ -226,12 +226,15 @@ int SstFileDumper::ShowAllCompressionSizes(
     size_t block_size,
     const std::vector<std::pair<CompressionType, const char*>>&
         compression_types,
-    int32_t compress_level_from, int32_t compress_level_to) {
+    int32_t compress_level_from, int32_t compress_level_to,
+    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
   for (auto& i : compression_types) {
     if (CompressionTypeSupported(i.first)) {
       fprintf(stdout, "Compression: %-24s\n", i.second);
       CompressionOptions compress_opt;
+      compress_opt.max_dict_bytes = max_dict_bytes;
+      compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;

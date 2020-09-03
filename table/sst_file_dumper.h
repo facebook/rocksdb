@@ -38,9 +38,9 @@ class SstFileDumper {
   int ShowAllCompressionSizes(
       size_t block_size,
       const std::vector<std::pair<CompressionType, const char*>>&
-        compression_types,
-      int32_t compress_level_from,
-      int32_t compress_level_to);
+          compression_types,
+      int32_t compress_level_from, int32_t compress_level_to,
+      uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes);
 
   int ShowCompressionSize(
       size_t block_size,
