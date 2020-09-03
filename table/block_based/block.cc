@@ -291,7 +291,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // exist in the next block. Consider this example:
     //
     // Block N:    [aab@100, ... , app@120]
-    // bounary key: axy@50 (we make minimal assumption about a boundary key)
+    // boundary key: axy@50 (we make minimal assumption about a boundary key)
     // Block N+1:  [axy@10, ...   ]
     //
     // If seek_key = axy@60, the search will starts from Block N.
