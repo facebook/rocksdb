@@ -3459,6 +3459,8 @@ void UnsafeRemoveSstFileCommand::Help(std::string& ret) {
   ret.append(UnsafeRemoveSstFileCommand::Name());
   ret.append(" <SST file number>");
   ret.append("\n");
+  ret.append("    MUST NOT be used on a live DB.");
+  ret.append("\n");
 }
 
 UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
@@ -3481,6 +3483,12 @@ UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
 }
 
 void UnsafeRemoveSstFileCommand::DoCommand() {
+  // Instead of opening a `DB` and calling `DeleteFile()`, this implementation
+  // uses the underlying `VersionSet` API to read and modify the MANIFEST. This
+  // allows us to use the user's real options, while not having to worry about
+  // the DB persisting new SST files via flush/compaction or attempting to read/
+  // compact files which may fail, particularly for the file we intend to remove
+  // (the user may want to remove an already deleted file from MANIFEST).
   PrepareOptions();
 
   if (options_.db_paths.empty()) {
