@@ -1271,9 +1271,9 @@ Status StressTest::TestBackupRestore(
         thread->rand.OneIn(2) /* verify_with_checksum */);
   }
   if (s.ok()) {
+    int count = static_cast<int>(backup_info.size());
     s = backup_engine->RestoreDBFromBackup(
-        RestoreOptions(),
-        backup_info[thread->rand.Uniform(backup_info.size())].backup_id,
+        RestoreOptions(), backup_info[thread->rand.Uniform(count)].backup_id,
         restore_dir /* db_dir */, restore_dir /* wal_dir */);
   }
   if (s.ok()) {
