@@ -31,7 +31,9 @@ class BlobFileBuilder {
   BlobFileBuilder(VersionSet* versions, Env* env, FileSystem* fs,
                   const ImmutableCFOptions* immutable_cf_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, uint32_t column_family_id,
+                  const FileOptions* file_options, int job_id,
+                  uint32_t column_family_id,
+                  const std::string& column_family_name,
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
                   std::vector<BlobFileAddition>* blob_file_additions);
@@ -40,7 +42,9 @@ class BlobFileBuilder {
                   FileSystem* fs,
                   const ImmutableCFOptions* immutable_cf_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, uint32_t column_family_id,
+                  const FileOptions* file_options, int job_id,
+                  uint32_t column_family_id,
+                  const std::string& column_family_name,
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
                   std::vector<BlobFileAddition>* blob_file_additions);
@@ -70,7 +74,9 @@ class BlobFileBuilder {
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;
   const FileOptions* file_options_;
+  int job_id_;
   uint32_t column_family_id_;
+  std::string column_family_name_;
   Env::IOPriority io_priority_;
   Env::WriteLifeTimeHint write_hint_;
   std::vector<BlobFileAddition>* blob_file_additions_;

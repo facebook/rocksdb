@@ -15,6 +15,7 @@
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
+#include "logging/logging.h"
 #include "options/cf_options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -27,19 +28,22 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, Env* env, FileSystem* fs,
     const ImmutableCFOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    uint32_t column_family_id, Env::IOPriority io_priority,
+    int job_id, uint32_t column_family_id,
+    const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
                       fs, immutable_cf_options, mutable_cf_options,
-                      file_options, column_family_id, io_priority, write_hint,
+                      file_options, job_id, column_family_id,
+                      column_family_name, io_priority, write_hint,
                       blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, Env* env, FileSystem* fs,
     const ImmutableCFOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    uint32_t column_family_id, Env::IOPriority io_priority,
+    int job_id, uint32_t column_family_id,
+    const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
@@ -50,7 +54,9 @@ BlobFileBuilder::BlobFileBuilder(
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       file_options_(file_options),
+      job_id_(job_id),
       column_family_id_(column_family_id),
+      column_family_name_(column_family_name),
       io_priority_(io_priority),
       write_hint_(write_hint),
       blob_file_additions_(blob_file_additions),
@@ -267,6 +273,13 @@ Status BlobFileBuilder::CloseBlobFile() {
   blob_file_additions_->emplace_back(blob_file_number, blob_count_, blob_bytes_,
                                      std::move(checksum_method),
                                      std::move(checksum_value));
+
+  assert(immutable_cf_options_);
+  ROCKS_LOG_INFO(immutable_cf_options_->info_log,
+                 "[%s] [JOB %d] Generated blob file #%" PRIu64 ": %" PRIu64
+                 " total blobs, %" PRIu64 " total bytes",
+                 column_family_name_.c_str(), job_id_, blob_file_number,
+                 blob_count_, blob_bytes_);
 
   writer_.reset();
   blob_count_ = 0;

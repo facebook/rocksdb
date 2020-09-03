@@ -8,6 +8,7 @@
 * Fixed a bug in version 6.12 in which BackupEngine::CreateNewBackup could fail intermittently with non-OK status when backing up a read-write DB configured with a DBOptions::file_checksum_gen_factory.
 * Fix useless no-op compactions scheduled upon snapshot release when options.disable-auto-compactions = true.
 * Fix a bug when max_write_buffer_size_to_maintain is set, immutable flushed memtable destruction is delayed until the next super version is installed. A memtable is not added to delete list because of its reference hold by super version and super version doesn't switch because of empt delete list. So memory usage keeps on increasing beyond write_buffer_size + max_write_buffer_size_to_maintain.
+* Avoid converting MERGES to PUTS when allow_ingest_behind is true.
 * Fix compression dictionary sampling together with `SstFileWriter`. Previously, the dictionary would be trained/finalized immediately with zero samples. Now, the whole `SstFileWriter` file is buffered in memory and then sampled.
 
 ### New Features
@@ -16,6 +17,7 @@
 
 ### Performance Improvements
 * Reduce thread number for multiple DB instances by re-using one global thread for statistics dumping and persisting.
+* Reduce write-amp in heavy write bursts in `kCompactionStyleLevel` compaction style with `level_compaction_dynamic_level_bytes` set.
 
 ### Public API Change
 * Expose kTypeDeleteWithTimestamp in EntryType and update GetEntryType() accordingly.
