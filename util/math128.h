@@ -173,10 +173,10 @@ inline Unsigned128 Multiply64to128(uint64_t a, uint64_t b) {
   tmp += uint64_t{b & 0xffffFFFF} * uint64_t{a >> 32};
   // Avoid overflow: first add lower 32 of tmp2, and later upper 32
   uint64_t tmp2 = uint64_t{b >> 32} * uint64_t{a & 0xffffFFFF};
-  tmp += static_cast<uint32_t>(tmp2);
+  tmp += tmp2 & 0xffffFFFF;
   lower |= tmp << 32;
   tmp >>= 32;
-  tmp += (tmp2 >> 32);
+  tmp += tmp2 >> 32;
   tmp += uint64_t{b >> 32} * uint64_t{a >> 32};
   return Unsigned128(lower, tmp);
 #endif
