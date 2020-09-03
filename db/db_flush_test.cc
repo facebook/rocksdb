@@ -603,8 +603,6 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   Close();
 }
 
-TEST_F(DBFlushTest, FlushWithBlobFinishError) {}
-
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
