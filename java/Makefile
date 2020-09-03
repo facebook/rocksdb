@@ -137,6 +137,7 @@ JAVA_TESTS = \
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
+	org.rocksdb.limiter.ConcurrentTaskLimiterTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
@@ -307,12 +308,14 @@ java_test: java resolve_test_deps
 	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
 ifeq ($(shell java -version 2>&1|grep 1.7.0 >/dev/null; printf $$?),0)
 	$(AM_V_at)javac $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
+	    $(TEST_SRC)/org/rocksdb/limiter/*.java\
 		$(TEST_SRC)/org/rocksdb/test/*.java\
 		$(TEST_SRC)/org/rocksdb/util/*.java\
 		$(TEST_SRC)/org/rocksdb/*.java
 	$(AM_V_at)javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
 else
 	$(AM_V_at)javac $(JAVAC_ARGS) -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -h $(NATIVE_INCLUDE) -d $(TEST_CLASSES)\
+	    $(TEST_SRC)/org/rocksdb/limiter/*.java\
 		$(TEST_SRC)/org/rocksdb/test/*.java\
 		$(TEST_SRC)/org/rocksdb/util/*.java\
 		$(TEST_SRC)/org/rocksdb/*.java
