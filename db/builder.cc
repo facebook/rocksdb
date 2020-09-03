@@ -223,7 +223,7 @@ Status BuildTable(
     }
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
-    bool empty = builder->IsEmpty();
+    const bool empty = builder->IsEmpty();
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
