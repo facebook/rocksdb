@@ -3179,41 +3179,6 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
   return Status::OK();
 }
 
-// This is an adapter class for `WritableFile` to be used for `std::ostream`.
-// The adapter wraps a `WritableFile`, which can be passed to a `std::ostream`
-// constructor for storing streaming data.
-// Note:
-//  * This adapter doesn't provide any buffering, each write is forwarded to
-//    `WritableFile->Append()` directly.
-//  * For a failed write, the user needs to check the status by `ostream.good()`
-class WritableFileStringStreamAdapter : public std::stringbuf {
- public:
-  explicit WritableFileStringStreamAdapter(WritableFile* writable_file)
-      : file_(writable_file) {}
-
-  // This is to handle `std::endl`, `endl` is written by `os.put()` directly
-  // without going through `xsputn()`. As we explicitly disabled buffering,
-  // every write, not captured by xsputn, is an overflow.
-  int overflow(int ch = EOF) {
-    if (ch == '\n') {
-      file_->Append("\n");
-      return ch;
-    }
-    return EOF;
-  }
-
-  std::streamsize xsputn(char const* p, std::streamsize n) {
-    Status s = file_->Append(Slice(p, n));
-    if (!s.ok()) {
-      return 0;
-    }
-    return n;
-  }
-
- private:
-  WritableFile* file_;
-};
-
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   auto out_file_wrapper = WritableFileStringStreamAdapter(out_file);
   std::ostream out_stream(&out_file_wrapper);
