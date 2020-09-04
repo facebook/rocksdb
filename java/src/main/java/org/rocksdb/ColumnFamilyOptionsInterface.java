@@ -8,6 +8,14 @@ package org.rocksdb;
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
   /**
+   * The function recovers options to a previous version. Only 4.6 or later
+   * versions are supported.
+   *
+   * @return the instance of the current object.
+   */
+  T oldDefaults(int majorVersion, int minorVersion);
+
+  /**
    * Use this if your DB is very small (like under 1GB) and you don't want to
    * spend lots of memory for memtables.
    *

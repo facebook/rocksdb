@@ -2862,6 +2862,16 @@ void Java_org_rocksdb_Options_setOptimizeFiltersForHits(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    oldDefaults
+ * Signature: (JII)V
+ */
+void Java_org_rocksdb_Options_oldDefaults
+  (JNIEnv *, jclass, jlong jhandle, jint major_version, jint minor_version) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)->OldDefaults(major_version, minor_version);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    optimizeForSmallDb
  * Signature: (J)V
  */
@@ -3380,6 +3390,17 @@ void Java_org_rocksdb_ColumnFamilyOptions_disposeInternal(
   assert(cfo != nullptr);
   delete cfo;
 }
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    oldDefaults
+ * Signature: (JII)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_oldDefaults
+  (JNIEnv *, jclass, jlong jhandle, jint major_version, jint minor_version) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)->OldDefaults(major_version, minor_version);
+}
+
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions

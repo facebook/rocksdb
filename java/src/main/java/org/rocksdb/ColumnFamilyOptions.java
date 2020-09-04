@@ -138,6 +138,12 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions oldDefaults(int majorVersion, int minorVersion) {
+    oldDefaults(nativeHandle_, majorVersion, minorVersion);
+    return this;
+  }
+
+  @Override
   public ColumnFamilyOptions optimizeForSmallDb() {
     optimizeForSmallDb(nativeHandle_);
     return this;
@@ -881,6 +887,9 @@ public class ColumnFamilyOptions extends RocksObject
       final long optionsHandle);
   @Override protected final native void disposeInternal(final long handle);
 
+  private static native void oldDefaults(final long handle,
+                                         final int majorVersion,
+                                         final int minorVersion);
   private native void optimizeForSmallDb(final long handle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);

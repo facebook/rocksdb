@@ -158,6 +158,12 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options oldDefaults(int majorVersion, int minorVersion) {
+    oldDefaults(nativeHandle_, majorVersion, minorVersion);
+    return this;
+  }
+
+  @Override
   public Options optimizeForSmallDb() {
     optimizeForSmallDb(nativeHandle_);
     return this;
@@ -2052,6 +2058,9 @@ public class Options extends RocksObject
 
 
   // CF native handles
+  private static native void oldDefaults(final long handle,
+                                         final int majorVersion,
+                                         final int minorVersion);
   private native void optimizeForSmallDb(final long handle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
