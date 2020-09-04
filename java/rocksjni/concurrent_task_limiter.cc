@@ -1,10 +1,11 @@
+#include "rocksdb/concurrent_task_limiter.h"
+
 #include <jni.h>
 
 #include <memory>
 #include <string>
 
 #include "include/org_rocksdb_ConcurrentTaskLimiterImpl.h"
-#include "rocksdb/concurrent_task_limiter.h"
 #include "rocksjni/portal.h"
 
 /*
