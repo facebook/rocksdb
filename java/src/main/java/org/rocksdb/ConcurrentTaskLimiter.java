@@ -13,9 +13,9 @@ public abstract class ConcurrentTaskLimiter extends RocksObject {
   public abstract String name();
 
   /**
-   * Set max concurrent tasks.
-   * limit = 0 means no new task allowed.
-   * limit < 0 means no limitation.
+   * Set max concurrent tasks.<br>
+   * limit = 0 means no new task allowed.<br>
+   * limit &lt; 0 means no limitation.
    *
    * @param maxOutstandinsTask max concurrent tasks.
    * @return the reference to the current instance of ConcurrentTaskLimiter.
