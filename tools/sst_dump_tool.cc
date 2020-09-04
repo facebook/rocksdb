@@ -97,6 +97,12 @@ void print_help(bool to_stderr) {
     --compression_level_to=<compression_level>
       Compression level to stop compressing when executing recompress. One compression type
       and compression_level_from must also be specified
+
+    --compression_max_dict_bytes=<uint32_t>
+      Maximum size of dictionary used to prime the compression library
+
+    --compression_zstd_max_train_bytes=<uint32_t>
+      Maximum size of training data passed to zstd's dictionary trainer
 )");
 }
 
@@ -156,6 +162,10 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   uint64_t total_filter_block_size = 0;
   int32_t compress_level_from = CompressionOptions::kDefaultCompressionLevel;
   int32_t compress_level_to = CompressionOptions::kDefaultCompressionLevel;
+  uint32_t compression_max_dict_bytes =
+      ROCKSDB_NAMESPACE::CompressionOptions().max_dict_bytes;
+  uint32_t compression_zstd_max_train_bytes =
+      ROCKSDB_NAMESPACE::CompressionOptions().zstd_max_train_bytes;
 
   int64_t tmp_val;
 
@@ -244,6 +254,27 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
                            "compression_level_to must be numeric", &tmp_val)) {
       has_compression_level_to = true;
       compress_level_to = static_cast<int>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--compression_max_dict_bytes=",
+                           "compression_max_dict_bytes must be numeric",
+                           &tmp_val)) {
+      if (tmp_val < 0 || tmp_val > port::kMaxUint32) {
+        fprintf(stderr, "compression_max_dict_bytes must be a uint32_t: '%s'\n",
+                argv[i]);
+        print_help(/*to_stderr*/ true);
+        return 1;
+      }
+      compression_max_dict_bytes = static_cast<uint32_t>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--compression_zstd_max_train_bytes=",
+                           "compression_zstd_max_train_bytes must be numeric",
+                           &tmp_val)) {
+      if (tmp_val < 0 || tmp_val > port::kMaxUint32) {
+        fprintf(stderr,
+                "compression_zstd_max_train_bytes must be a uint32_t: '%s'\n",
+                argv[i]);
+        print_help(/*to_stderr*/ true);
+        return 1;
+      }
+      compression_zstd_max_train_bytes = static_cast<uint32_t>(tmp_val);
     } else if (strcmp(argv[i], "--help") == 0) {
       print_help(/*to_stderr*/ false);
       return 0;
@@ -371,7 +402,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       dumper.ShowAllCompressionSizes(
           set_block_size ? block_size : 16384,
           compression_types.empty() ? kCompressions : compression_types,
-          compress_level_from, compress_level_to);
+          compress_level_from, compress_level_to, compression_max_dict_bytes,
+          compression_zstd_max_train_bytes);
       return 0;
     }
 

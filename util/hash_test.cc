@@ -7,12 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "util/hash.h"
+
 #include <cstring>
 #include <vector>
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
-#include "util/hash.h"
+#include "util/math128.h"
 
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
@@ -368,6 +370,159 @@ uint32_t fastrange32(uint32_t hash, uint32_t range) {
 // for inspection of disassembly
 size_t fastrange64(uint64_t hash, size_t range) {
   return ROCKSDB_NAMESPACE::fastrange64(hash, range);
+}
+
+// Tests for math.h / math128.h (not worth a separate test binary)
+using ROCKSDB_NAMESPACE::BitParity;
+using ROCKSDB_NAMESPACE::BitsSetToOne;
+using ROCKSDB_NAMESPACE::CountTrailingZeroBits;
+using ROCKSDB_NAMESPACE::DecodeFixed128;
+using ROCKSDB_NAMESPACE::EncodeFixed128;
+using ROCKSDB_NAMESPACE::FloorLog2;
+using ROCKSDB_NAMESPACE::Lower64of128;
+using ROCKSDB_NAMESPACE::Multiply64to128;
+using ROCKSDB_NAMESPACE::Unsigned128;
+using ROCKSDB_NAMESPACE::Upper64of128;
+
+template <typename T>
+static void test_BitOps() {
+  // This complex code is to generalize to 128-bit values. Otherwise
+  // we could just use = static_cast<T>(0x5555555555555555ULL);
+  T everyOtherBit = 0;
+  for (unsigned i = 0; i < sizeof(T); ++i) {
+    everyOtherBit = (everyOtherBit << 8) | T{0x55};
+  }
+
+  // This one built using bit operations, as our 128-bit layer
+  // might not implement arithmetic such as subtraction.
+  T vm1 = 0;  // "v minus one"
+
+  for (int i = 0; i < int{8 * sizeof(T)}; ++i) {
+    T v = T{1} << i;
+    // If we could directly use arithmetic:
+    // T vm1 = static_cast<T>(v - 1);
+
+    // FloorLog2
+    if (v > 0) {
+      EXPECT_EQ(FloorLog2(v), i);
+    }
+    if (vm1 > 0) {
+      EXPECT_EQ(FloorLog2(vm1), i - 1);
+      EXPECT_EQ(FloorLog2(everyOtherBit & vm1), (i - 1) & ~1);
+    }
+
+    // CountTrailingZeroBits
+    if (v != 0) {
+      EXPECT_EQ(CountTrailingZeroBits(v), i);
+    }
+    if (vm1 != 0) {
+      EXPECT_EQ(CountTrailingZeroBits(vm1), 0);
+    }
+    if (i < int{8 * sizeof(T)} - 1) {
+      EXPECT_EQ(CountTrailingZeroBits(~vm1 & everyOtherBit), (i + 1) & ~1);
+    }
+
+    // BitsSetToOne
+    EXPECT_EQ(BitsSetToOne(v), 1);
+    EXPECT_EQ(BitsSetToOne(vm1), i);
+    EXPECT_EQ(BitsSetToOne(vm1 & everyOtherBit), (i + 1) / 2);
+
+    // BitParity
+    EXPECT_EQ(BitParity(v), 1);
+    EXPECT_EQ(BitParity(vm1), i & 1);
+    EXPECT_EQ(BitParity(vm1 & everyOtherBit), ((i + 1) / 2) & 1);
+
+    vm1 = (vm1 << 1) | 1;
+  }
+}
+
+TEST(MathTest, BitOps) {
+  test_BitOps<uint32_t>();
+  test_BitOps<uint64_t>();
+  test_BitOps<uint16_t>();
+  test_BitOps<uint8_t>();
+  test_BitOps<unsigned char>();
+  test_BitOps<unsigned short>();
+  test_BitOps<unsigned int>();
+  test_BitOps<unsigned long>();
+  test_BitOps<unsigned long long>();
+  test_BitOps<char>();
+  test_BitOps<size_t>();
+  test_BitOps<int32_t>();
+  test_BitOps<int64_t>();
+  test_BitOps<int16_t>();
+  test_BitOps<int8_t>();
+  test_BitOps<signed char>();
+  test_BitOps<short>();
+  test_BitOps<int>();
+  test_BitOps<long>();
+  test_BitOps<long long>();
+  test_BitOps<ptrdiff_t>();
+}
+
+TEST(MathTest, BitOps128) { test_BitOps<Unsigned128>(); }
+
+TEST(MathTest, Math128) {
+  const Unsigned128 sixteenHexOnes = 0x1111111111111111U;
+  const Unsigned128 thirtyHexOnes = (sixteenHexOnes << 56) | sixteenHexOnes;
+  const Unsigned128 sixteenHexTwos = 0x2222222222222222U;
+  const Unsigned128 thirtyHexTwos = (sixteenHexTwos << 56) | sixteenHexTwos;
+
+  // v will slide from all hex ones to all hex twos
+  Unsigned128 v = thirtyHexOnes;
+  for (int i = 0; i <= 30; ++i) {
+    // Test bitwise operations
+    EXPECT_EQ(BitsSetToOne(v), 30);
+    EXPECT_EQ(BitsSetToOne(~v), 128 - 30);
+    EXPECT_EQ(BitsSetToOne(v & thirtyHexOnes), 30 - i);
+    EXPECT_EQ(BitsSetToOne(v | thirtyHexOnes), 30 + i);
+    EXPECT_EQ(BitsSetToOne(v ^ thirtyHexOnes), 2 * i);
+    EXPECT_EQ(BitsSetToOne(v & thirtyHexTwos), i);
+    EXPECT_EQ(BitsSetToOne(v | thirtyHexTwos), 60 - i);
+    EXPECT_EQ(BitsSetToOne(v ^ thirtyHexTwos), 60 - 2 * i);
+
+    // Test comparisons
+    EXPECT_EQ(v == thirtyHexOnes, i == 0);
+    EXPECT_EQ(v == thirtyHexTwos, i == 30);
+    EXPECT_EQ(v > thirtyHexOnes, i > 0);
+    EXPECT_EQ(v > thirtyHexTwos, false);
+    EXPECT_EQ(v >= thirtyHexOnes, true);
+    EXPECT_EQ(v >= thirtyHexTwos, i == 30);
+    EXPECT_EQ(v < thirtyHexOnes, false);
+    EXPECT_EQ(v < thirtyHexTwos, i < 30);
+    EXPECT_EQ(v <= thirtyHexOnes, i == 0);
+    EXPECT_EQ(v <= thirtyHexTwos, true);
+
+    // Update v, clearing upper-most byte
+    v = ((v << 12) >> 8) | 0x2;
+  }
+
+  for (int i = 0; i < 128; ++i) {
+    // Test shifts
+    Unsigned128 sl = thirtyHexOnes << i;
+    Unsigned128 sr = thirtyHexOnes >> i;
+    EXPECT_EQ(BitsSetToOne(sl), std::min(30, 32 - i / 4));
+    EXPECT_EQ(BitsSetToOne(sr), std::max(0, 30 - (i + 3) / 4));
+    EXPECT_EQ(BitsSetToOne(sl & sr), i % 2 ? 0 : std::max(0, 30 - i / 2));
+  }
+
+  // Test 64x64->128 multiply
+  Unsigned128 product =
+      Multiply64to128(0x1111111111111111U, 0x2222222222222222U);
+  EXPECT_EQ(Lower64of128(product), 2295594818061633090U);
+  EXPECT_EQ(Upper64of128(product), 163971058432973792U);
+}
+
+TEST(MathTest, Coding128) {
+  const char *in = "_1234567890123456";
+  Unsigned128 decoded = DecodeFixed128(in + 1);
+  EXPECT_EQ(Lower64of128(decoded), 4050765991979987505U);
+  EXPECT_EQ(Upper64of128(decoded), 3906085646303834169U);
+  char out[18];
+  out[0] = '_';
+  EncodeFixed128(out + 1, decoded);
+  out[17] = '\0';
+  EXPECT_EQ(std::string(in), std::string(out));
 }
 
 int main(int argc, char** argv) {
