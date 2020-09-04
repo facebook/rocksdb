@@ -667,10 +667,23 @@ void StressTest::OperateDb(ThreadState* thread) {
       }
 
       if (thread->rand.OneInOpt(FLAGS_backup_one_in)) {
-        Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
-        if (!s.ok()) {
-          VerificationAbort(shared, "Backup/restore gave inconsistent state",
-                            s);
+        // Beyond a certain DB size threshold, this test becomes heavier than
+        // it's worth.
+        uint64_t total_size = 0;
+        if (FLAGS_backup_max_size > 0) {
+          std::vector<FileAttributes> files;
+          db_stress_env->GetChildrenFileAttributes(FLAGS_db, &files);
+          for (auto& file : files) {
+            total_size += file.size_bytes;
+          }
+        }
+
+        if (total_size <= FLAGS_backup_max_size) {
+          Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
+          if (!s.ok()) {
+            VerificationAbort(shared, "Backup/restore gave inconsistent state",
+                              s);
+          }
         }
       }
 
@@ -1211,6 +1224,30 @@ Status StressTest::TestBackupRestore(
   std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
   std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
   BackupableDBOptions backup_opts(backup_dir);
+  // For debugging, get info_log from live options
+  backup_opts.info_log = db_->GetDBOptions().info_log.get();
+  assert(backup_opts.info_log);
+  if (thread->rand.OneIn(2)) {
+    backup_opts.file_checksum_gen_factory = options_.file_checksum_gen_factory;
+  }
+  if (thread->rand.OneIn(10)) {
+    backup_opts.share_table_files = false;
+  } else {
+    backup_opts.share_table_files = true;
+    if (thread->rand.OneIn(5)) {
+      backup_opts.share_files_with_checksum = false;
+    } else {
+      backup_opts.share_files_with_checksum = true;
+      if (thread->rand.OneIn(2)) {
+        // old
+        backup_opts.share_files_with_checksum_naming = kChecksumAndFileSize;
+      } else {
+        // new
+        backup_opts.share_files_with_checksum_naming =
+            kOptionalChecksumAndDbSessionId;
+      }
+    }
+  }
   BackupEngine* backup_engine = nullptr;
   Status s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
   if (s.ok()) {
@@ -1221,12 +1258,31 @@ Status StressTest::TestBackupRestore(
     backup_engine = nullptr;
     s = BackupEngine::Open(db_stress_env, backup_opts, &backup_engine);
   }
+  std::vector<BackupInfo> backup_info;
   if (s.ok()) {
-    s = backup_engine->RestoreDBFromLatestBackup(restore_dir /* db_dir */,
-                                                 restore_dir /* wal_dir */);
+    backup_engine->GetBackupInfo(&backup_info);
+    if (backup_info.empty()) {
+      s = Status::NotFound("no backups found");
+    }
+  }
+  if (s.ok() && thread->rand.OneIn(2)) {
+    s = backup_engine->VerifyBackup(
+        backup_info.front().backup_id,
+        thread->rand.OneIn(2) /* verify_with_checksum */);
   }
   if (s.ok()) {
-    s = backup_engine->PurgeOldBackups(0 /* num_backups_to_keep */);
+    int count = static_cast<int>(backup_info.size());
+    s = backup_engine->RestoreDBFromBackup(
+        RestoreOptions(), backup_info[thread->rand.Uniform(count)].backup_id,
+        restore_dir /* db_dir */, restore_dir /* wal_dir */);
+  }
+  if (s.ok()) {
+    uint32_t to_keep = 0;
+    if (thread->tid == 0) {
+      // allow one thread to keep up to 2 backups
+      to_keep = thread->rand.Uniform(3);
+    }
+    s = backup_engine->PurgeOldBackups(to_keep);
   }
   DB* restored_db = nullptr;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
