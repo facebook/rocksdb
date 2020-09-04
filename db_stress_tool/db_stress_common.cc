@@ -231,14 +231,16 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   return value_sz;  // the size of the value set.
 }
 
+namespace {
+
 class MyXXH64Checksum : public FileChecksumGenerator {
  public:
-  MyXXH64Checksum(bool big) : big_(big) {
+  explicit MyXXH64Checksum(bool big) : big_(big) {
     state_ = XXH64_createState();
     XXH64_reset(state_, 0);
   }
 
-  virtual ~MyXXH64Checksum() { XXH64_freeState(state_); }
+  virtual ~MyXXH64Checksum() override { XXH64_freeState(state_); }
 
   void Update(const char* data, size_t n) override {
     XXH64_update(state_, data, n);
@@ -295,7 +297,7 @@ class DbStressChecksumGenFactory : public FileChecksumGenFactory {
   }
 
  public:
-  DbStressChecksumGenFactory(const std::string& default_func_name)
+  explicit DbStressChecksumGenFactory(const std::string& default_func_name)
       : default_func_name_(default_func_name) {}
 
   std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
@@ -309,6 +311,8 @@ class DbStressChecksumGenFactory : public FileChecksumGenFactory {
 
   const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
 };
+
+}  // namespace
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name) {
