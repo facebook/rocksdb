@@ -61,6 +61,7 @@ default_params = {
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.

@@ -728,4 +728,8 @@ DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
             "decision for deleted keys.");
 
+DEFINE_string(file_checksum_impl, "none",
+              "Name of an implementation for file_checksum_gen_factory, or "
+              "\"none\" for null.");
+
 #endif  // GFLAGS
