@@ -1120,6 +1120,8 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   ASSERT_EQ(added_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
   ASSERT_EQ(added_meta->GetChecksumMethod(), checksum_method);
   ASSERT_EQ(added_meta->GetChecksumValue(), checksum_value);
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
