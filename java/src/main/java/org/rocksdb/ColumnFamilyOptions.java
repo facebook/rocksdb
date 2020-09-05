@@ -150,6 +150,12 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions optimizeForSmallDb(Cache cache) {
+    optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
+    return this;
+  }
+
+  @Override
   public ColumnFamilyOptions optimizeForPointLookup(
       final long blockCacheSizeMb) {
     optimizeForPointLookup(nativeHandle_,
@@ -891,6 +897,8 @@ public class ColumnFamilyOptions extends RocksObject
                                          final int majorVersion,
                                          final int minorVersion);
   private native void optimizeForSmallDb(final long handle);
+  private static native void optimizeForSmallDb(final long handle,
+                                                final long cacheHandle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
   private native void optimizeLevelStyleCompaction(long handle,

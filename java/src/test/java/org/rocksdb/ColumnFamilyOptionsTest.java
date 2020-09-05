@@ -667,4 +667,12 @@ public class ColumnFamilyOptionsTest {
       assertThat(options.level0StopWritesTrigger()).isEqualTo(24);
     }
   }
+
+  @Test
+  public void optimizeForSmallDbWithCache() {
+    try(final ColumnFamilyOptions options = new ColumnFamilyOptions();
+        final Cache cache = new LRUCache(1024)) {
+      assertThat(options.optimizeForSmallDb(cache)).isEqualTo(options);
+    }
+  }
 }

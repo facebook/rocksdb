@@ -170,6 +170,12 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options optimizeForSmallDb(Cache cache) {
+    optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
+    return this;
+  }
+
+  @Override
   public Options optimizeForPointLookup(
       long blockCacheSizeMb) {
     optimizeForPointLookup(nativeHandle_,
@@ -2062,6 +2068,8 @@ public class Options extends RocksObject
                                          final int majorVersion,
                                          final int minorVersion);
   private native void optimizeForSmallDb(final long handle);
+  private static native void optimizeForSmallDb(final long handle,
+                                                final long cacheHandle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
   private native void optimizeLevelStyleCompaction(long handle,

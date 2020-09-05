@@ -24,6 +24,16 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
   T optimizeForSmallDb();
 
   /**
+   * Some functions that make it easier to optimize RocksDB
+   * Use this if your DB is very small (like under 1GB) and you don't want to
+   * spend lots of memory for memtables.
+   * An optional cache object is passed in to be used as the block cache
+   *
+   * @return the instance of the current object.
+   */
+  T optimizeForSmallDb(Cache cache);
+
+  /**
    * Use this if you don't need to keep the data sorted, i.e. you'll never use
    * an iterator, only Put() and Get() API calls
    *
