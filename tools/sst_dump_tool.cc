@@ -399,11 +399,15 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     }
 
     if (command == "recompress") {
-      dumper.ShowAllCompressionSizes(
+      st = dumper.ShowAllCompressionSizes(
           set_block_size ? block_size : 16384,
           compression_types.empty() ? kCompressions : compression_types,
           compress_level_from, compress_level_to, compression_max_dict_bytes,
           compression_zstd_max_train_bytes);
+      if (!st.ok()) {
+        fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
+        exit(1);
+      }
       return 0;
     }
 

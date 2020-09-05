@@ -3180,18 +3180,16 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
 }
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {
+  auto out_file_wrapper = WritableFileStringStreamAdapter(out_file);
+  std::ostream out_stream(&out_file_wrapper);
   // Output Footer
-  out_file->Append(
-      "Footer Details:\n"
-      "--------------------------------------\n"
-      "  ");
-  out_file->Append(rep_->footer.ToString().c_str());
-  out_file->Append("\n");
+  out_stream << "Footer Details:\n"
+                "--------------------------------------\n";
+  out_stream << "  " << rep_->footer.ToString() << "\n";
 
   // Output MetaIndex
-  out_file->Append(
-      "Metaindex Details:\n"
-      "--------------------------------------\n");
+  out_stream << "Metaindex Details:\n"
+                "--------------------------------------\n";
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
   ReadOptions ro;
@@ -3204,27 +3202,22 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       if (!s.ok()) {
         return s;
       }
-      if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kPropertiesBlock) {
-        out_file->Append("  Properties block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
-      } else if (metaindex_iter->key() ==
-                 ROCKSDB_NAMESPACE::kCompressionDictBlock) {
-        out_file->Append("  Compression dictionary block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
+      if (metaindex_iter->key() == kPropertiesBlock) {
+        out_stream << "  Properties block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
+      } else if (metaindex_iter->key() == kCompressionDictBlock) {
+        out_stream << "  Compression dictionary block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
       } else if (strstr(metaindex_iter->key().ToString().c_str(),
                         "filter.rocksdb.") != nullptr) {
-        out_file->Append("  Filter block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
-      } else if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kRangeDelBlock) {
-        out_file->Append("  Range deletion block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
+        out_stream << "  Filter block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
+      } else if (metaindex_iter->key() == kRangeDelBlock) {
+        out_stream << "  Range deletion block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
       }
     }
-    out_file->Append("\n");
+    out_stream << "\n";
   } else {
     return s;
   }
@@ -3234,25 +3227,19 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   table_properties = rep_->table_properties.get();
 
   if (table_properties != nullptr) {
-    out_file->Append(
-        "Table Properties:\n"
-        "--------------------------------------\n"
-        "  ");
-    out_file->Append(table_properties->ToString("\n  ", ": ").c_str());
-    out_file->Append("\n");
+    out_stream << "Table Properties:\n"
+                  "--------------------------------------\n";
+    out_stream << "  " << table_properties->ToString("\n  ", ": ") << "\n";
   }
 
   if (rep_->filter) {
-    out_file->Append(
-        "Filter Details:\n"
-        "--------------------------------------\n"
-        "  ");
-    out_file->Append(rep_->filter->ToString().c_str());
-    out_file->Append("\n");
+    out_stream << "Filter Details:\n"
+                  "--------------------------------------\n";
+    out_stream << "  " << rep_->filter->ToString() << "\n";
   }
 
   // Output Index block
-  s = DumpIndexBlock(out_file);
+  s = DumpIndexBlock(out_stream);
   if (!s.ok()) {
     return s;
   }
@@ -3271,15 +3258,10 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
     assert(uncompression_dict.GetValue());
 
     const Slice& raw_dict = uncompression_dict.GetValue()->GetRawDict();
-    out_file->Append(
-        "Compression Dictionary:\n"
-        "--------------------------------------\n");
-    out_file->Append("  size (bytes): ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(raw_dict.size()));
-    out_file->Append("\n\n");
-    out_file->Append("  HEX    ");
-    out_file->Append(raw_dict.ToString(true).c_str());
-    out_file->Append("\n\n");
+    out_stream << "Compression Dictionary:\n"
+                  "--------------------------------------\n";
+    out_stream << "  size (bytes): " << raw_dict.size() << "\n\n";
+    out_stream << "  HEX    " << raw_dict.ToString(true) << "\n\n";
   }
 
   // Output range deletions block
@@ -3287,39 +3269,44 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   if (range_del_iter != nullptr) {
     range_del_iter->SeekToFirst();
     if (range_del_iter->Valid()) {
-      out_file->Append(
-          "Range deletions:\n"
-          "--------------------------------------\n"
-          "  ");
+      out_stream << "Range deletions:\n"
+                    "--------------------------------------\n";
       for (; range_del_iter->Valid(); range_del_iter->Next()) {
-        DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_file);
+        DumpKeyValue(range_del_iter->key(), range_del_iter->value(),
+                     out_stream);
       }
-      out_file->Append("\n");
+      out_stream << "\n";
     }
     delete range_del_iter;
   }
   // Output Data blocks
-  s = DumpDataBlocks(out_file);
+  s = DumpDataBlocks(out_stream);
 
-  return s;
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!out_stream.good()) {
+    return Status::IOError("Failed to write to output file");
+  }
+  return Status::OK();
 }
 
-Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
-  out_file->Append(
-      "Index Details:\n"
-      "--------------------------------------\n");
+Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
+  out_stream << "Index Details:\n"
+                "--------------------------------------\n";
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
                        /*lookup_contex=*/nullptr));
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
-    out_file->Append("Can not read Index Block \n\n");
+    out_stream << "Can not read Index Block \n\n";
     return s;
   }
 
-  out_file->Append("  Block key hex dump: Data block handle\n");
-  out_file->Append("  Block key ascii\n\n");
+  out_stream << "  Block key hex dump: Data block handle\n";
+  out_stream << "  Block key ascii\n\n";
   for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
        blockhandles_iter->Next()) {
     s = blockhandles_iter->status();
@@ -3336,13 +3323,10 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
       user_key = ikey.user_key();
     }
 
-    out_file->Append("  HEX    ");
-    out_file->Append(user_key.ToString(true).c_str());
-    out_file->Append(": ");
-    out_file->Append(blockhandles_iter->value()
-                         .ToString(true, rep_->index_has_first_key)
-                         .c_str());
-    out_file->Append("\n");
+    out_stream << "  HEX    " << user_key.ToString(true) << ": "
+               << blockhandles_iter->value().ToString(true,
+                                                      rep_->index_has_first_key)
+               << "\n";
 
     std::string str_key = user_key.ToString();
     std::string res_key("");
@@ -3351,22 +3335,21 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
       res_key.append(&str_key[i], 1);
       res_key.append(1, cspace);
     }
-    out_file->Append("  ASCII  ");
-    out_file->Append(res_key.c_str());
-    out_file->Append("\n  ------\n");
+    out_stream << "  ASCII  " << res_key << "\n";
+    out_stream << "  ------\n";
   }
-  out_file->Append("\n");
+  out_stream << "\n";
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
+Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
                        /*lookup_contex=*/nullptr));
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
-    out_file->Append("Can not read Index Block \n\n");
+    out_stream << "Can not read Index Block \n\n";
     return s;
   }
 
@@ -3388,12 +3371,9 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     datablock_size_max = std::max(datablock_size_max, datablock_size);
     datablock_size_sum += datablock_size;
 
-    out_file->Append("Data Block # ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(block_id));
-    out_file->Append(" @ ");
-    out_file->Append(blockhandles_iter->value().handle.ToString(true).c_str());
-    out_file->Append("\n");
-    out_file->Append("--------------------------------------\n");
+    out_stream << "Data Block # " << block_id << " @ "
+               << blockhandles_iter->value().handle.ToString(true) << "\n";
+    out_stream << "--------------------------------------\n";
 
     std::unique_ptr<InternalIterator> datablock_iter;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
@@ -3404,7 +3384,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     s = datablock_iter->status();
 
     if (!s.ok()) {
-      out_file->Append("Error reading the block - Skipped \n\n");
+      out_stream << "Error reading the block - Skipped \n\n";
       continue;
     }
 
@@ -3412,44 +3392,37 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
          datablock_iter->Next()) {
       s = datablock_iter->status();
       if (!s.ok()) {
-        out_file->Append("Error reading the block - Skipped \n");
+        out_stream << "Error reading the block - Skipped \n";
         break;
       }
-      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_file);
+      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_stream);
     }
-    out_file->Append("\n");
+    out_stream << "\n";
   }
 
   uint64_t num_datablocks = block_id - 1;
   if (num_datablocks) {
     double datablock_size_avg =
         static_cast<double>(datablock_size_sum) / num_datablocks;
-    out_file->Append("Data Block Summary:\n");
-    out_file->Append("--------------------------------------");
-    out_file->Append("\n  # data blocks: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(num_datablocks));
-    out_file->Append("\n  min data block size: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_min));
-    out_file->Append("\n  max data block size: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_max));
-    out_file->Append("\n  avg data block size: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_avg));
-    out_file->Append("\n");
+    out_stream << "Data Block Summary:\n";
+    out_stream << "--------------------------------------\n";
+    out_stream << "  # data blocks: " << num_datablocks << "\n";
+    out_stream << "  min data block size: " << datablock_size_min << "\n";
+    out_stream << "  max data block size: " << datablock_size_max << "\n";
+    out_stream << "  avg data block size: " << ToString(datablock_size_avg)
+               << "\n";
   }
 
   return Status::OK();
 }
 
 void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
-                                   WritableFile* out_file) {
+                                   std::ostream& out_stream) {
   InternalKey ikey;
   ikey.DecodeFrom(key);
 
-  out_file->Append("  HEX    ");
-  out_file->Append(ikey.user_key().ToString(true).c_str());
-  out_file->Append(": ");
-  out_file->Append(value.ToString(true).c_str());
-  out_file->Append("\n");
+  out_stream << "  HEX    " << ikey.user_key().ToString(true) << ": "
+             << value.ToString(true) << "\n";
 
   std::string str_key = ikey.user_key().ToString();
   std::string str_value = value.ToString();
@@ -3472,11 +3445,8 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
     res_value.append(1, cspace);
   }
 
-  out_file->Append("  ASCII  ");
-  out_file->Append(res_key.c_str());
-  out_file->Append(": ");
-  out_file->Append(res_value.c_str());
-  out_file->Append("\n  ------\n");
+  out_stream << "  ASCII  " << res_key << ": " << res_value << "\n";
+  out_stream << "  ------\n";
 }
 
 }  // namespace ROCKSDB_NAMESPACE

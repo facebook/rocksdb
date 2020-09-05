@@ -607,6 +607,7 @@ ifdef ASSERT_STATUS_CHECKED
 		repeatable_thread_test \
 		skiplist_test \
 		slice_test \
+		sst_dump_test \
 		statistics_test \
 		thread_local_test \
 		env_timed_test \
