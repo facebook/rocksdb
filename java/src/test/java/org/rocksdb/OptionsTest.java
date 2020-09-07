@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 
@@ -13,6 +15,8 @@ import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 
 
 public class OptionsTest {
@@ -1337,6 +1341,18 @@ public class OptionsTest {
     try(final Options options = new Options();
         final Cache cache = new LRUCache(1024)) {
       assertThat(options.optimizeForSmallDb(cache)).isEqualTo(options);
+    }
+  }
+
+  @Test
+  public void cfPaths() throws IOException {
+    try(final Options options = new Options()) {
+      final List<DbPath> paths = Arrays.asList(
+          new DbPath(Paths.get("test1"), 2 << 25),
+          new DbPath(Paths.get("/test2/path"), 2 << 25));
+      assertThat(options.cfPaths()).isEqualTo(Collections.emptyList());
+      assertThat(options.setCfPaths(paths)).isEqualTo(options);
+      assertThat(options.cfPaths()).isEqualTo(paths);
     }
   }
 }

@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
   /**
@@ -388,6 +391,30 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * @return the name of the currently used table factory.
    */
   String tableFactoryName();
+
+  /**
+   * A list of paths where SST files for this column family
+   * can be put into, with its target size. Similar to db_paths,
+   * newer data is placed into paths specified earlier in the
+   * vector while older data gradually moves to paths specified
+   * later in the vector.
+   * Note that, if a path is supplied to multiple column
+   * families, it would have files and total size from all
+   * the column families combined. User should provision for the
+   * total size(from all the column families) in such cases.
+   *
+   * If left empty, db_paths will be used.
+   * Default: empty
+   *
+   * @param paths collection of paths for SST files.
+   * @return the reference of the current options.
+   */
+  T setCfPaths(final Collection<DbPath> paths);
+
+  /**
+   * @return collection of paths for SST files.
+   */
+  List<DbPath> cfPaths();
 
   /**
    * Compression algorithm that will be used for the bottommost level that

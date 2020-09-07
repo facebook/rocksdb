@@ -5,9 +5,8 @@
 
 package org.rocksdb;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
+import java.nio.file.Paths;
+import java.util.*;
 
 /**
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
@@ -138,7 +137,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions oldDefaults(int majorVersion, int minorVersion) {
+  public ColumnFamilyOptions oldDefaults(final int majorVersion, final int minorVersion) {
     oldDefaults(nativeHandle_, majorVersion, minorVersion);
     return this;
   }
@@ -150,7 +149,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions optimizeForSmallDb(Cache cache) {
+  public ColumnFamilyOptions optimizeForSmallDb(final Cache cache) {
     optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
     return this;
   }
@@ -609,6 +608,45 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setCfPaths(final Collection<DbPath> cfPaths) {
+    assert(isOwningHandle());
+
+    final int len = cfPaths.size();
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    int i = 0;
+    for(final DbPath dbPath : cfPaths) {
+      paths[i] = dbPath.path.toString();
+      targetSizes[i] = dbPath.targetSize;
+      i++;
+    }
+    setCfPaths(nativeHandle_, paths, targetSizes);
+    return this;
+  }
+
+  @Override
+  public List<DbPath> cfPaths() {
+    final int len = (int)cfPathsLen(nativeHandle_);
+
+    if (len == 0) {
+      return Collections.emptyList();
+    }
+
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    cfPaths(nativeHandle_, paths, targetSizes);
+
+    final List<DbPath> cfPaths = new ArrayList<>();
+    for (int i = 0; i < len; i++) {
+      cfPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
+    }
+
+    return cfPaths;
+  }
+
+  @Override
   public ColumnFamilyOptions setInplaceUpdateSupport(
       final boolean inplaceUpdateSupport) {
     setInplaceUpdateSupport(nativeHandle_, inplaceUpdateSupport);
@@ -987,6 +1025,11 @@ public class ColumnFamilyOptions extends RocksObject
   private native String memTableFactoryName(long handle);
   private native void setTableFactory(long handle, long factoryHandle);
   private native String tableFactoryName(long handle);
+  private static native void setCfPaths(final long handle, final String[] paths,
+                                        final long[] targetSizes);
+  private static native long cfPathsLen(final long handle);
+  private static native void cfPaths(final long handle, final String[] paths,
+                                     final long[] targetSizes);
   private native void setInplaceUpdateSupport(
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);

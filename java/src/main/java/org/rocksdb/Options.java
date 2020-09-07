@@ -158,7 +158,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options oldDefaults(int majorVersion, int minorVersion) {
+  public Options oldDefaults(final int majorVersion, final int minorVersion) {
     oldDefaults(nativeHandle_, majorVersion, minorVersion);
     return this;
   }
@@ -170,7 +170,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options optimizeForSmallDb(Cache cache) {
+  public Options optimizeForSmallDb(final Cache cache) {
     optimizeForSmallDb(nativeHandle_, cache.getNativeHandle());
     return this;
   }
@@ -1297,6 +1297,45 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setCfPaths(final Collection<DbPath> cfPaths) {
+    assert(isOwningHandle());
+
+    final int len = cfPaths.size();
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    int i = 0;
+    for(final DbPath dbPath : cfPaths) {
+      paths[i] = dbPath.path.toString();
+      targetSizes[i] = dbPath.targetSize;
+      i++;
+    }
+    setCfPaths(nativeHandle_, paths, targetSizes);
+    return this;
+  }
+
+  @Override
+  public List<DbPath> cfPaths() {
+    final int len = (int)cfPathsLen(nativeHandle_);
+
+    if (len == 0) {
+      return Collections.emptyList();
+    }
+
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    cfPaths(nativeHandle_, paths, targetSizes);
+
+    final List<DbPath> cfPaths = new ArrayList<>();
+    for (int i = 0; i < len; i++) {
+      cfPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
+    }
+
+    return cfPaths;
+  }
+
+  @Override
   public Options useFixedLengthPrefixExtractor(final int n) {
     assert(isOwningHandle());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
@@ -2156,6 +2195,11 @@ public class Options extends RocksObject
   private native String memTableFactoryName(long handle);
   private native void setTableFactory(long handle, long factoryHandle);
   private native String tableFactoryName(long handle);
+  private static native void setCfPaths(final long handle, final String[] paths,
+                                 final long[] targetSizes);
+  private static native long cfPathsLen(final long handle);
+  private static native void cfPaths(final long handle, final String[] paths,
+                              final long[] targetSizes);
   private native void setInplaceUpdateSupport(
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);
