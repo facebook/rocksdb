@@ -159,6 +159,7 @@ class PosixFileSystem : public FileSystem {
 #endif  // !ROCKSDB_LITE
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
+      TEST_SYNC_POINT_CALLBACK("NewSequentialFile:O_DIRECT", &flags);
 #endif
     }
 

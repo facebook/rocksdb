@@ -1182,7 +1182,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
       new_backup->SetSequenceNumber(sequence_number);
     }
   }
-  ROCKS_LOG_INFO(options_.info_log, "add files for backup done, wait finish.");
+  ROCKS_LOG_INFO(options_.info_log,
+                 "add files for backup done (%s), wait finish.",
+                 s.ok() ? "OK" : "not OK");
   Status item_status;
   for (auto& item : backup_items_to_finish) {
     item.result.wait();
@@ -1198,7 +1200,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
           result.custom_checksum_hex, result.checksum_func_name, result.db_id,
           result.db_session_id));
     }
-    if (!item_status.ok()) {
+    if (s.ok() && !item_status.ok()) {
       s = item_status;
     }
   }
