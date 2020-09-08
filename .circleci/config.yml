@@ -173,7 +173,7 @@ jobs:
       - checkout
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
-      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j32 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j4 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
 
   build-windows:
     executor: windows-2xlarge
