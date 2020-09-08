@@ -275,13 +275,13 @@ script:
       OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j4 check_some
       ;;
     2)
-      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_compaction_filter_test make -j4 check_some
+      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j4 check_some
       ;;
     3)
-      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_compaction_filter_test ROCKSDBTESTS_END=file_reader_writer_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_test make -j4 check_some
       ;;
     4)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=file_reader_writer_test make -j4 check_some
+      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_test make -j4 check_some
       ;;
     esac
   - case $JOB_NAME in
