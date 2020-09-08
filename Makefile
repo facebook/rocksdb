@@ -2150,13 +2150,6 @@ rocksdbjavageneratepom:
 jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-jl/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
-jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
-
 rocksdbjava: $(LIB_OBJECTS)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
@@ -2219,7 +2212,7 @@ ifeq ($(HAVE_POWER8),1)
 $(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.c
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 
-+$(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+$(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 $(OBJ_DIR)/%.o: %.cc
@@ -2265,7 +2258,7 @@ $(OBJ_DIR)/%.c.d: %.c
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.c=.o)' "$<" -o '$@'
 
-+$(OBJ_DIR)/%.S.d: %.S
+$(OBJ_DIR)/%.S.d: %.S
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.S=.o)' "$<" -o '$@'
 

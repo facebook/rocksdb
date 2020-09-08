@@ -5394,18 +5394,11 @@ class Benchmark {
   // based on the hotness of the prefix and also the key hotness distribution.
   class GenerateTwoTermExpKeys {
    public:
-    int64_t keyrange_rand_max_;
-    int64_t keyrange_size_;
-    int64_t keyrange_num_;
-    bool initiated_;
+    // Avoid uninitialized warning-as-error in some compilers
+    int64_t keyrange_rand_max_ = 0;
+    int64_t keyrange_size_ = 0;
+    int64_t keyrange_num_ = 0;
     std::vector<KeyrangeUnit> keyrange_set_;
-
-    GenerateTwoTermExpKeys() {
-      keyrange_rand_max_ = FLAGS_num;
-      initiated_ = false;
-    }
-
-    ~GenerateTwoTermExpKeys() {}
 
     // Initiate the KeyrangeUnit vector and calculate the size of each
     // KeyrangeUnit.
@@ -5414,7 +5407,6 @@ class Benchmark {
                                    double prefix_d) {
       int64_t amplify = 0;
       int64_t keyrange_start = 0;
-      initiated_ = true;
       if (FLAGS_keyrange_num <= 0) {
         keyrange_num_ = 1;
       } else {
