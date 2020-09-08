@@ -216,8 +216,8 @@ Status BuildTable(
     // Finish and check for builder errors
     s = c_iter.status();
 
-    if (s.ok()) {
-      if (blob_file_builder) {
+    if (blob_file_builder) {
+      if (s.ok()) {
         s = blob_file_builder->Finish();
       }
     }
