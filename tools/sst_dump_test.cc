@@ -93,7 +93,7 @@ class SSTDumpToolTest : public testing::Test {
   }
 
   void createSST(const Options& opts, const std::string& file_name) {
-    Env* env = opts.env;
+    Env* test_env = opts.env;
     EnvOptions env_options(opts);
     ReadOptions read_options;
     const ImmutableCFOptions imoptions(opts);
@@ -102,7 +102,7 @@ class SSTDumpToolTest : public testing::Test {
     std::unique_ptr<TableBuilder> tb;
 
     std::unique_ptr<WritableFile> file;
-    ASSERT_OK(env->NewWritableFile(file_name, &file, env_options));
+    ASSERT_OK(test_env->NewWritableFile(file_name, &file, env_options));
 
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
