@@ -337,26 +337,32 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
 // FSRandomRWFileTracingWrapper when tracing is disabled.
 class FSRandomRWFilePtr {
  public:
-  FSRandomRWFilePtr(FSRandomRWFile* fs, std::shared_ptr<IOTracer> io_tracer)
-      : fs_(fs),
+  FSRandomRWFilePtr(std::unique_ptr<FSRandomRWFile>&& fs,
+                    std::shared_ptr<IOTracer> io_tracer)
+      : fs_(std::move(fs)),
         io_tracer_(io_tracer),
-        fs_tracer_(new FSRandomRWFileTracingWrapper(fs_, io_tracer_)) {}
-
-  explicit FSRandomRWFilePtr(FSRandomRWFile* fs)
-      : fs_(fs), io_tracer_(nullptr), fs_tracer_(nullptr) {}
+        fs_tracer_(fs_.get(), io_tracer_) {}
 
   FSRandomRWFile* operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
-      return fs_tracer_;
+      return const_cast<FSRandomRWFileTracingWrapper*>(&fs_tracer_);
     } else {
-      return fs_;
+      return fs_.get();
+    }
+  }
+
+  FSRandomRWFile* get() const {
+    if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
+      return const_cast<FSRandomRWFileTracingWrapper*>(&fs_tracer_);
+    } else {
+      return fs_.get();
     }
   }
 
  private:
-  FSRandomRWFile* fs_;
+  std::unique_ptr<FSRandomRWFile> fs_;
   std::shared_ptr<IOTracer> io_tracer_;
-  FSRandomRWFileTracingWrapper* fs_tracer_;
+  FSRandomRWFileTracingWrapper fs_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
