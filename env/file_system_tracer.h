@@ -270,26 +270,38 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
 // FSWritableFileTracingWrapper when tracing is disabled.
 class FSWritableFilePtr {
  public:
-  FSWritableFilePtr(FSWritableFile* fs, std::shared_ptr<IOTracer> io_tracer)
-      : fs_(fs),
-        io_tracer_(io_tracer),
-        fs_tracer_(new FSWritableFileTracingWrapper(fs_, io_tracer_)) {}
-
-  explicit FSWritableFilePtr(FSWritableFile* fs)
-      : fs_(fs), io_tracer_(nullptr), fs_tracer_(nullptr) {}
+  FSWritableFilePtr(std::unique_ptr<FSWritableFile>&& fs,
+                    const std::shared_ptr<IOTracer>& io_tracer)
+      : fs_(std::move(fs)), io_tracer_(io_tracer) {
+    fs_tracer_.reset(new FSWritableFileTracingWrapper(fs_.get(), io_tracer_));
+  }
 
   FSWritableFile* operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
-      return fs_tracer_;
+      return fs_tracer_.get();
     } else {
-      return fs_;
+      return fs_.get();
     }
   }
 
+  FSWritableFile* get() const {
+    if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
+      return fs_tracer_.get();
+    } else {
+      return fs_.get();
+    }
+  }
+
+  void reset() {
+    fs_.reset();
+    fs_tracer_.reset();
+    io_tracer_ = nullptr;
+  }
+
  private:
-  FSWritableFile* fs_;
+  std::unique_ptr<FSWritableFile> fs_;
   std::shared_ptr<IOTracer> io_tracer_;
-  FSWritableFileTracingWrapper* fs_tracer_;
+  std::unique_ptr<FSWritableFileTracingWrapper> fs_tracer_;
 };
 
 // FSRandomRWFileTracingWrapper is a wrapper class above FSRandomRWFile that

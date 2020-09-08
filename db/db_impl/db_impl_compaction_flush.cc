@@ -154,7 +154,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
-      db_id_, db_session_id_);
+      io_tracer_, db_id_, db_session_id_);
   FileMetaData file_meta;
 
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
@@ -359,7 +359,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri, db_id_, db_session_id_));
+        thread_pri, io_tracer_, db_id_, db_session_id_));
     jobs.back()->PickMemTable();
   }
 

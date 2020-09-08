@@ -1284,7 +1284,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   // pass the magic number check in the footer.
   std::unique_ptr<RandomAccessFileReader> file_reader(
       new RandomAccessFileReader(
-          std::move(file), file_name, nullptr /* env */, nullptr /* IOTracer */,
+          std::move(file), file_name, nullptr /* env */, io_tracer_,
           nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
           nullptr /* rate_limiter */, ioptions->listeners));
   s = ReadTableProperties(
@@ -1750,6 +1750,7 @@ VersionStorageInfo::VersionStorageInfo(
 Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const FileOptions& file_opt,
                  const MutableCFOptions mutable_cf_options,
+                 const std::shared_ptr<IOTracer>& io_tracer,
                  uint64_t version_number)
     : env_(vset->env_),
       cfd_(column_family_data),
@@ -1777,7 +1778,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       mutable_cf_options_(mutable_cf_options),
       max_file_size_for_l0_meta_pin_(
           MaxFileSizeForL0MetaPin(mutable_cf_options_)),
-      version_number_(version_number) {}
+      version_number_(version_number),
+      io_tracer_(io_tracer) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
@@ -3805,7 +3807,7 @@ Status VersionSet::ProcessManifestWrites(
       }
       if (version == nullptr) {
         version = new Version(last_writer->cfd, this, file_options_,
-                              last_writer->mutable_cf_options,
+                              last_writer->mutable_cf_options, io_tracer_,
                               current_version_number_++);
         versions.push_back(version);
         mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
@@ -3962,7 +3964,7 @@ Status VersionSet::ProcessManifestWrites(
 
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
-            nullptr, db_options_->listeners));
+            io_tracer_, nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get(),
@@ -4687,7 +4689,7 @@ Status VersionSet::Recover(
       }
 
       Version* v = new Version(cfd, this, file_options_,
-                               *cfd->GetLatestMutableCFOptions(),
+                               *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                current_version_number_++);
       s = builder->SaveTo(v->storage_info());
       if (!s.ok()) {
@@ -4863,8 +4865,8 @@ Status VersionSet::TryRecoverFromOneManifest(
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                      /*checksum=*/true, /*log_num=*/0);
-  VersionEditHandlerPointInTime handler_pit(read_only, column_families,
-                                            const_cast<VersionSet*>(this));
+  VersionEditHandlerPointInTime handler_pit(
+      read_only, column_families, const_cast<VersionSet*>(this), io_tracer_);
 
   handler_pit.Iterate(reader, &s, db_id);
 
@@ -5242,7 +5244,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       auto builder = builders_iter->second->version_builder();
 
       Version* v = new Version(cfd, this, file_options_,
-                               *cfd->GetLatestMutableCFOptions(),
+                               *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                current_version_number_++);
       s = builder->SaveTo(v->storage_info());
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
@@ -5881,7 +5883,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   MutableCFOptions dummy_cf_options;
   Version* dummy_versions =
-      new Version(nullptr, this, file_options_, dummy_cf_options);
+      new Version(nullptr, this, file_options_, dummy_cf_options, io_tracer_);
   // Ref() dummy version once so that later we can call Unref() to delete it
   // by avoiding calling "delete" explicitly (~Version is private)
   dummy_versions->Ref();
@@ -5890,7 +5892,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
       cf_options);
 
   Version* v = new Version(new_cfd, this, file_options_,
-                           *new_cfd->GetLatestMutableCFOptions(),
+                           *new_cfd->GetLatestMutableCFOptions(), io_tracer_,
                            current_version_number_++);
 
   // Fill level target base information.
@@ -6079,7 +6081,7 @@ Status ReactiveVersionSet::Recover(
       auto* builder = builders_iter->second->version_builder();
 
       Version* v = new Version(cfd, this, file_options_,
-                               *cfd->GetLatestMutableCFOptions(),
+                               *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                current_version_number_++);
       s = builder->SaveTo(v->storage_info());
 
@@ -6314,7 +6316,7 @@ Status ReactiveVersionSet::ApplyOneVersionEditToBuilder(
 
     if (s.ok()) {
       auto version = new Version(cfd, this, file_options_,
-                                 *cfd->GetLatestMutableCFOptions(),
+                                 *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                  current_version_number_++);
       s = builder->SaveTo(version->storage_info());
       if (s.ok()) {

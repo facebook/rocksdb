@@ -82,23 +82,21 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
   }
 }
 
-FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
-                   const ImmutableDBOptions& db_options,
-                   const MutableCFOptions& mutable_cf_options,
-                   const uint64_t* max_memtable_id,
-                   const FileOptions& file_options, VersionSet* versions,
-                   InstrumentedMutex* db_mutex,
-                   std::atomic<bool>* shutting_down,
-                   std::vector<SequenceNumber> existing_snapshots,
-                   SequenceNumber earliest_write_conflict_snapshot,
-                   SnapshotChecker* snapshot_checker, JobContext* job_context,
-                   LogBuffer* log_buffer, FSDirectory* db_directory,
-                   FSDirectory* output_file_directory,
-                   CompressionType output_compression, Statistics* stats,
-                   EventLogger* event_logger, bool measure_io_stats,
-                   const bool sync_output_directory, const bool write_manifest,
-                   Env::Priority thread_pri, const std::string& db_id,
-                   const std::string& db_session_id)
+FlushJob::FlushJob(
+    const std::string& dbname, ColumnFamilyData* cfd,
+    const ImmutableDBOptions& db_options,
+    const MutableCFOptions& mutable_cf_options, const uint64_t* max_memtable_id,
+    const FileOptions& file_options, VersionSet* versions,
+    InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
+    std::vector<SequenceNumber> existing_snapshots,
+    SequenceNumber earliest_write_conflict_snapshot,
+    SnapshotChecker* snapshot_checker, JobContext* job_context,
+    LogBuffer* log_buffer, FSDirectory* db_directory,
+    FSDirectory* output_file_directory, CompressionType output_compression,
+    Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+    const bool sync_output_directory, const bool write_manifest,
+    Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+    const std::string& db_id, const std::string& db_session_id)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -126,7 +124,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       edit_(nullptr),
       base_(nullptr),
       pick_memtable_called(false),
-      thread_pri_(thread_pri) {
+      thread_pri_(thread_pri),
+      io_tracer_(io_tracer) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -400,7 +399,7 @@ Status FlushJob::WriteLevel0Table() {
           output_compression_, mutable_cf_options_.sample_for_compression,
           mutable_cf_options_.compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
-          TableFileCreationReason::kFlush, &io_s, event_logger_,
+          TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
           creation_time, oldest_key_time, write_hint, current_time, db_id_,
           db_session_id_);
