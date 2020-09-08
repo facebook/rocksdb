@@ -62,7 +62,9 @@ struct SstFileMetaData {
         being_compacted(false),
         num_entries(0),
         num_deletions(0),
-        oldest_blob_file_number(0) {}
+        oldest_blob_file_number(0),
+        oldest_ancester_time(0),
+        file_creation_time(0) {}
 
   SstFileMetaData(const std::string& _file_name, uint64_t _file_number,
                   const std::string& _path, size_t _size,
@@ -117,6 +119,8 @@ struct SstFileMetaData {
   // oldest SST file that is the compaction ancester of this file.
   // The timestamp is provided Env::GetCurrentTime().
   // 0 if the information is not available.
+  //
+  // Note: for TTL blob files, it contains the start of the expiration range.
   uint64_t oldest_ancester_time;
   // Timestamp when the SST file is created, provided by Env::GetCurrentTime().
   // 0 if the information is not available.
