@@ -3180,7 +3180,7 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
 }
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {
-  auto out_file_wrapper = WritableFileStringStreamAdapter(out_file);
+  WritableFileStringStreamAdapter out_file_wrapper(out_file);
   std::ostream out_stream(&out_file_wrapper);
   // Output Footer
   out_stream << "Footer Details:\n"
