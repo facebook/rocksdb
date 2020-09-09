@@ -54,10 +54,10 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j32 static_lib tools benchmarks| .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j32 static_lib tools db_bench | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j32 static_lib tools benchmarks | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j32 static_lib tools db_bench | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
