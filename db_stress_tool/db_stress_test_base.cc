@@ -1313,7 +1313,8 @@ Status StressTest::TestBackupRestore(
   }
   DB* restored_db = nullptr;
   std::vector<ColumnFamilyHandle*> restored_cf_handles;
-  if (s.ok()) {
+  // Not yet implemented: opening restored BlobDB or TransactionDB
+  if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
     Options restore_options(options_);
     restore_options.listeners.clear();
     std::vector<ColumnFamilyDescriptor> cf_descriptors;
@@ -1337,7 +1338,8 @@ Status StressTest::TestBackupRestore(
   //
   // For simplicity, currently only verifies existence/non-existence of a
   // single key
-  for (size_t i = 0; from_latest && s.ok() && i < rand_column_families.size();
+  for (size_t i = 0;
+       from_latest && restored_db && s.ok() && i < rand_column_families.size();
        ++i) {
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
@@ -1345,7 +1347,7 @@ Status StressTest::TestBackupRestore(
     Status get_status = restored_db->Get(
         ReadOptions(), restored_cf_handles[rand_column_families[i]], key,
         &restored_value);
-    bool exists = thread->shared->Exists(rand_column_families[i], rand_keys[i]);
+    bool exists = thread->shared->Exists(rand_column_families[i], rand_keys[0]);
     if (get_status.ok()) {
       if (!exists) {
         s = Status::Corruption("key exists in restore but not in original db");
