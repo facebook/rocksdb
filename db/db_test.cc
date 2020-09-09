@@ -6677,6 +6677,46 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
+  Options options = CurrentOptions();
+  options.max_write_buffer_size_to_maintain = 10000;
+  options.write_buffer_size = 160000;
+  Reopen(options);
+  Random rnd(301);
+  bool memory_limit_exceeded = false;
+  uint64_t size_all_mem_table = 0;
+  uint64_t cur_active_mem = 0;
+  for (int i = 0; i < 1000; i++) {
+    std::string value = rnd.RandomString(1000);
+    ASSERT_OK(Put("keykey_" + std::to_string(i), value));
+
+    dbfull()->TEST_WaitForFlushMemTable();
+
+    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
+                                    DB::Properties::kSizeAllMemTables,
+                                    &size_all_mem_table));
+    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
+                                    DB::Properties::kCurSizeActiveMemTable,
+                                    &cur_active_mem));
+
+    // Errors out if memory usage keeps on increasing beyond the limit.
+    // Once memory limit exceeds,  memory_limit_exceeded  is set and if
+    // size_all_mem_table doesn't drop out in the next write then it errors out
+    // (not expected behaviour). If memory usage drops then
+    // memory_limit_exceeded is set to false.
+    if ((size_all_mem_table > cur_active_mem) &&
+        (cur_active_mem >=
+         static_cast<uint64_t>(options.max_write_buffer_size_to_maintain)) &&
+        (size_all_mem_table > options.max_write_buffer_size_to_maintain +
+                                  options.write_buffer_size)) {
+      ASSERT_FALSE(memory_limit_exceeded);
+      memory_limit_exceeded = true;
+    } else {
+      memory_limit_exceeded = false;
+    }
+  }
+}
+
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE

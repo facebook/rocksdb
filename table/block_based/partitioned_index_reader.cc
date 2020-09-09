@@ -104,7 +104,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   // the first level iter is always on heap and will attempt to delete it
   // in its destructor.
 }
-void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
+Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
+                                               bool pin) {
   // Before read partitions, prefetch them to avoid lots of IOs
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   const BlockBasedTable::Rep* rep = table()->rep_;
@@ -116,12 +117,7 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
   Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
                                  &lookup_context, &index_block);
   if (!s.ok()) {
-    ROCKS_LOG_WARN(rep->ioptions.info_log,
-                   "Error retrieving top-level index block while trying to "
-                   "cache index partitions: %s",
-                   s.ToString().c_str());
-    IGNORE_STATUS_IF_ERROR(s);
-    return;
+    return s;
   }
 
   // We don't return pinned data from index blocks, so no need
@@ -135,7 +131,7 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
   biter.SeekToFirst();
   if (!biter.Valid()) {
     // Empty index.
-    return;
+    return biter.status();
   }
   handle = biter.value().handle;
   uint64_t prefetch_off = handle.offset();
@@ -144,7 +140,7 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
   biter.SeekToLast();
   if (!biter.Valid()) {
     // Empty index.
-    return;
+    return biter.status();
   }
   handle = biter.value().handle;
   uint64_t last_off = handle.offset() + block_size(handle);
@@ -156,6 +152,9 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len));
+  }
+  if (!s.ok()) {
+    return s;
   }
 
   // After prefetch, read the partitions one by one
@@ -170,10 +169,10 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
         &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
         /*contents=*/nullptr);
 
-    IGNORE_STATUS_IF_ERROR(s);
-
-    assert(s.ok() || block.GetValue() == nullptr);
-    if (s.ok() && block.GetValue() != nullptr) {
+    if (!s.ok()) {
+      return s;
+    }
+    if (block.GetValue() != nullptr) {
       if (block.IsCached()) {
         if (pin) {
           partition_map_[handle.offset()] = std::move(block);
@@ -181,6 +180,7 @@ void PartitionIndexReader::CacheDependencies(const ReadOptions& ro, bool pin) {
       }
     }
   }
+  return biter.status();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

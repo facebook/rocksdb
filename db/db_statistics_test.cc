@@ -142,6 +142,19 @@ TEST_F(DBStatisticsTest, ResetStats) {
   }
 }
 
+TEST_F(DBStatisticsTest, ExcludeTickers) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  DestroyAndReopen(options);
+  options.statistics->set_stats_level(StatsLevel::kExceptTickers);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
+  options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
+  Reopen(options);
+  ASSERT_EQ("value", Get("foo"));
+  ASSERT_GT(options.statistics->getTickerCount(BYTES_READ), 0);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

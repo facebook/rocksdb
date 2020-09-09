@@ -202,6 +202,10 @@ uint64_t Reader::LastRecordOffset() {
   return last_record_offset_;
 }
 
+uint64_t Reader::LastRecordEnd() {
+  return end_of_buffer_offset_ - buffer_.size();
+}
+
 void Reader::UnmarkEOF() {
   if (read_error_) {
     return;

@@ -87,134 +87,134 @@ matrix:
   - os: linux
     compiler: clang
   # Exclude all but most unique cmake variants for pull requests, but build all in branches
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: amd64
     env: JOB_NAME=cmake
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: amd64
     env: JOB_NAME=cmake-gcc8
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: amd64
     env: JOB_NAME=cmake-gcc9
   # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
   # Temporarily disable ppc64le unit tests in PRs until Travis gets its act together (#6653)
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: TEST_GROUP=platform_dependent
   # NB: the cmake build is a partial java test
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: osx
     env: TEST_GROUP=1
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: TEST_GROUP=1
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: TEST_GROUP=1
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: osx
     env: TEST_GROUP=2
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: TEST_GROUP=2
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: TEST_GROUP=2
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: osx
     env: TEST_GROUP=3
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: TEST_GROUP=3
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: TEST_GROUP=3
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: osx
     env: TEST_GROUP=4
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: TEST_GROUP=4
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: TEST_GROUP=4
-  - if: type = pull_request AND commit_message !~ /java/
+  - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
     os : osx
     env: JOB_NAME=java_test
-  - if: type = pull_request AND commit_message !~ /java/
+  - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
     os : linux
     arch: arm64
     env: JOB_NAME=java_test
-  - if: type = pull_request AND commit_message !~ /java/
+  - if: type = pull_request AND commit_message !~ /FULL_CI/ AND commit_message !~ /java/
     os: linux
     arch: ppc64le
     env: JOB_NAME=java_test
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : osx
     env: JOB_NAME=lite_build
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=lite_build
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: JOB_NAME=lite_build
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : osx
     env: JOB_NAME=examples
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=examples
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: JOB_NAME=examples
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=cmake-gcc8
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc8
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=cmake-gcc9
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc9
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=cmake-gcc9-c++20
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake-gcc9-c++20
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : osx
     env: JOB_NAME=status_checked
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
     env: JOB_NAME=status_checked
-  - if: type = pull_request
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: ppc64le
     env: JOB_NAME=status_checked

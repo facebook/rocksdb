@@ -24,6 +24,8 @@ BlobLogReader::BlobLogReader(
       next_byte_(0) {}
 
 Status BlobLogReader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
+  assert(file_);
+
   StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
   Status s = file_->Read(IOOptions(), next_byte_, static_cast<size_t>(size),
                          slice, buf, nullptr);
@@ -39,8 +41,11 @@ Status BlobLogReader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
 }
 
 Status BlobLogReader::ReadHeader(BlobLogHeader* header) {
-  assert(file_.get() != nullptr);
   assert(next_byte_ == 0);
+
+  static_assert(BlobLogHeader::kSize <= sizeof(header_buf_),
+                "Buffer is smaller than BlobLogHeader::kSize");
+
   Status s = ReadSlice(BlobLogHeader::kSize, &buffer_, header_buf_);
   if (!s.ok()) {
     return s;
@@ -55,6 +60,9 @@ Status BlobLogReader::ReadHeader(BlobLogHeader* header) {
 
 Status BlobLogReader::ReadRecord(BlobLogRecord* record, ReadLevel level,
                                  uint64_t* blob_offset) {
+  static_assert(BlobLogRecord::kHeaderSize <= sizeof(header_buf_),
+                "Buffer is smaller than BlobLogRecord::kHeaderSize");
+
   Status s = ReadSlice(BlobLogRecord::kHeaderSize, &buffer_, header_buf_);
   if (!s.ok()) {
     return s;
@@ -98,6 +106,22 @@ Status BlobLogReader::ReadRecord(BlobLogRecord* record, ReadLevel level,
       break;
   }
   return s;
+}
+
+Status BlobLogReader::ReadFooter(BlobLogFooter* footer) {
+  static_assert(BlobLogFooter::kSize <= sizeof(header_buf_),
+                "Buffer is smaller than BlobLogFooter::kSize");
+
+  Status s = ReadSlice(BlobLogFooter::kSize, &buffer_, header_buf_);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (buffer_.size() != BlobLogFooter::kSize) {
+    return Status::Corruption("EOF reached before file footer");
+  }
+
+  return footer->DecodeFrom(buffer_);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

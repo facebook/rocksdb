@@ -397,6 +397,13 @@ class StackableDB : public DB {
     return db_->GetCreationTimeOfOldestFile(creation_time);
   }
 
+  // WARNING: This API is planned for removal in RocksDB 7.0 since it does not
+  // operate at the proper level of abstraction for a key-value store, and its
+  // contract/restrictions are poorly documented. For example, it returns non-OK
+  // `Status` for non-bottommost files and files undergoing compaction. Since we
+  // do not plan to maintain it, the contract will likely remain underspecified
+  // until its removal. Any user is encouraged to read the implementation
+  // carefully and migrate away from it when possible.
   virtual Status DeleteFile(std::string name) override {
     return db_->DeleteFile(name);
   }

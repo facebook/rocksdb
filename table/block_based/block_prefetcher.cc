@@ -13,44 +13,54 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                                        const BlockHandle& handle,
                                        size_t readahead_size,
                                        bool is_for_compaction) {
-  if (!is_for_compaction) {
-    if (readahead_size == 0) {
-      // Implicit auto readahead
-      num_file_reads_++;
-      if (num_file_reads_ >
-          BlockBasedTable::kMinNumFileReadsToStartAutoReadahead) {
-        if (!rep->file->use_direct_io() &&
-            (handle.offset() + static_cast<size_t>(block_size(handle)) >
-             readahead_limit_)) {
-          // Buffered I/O
-          // Discarding the return status of Prefetch calls intentionally, as
-          // we can fallback to reading from disk if Prefetch fails.
-          rep->file->Prefetch(handle.offset(), readahead_size_);
-          readahead_limit_ =
-              static_cast<size_t>(handle.offset() + readahead_size_);
-          // Keep exponentially increasing readahead size until
-          // kMaxAutoReadaheadSize.
-          readahead_size_ = std::min(BlockBasedTable::kMaxAutoReadaheadSize,
-                                     readahead_size_ * 2);
-        } else if (rep->file->use_direct_io() && !prefetch_buffer_) {
-          // Direct I/O
-          // Let FilePrefetchBuffer take care of the readahead.
-          rep->CreateFilePrefetchBuffer(BlockBasedTable::kInitAutoReadaheadSize,
-                                        BlockBasedTable::kMaxAutoReadaheadSize,
-                                        &prefetch_buffer_);
-        }
-      }
-    } else if (!prefetch_buffer_) {
-      // Explicit user requested readahead
-      // The actual condition is:
-      // if (readahead_size != 0 && !prefetch_buffer_)
-      rep->CreateFilePrefetchBuffer(readahead_size, readahead_size,
-                                    &prefetch_buffer_);
-    }
-  } else if (!prefetch_buffer_) {
-    rep->CreateFilePrefetchBuffer(compaction_readahead_size_,
-                                  compaction_readahead_size_,
-                                  &prefetch_buffer_);
+  if (is_for_compaction) {
+    rep->CreateFilePrefetchBufferIfNotExists(compaction_readahead_size_,
+                                             compaction_readahead_size_,
+                                             &prefetch_buffer_);
+    return;
   }
+
+  // Explicit user requested readahead
+  if (readahead_size > 0) {
+    rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
+                                             &prefetch_buffer_);
+    return;
+  }
+
+  // Implicit auto readahead, which will be enabled if the number of reads
+  // reached `kMinNumFileReadsToStartAutoReadahead` (default: 2).
+  num_file_reads_++;
+  if (num_file_reads_ <=
+      BlockBasedTable::kMinNumFileReadsToStartAutoReadahead) {
+    return;
+  }
+
+  if (rep->file->use_direct_io()) {
+    rep->CreateFilePrefetchBufferIfNotExists(
+        BlockBasedTable::kInitAutoReadaheadSize,
+        BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
+    return;
+  }
+
+  if (handle.offset() + static_cast<size_t>(block_size(handle)) <=
+      readahead_limit_) {
+    return;
+  }
+
+  // If prefetch is not supported, fall back to use internal prefetch buffer.
+  // Discarding other return status of Prefetch calls intentionally, as
+  // we can fallback to reading from disk if Prefetch fails.
+  Status s = rep->file->Prefetch(handle.offset(), readahead_size_);
+  if (s.IsNotSupported()) {
+    rep->CreateFilePrefetchBufferIfNotExists(
+        BlockBasedTable::kInitAutoReadaheadSize,
+        BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
+    return;
+  }
+  readahead_limit_ = static_cast<size_t>(handle.offset() + readahead_size_);
+  // Keep exponentially increasing readahead size until
+  // kMaxAutoReadaheadSize.
+  readahead_size_ =
+      std::min(BlockBasedTable::kMaxAutoReadaheadSize, readahead_size_ * 2);
 }
 }  // namespace ROCKSDB_NAMESPACE
