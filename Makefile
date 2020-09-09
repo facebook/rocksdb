@@ -637,12 +637,50 @@ endif
 else
 	SUBSET := $(TESTS)
 endif
+# Not necessarily well thought out or up-to-date, but matches old list
+TESTS_PLATFORM_DEPENDENT := \
+	db_basic_test \
+	db_with_timestamp_basic_test \
+	db_encryption_test \
+	db_test2 \
+	external_sst_file_basic_test \
+	auto_roll_logger_test \
+	bloom_test \
+	dynamic_bloom_test \
+	c_test \
+	checkpoint_test \
+	crc32c_test \
+	coding_test \
+	inlineskiplist_test \
+	env_basic_test \
+	env_test \
+	env_logger_test \
+	io_posix_test \
+	hash_test \
+	random_test \
+	thread_local_test \
+	work_queue_test \
+	rate_limiter_test \
+	perf_context_test \
+	iostats_context_test \
+	db_wal_test \
+
+# Sort SUBSET for filtering, except db_test is special (expensive) so
+# is placed first (out-of-order)
+SUBSET := $(filter db_test, $(SUBSET)) $(sort $(filter-out db_test, $(SUBSET)))
+
 ifdef ROCKSDBTESTS_START
         SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
 endif
 
 ifdef ROCKSDBTESTS_END
         SUBSET := $(shell echo $(SUBSET) | sed 's/$(ROCKSDBTESTS_END).*//')
+endif
+
+ifeq ($(ROCKSDBTESTS_PLATFORM_DEPENDENT), only)
+        SUBSET := $(filter $(TESTS_PLATFORM_DEPENDENT), $(SUBSET))
+else ifeq ($(ROCKSDBTESTS_PLATFORM_DEPENDENT), exclude)
+        SUBSET := $(filter-out $(TESTS_PLATFORM_DEPENDENT), $(SUBSET))
 endif
 
 # bench_tool_analyer main is in bench_tool_analyzer_tool, or this would be simpler...
