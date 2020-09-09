@@ -815,9 +815,12 @@ class Version {
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
+  std::shared_ptr<IOTracer> io_tracer_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
-          MutableCFOptions mutable_cf_options, uint64_t version_number = 0);
+          MutableCFOptions mutable_cf_options,
+          const std::shared_ptr<IOTracer>& io_tracer,
+          uint64_t version_number = 0);
 
   ~Version();
 
@@ -1193,7 +1196,7 @@ class VersionSet {
 
     const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
     Version* const version =
-        new Version(cfd, this, file_options_, mutable_cf_options);
+        new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
     version->PrepareApply(mutable_cf_options, update_stats);

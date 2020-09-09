@@ -436,11 +436,11 @@ class Repairer {
           cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber,
           snapshot_checker, kNoCompression, 0 /* sample_for_compression */,
           CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, &io_s, nullptr /* event_logger */,
-          0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time, 0 /* oldest_key_time */, write_hint,
-          0 /* file_creation_time */, "DB Repairer" /* db_id */,
-          db_session_id_);
+          TableFileCreationReason::kRecovery, &io_s, nullptr /*IOTracer*/,
+          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
+          nullptr /* table_properties */, -1 /* level */, current_time,
+          0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
+          "DB Repairer" /* db_id */, db_session_id_);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
