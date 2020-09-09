@@ -964,14 +964,17 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
 
-  Open(bdb_options);
+  Options options;
+  options.env = mock_env_.get();
+
+  Open(bdb_options, options);
 
   std::map<std::string, std::string> data;
   for (size_t i = 0; i < 100; i++) {
     PutRandom("key" + ToString(i), &rnd, &data);
   }
 
-  constexpr uint64_t expiration = 2000000000ULL;
+  constexpr uint64_t expiration = 1000ULL;
   PutRandomUntil("key100", expiration, &rnd, &data);
 
   std::vector<LiveFileMetaData> metadata;
