@@ -770,10 +770,11 @@ class VersionBuilder::Rep {
 
         ++base_it;
       } else if (delta_blob_file_number < base_blob_file_number) {
-        // Note: blob file numbers are strictly increasing over time and
-        // once blob files get marked obsolete, they never reappear. Thus,
-        // this case is not possible.
-        assert(false);
+        const auto& delta = delta_it->second;
+
+        auto meta = CreateMetaDataForNewBlobFile(delta);
+
+        AddBlobFileIfNeeded(vstorage, meta, &found_first_non_empty);
 
         ++delta_it;
       } else {
