@@ -255,8 +255,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
-      r->env_options, r->ioptions.env, nullptr /* stats */,
-      r->ioptions.listeners, r->ioptions.file_checksum_gen_factory));
+      r->env_options, r->ioptions.env, nullptr /* io_tracer */,
+      nullptr /* stats */, r->ioptions.listeners,
+      r->ioptions.file_checksum_gen_factory));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.

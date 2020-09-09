@@ -707,6 +707,41 @@ rocksdb_t* rocksdb_open_column_families(
   return result;
 }
 
+rocksdb_t* rocksdb_open_column_families_with_ttl(
+    const rocksdb_options_t* db_options, const char* name,
+    int num_column_families, const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, const int* ttls,
+    char** errptr) {
+  std::vector<int32_t> ttls_vec;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i < num_column_families; i++) {
+    ttls_vec.push_back(ttls[i]);
+
+    column_families.push_back(ColumnFamilyDescriptor(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep)));
+  }
+
+  ROCKSDB_NAMESPACE::DBWithTTL* db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, ROCKSDB_NAMESPACE::DBWithTTL::Open(
+                            DBOptions(db_options->rep), std::string(name),
+                            column_families, &handles, &db, ttls_vec))) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < handles.size(); i++) {
+    rocksdb_column_family_handle_t* c_handle =
+        new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
 rocksdb_t* rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* db_options, const char* name,
     int num_column_families, const char* const* column_family_names,
@@ -802,6 +837,18 @@ rocksdb_column_family_handle_t* rocksdb_create_column_family(
   SaveError(errptr,
       db->rep->CreateColumnFamily(ColumnFamilyOptions(column_family_options->rep),
         std::string(column_family_name), &(handle->rep)));
+  return handle;
+}
+
+rocksdb_column_family_handle_t* rocksdb_create_column_family_with_ttl(
+    rocksdb_t* db, const rocksdb_options_t* column_family_options,
+    const char* column_family_name, int ttl, char** errptr) {
+  ROCKSDB_NAMESPACE::DBWithTTL* db_with_ttl =
+      static_cast<ROCKSDB_NAMESPACE::DBWithTTL*>(db->rep);
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  SaveError(errptr, db_with_ttl->CreateColumnFamilyWithTtl(
+                        ColumnFamilyOptions(column_family_options->rep),
+                        std::string(column_family_name), &(handle->rep), ttl));
   return handle;
 }
 

@@ -254,11 +254,29 @@ endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
+option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
+option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
+  endif()
+  if(MSVC)
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
+    endif()
+    # MSVC automatically enables BMI / lzcnt with AVX2.
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+    endif()
+  else()
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+    endif()
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
+    endif()
   endif()
 else()
   if(MSVC)
@@ -1094,6 +1112,7 @@ if(WITH_TESTS)
         env/io_posix_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
+        file/prefetch_test.cc
         file/random_access_file_reader_test.cc
         logging/auto_roll_logger_test.cc
         logging/env_logger_test.cc

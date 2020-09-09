@@ -86,8 +86,10 @@ CompactionIterator::CompactionIterator(
       info_log_(info_log) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
-  bottommost_level_ =
-      compaction_ == nullptr ? false : compaction_->bottommost_level();
+  bottommost_level_ = compaction_ == nullptr
+                          ? false
+                          : compaction_->bottommost_level() &&
+                                !compaction_->allow_ingest_behind();
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }

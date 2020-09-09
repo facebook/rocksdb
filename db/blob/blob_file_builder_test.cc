@@ -131,16 +131,18 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), &mock_env_, &fs_, &immutable_cf_options,
+      &mutable_cf_options, &file_options_, job_id, column_family_id,
+      column_family_name, io_priority, write_hint, &blob_file_additions);
 
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
       number_of_blobs);
@@ -202,16 +204,18 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), &mock_env_, &fs_, &immutable_cf_options,
+      &mutable_cf_options, &file_options_, job_id, column_family_id,
+      column_family_name, io_priority, write_hint, &blob_file_additions);
 
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
       number_of_blobs);
@@ -276,16 +280,18 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), &mock_env_, &fs_, &immutable_cf_options,
+      &mutable_cf_options, &file_options_, job_id, column_family_id,
+      column_family_name, io_priority, write_hint, &blob_file_additions);
 
   for (size_t i = 0; i < number_of_blobs; ++i) {
     const std::string key = std::to_string(i);
@@ -323,16 +329,18 @@ TEST_F(BlobFileBuilderTest, Compression) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), &mock_env_, &fs_, &immutable_cf_options,
+      &mutable_cf_options, &file_options_, job_id, column_family_id,
+      column_family_name, io_priority, write_hint, &blob_file_additions);
 
   const std::string key("1");
   const std::string uncompressed_value(value_size, 'x');
@@ -393,16 +401,18 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), &mock_env_, &fs_, &immutable_cf_options,
+      &mutable_cf_options, &file_options_, job_id, column_family_id,
+      column_family_name, io_priority, write_hint, &blob_file_additions);
 
   SyncPoint::GetInstance()->SetCallBack("CompressData:TamperWithReturnValue",
                                         [](void* arg) {
@@ -457,16 +467,18 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
-                          &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+  BlobFileBuilder builder(
+      TestFileNumberGenerator(), &mock_env_, &fs_, &immutable_cf_options,
+      &mutable_cf_options, &file_options_, job_id, column_family_id,
+      column_family_name, io_priority, write_hint, &blob_file_additions);
 
   const std::string key("1");
   const std::string value("deadbeef");
@@ -543,7 +555,9 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   ImmutableCFOptions immutable_cf_options(options);
   MutableCFOptions mutable_cf_options(options);
 
+  constexpr int job_id = 1;
   constexpr uint32_t column_family_id = 123;
+  constexpr char column_family_name[] = "foobar";
   constexpr Env::IOPriority io_priority = Env::IO_HIGH;
   constexpr Env::WriteLifeTimeHint write_hint = Env::WLTH_MEDIUM;
 
@@ -551,8 +565,9 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
 
   BlobFileBuilder builder(TestFileNumberGenerator(), &fault_injection_env_,
                           &fs_, &immutable_cf_options, &mutable_cf_options,
-                          &file_options_, column_family_id, io_priority,
-                          write_hint, &blob_file_additions);
+                          &file_options_, job_id, column_family_id,
+                          column_family_name, io_priority, write_hint,
+                          &blob_file_additions);
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
     fault_injection_env_.SetFilesystemActive(false,

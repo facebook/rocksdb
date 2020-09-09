@@ -290,8 +290,8 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, file_options, env_, nullptr /* stats */,
-        immutable_db_options_.listeners));
+        std::move(file), manifest, file_options, env_, io_tracer_,
+        nullptr /* stats */, immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -1330,9 +1330,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           mutable_cf_options.sample_for_compression,
           mutable_cf_options.compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
-          &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time, 0 /* oldest_key_time */, write_hint,
-          0 /* file_creation_time */, db_id_, db_session_id_);
+          io_tracer_, &event_logger_, job_id, Env::IO_HIGH,
+          nullptr /* table_properties */, -1 /* level */, current_time,
+          0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
+          db_id_, db_session_id_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1436,9 +1437,9 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
     const auto& listeners = immutable_db_options_.listeners;
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(lfile), log_fname, opt_file_options,
-                               env_, nullptr /* stats */, listeners));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(lfile), log_fname, opt_file_options, env_, io_tracer_,
+        nullptr /* stats */, listeners));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);

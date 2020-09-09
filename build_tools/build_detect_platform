@@ -665,11 +665,18 @@ if test "$TRY_SSE_ETC"; then
   # It doesn't even really check that your current CPU is compatible.
   #
   # SSE4.2 available since nehalem, ca. 2008-2010
+  # Includes POPCNT for BitsSetToOne, BitParity
   TRY_SSE42="-msse4.2"
   # PCLMUL available since westmere, ca. 2010-2011
   TRY_PCLMUL="-mpclmul"
   # AVX2 available since haswell, ca. 2013-2015
   TRY_AVX2="-mavx2"
+  # BMI available since haswell, ca. 2013-2015
+  # Primarily for TZCNT for CountTrailingZeroBits
+  TRY_BMI="-mbmi"
+  # LZCNT available since haswell, ca. 2013-2015
+  # For FloorLog2
+  TRY_LZCNT="-mlzcnt"
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -716,6 +723,34 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS $TRY_AVX2 -DHAVE_AVX2"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use AVX2 intrinsics, disabling" >&2
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <immintrin.h>
+  int main(int argc, char *argv[]) {
+    (void)argv;
+    return (int)_tzcnt_u64((uint64_t)argc);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_BMI -DHAVE_BMI"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use BMI intrinsics, disabling" >&2
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <immintrin.h>
+  int main(int argc, char *argv[]) {
+    (void)argv;
+    return (int)_lzcnt_u64((uint64_t)argc);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_LZCNT -DHAVE_LZCNT"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use LZCNT intrinsics, disabling" >&2
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
