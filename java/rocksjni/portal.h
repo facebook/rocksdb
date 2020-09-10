@@ -5684,7 +5684,8 @@ class TransactionJni : public JavaClass {
       return nullptr;
     }
 
-    jlong *body = env->GetLongArrayElements(jtransaction_ids, nullptr);
+    jboolean is_copy;
+    jlong *body = env->GetLongArrayElements(jtransaction_ids, &is_copy);
     if(body == nullptr) {
         // exception thrown: OutOfMemoryError
         env->DeleteLocalRef(jkey);
@@ -5694,7 +5695,7 @@ class TransactionJni : public JavaClass {
     for(size_t i = 0; i < len; ++i) {
       body[i] = static_cast<jlong>(transaction_ids[i]);
     }
-    env->ReleaseLongArrayElements(jtransaction_ids, body, 0);
+    env->ReleaseLongArrayElements(jtransaction_ids, body, is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 
     jobject jwaiting_transactions = env->CallObjectMethod(jtransaction,
       mid, static_cast<jlong>(column_family_id), jkey, jtransaction_ids);
@@ -6749,7 +6750,8 @@ class ThreadStatusJni : public JavaClass {
       env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
-    jlong *body = env->GetLongArrayElements(joperation_properties, nullptr);
+    jboolean is_copy;
+    jlong *body = env->GetLongArrayElements(joperation_properties, &is_copy);
     if (body == nullptr) {
         // exception thrown: OutOfMemoryError
         env->DeleteLocalRef(jdb_name);
@@ -6760,7 +6762,7 @@ class ThreadStatusJni : public JavaClass {
     for (size_t i = 0; i < len; ++i) {
       body[i] = static_cast<jlong>(thread_status->op_properties[i]);
     }
-    env->ReleaseLongArrayElements(joperation_properties, body, 0);
+    env->ReleaseLongArrayElements(joperation_properties, body, is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 
     jobject jcfd = env->NewObject(jclazz, mid,
         static_cast<jlong>(thread_status->thread_id),

@@ -553,7 +553,8 @@ jlong Java_org_rocksdb_Options_dbPathsLen(
 void Java_org_rocksdb_Options_dbPaths(
     JNIEnv* env, jobject, jlong jhandle, jobjectArray jpaths,
     jlongArray jtarget_sizes) {
-  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  jboolean is_copy;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, &is_copy);
   if (ptr_jtarget_size == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -581,7 +582,7 @@ void Java_org_rocksdb_Options_dbPaths(
     ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
   }
 
-  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 }
 
 /*
@@ -4521,7 +4522,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplierAdditiona
     jintArray jmax_bytes_for_level_multiplier_additional) {
   jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
   jint* additionals =
-      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, 0);
+      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, nullptr);
   if (additionals == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -5173,7 +5174,8 @@ jlong Java_org_rocksdb_DBOptions_dbPathsLen(
 void Java_org_rocksdb_DBOptions_dbPaths(
     JNIEnv* env, jobject, jlong jhandle, jobjectArray jpaths,
     jlongArray jtarget_sizes) {
-  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  jboolean is_copy;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, &is_copy);
   if (ptr_jtarget_size == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -5201,7 +5203,7 @@ void Java_org_rocksdb_DBOptions_dbPaths(
     ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
   }
 
-  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 }
 
 /*
