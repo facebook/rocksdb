@@ -873,6 +873,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       int output_level;
       for (int level = first_overlapped_level; level <= max_overlapped_level;
            level++) {
+        bool disallow_trivial_move = false;
         // in case the compaction is universal or if we're compacting the
         // bottom-most level, the output level will be the same as input one.
         // level 0 can never be the bottommost level (i.e. if all files are in
@@ -905,9 +906,19 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
               level == 0) {
             output_level = ColumnFamilyData::kCompactToBaseLevel;
           }
+          // if it's a BottommostLevel compaction and `kForce*` compaction is
+          // set, disallow trivial move
+          if (level == max_overlapped_level &&
+              (options.bottommost_level_compaction ==
+                   BottommostLevelCompaction::kForce ||
+               options.bottommost_level_compaction ==
+                   BottommostLevelCompaction::kForceOptimized)) {
+            disallow_trivial_move = true;
+          }
         }
         s = RunManualCompaction(cfd, level, output_level, options, begin, end,
-                                exclusive, false, max_file_num_to_ignore);
+                                exclusive, disallow_trivial_move,
+                                max_file_num_to_ignore);
         if (!s.ok()) {
           break;
         }
