@@ -223,7 +223,7 @@ class CodeJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getValueMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -261,7 +261,7 @@ class SubCodeJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getValueMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -326,7 +326,7 @@ class StatusJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCodeMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -347,7 +347,7 @@ class StatusJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getSubCodeMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -368,7 +368,7 @@ class StatusJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getStateMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -934,7 +934,7 @@ class RocksDBExceptionJni :
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getStatusMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -1025,7 +1025,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getIteratorMethod(JNIEnv* env) {
     jclass jlist_clazz = getListClass(env);
@@ -1046,7 +1046,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getHasNextMethod(JNIEnv* env) {
     jclass jiterator_clazz = getIteratorClass(env);
@@ -1066,7 +1066,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNextMethod(JNIEnv* env) {
     jclass jiterator_clazz = getIteratorClass(env);
@@ -1087,7 +1087,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getArrayListConstructorMethodId(JNIEnv* env) {
     jclass jarray_list_clazz = getArrayListClass(env);
@@ -1107,7 +1107,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getListAddMethodId(JNIEnv* env) {
     jclass jlist_clazz = getListClass(env);
@@ -1247,7 +1247,7 @@ class ByteBufferJni : public JavaClass {
    * @param jbytebuffer_clazz if you have a reference to a ByteBuffer class, or nullptr
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getAllocateMethodId(JNIEnv* env,
       jclass jbytebuffer_clazz = nullptr) {
@@ -1270,7 +1270,7 @@ class ByteBufferJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getArrayMethodId(JNIEnv* env,
       jclass jbytebuffer_clazz = nullptr) {
@@ -1479,7 +1479,7 @@ class StringBuilderJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getListAddMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2366,7 +2366,7 @@ class MapJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMapPutMethodId(JNIEnv* env) {
     jclass jlist_clazz = getJClass(env);
@@ -2898,7 +2898,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getPutCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2918,7 +2918,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getPutMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2938,7 +2938,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMergeCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2958,7 +2958,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMergeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2978,7 +2978,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2998,7 +2998,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3018,7 +3018,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getSingleDeleteCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3038,7 +3038,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getSingleDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3058,7 +3058,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteRangeCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3078,7 +3078,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteRangeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3098,7 +3098,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getLogDataMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3118,7 +3118,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getPutBlobIndexCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3138,7 +3138,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkBeginPrepareMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3158,7 +3158,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkEndPrepareMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3178,7 +3178,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkNoopMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3198,7 +3198,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkRollbackMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3218,7 +3218,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkCommitMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3238,7 +3238,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getContinueMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3274,7 +3274,7 @@ class WriteBatchSavePointJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getConstructorMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3365,7 +3365,7 @@ class HistogramDataJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getConstructorMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3541,7 +3541,7 @@ class AbstractCompactionFilterFactoryJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3562,7 +3562,7 @@ class AbstractCompactionFilterFactoryJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCreateCompactionFilterMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3629,7 +3629,7 @@ class AbstractComparatorJniBridge : public JavaClass {
    * @param jclazz the AbstractComparatorJniBridge class
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCompareInternalMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid =
@@ -3646,7 +3646,7 @@ class AbstractComparatorJniBridge : public JavaClass {
    * @param jclazz the AbstractComparatorJniBridge class
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getFindShortestSeparatorInternalMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid =
@@ -3663,7 +3663,7 @@ class AbstractComparatorJniBridge : public JavaClass {
    * @param jclazz the AbstractComparatorJniBridge class
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getFindShortSuccessorInternalMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid =
@@ -3699,7 +3699,7 @@ class AbstractComparatorJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3996,7 +3996,7 @@ class WBWIRocksIteratorJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Field ID or nullptr if the class or field id could not
-   *     be retieved
+   *     be retrieved
    */
   static jfieldID getWriteEntryField(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -4317,7 +4317,7 @@ class LoggerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getLogMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -5965,7 +5965,7 @@ class AbstractTableFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getFilterMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -6235,7 +6235,7 @@ class ColumnFamilyDescriptorJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -6255,7 +6255,7 @@ class ColumnFamilyDescriptorJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getColumnFamilyOptionsMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7381,7 +7381,7 @@ class AbstractTraceWriterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getWriteProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7402,7 +7402,7 @@ class AbstractTraceWriterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCloseWriterProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7423,7 +7423,7 @@ class AbstractTraceWriterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getGetFileSizeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7464,7 +7464,7 @@ class AbstractWalFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getColumnFamilyLogNumberMapMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7486,7 +7486,7 @@ class AbstractWalFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getLogRecordFoundProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7507,7 +7507,7 @@ class AbstractWalFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
