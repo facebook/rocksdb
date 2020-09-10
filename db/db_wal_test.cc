@@ -1690,7 +1690,9 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
             1 * kMB);
   // Write one more key to trigger flush.
   ASSERT_OK(Put(0, "foo", "v2"));
-  dbfull()->TEST_WaitForFlushMemTable();
+  for (auto* h : handles_) {
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(h));
+  }
   // Flushed two column families.
   ASSERT_EQ(2, test_listener->count.load());
 }
