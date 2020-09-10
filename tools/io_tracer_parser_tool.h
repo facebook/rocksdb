@@ -20,10 +20,7 @@ struct IOTraceRecord;
 // dumps the human readable records in output_file_.
 class IOTraceRecordParser {
  public:
-  IOTraceRecordParser(const std::string& input_file,
-                      const std::string& output_file);
-
-  ~IOTraceRecordParser();
+  IOTraceRecordParser(const std::string& input_file);
 
   // ReadIOTraceRecords reads the binary trace file records one by one and
   // invoke PrintHumanReadableIOTraceRecord to dump the records in output_file_.
@@ -35,9 +32,6 @@ class IOTraceRecordParser {
 
   // Binary file that contains IO trace records.
   std::string input_file_;
-  // Output file where human readable records will be dumped.
-  std::string output_file_;
-  std::unique_ptr<WritableFile> trace_writer_;
 };
 
 int io_tracer_parser(int argc, char** argv);

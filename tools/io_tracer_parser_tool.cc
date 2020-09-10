@@ -20,23 +20,11 @@
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_string(io_trace_file, "", "The IO trace file path.");
-DEFINE_string(
-    output_file, "",
-    "The output file path for storing human readable format of IO trace "
-    "records that are stored in IO trace file.");
 
 namespace ROCKSDB_NAMESPACE {
 
-IOTraceRecordParser::IOTraceRecordParser(const std::string& input_file,
-                                         const std::string& output_file)
-    : input_file_(input_file), output_file_(output_file) {}
-
-IOTraceRecordParser::~IOTraceRecordParser() {
-  if (trace_writer_) {
-    trace_writer_->Flush();
-    trace_writer_->Close();
-  }
-}
+IOTraceRecordParser::IOTraceRecordParser(const std::string& input_file)
+    : input_file_(input_file) {}
 
 void IOTraceRecordParser::PrintHumanReadableHeader(
     const IOTraceHeader& header) {
@@ -44,7 +32,7 @@ void IOTraceRecordParser::PrintHumanReadableHeader(
   ss << "Start Time: " << header.start_time
      << "\nRocksDB Major Version: " << header.rocksdb_major_version
      << "\nRocksDB Minor Version: " << header.rocksdb_minor_version << "\n";
-  trace_writer_->Append(ss.str());
+  fprintf(stdout, "%s", ss.str().c_str());
 }
 
 void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
@@ -78,7 +66,7 @@ void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
       assert(false);
   }
   ss << "\n";
-  trace_writer_->Append(ss.str());
+  fprintf(stdout, "%s", ss.str().c_str());
 }
 
 int IOTraceRecordParser::ReadIOTraceRecords() {
@@ -93,13 +81,6 @@ int IOTraceRecordParser::ReadIOTraceRecords() {
     return 1;
   }
   io_trace_reader.reset(new IOTraceReader(std::move(trace_reader)));
-
-  status = env->NewWritableFile(output_file_, &trace_writer_, EnvOptions());
-  if (!status.ok()) {
-    fprintf(stderr, "%s: %s\n", output_file_.c_str(),
-            status.ToString().c_str());
-    return 1;
-  }
 
   // Read the header and dump it in a file.
   IOTraceHeader header;
@@ -130,12 +111,7 @@ int io_tracer_parser(int argc, char** argv) {
     return 1;
   }
 
-  if (FLAGS_output_file.empty()) {
-    fprintf(stderr, "Output file path is empty\n");
-    return 1;
-  }
-
-  IOTraceRecordParser io_tracer_parser(FLAGS_io_trace_file, FLAGS_output_file);
+  IOTraceRecordParser io_tracer_parser(FLAGS_io_trace_file);
   return io_tracer_parser.ReadIOTraceRecords();
 }
 

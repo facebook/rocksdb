@@ -36,7 +36,6 @@ class IOTracerParserTest : public testing::Test {
     env_ = ROCKSDB_NAMESPACE::Env::Default();
     EXPECT_OK(env_->CreateDirIfMissing(test_path_));
     trace_file_path_ = test_path_ + "/io_trace_file";
-    output_file_ = test_path_ + "/output_file";
     dbname_ = test_path_ + "/db";
     Options options;
     options.create_if_missing = true;
@@ -47,10 +46,6 @@ class IOTracerParserTest : public testing::Test {
     if (env_->FileExists(trace_file_path_).ok()) {
       EXPECT_OK(env_->DeleteFile(trace_file_path_));
     }
-    if (env_->FileExists(output_file_).ok()) {
-      EXPECT_OK(env_->DeleteFile(output_file_));
-    }
-
     if (db_ != nullptr) {
       Options options;
       options.env = env_;
@@ -83,8 +78,7 @@ class IOTracerParserTest : public testing::Test {
 
   void RunIOTracerParserTool() {
     std::vector<std::string> params = {"./io_tracer_parser",
-                                       "-io_trace_file=" + trace_file_path_,
-                                       "-output_file=" + output_file_};
+                                       "-io_trace_file=" + trace_file_path_};
 
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
@@ -114,24 +108,6 @@ class IOTracerParserTest : public testing::Test {
 TEST_F(IOTracerParserTest, InvalidArguments) {
   {
     std::vector<std::string> params = {"./io_tracer_parser"};
-    char arg_buffer[kArgBufferSize];
-    char* argv[kMaxArgCount];
-    int argc = 0;
-    int cursor = 0;
-    for (const auto& arg : params) {
-      ASSERT_LE(cursor + arg.size() + 1, kArgBufferSize);
-      ASSERT_LE(argc + 1, kMaxArgCount);
-
-      snprintf(arg_buffer + cursor, arg.size() + 1, "%s", arg.c_str());
-
-      argv[argc++] = arg_buffer + cursor;
-      cursor += static_cast<int>(arg.size()) + 1;
-    }
-    ASSERT_EQ(1, ROCKSDB_NAMESPACE::io_tracer_parser(argc, argv));
-  }
-  {
-    std::vector<std::string> params = {"./io_tracer_parser",
-                                       "-io_trace_file=" + trace_file_path_};
     char arg_buffer[kArgBufferSize];
     char* argv[kMaxArgCount];
     int argc = 0;
@@ -195,7 +171,6 @@ TEST_F(IOTracerParserTest, NoRecordingBeforeStartIOTrace) {
     RunIOTracerParserTool();
   }
 }
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
