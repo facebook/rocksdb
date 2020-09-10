@@ -1298,14 +1298,14 @@ public class Options extends RocksObject
 
   @Override
   public Options setCfPaths(final Collection<DbPath> cfPaths) {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
 
     final int len = cfPaths.size();
     final String paths[] = new String[len];
     final long targetSizes[] = new long[len];
 
     int i = 0;
-    for(final DbPath dbPath : cfPaths) {
+    for (final DbPath dbPath : cfPaths) {
       paths[i] = dbPath.path.toString();
       targetSizes[i] = dbPath.targetSize;
       i++;
@@ -1316,7 +1316,7 @@ public class Options extends RocksObject
 
   @Override
   public List<DbPath> cfPaths() {
-    final int len = (int)cfPathsLen(nativeHandle_);
+    final int len = (int) cfPathsLen(nativeHandle_);
 
     if (len == 0) {
       return Collections.emptyList();
@@ -2103,12 +2103,10 @@ public class Options extends RocksObject
 
 
   // CF native handles
-  private static native void oldDefaults(final long handle,
-                                         final int majorVersion,
-                                         final int minorVersion);
+  private static native void oldDefaults(
+      final long handle, final int majorVersion, final int minorVersion);
   private native void optimizeForSmallDb(final long handle);
-  private static native void optimizeForSmallDb(final long handle,
-                                                final long cacheHandle);
+  private static native void optimizeForSmallDb(final long handle, final long cacheHandle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
   private native void optimizeLevelStyleCompaction(long handle,
@@ -2195,11 +2193,11 @@ public class Options extends RocksObject
   private native String memTableFactoryName(long handle);
   private native void setTableFactory(long handle, long factoryHandle);
   private native String tableFactoryName(long handle);
-  private static native void setCfPaths(final long handle, final String[] paths,
-                                 final long[] targetSizes);
+  private static native void setCfPaths(
+      final long handle, final String[] paths, final long[] targetSizes);
   private static native long cfPathsLen(final long handle);
-  private static native void cfPaths(final long handle, final String[] paths,
-                              final long[] targetSizes);
+  private static native void cfPaths(
+      final long handle, final String[] paths, final long[] targetSizes);
   private native void setInplaceUpdateSupport(
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);
