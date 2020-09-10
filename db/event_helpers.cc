@@ -162,6 +162,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   for (auto& listener : listeners) {
     listener->OnTableFileCreated(info);
   }
+  info.status.PermitUncheckedError();
 #else
   (void)listeners;
   (void)db_name;
@@ -199,6 +200,7 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   for (auto& listener : listeners) {
     listener->OnTableFileDeleted(info);
   }
+  info.status.PermitUncheckedError();
 #else
   (void)file_path;
   (void)dbname;

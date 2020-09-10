@@ -62,7 +62,8 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   }
 
   const std::string kFileName = "OPTIONS-123456";
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
+  ASSERT_OK(
+      PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get()));
 
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
@@ -126,7 +127,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_names.push_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
-  PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get());
+  ASSERT_OK(
+      PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get()));
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
 

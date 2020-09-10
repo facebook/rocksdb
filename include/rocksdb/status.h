@@ -38,7 +38,7 @@ class Status {
   ~Status() {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     if (!checked_) {
-      fprintf(stderr, "Failed to check Status\n");
+      fprintf(stderr, "Failed to check Status %p\n", this);
       port::PrintStack();
       abort();
     }

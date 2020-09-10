@@ -96,7 +96,6 @@ Status BuildTable(
   const size_t kReportFlushIOStatsEvery = 1048576;
   uint64_t paranoid_hash = 0;
   Status s;
-  IOStatus io_s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -128,7 +127,7 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      io_s = NewWritableFile(fs, fname, &file, file_options);
+      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
       s = io_s;
       if (io_status->ok()) {
         *io_status = io_s;
@@ -208,9 +207,8 @@ Status BuildTable(
     } else {
       s = builder->Finish();
     }
-    io_s = builder->io_status();
     if (io_status->ok()) {
-      *io_status = io_s;
+      *io_status = builder->io_status();
     }
 
     if (s.ok() && !empty) {
@@ -290,7 +288,7 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
-    fs->DeleteFile(fname, IOOptions(), nullptr);
+    fs->DeleteFile(fname, IOOptions(), nullptr).PermitUncheckedError();
   }
 
   if (meta->fd.GetFileSize() == 0) {

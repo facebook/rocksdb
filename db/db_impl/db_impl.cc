@@ -466,7 +466,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
         if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
           cfd->Ref();
           mutex_.Unlock();
-          FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          s.PermitUncheckedError();  //**TODO: What to do on error?
           mutex_.Lock();
           cfd->UnrefAndTryDelete();
         }
@@ -969,8 +970,8 @@ Status DBImpl::SetOptions(
       new_options = *cfd->GetLatestMutableCFOptions();
       // Append new version to recompute compaction score.
       VersionEdit dummy_edit;
-      versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
-                             directories_.GetDbDir());
+      s = versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
+                                 directories_.GetDbDir());
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
@@ -1020,7 +1021,7 @@ Status DBImpl::SetDBOptions(
 
   MutableDBOptions new_options;
   Status s;
-  Status persist_options_status;
+  Status persist_options_status = Status::OK();
   bool wal_changed = false;
   WriteContext write_context;
   {
@@ -1125,6 +1126,10 @@ Status DBImpl::SetDBOptions(
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
       write_thread_.ExitUnbatched(&w);
+    } else {
+      // To get here, we must have had invalid options and will not attempt to
+      // persist the options, which means the status is "OK/Uninitialized.
+      persist_options_status.PermitUncheckedError();
     }
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions(), inputs:");
@@ -2480,7 +2485,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
   Status s;
-  Status persist_options_status;
   *handle = nullptr;
 
   DBOptions db_options =
