@@ -582,7 +582,8 @@ void Java_org_rocksdb_Options_dbPaths(
     ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
   }
 
-  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, is_copy == JNI_TRUE ? 0 : JNI_ABORT);
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size,
+                                is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 }
 
 /*
@@ -4521,8 +4522,8 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplierAdditiona
     JNIEnv* env, jobject, jlong jhandle,
     jintArray jmax_bytes_for_level_multiplier_additional) {
   jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
-  jint* additionals =
-      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, nullptr);
+  jint* additionals = env->GetIntArrayElements(
+      jmax_bytes_for_level_multiplier_additional, nullptr);
   if (additionals == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
@@ -5203,7 +5204,8 @@ void Java_org_rocksdb_DBOptions_dbPaths(
     ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
   }
 
-  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, is_copy == JNI_TRUE ? 0 : JNI_ABORT);
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size,
+                                is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 }
 
 /*
