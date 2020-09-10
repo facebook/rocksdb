@@ -5467,7 +5467,7 @@ TEST_P(DBCompactionTestWithParam,
   }
 }
 
-TEST_P(DBCompactionTestWithBottommostParam, ManualCompaction) {
+TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
   constexpr int kSstNum = 10;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -5477,7 +5477,7 @@ TEST_P(DBCompactionTestWithBottommostParam, ManualCompaction) {
   for (int i = 0; i < kSstNum; i++) {
     for (int j = 1; j < UCHAR_MAX; j++) {
       auto key = std::string(kSstNum, '\0');
-      key[kSstNum - i] += j;
+      key[kSstNum - i] += static_cast<char>(j);
       Put(key, std::string(i % 1000, 'A'));
     }
     ASSERT_OK(Flush());
