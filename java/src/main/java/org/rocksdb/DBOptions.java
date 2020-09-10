@@ -573,6 +573,16 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setMaxWriteBatchGroupSizeBytes(long maxWriteBatchGroupSizeBytes) {
+    return null;
+  }
+
+  @Override
+  public long maxWriteBatchGroupSizeBytes() {
+    return 0;
+  }
+
+  @Override
   public DBOptions setManifestPreallocationSize(
       final long size) {
     assert(isOwningHandle());
@@ -1011,6 +1021,16 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public DBOptions setSkipCheckingSstFileSizesOnDbOpen(boolean skipCheckingSstFileSizesOnDbOpen) {
+    return null;
+  }
+
+  @Override
+  public boolean skipCheckingSstFileSizesOnDbOpen() {
+    return false;
+  }
+
+  @Override
   public DBOptions setWalRecoveryMode(final WALRecoveryMode walRecoveryMode) {
     assert(isOwningHandle());
     setWalRecoveryMode(nativeHandle_, walRecoveryMode.getValue());
@@ -1177,6 +1197,76 @@ public class DBOptions extends RocksObject
   @Override
   public boolean atomicFlush() {
     return atomicFlush(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setAvoidUnnecessaryBlockingIO(boolean avoidUnnecessaryBlockingIO) {
+    return null;
+  }
+
+  @Override
+  public boolean avoidUnnecessaryBlockingIO() {
+    return false;
+  }
+
+  @Override
+  public DBOptions setPersistStatsToDisk(boolean persistStatsToDisk) {
+    return null;
+  }
+
+  @Override
+  public boolean persistStatsToDisk() {
+    return false;
+  }
+
+  @Override
+  public DBOptions setWriteDbidToManifest(boolean writeDbidToManifest) {
+    return null;
+  }
+
+  @Override
+  public boolean writeDbidToManifest() {
+    return false;
+  }
+
+  @Override
+  public DBOptions setLogReadaheadSize(long logReadaheadSize) {
+    return null;
+  }
+
+  @Override
+  public long logReadaheadSize() {
+    return 0;
+  }
+
+  @Override
+  public DBOptions setBestEffortsRecovery(boolean bestEffortsRecovery) {
+    return null;
+  }
+
+  @Override
+  public boolean bestEffortsRecovery() {
+    return false;
+  }
+
+  @Override
+  public DBOptions setMaxBgerrorResumeCount(int maxBgerrorResumeCount) {
+    return null;
+  }
+
+  @Override
+  public int maxBgerrorResumeCount() {
+    return 0;
+  }
+
+  @Override
+  public DBOptions setBgerrorResumeRetryInterval(long bgerrorResumeRetryInterval) {
+    return null;
+  }
+
+  @Override
+  public long bgerrorResumeRetryInterval() {
+    return 0;
   }
 
   static final int DEFAULT_NUM_SHARD_BITS = -1;

@@ -662,6 +662,16 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxWriteBatchGroupSizeBytes(long maxWriteBatchGroupSizeBytes) {
+    return null;
+  }
+
+  @Override
+  public long maxWriteBatchGroupSizeBytes() {
+    return 0;
+  }
+
+  @Override
   public Options setWalSizeLimitMB(final long sizeLimitMB) {
     assert(isOwningHandle());
     setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
@@ -1064,6 +1074,16 @@ public class Options extends RocksObject
   public boolean skipStatsUpdateOnDbOpen() {
     assert(isOwningHandle());
     return skipStatsUpdateOnDbOpen(nativeHandle_);
+  }
+
+  @Override
+  public Options setSkipCheckingSstFileSizesOnDbOpen(boolean skipCheckingSstFileSizesOnDbOpen) {
+    return null;
+  }
+
+  @Override
+  public boolean skipCheckingSstFileSizesOnDbOpen() {
+    return false;
   }
 
   @Override
@@ -1858,6 +1878,76 @@ public class Options extends RocksObject
   @Override
   public boolean atomicFlush() {
     return atomicFlush(nativeHandle_);
+  }
+
+  @Override
+  public Options setAvoidUnnecessaryBlockingIO(boolean avoidUnnecessaryBlockingIO) {
+    return null;
+  }
+
+  @Override
+  public boolean avoidUnnecessaryBlockingIO() {
+    return false;
+  }
+
+  @Override
+  public Options setPersistStatsToDisk(boolean persistStatsToDisk) {
+    return null;
+  }
+
+  @Override
+  public boolean persistStatsToDisk() {
+    return false;
+  }
+
+  @Override
+  public Options setWriteDbidToManifest(boolean writeDbidToManifest) {
+    return null;
+  }
+
+  @Override
+  public boolean writeDbidToManifest() {
+    return false;
+  }
+
+  @Override
+  public Options setLogReadaheadSize(long logReadaheadSize) {
+    return null;
+  }
+
+  @Override
+  public long logReadaheadSize() {
+    return 0;
+  }
+
+  @Override
+  public Options setBestEffortsRecovery(boolean bestEffortsRecovery) {
+    return null;
+  }
+
+  @Override
+  public boolean bestEffortsRecovery() {
+    return false;
+  }
+
+  @Override
+  public Options setMaxBgerrorResumeCount(int maxBgerrorResumeCount) {
+    return null;
+  }
+
+  @Override
+  public int maxBgerrorResumeCount() {
+    return 0;
+  }
+
+  @Override
+  public Options setBgerrorResumeRetryInterval(long bgerrorResumeRetryInterval) {
+    return null;
+  }
+
+  @Override
+  public long bgerrorResumeRetryInterval() {
+    return 0;
   }
 
   @Override
