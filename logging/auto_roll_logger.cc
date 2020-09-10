@@ -46,7 +46,7 @@ AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
   }
   GetExistingFiles();
   s = ResetLogger();
-  if (s.ok()) {
+  if (s.ok() && status_.ok()) {
     status_ = TrimOldLogFiles();
   }
 }

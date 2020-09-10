@@ -606,10 +606,6 @@ Status CompactionJob::Run() {
       status = state.status;
       io_s = state.io_status;
       break;
-    } else if (!state.io_status.ok()) {
-      status = state.io_status;
-      io_s = state.io_status;
-      break;
     }
   }
   if (io_status_.ok()) {
@@ -1375,6 +1371,9 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
+    // Since this error is really a copy of the
+    // "normal" status, it does not also need to be checked
+    sub_compact->io_status.PermitUncheckedError();
   }
   sub_compact->outfile.reset();
 
