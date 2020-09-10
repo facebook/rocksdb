@@ -855,7 +855,7 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
   if ((immutable_db_options_.paranoid_checks && !io_status.ok() &&
-      !io_status.IsBusy() && !io_status.IsIncomplete()) ||
+       !io_status.IsBusy() && !io_status.IsIncomplete()) ||
       io_status.IsIOFenced()) {
     mutex_.Lock();
     error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);

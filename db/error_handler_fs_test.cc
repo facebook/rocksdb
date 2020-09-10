@@ -1962,9 +1962,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
   Close();
 }
 
-class DBErrorHandlingFencingTest
-    : public DBErrorHandlingFSTest,
-      public testing::WithParamInterface<bool> {};
+class DBErrorHandlingFencingTest : public DBErrorHandlingFSTest,
+                                   public testing::WithParamInterface<bool> {};
 
 TEST_P(DBErrorHandlingFencingTest, FLushWriteFenced) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -2145,9 +2144,8 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
   Close();
 }
 
-INSTANTIATE_TEST_CASE_P(
-    DBErrorHandlingFSTest, DBErrorHandlingFencingTest,
-    ::testing::Bool());
+INSTANTIATE_TEST_CASE_P(DBErrorHandlingFSTest, DBErrorHandlingFencingTest,
+                        ::testing::Bool());
 
 }  // namespace ROCKSDB_NAMESPACE
 
