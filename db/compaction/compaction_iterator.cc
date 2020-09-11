@@ -567,8 +567,6 @@ void CompactionIterator::NextFromInput() {
                                                         &level_ptrs_));
       ParsedInternalKey next_ikey;
       input_->Next();
-      TEST_SYNC_POINT(
-          "CompactionIterator::NextFromInput:BeforeSkippingBottomTombstones:1");
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&

@@ -5109,52 +5109,6 @@ TEST_F(DBCompactionTest, CompactionDuringShutdown) {
   ASSERT_OK(dbfull()->error_handler_.GetBGError());
 }
 
-TEST_F(DBCompactionTest, CancelSkippingBottomTombstones) {
-  Options opts = CurrentOptions();
-  opts.disable_auto_compactions = true;
-  opts.num_levels = 3;
-  opts.level0_file_num_compaction_trigger = 32;
-  const int kNumL0Files = opts.level0_file_num_compaction_trigger;
-  DestroyAndReopen(opts);
-
-  // Insert a random value
-  ASSERT_OK(Put("b", "value"));
-
-  // Take a snapshot
-  const Snapshot* snapshot = db_->GetSnapshot();
-
-  for (int i = 0; i < kNumL0Files / 4; ++i) {
-    ASSERT_OK(Put("a", "value"));
-    ASSERT_OK(Put("c", "value"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(Delete("a"));
-    ASSERT_OK(Flush());
-
-    ASSERT_OK(Delete("a"));
-    ASSERT_OK(Flush());
-  }
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->LoadDependency({
-      {"CompactionIterator:ProcessKV",
-       "DBImpl::CancelAllBackgroundWork:BeforeSetShutdownFlag"},
-      {"DBImpl::CancelAllBackgroundWork:AfterSetShutdownFlag",
-       "CompactionIterator::NextFromInput:BeforeSkippingBottomTombstones:1"},
-  });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  port::Thread thread([&]() { dbfull()->CancelAllBackgroundWork(true); });
-
-  CompactRangeOptions cro;
-  Status s = db_->CompactRange(cro, nullptr, nullptr);
-  ASSERT_TRUE(s.IsShutdownInProgress());
-
-  // Release snapshot
-  db_->ReleaseSnapshot(snapshot);
-  thread.join();
-}
-
 // FixFileIngestionCompactionDeadlock tests and verifies that compaction and
 // file ingestion do not cause deadlock in the event of write stall triggered
 // by number of L0 files reaching level0_stop_writes_trigger.

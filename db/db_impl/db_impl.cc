@@ -475,10 +475,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
-  TEST_SYNC_POINT("DBImpl::CancelAllBackgroundWork:BeforeSetShutdownFlag");
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
-  TEST_SYNC_POINT("DBImpl::CancelAllBackgroundWork:AfterSetShutdownFlag");
   if (!wait) {
     return;
   }
