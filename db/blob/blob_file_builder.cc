@@ -71,7 +71,9 @@ BlobFileBuilder::BlobFileBuilder(
   assert(immutable_cf_options_);
   assert(file_options_);
   assert(blob_file_paths_);
+  assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
+  assert(blob_file_additions_->empty());
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
