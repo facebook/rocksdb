@@ -163,7 +163,7 @@ struct BlockBasedTableOptions {
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The
   // actual size of the unit read from disk may be smaller if
-  // compression is enabled.  This parameter can be changed dynamically.
+  // compression is enabled.
   size_t block_size = 4 * 1024;
 
   // This is used to close a block before it reaches the configured
@@ -174,9 +174,8 @@ struct BlockBasedTableOptions {
   int block_size_deviation = 10;
 
   // Number of keys between restart points for delta encoding of keys.
-  // This parameter can be changed dynamically.  Most clients should
-  // leave this parameter alone.  The minimum value allowed is 1.  Any smaller
-  // value will be silently overwritten with 1.
+  // Most clients should leave this parameter alone. The minimum value allowed
+  // is 1. Any smaller value will be silently overwritten with 1.
   int block_restart_interval = 16;
 
   // Same as block_restart_interval but used for the index block.
