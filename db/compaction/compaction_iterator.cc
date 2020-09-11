@@ -563,8 +563,8 @@ void CompactionIterator::NextFromInput() {
       // Handle the case where we have a delete key at the bottom most level
       // We can skip outputting the key iff there are no subsequent puts for this
       // key
-      assert(compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
-                                                        &level_ptrs_));
+      assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
+                                 ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
       input_->Next();
       // Skip over all versions of this key that happen to occur in the same snapshot
