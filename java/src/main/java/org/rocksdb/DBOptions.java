@@ -1201,72 +1201,86 @@ public class DBOptions extends RocksObject
 
   @Override
   public DBOptions setAvoidUnnecessaryBlockingIO(boolean avoidUnnecessaryBlockingIO) {
-    return null;
+    setAvoidUnnecessaryBlockingIO(nativeHandle_, avoidUnnecessaryBlockingIO);
+    return this;
   }
 
   @Override
   public boolean avoidUnnecessaryBlockingIO() {
-    return false;
+    assert(isOwningHandle());
+    return avoidUnnecessaryBlockingIO(nativeHandle_);
   }
 
   @Override
   public DBOptions setPersistStatsToDisk(boolean persistStatsToDisk) {
-    return null;
+    setPersistStatsToDisk(nativeHandle_, persistStatsToDisk);
+    return this;
   }
 
   @Override
   public boolean persistStatsToDisk() {
-    return false;
+    assert(isOwningHandle());
+    return persistStatsToDisk(nativeHandle_);
   }
 
   @Override
   public DBOptions setWriteDbidToManifest(boolean writeDbidToManifest) {
-    return null;
+    setWriteDbidToManifest(nativeHandle_, writeDbidToManifest);
+    return this;
   }
 
   @Override
   public boolean writeDbidToManifest() {
-    return false;
+    assert(isOwningHandle());
+    return writeDbidToManifest(nativeHandle_);
   }
 
   @Override
   public DBOptions setLogReadaheadSize(long logReadaheadSize) {
-    return null;
+    setLogReadaheadSize(nativeHandle_, logReadaheadSize);
+    return this;
   }
 
   @Override
   public long logReadaheadSize() {
-    return 0;
+    assert(isOwningHandle());
+    return logReasaheadSize(nativeHandle_);
   }
 
   @Override
   public DBOptions setBestEffortsRecovery(boolean bestEffortsRecovery) {
-    return null;
+    setBestEffortsRecovery(nativeHandle_, bestEffortsRecovery);
+    return this;
   }
 
   @Override
   public boolean bestEffortsRecovery() {
-    return false;
+    assert(isOwningHandle());
+    return bestEffortsRecovery(nativeHandle_);
   }
 
   @Override
   public DBOptions setMaxBgerrorResumeCount(int maxBgerrorResumeCount) {
-    return null;
+    setMaxBgerrorResumeCount(nativeHandle_, maxBgerrorResumeCount);
+    return this;
   }
 
   @Override
   public int maxBgerrorResumeCount() {
-    return 0;
+    assert(isOwningHandle());
+    return maxBgerrorResumeCount(nativeHandle_);
   }
 
   @Override
   public DBOptions setBgerrorResumeRetryInterval(long bgerrorResumeRetryInterval) {
-    return null;
+    setBgerrorResumeRetryInterval(nativeHandle_, bgerrorResumeRetryInterval);
+    return this;
   }
 
   @Override
   public long bgerrorResumeRetryInterval() {
-    return 0;
+    assert(isOwningHandle());
+    return bgerrorResumeRetryInterval(nativeHandle_);
   }
 
   static final int DEFAULT_NUM_SHARD_BITS = -1;
@@ -1500,6 +1514,27 @@ public class DBOptions extends RocksObject
   private native void setAtomicFlush(final long handle,
       final boolean atomicFlush);
   private native boolean atomicFlush(final long handle);
+  private static native void setAvoidUnnecessaryBlockingIO(final long handle,
+                                                           final boolean avoidBlockingIO);
+  private static native boolean avoidUnnecessaryBlockingIO(final long handle);
+  private static native void setPersistStatsToDisk(final long handle,
+                                                   final boolean persistStatsToDisk);
+  private static native boolean persistStatsToDisk(final long handle);
+  private static native void setWriteDbidToManifest(final long handle,
+                                                    final boolean writeDbidToManifest);
+  private static native boolean writeDbidToManifest(final long handle);
+  private static native void setLogReadaheadSize(final long handle,
+                                                 final long logReadaheadSize);
+  private static native long logReasaheadSize(final long handle);
+  private static native void setBestEffortsRecovery(final long handle,
+                                                    final boolean bestEffortsRecovery);
+  private static native boolean bestEffortsRecovery(final long handle);
+  private static native void setMaxBgerrorResumeCount(final long handle,
+                                                      final int maxBgerrorRecumeCount);
+  private static native int maxBgerrorResumeCount(final long handle);
+  private static native void setBgerrorResumeRetryInterval(final long handle,
+                                                           final long bgerrorResumeRetryInterval);
+  private static native long bgerrorResumeRetryInterval(final long handle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
