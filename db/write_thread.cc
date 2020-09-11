@@ -513,6 +513,7 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
 
     Writer* w = leader;
     while (w != newest_writer) {
+      assert(w->link_newer);
       w = w->link_newer;
 
       if (w->batch == nullptr) {
@@ -569,6 +570,7 @@ void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
     if (w == last_writer) {
       break;
     }
+    assert(next);
     w = next;
   }
   // Note that leader has to exit last, since it owns the write group.
@@ -722,6 +724,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // leader now
 
     while (last_writer != leader) {
+      assert(last_writer);
       last_writer->status = status;
       // we need to read link_older before calling SetState, because as soon
       // as it is marked committed the other thread's Await may return and
