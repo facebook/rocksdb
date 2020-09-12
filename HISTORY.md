@@ -11,6 +11,7 @@
 * Avoid converting MERGES to PUTS when allow_ingest_behind is true.
 * Fix compression dictionary sampling together with `SstFileWriter`. Previously, the dictionary would be trained/finalized immediately with zero samples. Now, the whole `SstFileWriter` file is buffered in memory and then sampled.
 * Fix a bug with `avoid_unnecessary_blocking_io=1` and creating backups (BackupEngine::CreateNewBackup) or checkpoints (Checkpoint::Create). With this setting and WAL enabled, these operations could randomly fail with non-OK status.
+* Fix a bug in which bottommost compaction continues to advance the underlying InternalIterator to skip tombstones even after shutdown.
 
 ### New Features
 * A new option `std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory` is added to `BackupableDBOptions`. The default value for this option is `nullptr`. If this option is null, the default backup engine checksum function (crc32c) will be used for creating, verifying, or restoring backups. If it is not null and is set to the DB custom checksum factory, the custom checksum function used in DB will also be used for creating, verifying, or restoring backups, in addition to the default checksum function (crc32c). If it is not null and is set to a custom checksum factory different than the DB custom checksum factory (which may be null), BackupEngine will return `Status::InvalidArgument()`.

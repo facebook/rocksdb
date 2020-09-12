@@ -144,8 +144,7 @@ void CompactionIterator::Next() {
     if (merge_out_iter_.Valid()) {
       key_ = merge_out_iter_.key();
       value_ = merge_out_iter_.value();
-      bool valid_key __attribute__((__unused__));
-      valid_key =  ParseInternalKey(key_, &ikey_);
+      bool valid_key = ParseInternalKey(key_, &ikey_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(valid_key);
@@ -352,8 +351,7 @@ void CompactionIterator::NextFromInput() {
     // If there are no snapshots, then this kv affect visibility at tip.
     // Otherwise, search though all existing snapshots to find the earliest
     // snapshot that is affected by this kv.
-    SequenceNumber last_sequence __attribute__((__unused__));
-    last_sequence = current_user_key_sequence_;
+    SequenceNumber last_sequence = current_user_key_sequence_;
     current_user_key_sequence_ = ikey_.sequence;
     SequenceNumber last_snapshot = current_user_key_snapshot_;
     SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
@@ -565,11 +563,14 @@ void CompactionIterator::NextFromInput() {
       // Handle the case where we have a delete key at the bottom most level
       // We can skip outputting the key iff there are no subsequent puts for this
       // key
+      assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
+                                 ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
       input_->Next();
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
-      while (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+      while (!IsPausingManualCompaction() && !IsShuttingDown() &&
+             input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
              cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
@@ -606,8 +607,7 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        bool valid_key __attribute__((__unused__));
-        valid_key = ParseInternalKey(key_, &ikey_);
+        bool valid_key = ParseInternalKey(key_, &ikey_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(valid_key);
