@@ -1621,7 +1621,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * and will instead schedule a background job to do it.
    * Use it if you're latency-sensitive.
    * If set to true, takes precedence over
-   * {@code ReadOptions::background_purge_on_iterator_cleanup}.
+   * {@link ReadOptions#setBackgroundPurgeOnIteratorCleanup(boolean)}.
    *
    * @param avoidUnnecessaryBlockingIO If true, working thread may avoid doing unnecessary operation.
    * @return the reference to the current options.
@@ -1634,7 +1634,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * and will instead schedule a background job to do it.
    * Use it if you're latency-sensitive.
    * If set to true, takes precedence over
-   * {@code ReadOptions::background_purge_on_iterator_cleanup}.
+   * {@link ReadOptions#setBackgroundPurgeOnIteratorCleanup(boolean)}.
    *
    * @return true, if working thread may avoid doing unnecessary operation.
    */
@@ -1769,7 +1769,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @param maxBgerrorResumeCount maximum number of times db resume should be called when IO Error happens.
    * @return the instance of the current object.
    */
-  T setMaxBgerrorResumeCount(final int maxBgerrorResumeCount);
+  T setMaxBgErrorResumeCount(final int maxBgerrorResumeCount);
 
   /**
    * It defines how many times db resume is called by a separate thread when

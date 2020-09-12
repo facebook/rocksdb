@@ -663,12 +663,14 @@ public class Options extends RocksObject
 
   @Override
   public Options setMaxWriteBatchGroupSizeBytes(long maxWriteBatchGroupSizeBytes) {
-    return null;
+    setMaxWriteBatchGroupSizeBytes(nativeHandle_, maxWriteBatchGroupSizeBytes);
+    return this;
   }
 
   @Override
   public long maxWriteBatchGroupSizeBytes() {
-    return 0;
+    assert(isOwningHandle());
+    return maxWriteBatchGroupSizeBytes(nativeHandle_);
   }
 
   @Override
@@ -1078,12 +1080,14 @@ public class Options extends RocksObject
 
   @Override
   public Options setSkipCheckingSstFileSizesOnDbOpen(boolean skipCheckingSstFileSizesOnDbOpen) {
-    return null;
+    setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
+    return this;
   }
 
   @Override
   public boolean skipCheckingSstFileSizesOnDbOpen() {
-    return false;
+    assert(isOwningHandle());
+    return skipCheckingSstFileSizesOnDbOpen(nativeHandle_);
   }
 
   @Override
@@ -1925,7 +1929,7 @@ public class Options extends RocksObject
   @Override
   public long logReadaheadSize() {
     assert(isOwningHandle());
-    return logReasaheadSize(nativeHandle_);
+    return logReadaheadSize(nativeHandle_);
   }
 
   @Override
@@ -1941,8 +1945,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBgerrorResumeCount(int maxBgerrorResumeCount) {
-    setMaxBgerrorResumeCount(nativeHandle_, maxBgerrorResumeCount);
+  public Options setMaxBgErrorResumeCount(int maxBgerrorResumeCount) {
+    setMaxBgErrorResumeCount(nativeHandle_, maxBgerrorResumeCount);
     return this;
   }
 
@@ -2078,6 +2082,9 @@ public class Options extends RocksObject
   private native long walTtlSeconds(long handle);
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
   private native long walSizeLimitMB(long handle);
+  private static native void setMaxWriteBatchGroupSizeBytes(final long handle,
+                                                            final long maxWriteBatchGroupSizeBytes);
+  private static native long maxWriteBatchGroupSizeBytes(final long handle);
   private native void setManifestPreallocationSize(
       long handle, long size) throws IllegalArgumentException;
   private native long manifestPreallocationSize(long handle);
@@ -2170,6 +2177,9 @@ public class Options extends RocksObject
   private native void setSkipStatsUpdateOnDbOpen(final long handle,
       final boolean skipStatsUpdateOnDbOpen);
   private native boolean skipStatsUpdateOnDbOpen(final long handle);
+  private static native void setSkipCheckingSstFileSizesOnDbOpen(final long handle,
+                                                                 final boolean skipChecking);
+  private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private native void setWalRecoveryMode(final long handle,
       final byte walRecoveryMode);
   private native byte walRecoveryMode(final long handle);
@@ -2381,11 +2391,11 @@ public class Options extends RocksObject
   private static native boolean writeDbidToManifest(final long handle);
   private static native void setLogReadaheadSize(final long handle,
                                                  final long logReadaheadSize);
-  private static native long logReasaheadSize(final long handle);
+  private static native long logReadaheadSize(final long handle);
   private static native void setBestEffortsRecovery(final long handle,
                                                     final boolean bestEffortsRecovery);
   private static native boolean bestEffortsRecovery(final long handle);
-  private static native void setMaxBgerrorResumeCount(final long handle,
+  private static native void setMaxBgErrorResumeCount(final long handle,
                                                       final int maxBgerrorRecumeCount);
   private static native int maxBgerrorResumeCount(final long handle);
   private static native void setBgerrorResumeRetryInterval(final long handle,
