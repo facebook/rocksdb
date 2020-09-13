@@ -677,6 +677,10 @@ ifdef ROCKSDBTESTS_END
         SUBSET := $(shell echo $(SUBSET) | sed 's/$(ROCKSDBTESTS_END).*//')
 endif
 
+ifdef ROCKSDBTESTS_ONLY
+        SUBSET := $(filter $(ROCKSDBTESTS_ONLY), $(SUBSET))
+endif
+
 ifeq ($(ROCKSDBTESTS_PLATFORM_DEPENDENT), only)
         SUBSET := $(filter $(TESTS_PLATFORM_DEPENDENT), $(SUBSET))
 else ifeq ($(ROCKSDBTESTS_PLATFORM_DEPENDENT), exclude)
@@ -1105,6 +1109,9 @@ ubsan_crash_test_with_best_efforts_recovery: clean
 valgrind_test:
 	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
+valgrind_test_some:
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check_some
+
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
@@ -1123,6 +1130,14 @@ valgrind_check: $(TESTS)
 		done; \
 	fi
 
+valgrind_check_some: $(SUBSET)
+	for t in $(SUBSET); do \
+		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+		ret_code=$$?; \
+		if [ $$ret_code -ne 0 ]; then \
+			exit $$ret_code; \
+		fi; \
+	done
 
 ifneq ($(PAR_TEST),)
 parloop:
