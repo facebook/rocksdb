@@ -46,7 +46,7 @@ class BlockBasedTableFactory : public TableFactory {
 
   ~BlockBasedTableFactory() {}
 
-  const char* Name() const override { return kName.c_str(); }
+  const char* Name() const override { return kBlockBasedTableName(); }
 
   using TableFactory::NewTableReader;
   Status NewTableReader(
@@ -59,24 +59,26 @@ class BlockBasedTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
-  // Sanitizes the specified DB Options.
-  Status SanitizeOptions(const DBOptions& db_opts,
+  // Valdates the specified DB Options.
+  Status ValidateOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override;
+  Status PrepareOptions(const ConfigOptions& opts) override;
 
-  std::string GetPrintableTableOptions() const override;
-
-  Status GetOptionString(const ConfigOptions& config_options,
-                         std::string* opt_string) const override;
-
-  const BlockBasedTableOptions& table_options() const;
-
-  void* GetOptions() override { return &table_options_; }
+  std::string GetPrintableOptions() const override;
 
   bool IsDeleteRangeSupported() const override { return true; }
 
   TailPrefetchStats* tail_prefetch_stats() { return &tail_prefetch_stats_; }
 
-  static const std::string kName;
+ protected:
+  const void* GetOptionsPtr(const std::string& name) const override;
+#ifndef ROCKSDB_LITE
+  Status ParseOption(const ConfigOptions& config_options,
+                     const OptionTypeInfo& opt_info,
+                     const std::string& opt_name, const std::string& opt_value,
+                     void* opt_ptr) override;
+#endif
+  void InitializeOptions();
 
  private:
   BlockBasedTableOptions table_options_;
@@ -87,10 +89,4 @@ extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 extern const std::string kPropTrue;
 extern const std::string kPropFalse;
-
-#ifndef ROCKSDB_LITE
-extern Status VerifyBlockBasedTableFactory(
-    const ConfigOptions& config_options, const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf);
-#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

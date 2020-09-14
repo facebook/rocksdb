@@ -4074,11 +4074,9 @@ class Benchmark {
     options.compression_opts.parallel_threads =
         FLAGS_compression_parallel_threads;
     // If this is a block based table, set some related options
-    if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
-        options.table_factory->GetOptions() != nullptr) {
-      BlockBasedTableOptions* table_options =
-          reinterpret_cast<BlockBasedTableOptions*>(
-              options.table_factory->GetOptions());
+    auto table_options =
+        options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (table_options != nullptr) {
       if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
       }

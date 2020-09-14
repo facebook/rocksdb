@@ -2146,7 +2146,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   table_options.no_block_cache = true;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   std::string value(1024, 'a');

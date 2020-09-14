@@ -52,11 +52,11 @@ static inline uint64_t CuckooHash(
 // - Does not support prefix bloom filters.
 class CuckooTableFactory : public TableFactory {
  public:
-  explicit CuckooTableFactory(const CuckooTableOptions& table_options)
-    : table_options_(table_options) {}
+  explicit CuckooTableFactory(
+      const CuckooTableOptions& table_option = CuckooTableOptions());
   ~CuckooTableFactory() {}
 
-  const char* Name() const override { return "CuckooTable"; }
+  const char* Name() const override { return kCuckooTableName(); }
 
   using TableFactory::NewTableReader;
   Status NewTableReader(
@@ -69,21 +69,7 @@ class CuckooTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
-  // Sanitizes the specified DB Options.
-  Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  std::string GetPrintableTableOptions() const override;
-
-  void* GetOptions() override { return &table_options_; }
-
-  Status GetOptionString(const ConfigOptions& /*config_options*/,
-                         std::string* /*opt_string*/) const override {
-    return Status::OK();
-  }
+  std::string GetPrintableOptions() const override;
 
  private:
   CuckooTableOptions table_options_;

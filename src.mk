@@ -123,6 +123,7 @@ LIB_SOURCES =                                                   \
   monitoring/thread_status_util.cc                              \
   monitoring/thread_status_util_debug.cc                        \
   options/cf_options.cc                                         \
+  options/configurable.cc                                       \
   options/db_options.cc                                         \
   options/options.cc                                            \
   options/options_helper.cc                                     \
@@ -174,6 +175,7 @@ LIB_SOURCES =                                                   \
   table/sst_file_dumper.cc                                      \
   table/sst_file_reader.cc                                      \
   table/sst_file_writer.cc                                      \
+  table/table_factory.cc                                        \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
   test_util/sync_point.cc                                       \
@@ -439,6 +441,7 @@ TEST_MAIN_SOURCES =                                                     \
   monitoring/statistics_test.cc                                         \
   monitoring/stats_dump_scheduler_test.cc                               \
   monitoring/stats_history_test.cc                                      \
+  options/configurable_test.cc                                          \
   options/options_settable_test.cc                                      \
   options/options_test.cc                                               \
   table/block_based/block_based_filter_block_test.cc                    \

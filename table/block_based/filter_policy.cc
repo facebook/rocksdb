@@ -925,7 +925,7 @@ Status FilterPolicy::CreateFromString(
           NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
     }
   } else {
-    return Status::InvalidArgument("Invalid filter policy name ", value);
+    return Status::NotFound("Invalid filter policy name ", value);
 #else
   } else {
     return Status::NotSupported("Cannot load filter policy in LITE mode ",

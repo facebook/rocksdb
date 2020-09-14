@@ -276,9 +276,12 @@ class BlockFetcherTest : public testing::Test {
 
     std::unique_ptr<TableReader> table_reader;
     ReadOptions ro;
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
-                                    table_factory_.table_options(), comparator,
-                                    std::move(file), file_size, &table_reader));
+    const auto* table_options =
+        table_factory_.GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(table_options, nullptr);
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
+                                    comparator, std::move(file), file_size,
+                                    &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }

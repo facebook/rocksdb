@@ -3250,12 +3250,9 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
     SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
-    if (options.table_factory &&
-        !strcmp(options.table_factory->Name(),
-                BlockBasedTableFactory::kName.c_str())) {
-      BlockBasedTableFactory* bbtf =
-          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
-      block_cache = bbtf->table_options().block_cache.get();
+    if (options.table_factory) {
+      block_cache = options.table_factory->GetOptions<Cache>(
+          TableFactory::kBlockCacheOpts());
     }
 
     Random rnd(301);
@@ -3336,12 +3333,9 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
-    if (options.table_factory &&
-        !strcmp(options.table_factory->Name(),
-                BlockBasedTableFactory::kName.c_str())) {
-      BlockBasedTableFactory* bbtf =
-          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
-      block_cache = bbtf->table_options().block_cache.get();
+    if (options.table_factory) {
+      block_cache = options.table_factory->GetOptions<Cache>(
+          TableFactory::kBlockCacheOpts());
     }
 
     Random rnd(301);

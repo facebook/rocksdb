@@ -20,6 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 // of DB. Raw pointers defined in this struct do not have ownership to the data
 // they point to. Options contains std::shared_ptr to these data.
 struct ImmutableCFOptions {
+  static const char* kName() { return "ImmutableCFOptions"; }
   explicit ImmutableCFOptions(const Options& options);
 
   ImmutableCFOptions(const ImmutableDBOptions& db_options,
@@ -124,6 +125,7 @@ struct ImmutableCFOptions {
 };
 
 struct MutableCFOptions {
+  static const char* kName() { return "MutableCFOptions"; }
   explicit MutableCFOptions(const ColumnFamilyOptions& options)
       : write_buffer_size(options.write_buffer_size),
         max_write_buffer_number(options.max_write_buffer_number),
