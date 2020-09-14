@@ -29,7 +29,11 @@ class ErrorHandler {
          db_mutex_(db_mutex),
          auto_recovery_(false),
          recovery_in_prog_(false) {}
-   ~ErrorHandler() {}
+   ~ErrorHandler() {
+     bg_error_.PermitUncheckedError();
+     recovery_error_.PermitUncheckedError();
+     recovery_io_error_.PermitUncheckedError();
+   }
 
    void EnableAutoRecovery() { auto_recovery_ = true; }
 

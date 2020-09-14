@@ -26,14 +26,16 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBCompactionTest : public DBTestBase {
  public:
-  DBCompactionTest() : DBTestBase("/db_compaction_test") {}
+  DBCompactionTest()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
 };
 
 class DBCompactionTestWithParam
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
-  DBCompactionTestWithParam() : DBTestBase("/db_compaction_test") {
+  DBCompactionTestWithParam()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
     max_subcompactions_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -50,6 +52,16 @@ class DBCompactionDirectIOTest : public DBCompactionTest,
                                  public ::testing::WithParamInterface<bool> {
  public:
   DBCompactionDirectIOTest() : DBCompactionTest() {}
+};
+
+// Param = true : target level is non-empty
+// Param = false: level between target level and source level
+//  is not empty.
+class ChangeLevelConflictsWithAuto
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  ChangeLevelConflictsWithAuto() : DBCompactionTest() {}
 };
 
 namespace {
@@ -3588,6 +3600,76 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, NoCompactBottomLevelFilesWithDeletions) {
+  // bottom-level files may contain deletions due to snapshots protecting the
+  // deleted keys. Once the snapshot is released, we should see files with many
+  // such deletions undergo single-file compactions. But when disabling auto
+  // compactions, it shouldn't be triggered which may causing too many
+  // background jobs.
+  const int kNumKeysPerFile = 1024;
+  const int kNumLevelFiles = 4;
+  const int kValueSize = 128;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = kNumLevelFiles;
+  // inflate it a bit to account for key/metadata overhead
+  options.target_file_size_base = 120 * kNumKeysPerFile * kValueSize / 100;
+  Reopen(options);
+
+  Random rnd(301);
+  const Snapshot* snapshot = nullptr;
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
+    }
+    if (i == kNumLevelFiles - 1) {
+      snapshot = db_->GetSnapshot();
+      // delete every other key after grabbing a snapshot, so these deletions
+      // and the keys they cover can't be dropped until after the snapshot is
+      // released.
+      for (int j = 0; j < kNumLevelFiles * kNumKeysPerFile; j += 2) {
+        ASSERT_OK(Delete(Key(j)));
+      }
+    }
+    Flush();
+    if (i < kNumLevelFiles - 1) {
+      ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+    }
+  }
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr);
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(1));
+
+  std::vector<LiveFileMetaData> pre_release_metadata, post_release_metadata;
+  db_->GetLiveFilesMetaData(&pre_release_metadata);
+  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
+  // files does not need to be preserved in case of a future snapshot.
+  ASSERT_OK(Put(Key(0), "val"));
+
+  // release snapshot and no compaction should be triggered.
+  std::atomic<int> num_compactions{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start",
+      [&](void* /*arg*/) { num_compactions.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  db_->ReleaseSnapshot(snapshot);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, num_compactions);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  db_->GetLiveFilesMetaData(&post_release_metadata);
+  ASSERT_EQ(pre_release_metadata.size(), post_release_metadata.size());
+  for (size_t i = 0; i < pre_release_metadata.size(); ++i) {
+    const auto& pre_file = pre_release_metadata[i];
+    const auto& post_file = post_release_metadata[i];
+    ASSERT_EQ(1, pre_file.level);
+    ASSERT_EQ(1, post_file.level);
+    // each file is same as before with deletion markers/deleted keys.
+    ASSERT_EQ(post_file.size, pre_file.size);
+  }
+}
+
 TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
@@ -4815,7 +4897,8 @@ INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
 class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
  public:
-  CompactionPriTest() : DBTestBase("/compaction_pri_test") {
+  CompactionPriTest()
+      : DBTestBase("/compaction_pri_test", /*env_do_fsync=*/true) {
     compaction_pri_ = GetParam();
   }
 
@@ -5441,6 +5524,73 @@ TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_TRUE(has_compaction);
 }
+
+TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
+  // A `CompactRange()` may race with an automatic compaction, we'll need
+  // to make sure it doesn't corrupte the data.
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // Run a qury to refitting to level 1 while another thread writing to
+  // the same level.
+  SyncPoint::GetInstance()->LoadDependency({
+      // The first two dependencies ensure the foreground creates an L0 file
+      // between the background compaction's L0->L1 and its L1->L2.
+      {
+          "DBImpl::CompactRange:BeforeRefit:1",
+          "AutoCompactionFinished1",
+      },
+      {
+          "AutoCompactionFinished2",
+          "DBImpl::CompactRange:BeforeRefit:2",
+      },
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread auto_comp([&] {
+    TEST_SYNC_POINT("AutoCompactionFinished1");
+    ASSERT_OK(Put("bar", "v2"));
+    ASSERT_OK(Put("foo", "v2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("bar", "v3"));
+    ASSERT_OK(Put("foo", "v3"));
+    ASSERT_OK(Flush());
+    dbfull()->TEST_WaitForCompact();
+    TEST_SYNC_POINT("AutoCompactionFinished2");
+  });
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = GetParam() ? 1 : 0;
+    // This should return non-OK, but it's more important for the test to
+    // make sure that the DB is not corrupted.
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+  }
+  auto_comp.join();
+  // Refitting didn't happen.
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Write something to DB just make sure that consistency check didn't
+  // fail and make the DB readable.
+}
+
+INSTANTIATE_TEST_CASE_P(ChangeLevelConflictsWithAuto,
+                        ChangeLevelConflictsWithAuto, testing::Bool());
 
 TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   // A `CompactRange()` with `change_level == true` needs to execute its final

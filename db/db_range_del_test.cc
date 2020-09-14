@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBRangeDelTest : public DBTestBase {
  public:
-  DBRangeDelTest() : DBTestBase("/db_range_del_test") {}
+  DBRangeDelTest() : DBTestBase("/db_range_del_test", /*env_do_fsync=*/true) {}
 
   std::string GetNumericStr(int key) {
     uint64_t uint64_key = static_cast<uint64_t>(key);

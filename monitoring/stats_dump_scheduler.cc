@@ -56,7 +56,8 @@ StatsDumpScheduler* StatsDumpScheduler::Default() {
 std::string StatsDumpScheduler::GetTaskName(DBImpl* dbi,
                                             const std::string& func_name) {
   std::string db_session_id;
-  dbi->GetDbSessionId(db_session_id);
+  // TODO: Should this error be ignored?
+  dbi->GetDbSessionId(db_session_id).PermitUncheckedError();
   return db_session_id + ":" + func_name;
 }
 

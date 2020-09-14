@@ -6,6 +6,7 @@ LIB_SOURCES =                                                   \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_file_addition.cc                                 \
+  db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_log_format.cc                                    \
@@ -340,6 +341,7 @@ TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
   cache/lru_cache_test.cc                                               \
   db/blob/blob_file_addition_test.cc                                    \
+  db/blob/blob_file_builder_test.cc                                     \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
@@ -422,6 +424,7 @@ TEST_MAIN_SOURCES =                                                     \
   env/io_posix_test.cc                                                  \
   env/mock_env_test.cc                                                  \
   file/delete_scheduler_test.cc                                         \
+  file/prefetch_test.cc                                                 \
   file/random_access_file_reader_test.cc                                \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \
@@ -528,6 +531,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/compression_options.cc                        \
+  java/rocksjni/concurrent_task_limiter.cc                    \
   java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \

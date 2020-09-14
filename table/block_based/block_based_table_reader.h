@@ -206,7 +206,10 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual void CacheDependencies(const ReadOptions& /*ro*/, bool /* pin */) {}
+    virtual Status CacheDependencies(const ReadOptions& /*ro*/,
+                                     bool /* pin */) {
+      return Status::OK();
+    }
   };
 
   class IndexReaderCommon;
@@ -469,10 +472,10 @@ class BlockBasedTable : public TableReader {
       uint64_t data_size) const;
 
   // Helper functions for DumpTable()
-  Status DumpIndexBlock(WritableFile* out_file);
-  Status DumpDataBlocks(WritableFile* out_file);
+  Status DumpIndexBlock(std::ostream& out_stream);
+  Status DumpDataBlocks(std::ostream& out_stream);
   void DumpKeyValue(const Slice& key, const Slice& value,
-                    WritableFile* out_file);
+                    std::ostream& out_stream);
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -520,7 +523,7 @@ struct BlockBasedTable::Rep {
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table) {}
-
+  ~Rep() { status.PermitUncheckedError(); }
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
@@ -630,5 +633,49 @@ struct BlockBasedTable::Rep {
                                       max_readahead_size,
                                       !ioptions.allow_mmap_reads /* enable */));
   }
+
+  void CreateFilePrefetchBufferIfNotExists(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    if (!(*fpb)) {
+      CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb);
+    }
+  }
 };
+
+// This is an adapter class for `WritableFile` to be used for `std::ostream`.
+// The adapter wraps a `WritableFile`, which can be passed to a `std::ostream`
+// constructor for storing streaming data.
+// Note:
+//  * This adapter doesn't provide any buffering, each write is forwarded to
+//    `WritableFile->Append()` directly.
+//  * For a failed write, the user needs to check the status by `ostream.good()`
+class WritableFileStringStreamAdapter : public std::stringbuf {
+ public:
+  explicit WritableFileStringStreamAdapter(WritableFile* writable_file)
+      : file_(writable_file) {}
+
+  // This is to handle `std::endl`, `endl` is written by `os.put()` directly
+  // without going through `xsputn()`. As we explicitly disabled buffering,
+  // every write, not captured by xsputn, is an overflow.
+  int overflow(int ch = EOF) override {
+    if (ch == '\n') {
+      file_->Append("\n");
+      return ch;
+    }
+    return EOF;
+  }
+
+  std::streamsize xsputn(char const* p, std::streamsize n) override {
+    Status s = file_->Append(Slice(p, n));
+    if (!s.ok()) {
+      return 0;
+    }
+    return n;
+  }
+
+ private:
+  WritableFile* file_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

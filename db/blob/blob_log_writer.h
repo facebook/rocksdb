@@ -4,8 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -41,7 +39,7 @@ class BlobLogWriter {
   BlobLogWriter(const BlobLogWriter&) = delete;
   BlobLogWriter& operator=(const BlobLogWriter&) = delete;
 
-  ~BlobLogWriter() = default;
+  ~BlobLogWriter();
 
   static void ConstructBlobHeader(std::string* buf, const Slice& key,
                                   const Slice& val, uint64_t expiration);
@@ -56,7 +54,8 @@ class BlobLogWriter {
                             const Slice& val, uint64_t* key_offset,
                             uint64_t* blob_offset);
 
-  Status AppendFooter(BlobLogFooter& footer);
+  Status AppendFooter(BlobLogFooter& footer, std::string* checksum_method,
+                      std::string* checksum_value);
 
   Status WriteHeader(BlobLogHeader& header);
 
@@ -82,4 +81,3 @@ class BlobLogWriter {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

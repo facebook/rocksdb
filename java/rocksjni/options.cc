@@ -1147,6 +1147,20 @@ void Java_org_rocksdb_Options_setSstPartitionerFactory(JNIEnv*, jobject,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setCompactionThreadLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setCompactionThreadLimiter(
+    JNIEnv*, jclass, jlong jhandle, jlong jlimiter_handle) {
+  auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  auto* limiter = reinterpret_cast<
+      std::shared_ptr<ROCKSDB_NAMESPACE::ConcurrentTaskLimiter>*>(
+      jlimiter_handle);
+  options->compaction_thread_limiter = *limiter;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    allowMmapReads
  * Signature: (J)Z
  */
@@ -3647,6 +3661,21 @@ void Java_org_rocksdb_ColumnFamilyOptions_setSstPartitionerFactory(
   auto* factory = reinterpret_cast<ROCKSDB_NAMESPACE::SstPartitionerFactory*>(
       factory_handle);
   options->sst_partitioner_factory.reset(factory);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setCompactionThreadLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setCompactionThreadLimiter(
+    JNIEnv*, jclass, jlong jhandle, jlong jlimiter_handle) {
+  auto* options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  auto* limiter = reinterpret_cast<
+      std::shared_ptr<ROCKSDB_NAMESPACE::ConcurrentTaskLimiter>*>(
+      jlimiter_handle);
+  options->compaction_thread_limiter = *limiter;
 }
 
 /*

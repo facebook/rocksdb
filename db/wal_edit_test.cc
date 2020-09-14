@@ -109,10 +109,10 @@ TEST(WalSet, DeleteNonExistingWal) {
 }
 
 TEST(WalSet, DeleteNonClosedWal) {
-  constexpr WalNumber kNonExistingNumber = 100;
+  constexpr WalNumber kNonClosedWalNumber = 100;
   WalSet wals;
-  ASSERT_OK(wals.AddWal(WalAddition(kNonExistingNumber)));
-  Status s = wals.DeleteWal(WalDeletion(kNonExistingNumber));
+  ASSERT_OK(wals.AddWal(WalAddition(kNonClosedWalNumber)));
+  Status s = wals.DeleteWal(WalDeletion(kNonClosedWalNumber));
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 100 must be closed before deletion") !=
               std::string::npos);

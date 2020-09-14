@@ -254,11 +254,29 @@ endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
+option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
+option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
+  endif()
+  if(MSVC)
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
+    endif()
+    # MSVC automatically enables BMI / lzcnt with AVX2.
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+    endif()
+  else()
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+    endif()
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
+    endif()
   endif()
 else()
   if(MSVC)
@@ -546,6 +564,7 @@ set(SOURCES
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_file_addition.cc
+        db/blob/blob_file_builder.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_log_format.cc
@@ -1012,6 +1031,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
+        db/blob/blob_file_builder_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
@@ -1090,6 +1110,7 @@ if(WITH_TESTS)
         env/io_posix_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
+        file/prefetch_test.cc
         file/random_access_file_reader_test.cc
         logging/auto_roll_logger_test.cc
         logging/env_logger_test.cc
@@ -1209,7 +1230,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${GFLAGS_LIB} ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1245,7 +1266,7 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench
     cache/cache_bench.cc)

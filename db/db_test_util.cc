@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 int64_t MaybeCurrentTime(Env* env) {
   int64_t time = 1337346000;  // arbitrary fallback default
-  (void)env->GetCurrentTime(&time);
+  env->GetCurrentTime(&time).PermitUncheckedError();
   return time;
 }
 }  // namespace
@@ -54,7 +54,7 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
-DBTestBase::DBTestBase(const std::string path)
+DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
@@ -84,6 +84,7 @@ DBTestBase::DBTestBase(const std::string path)
                                        : (mem_env_ ? mem_env_ : base_env));
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->skip_fsync_ = !env_do_fsync;
   dbname_ = test::PerThreadDBPath(env_, path);
   alternative_wal_dir_ = dbname_ + "/wal";
   alternative_db_log_dir_ = dbname_ + "/db_log_dir";

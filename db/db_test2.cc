@@ -23,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("/db_test2") {}
+  DBTest2() : DBTestBase("/db_test2", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE
@@ -93,7 +93,8 @@ class TestReadOnlyWithCompressedCache
       public testing::WithParamInterface<std::tuple<int, bool>> {
  public:
   TestReadOnlyWithCompressedCache()
-      : DBTestBase("/test_readonly_with_compressed_cache") {
+      : DBTestBase("/test_readonly_with_compressed_cache",
+                   /*env_do_fsync=*/true) {
     max_open_files_ = std::get<0>(GetParam());
     use_mmap_ = std::get<1>(GetParam());
   }
@@ -184,7 +185,7 @@ class PrefixFullBloomWithReverseComparator
       public ::testing::WithParamInterface<bool> {
  public:
   PrefixFullBloomWithReverseComparator()
-      : DBTestBase("/prefix_bloom_reverse") {}
+      : DBTestBase("/prefix_bloom_reverse", /*env_do_fsync=*/true) {}
   void SetUp() override { if_cache_filter_ = GetParam(); }
   bool if_cache_filter_;
 };
@@ -324,7 +325,7 @@ class DBTestSharedWriteBufferAcrossCFs
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBTestSharedWriteBufferAcrossCFs()
-      : DBTestBase("/db_test_shared_write_buffer") {}
+      : DBTestBase("/db_test_shared_write_buffer", /*env_do_fsync=*/true) {}
   void SetUp() override {
     use_old_interface_ = std::get<0>(GetParam());
     cost_cache_ = std::get<1>(GetParam());
@@ -1790,7 +1791,8 @@ class PinL0IndexAndFilterBlocksTest
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
+  PinL0IndexAndFilterBlocksTest()
+      : DBTestBase("/db_pin_l0_index_bloom_test", /*env_do_fsync=*/true) {}
   void SetUp() override {
     infinite_max_files_ = std::get<0>(GetParam());
     disallow_preload_ = std::get<1>(GetParam());
@@ -4801,6 +4803,45 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
     ASSERT_TRUE(iterator->Valid());
     ASSERT_EQ("y1", iterator->key().ToString());
   }
+}
+
+TEST_F(DBTest2, PartitionedIndexPrefetchFailure) {
+  Options options = last_options_;
+  options.max_open_files = 20;
+  BlockBasedTableOptions bbto;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  bbto.metadata_block_size = 128;
+  bbto.block_size = 128;
+  bbto.block_cache = NewLRUCache(16777216);
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Force no table cache so every read will preload the SST file.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+  bbto.block_cache->SetCapacity(0);
+
+  Random rnd(301);
+  for (int i = 0; i < 4096; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(32)));
+  }
+  ASSERT_OK(Flush());
+
+  // Try different random failures in table open for 300 times.
+  for (int i = 0; i < 300; i++) {
+    env_->num_reads_fails_ = 0;
+    env_->rand_reads_fail_odd_ = 8;
+
+    std::string value;
+    Status s = dbfull()->Get(ReadOptions(), Key(1), &value);
+    if (env_->num_reads_fails_ > 0) {
+      ASSERT_NOK(s);
+    } else {
+      ASSERT_OK(s);
+    }
+  }
+
+  env_->rand_reads_fail_odd_ = 0;
 }
 
 TEST_F(DBTest2, ChangePrefixExtractor) {

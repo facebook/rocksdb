@@ -31,7 +31,7 @@ jobs:
       - checkout # check out the code in the project directory
       - run: pyenv global 3.5.2
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 ASSERT_STATUS_CHECKED=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
+      - run: SKIP_FORMAT_BUCK_CHECKS=1 PRINT_PARALLEL_OUTPUTS=1 ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" GTEST_THROW_ON_FAILURE=0 GTEST_OUTPUT="xml:/tmp/test-results/" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
       - store_test_results:
           path: /tmp/test-results
 
@@ -164,6 +164,16 @@ jobs:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
       - run: TEST_TMPDIR=/dev/shm && make V=1 -j16 unity_test | .circleci/cat_ignore_eagain
+
+  build-linux-gcc-4-8:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: large
+    steps:
+      - checkout
+      - run: pyenv global 3.5.2
+      - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
+      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j4 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
 
   build-windows:
     executor: windows-2xlarge
@@ -360,3 +370,6 @@ workflows:
       - build-linux-non-shm:
           start_test: "compact_on_deletion_collector_test" # make sure unique in src.mk
           end_test: ""
+  build-linux-gcc-4-8:
+    jobs:
+      - build-linux-gcc-4-8

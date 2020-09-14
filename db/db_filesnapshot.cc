@@ -116,7 +116,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     // long as deletions are disabled (so the below loop must terminate).
     InstrumentedMutexLock l(&mutex_);
     while (disable_delete_obsolete_files_ > 0 &&
-           pending_purge_obsolete_files_ > 0) {
+           (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0)) {
       bg_cv_.Wait();
     }
   }

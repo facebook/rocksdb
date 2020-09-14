@@ -2137,6 +2137,50 @@ TEST_F(CompactionPickerTest, UniversalMarkedL0Overlap2) {
   ASSERT_TRUE(file_map_[4].first->being_compacted);
 }
 
+TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+
+  // This test makes sure the `files_marked_for_compaction_` is updated after
+  // creating manual compaction.
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+
+  // Add 3 files marked for compaction
+  Add(0, 3U, "301", "350", 4 * kFileSize, 0, 101, 150, 0, true);
+  Add(0, 4U, "260", "300", 1 * kFileSize, 0, 260, 300, 0, true);
+  Add(0, 5U, "240", "290", 2 * kFileSize, 0, 201, 250, 0, true);
+  UpdateVersionStorageInfo();
+
+  // All 3 files are marked for compaction
+  ASSERT_EQ(3U, vstorage_->FilesMarkedForCompaction().size());
+
+  bool manual_conflict = false;
+  InternalKey* manual_end = NULL;
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.CompactRange(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(), NULL,
+          NULL, &manual_end, &manual_conflict, port::kMaxUint64));
+
+  ASSERT_TRUE(compaction);
+
+  ASSERT_EQ(CompactionReason::kManualCompaction,
+            compaction->compaction_reason());
+  ASSERT_EQ(kNumLevels - 1, compaction->output_level());
+  ASSERT_EQ(0, compaction->start_level());
+  ASSERT_EQ(3U, compaction->num_input_files(0));
+  ASSERT_TRUE(file_map_[3].first->being_compacted);
+  ASSERT_TRUE(file_map_[4].first->being_compacted);
+  ASSERT_TRUE(file_map_[5].first->being_compacted);
+
+  // After creating the manual compaction, all files should be cleared from
+  // `FilesMarkedForCompaction`. So they won't be picked by others.
+  ASSERT_EQ(0U, vstorage_->FilesMarkedForCompaction().size());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

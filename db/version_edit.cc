@@ -38,7 +38,6 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
   fd.largest_seqno = std::max(fd.largest_seqno, seqno);
 
-#ifndef ROCKSDB_LITE
   if (value_type == kTypeBlobIndex) {
     BlobIndex blob_index;
     const Status s = blob_index.DecodeFrom(value);
@@ -65,10 +64,6 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
       oldest_blob_file_number = blob_index.file_number();
     }
   }
-#else
-  (void)value;
-  (void)value_type;
-#endif
 }
 
 void VersionEdit::Clear() {

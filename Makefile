@@ -265,7 +265,7 @@ dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
 include make_config.mk
 
 export JAVAC_ARGS
-CLEAN_FILES += make_config.mk
+CLEAN_FILES += make_config.mk rocksdb.pc
 
 ifeq ($(V), 1)
 $(info $(shell uname -a))
@@ -409,6 +409,10 @@ endif
 ifdef TEST_CACHE_LINE_SIZE
   PLATFORM_CCFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
   PLATFORM_CXXFLAGS += -DTEST_CACHE_LINE_SIZE=$(TEST_CACHE_LINE_SIZE)
+endif
+ifdef TEST_UINT128_COMPAT
+  PLATFORM_CCFLAGS += -DTEST_UINT128_COMPAT=1
+  PLATFORM_CXXFLAGS += -DTEST_UINT128_COMPAT=1
 endif
 
 # This (the first rule) must depend on "all".
@@ -566,6 +570,7 @@ ifdef ASSERT_STATUS_CHECKED
 		cache_test \
 		lru_cache_test \
 		blob_file_addition_test \
+		blob_file_builder_test \
 		blob_file_garbage_test \
 		bloom_test \
 		cassandra_format_test \
@@ -602,6 +607,7 @@ ifdef ASSERT_STATUS_CHECKED
 		repeatable_thread_test \
 		skiplist_test \
 		slice_test \
+		sst_dump_test \
 		statistics_test \
 		thread_local_test \
 		env_timed_test \
@@ -609,6 +615,10 @@ ifdef ASSERT_STATUS_CHECKED
 		timer_queue_test \
 		timer_test \
 		util_merge_operators_test \
+		block_cache_trace_analyzer_test \
+		block_cache_tracer_test \
+		cache_simulator_test \
+		sim_cache_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
@@ -627,12 +637,50 @@ endif
 else
 	SUBSET := $(TESTS)
 endif
+# Not necessarily well thought out or up-to-date, but matches old list
+TESTS_PLATFORM_DEPENDENT := \
+	db_basic_test \
+	db_with_timestamp_basic_test \
+	db_encryption_test \
+	db_test2 \
+	external_sst_file_basic_test \
+	auto_roll_logger_test \
+	bloom_test \
+	dynamic_bloom_test \
+	c_test \
+	checkpoint_test \
+	crc32c_test \
+	coding_test \
+	inlineskiplist_test \
+	env_basic_test \
+	env_test \
+	env_logger_test \
+	io_posix_test \
+	hash_test \
+	random_test \
+	thread_local_test \
+	work_queue_test \
+	rate_limiter_test \
+	perf_context_test \
+	iostats_context_test \
+	db_wal_test \
+
+# Sort SUBSET for filtering, except db_test is special (expensive) so
+# is placed first (out-of-order)
+SUBSET := $(filter db_test, $(SUBSET)) $(sort $(filter-out db_test, $(SUBSET)))
+
 ifdef ROCKSDBTESTS_START
         SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
 endif
 
 ifdef ROCKSDBTESTS_END
         SUBSET := $(shell echo $(SUBSET) | sed 's/$(ROCKSDBTESTS_END).*//')
+endif
+
+ifeq ($(ROCKSDBTESTS_PLATFORM_DEPENDENT), only)
+        SUBSET := $(filter $(TESTS_PLATFORM_DEPENDENT), $(SUBSET))
+else ifeq ($(ROCKSDBTESTS_PLATFORM_DEPENDENT), exclude)
+        SUBSET := $(filter-out $(TESTS_PLATFORM_DEPENDENT), $(SUBSET))
 endif
 
 # bench_tool_analyer main is in bench_tool_analyzer_tool, or this would be simpler...
@@ -725,7 +773,7 @@ endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
+	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
@@ -1802,6 +1850,9 @@ defer_test: $(OBJ_DIR)/util/defer_test.o $(TEST_LIBRARY) $(LIBRARY)
 blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1817,39 +1868,63 @@ testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)
 io_tracer_test: $(OBJ_DIR)/trace_replay/io_tracer_test.o $(OBJ_DIR)/trace_replay/io_tracer.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+prefetch_test: $(OBJ_DIR)/file/prefetch_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
-INSTALL_PATH ?= /usr/local
+PREFIX ?= /usr/local
+LIBDIR ?= $(PREFIX)/lib
+INSTALL_LIBDIR = $(DESTDIR)$(LIBDIR)
 
 uninstall:
-	rm -rf $(INSTALL_PATH)/include/rocksdb \
-	  $(INSTALL_PATH)/lib/$(LIBRARY) \
-	  $(INSTALL_PATH)/lib/$(SHARED4) \
-	  $(INSTALL_PATH)/lib/$(SHARED3) \
-	  $(INSTALL_PATH)/lib/$(SHARED2) \
-	  $(INSTALL_PATH)/lib/$(SHARED1)
+	rm -rf $(DESTDIR)$(PREFIX)/include/rocksdb \
+	  $(INSTALL_LIBDIR)/$(LIBRARY) \
+	  $(INSTALL_LIBDIR)/$(SHARED4) \
+	  $(INSTALL_LIBDIR)/$(SHARED3) \
+	  $(INSTALL_LIBDIR)/$(SHARED2) \
+	  $(INSTALL_LIBDIR)/$(SHARED1) \
+	  $(INSTALL_LIBDIR)/pkgconfig/rocksdb.pc
 
-install-headers:
-	install -d $(INSTALL_PATH)/lib
+install-headers: gen-pc
+	install -d $(INSTALL_LIBDIR)
+	install -d $(INSTALL_LIBDIR)/pkgconfig
 	for header_dir in `$(FIND) "include/rocksdb" -type d`; do \
-		install -d $(INSTALL_PATH)/$$header_dir; \
+		install -d $(DESTDIR)/$(PREFIX)/$$header_dir; \
 	done
 	for header in `$(FIND) "include/rocksdb" -type f -name *.h`; do \
-		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+		install -C -m 644 $$header $(DESTDIR)/$(PREFIX)/$$header; \
 	done
+	install -C -m 644 rocksdb.pc $(INSTALL_LIBDIR)/pkgconfig/rocksdb.pc
 
 install-static: install-headers $(LIBRARY)
-	install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
+	install -d $(INSTALL_LIBDIR)
+	install -C -m 755 $(LIBRARY) $(INSTALL_LIBDIR)
 
 install-shared: install-headers $(SHARED4)
-	install -C -m 755 $(SHARED4) $(INSTALL_PATH)/lib && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED3) && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED2) && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED1)
+	install -d $(INSTALL_LIBDIR)
+	install -C -m 755 $(SHARED4) $(INSTALL_LIBDIR)
+	ln -fs $(SHARED4) $(INSTALL_LIBDIR)/$(SHARED3)
+	ln -fs $(SHARED4) $(INSTALL_LIBDIR)/$(SHARED2)
+	ln -fs $(SHARED4) $(INSTALL_LIBDIR)/$(SHARED1)
 
 # install static by default + install shared if it exists
 install: install-static
 	[ -e $(SHARED4) ] && $(MAKE) install-shared || :
+
+# Generate the pkg-config file
+gen-pc:
+	-echo 'prefix=$(PREFIX)' > rocksdb.pc
+	-echo 'exec_prefix=$${prefix}' >> rocksdb.pc
+	-echo 'includedir=$${prefix}/include' >> rocksdb.pc
+	-echo 'libdir=$(LIBDIR)' >> rocksdb.pc
+	-echo '' >> rocksdb.pc
+	-echo 'Name: rocksdb' >> rocksdb.pc
+	-echo 'Description: An embeddable persistent key-value store for fast storage' >> rocksdb.pc
+	-echo Version: $(shell ./build_tools/version.sh full) >> rocksdb.pc
+	-echo 'Libs: -L$${libdir} $(EXEC_LDFLAGS) -lrocksdb' >> rocksdb.pc
+	-echo 'Libs.private: $(PLATFORM_LDFLAGS)' >> rocksdb.pc
+	-echo 'Cflags: -I$${includedir} $(PLATFORM_CXXFLAGS)' >> rocksdb.pc
 
 #-------------------------------------------------
 
@@ -2113,13 +2188,6 @@ rocksdbjavageneratepom:
 jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-jl/crc32c_ppc.o: util/crc32c_ppc.c
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
-jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
-	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
-
-
 rocksdbjava: $(LIB_OBJECTS)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
@@ -2182,7 +2250,7 @@ ifeq ($(HAVE_POWER8),1)
 $(OBJ_DIR)/util/crc32c_ppc.o: util/crc32c_ppc.c
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 
-+$(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+$(OBJ_DIR)/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
 $(OBJ_DIR)/%.o: %.cc
@@ -2228,7 +2296,7 @@ $(OBJ_DIR)/%.c.d: %.c
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.c=.o)' "$<" -o '$@'
 
-+$(OBJ_DIR)/%.S.d: %.S
+$(OBJ_DIR)/%.S.d: %.S
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.S=.o)' "$<" -o '$@'
 

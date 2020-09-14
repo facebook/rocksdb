@@ -71,9 +71,12 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Note that whole DBTest and its child classes disable fsync on files
+// and directories for speed.
+// If fsync needs to be covered in a test, put it in other places.
 class DBTest : public DBTestBase {
  public:
-  DBTest() : DBTestBase("/db_test") {}
+  DBTest() : DBTestBase("/db_test", /*env_do_fsync=*/false) {}
 };
 
 class DBTestWithParam
@@ -1792,7 +1795,6 @@ TEST_F(DBTest, Snapshot) {
 TEST_F(DBTest, HiddenValuesAreRemoved) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
-  env_->skip_fsync_ = true;
   do {
     Options options = CurrentOptions(options_override);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -4000,7 +4002,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
   Options options;
-  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
@@ -5147,7 +5148,6 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
-  env_->skip_fsync_ = true;
   options.env = env_;
   options.create_if_missing = true;
   options.write_buffer_size = 100000;  // Small write buffer
@@ -5504,7 +5504,6 @@ TEST_F(DBTest, MergeTestTime) {
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
-  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -6676,6 +6675,46 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   ASSERT_EQ(s3, Status::NotSupported());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
+  Options options = CurrentOptions();
+  options.max_write_buffer_size_to_maintain = 10000;
+  options.write_buffer_size = 160000;
+  Reopen(options);
+  Random rnd(301);
+  bool memory_limit_exceeded = false;
+  uint64_t size_all_mem_table = 0;
+  uint64_t cur_active_mem = 0;
+  for (int i = 0; i < 1000; i++) {
+    std::string value = rnd.RandomString(1000);
+    ASSERT_OK(Put("keykey_" + std::to_string(i), value));
+
+    dbfull()->TEST_WaitForFlushMemTable();
+
+    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
+                                    DB::Properties::kSizeAllMemTables,
+                                    &size_all_mem_table));
+    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
+                                    DB::Properties::kCurSizeActiveMemTable,
+                                    &cur_active_mem));
+
+    // Errors out if memory usage keeps on increasing beyond the limit.
+    // Once memory limit exceeds,  memory_limit_exceeded  is set and if
+    // size_all_mem_table doesn't drop out in the next write then it errors out
+    // (not expected behaviour). If memory usage drops then
+    // memory_limit_exceeded is set to false.
+    if ((size_all_mem_table > cur_active_mem) &&
+        (cur_active_mem >=
+         static_cast<uint64_t>(options.max_write_buffer_size_to_maintain)) &&
+        (size_all_mem_table > options.max_write_buffer_size_to_maintain +
+                                  options.write_buffer_size)) {
+      ASSERT_FALSE(memory_limit_exceeded);
+      memory_limit_exceeded = true;
+    } else {
+      memory_limit_exceeded = false;
+    }
+  }
 }
 
 #endif

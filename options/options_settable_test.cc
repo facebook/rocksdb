@@ -490,6 +490,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
       "sample_for_compression=0;"
+      "enable_blob_files=true;"
+      "min_blob_size=256;"
+      "blob_file_size=1000000;"
+      "blob_compression_type=kBZip2Compression;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

@@ -179,6 +179,8 @@ class WriteThread {
         StateMutex().~mutex();
         StateCV().~condition_variable();
       }
+      status.PermitUncheckedError();
+      callback_status.PermitUncheckedError();
     }
 
     bool CheckCallback(DB* db) {

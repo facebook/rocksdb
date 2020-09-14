@@ -309,14 +309,17 @@ bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
 }
 
 // Make sure we don't use up too much space in history
-void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
+bool MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
                                       size_t usage) {
+  bool ret = false;
   while (MemtableLimitExceeded(usage) && !memlist_history_.empty()) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 
     UnrefMemTable(to_delete, x);
+    ret = true;
   }
+  return ret;
 }
 
 // Returns true if there is at least one memtable on which flush has
@@ -549,11 +552,12 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   ResetTrimHistoryNeeded();
 }
 
-void MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
+bool MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
   InstallNewVersion();
-  current_->TrimHistory(to_delete, usage);
+  bool ret = current_->TrimHistory(to_delete, usage);
   UpdateCachedValuesFromMemTableListVersion();
   ResetTrimHistoryNeeded();
+  return ret;
 }
 
 // Returns an estimate of the number of bytes of data in use.

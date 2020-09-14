@@ -479,6 +479,10 @@ DEFINE_int32(backup_one_in, 0,
              "every N operations on average.  0 indicates CreateNewBackup() "
              "is disabled.");
 
+DEFINE_uint64(backup_max_size, 100 * 1024 * 1024,
+              "If non-zero, skip checking backup/restore when DB size in "
+              "bytes exceeds this setting.");
+
 DEFINE_int32(checkpoint_one_in, 0,
              "If non-zero, then CreateCheckpoint() will be called once for "
              "every N operations on average.  0 indicates CreateCheckpoint() "
@@ -607,10 +611,18 @@ DEFINE_string(bottommost_compression_type, "disable",
 
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
-DEFINE_string(hdfs, "", "Name of hdfs environment");
+DEFINE_string(hdfs, "",
+              "Name of hdfs environment. Mutually exclusive with"
+              " --env_uri and --fs_uri.");
 
-DEFINE_string(env_uri, "",
-              "URI for env lookup. Mutually exclusive with --hdfs");
+DEFINE_string(
+    env_uri, "",
+    "URI for env lookup. Mutually exclusive with --hdfs and --fs_uri");
+
+DEFINE_string(fs_uri, "",
+              "URI for registry Filesystem lookup. Mutually exclusive"
+              " with --hdfs and --env_uri."
+              " Creates a default environment with the specified filesystem.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
 static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
@@ -715,5 +727,9 @@ DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
 DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
             "decision for deleted keys.");
+
+DEFINE_string(file_checksum_impl, "none",
+              "Name of an implementation for file_checksum_gen_factory, or "
+              "\"none\" for null.");
 
 #endif  // GFLAGS

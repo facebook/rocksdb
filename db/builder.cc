@@ -83,7 +83,8 @@ Status BuildTable(
     uint64_t sample_for_compression, const CompressionOptions& compression_opts,
     bool paranoid_file_checks, InternalStats* internal_stats,
     TableFileCreationReason reason, IOStatus* io_status,
-    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
+    int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
@@ -106,6 +107,8 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+  std::string file_checksum = kUnknownFileChecksum;
+  std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
@@ -133,15 +136,17 @@ Status BuildTable(
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,
-            job_id, meta->fd, kInvalidBlobFileNumber, tp, reason, s);
+            job_id, meta->fd, kInvalidBlobFileNumber, tp, reason, s,
+            file_checksum, file_checksum_func_name);
         return s;
       }
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
       file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, env, ioptions.statistics,
-          ioptions.listeners, ioptions.file_checksum_gen_factory));
+          std::move(file), fname, file_options, env, io_tracer,
+          ioptions.statistics, ioptions.listeners,
+          ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
@@ -232,6 +237,8 @@ Status BuildTable(
       // Add the checksum information to file metadata.
       meta->file_checksum = file_writer->GetFileChecksum();
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
+      file_checksum = meta->file_checksum;
+      file_checksum_func_name = meta->file_checksum_func_name;
     }
 
     if (s.ok()) {
@@ -292,7 +299,8 @@ Status BuildTable(
   // Output to event logger and fire events.
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s);
+      job_id, meta->fd, meta->oldest_blob_file_number, tp, reason, s,
+      file_checksum, file_checksum_func_name);
 
   return s;
 }
