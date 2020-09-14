@@ -1988,6 +1988,7 @@ TEST_P(DBErrorHandlingFencingTest, FLushWriteFenced) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_TRUE(s.IsIOFenced());
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -2024,6 +2025,7 @@ TEST_P(DBErrorHandlingFencingTest, ManifestWriteFenced) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_TRUE(s.IsIOFenced());
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs->SetFilesystemActive(true);
@@ -2068,6 +2070,7 @@ TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_TRUE(s.IsIOFenced());
 
   fault_fs->SetFilesystemActive(true);
   s = dbfull()->Resume();
