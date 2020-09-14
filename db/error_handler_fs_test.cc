@@ -1962,6 +1962,194 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
   Close();
 }
 
+class DBErrorHandlingFencingTest : public DBErrorHandlingFSTest,
+                                   public testing::WithParamInterface<bool> {};
+
+TEST_P(DBErrorHandlingFencingTest, FLushWriteFenced) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.paranoid_checks = GetParam();
+  Status s;
+
+  listener->EnableAutoRecovery(true);
+  DestroyAndReopen(options);
+
+  Put(Key(0), "val");
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->SetFilesystemActive(false, IOStatus::IOFenced("IO fenced"));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_TRUE(s.IsIOFenced());
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_TRUE(s.IsIOFenced());
+  Destroy(options);
+}
+
+TEST_P(DBErrorHandlingFencingTest, ManifestWriteFenced) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.paranoid_checks = GetParam();
+  Status s;
+  std::string old_manifest;
+  std::string new_manifest;
+
+  listener->EnableAutoRecovery(true);
+  DestroyAndReopen(options);
+  old_manifest = GetManifestNameFromLiveFiles();
+
+  Put(Key(0), "val");
+  Flush();
+  Put(Key(1), "val");
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        fault_fs->SetFilesystemActive(false, IOStatus::IOFenced("IO fenced"));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_TRUE(s.IsIOFenced());
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_TRUE(s.IsIOFenced());
+  Close();
+}
+
+TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(listener);
+  options.paranoid_checks = GetParam();
+  Status s;
+  DestroyAndReopen(options);
+
+  Put(Key(0), "va;");
+  Put(Key(2), "va;");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  listener->EnableAutoRecovery(true);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void*) {
+        fault_fs->SetFilesystemActive(false, IOStatus::IOFenced("IO fenced"));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(Key(1), "val");
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_TRUE(s.IsIOFenced());
+
+  fault_fs->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_TRUE(s.IsIOFenced());
+  Destroy(options);
+}
+
+TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.writable_file_max_buffer_size = 32768;
+  options.listeners.emplace_back(listener);
+  options.paranoid_checks = GetParam();
+  Status s;
+  Random rnd(301);
+
+  listener->EnableAutoRecovery(true);
+  DestroyAndReopen(options);
+
+  {
+    WriteBatch batch;
+
+    for (auto i = 0; i < 100; ++i) {
+      batch.Put(Key(i), rnd.RandomString(1024));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+  };
+
+  {
+    WriteBatch batch;
+    int write_error = 0;
+
+    for (auto i = 100; i < 199; ++i) {
+      batch.Put(Key(i), rnd.RandomString(1024));
+    }
+
+    SyncPoint::GetInstance()->SetCallBack(
+        "WritableFileWriter::Append:BeforePrepareWrite", [&](void*) {
+          write_error++;
+          if (write_error > 2) {
+            fault_fs->SetFilesystemActive(false,
+                                          IOStatus::IOFenced("IO fenced"));
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    WriteOptions wopts;
+    wopts.sync = true;
+    s = dbfull()->Write(wopts, &batch);
+    ASSERT_TRUE(s.IsIOFenced());
+  }
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  {
+    WriteBatch batch;
+
+    for (auto i = 0; i < 100; ++i) {
+      batch.Put(Key(i), rnd.RandomString(1024));
+    }
+
+    WriteOptions wopts;
+    wopts.sync = true;
+    s = dbfull()->Write(wopts, &batch);
+    ASSERT_TRUE(s.IsIOFenced());
+  }
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(DBErrorHandlingFSTest, DBErrorHandlingFencingTest,
+                        ::testing::Bool());
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
