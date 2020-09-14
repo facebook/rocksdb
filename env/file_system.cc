@@ -21,7 +21,7 @@ Status FileSystem::Load(const std::string& value,
   s = ObjectRegistry::NewInstance()->NewSharedObject<FileSystem>(value, result);
 #else
   (void)result;
-  s = Status::NotSupported("Cannot load FileSystem in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load FileSystem in LITE mode", value);
 #endif
   return s;
 }

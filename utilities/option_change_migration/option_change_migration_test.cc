@@ -23,7 +23,7 @@ class DBOptionChangeMigrationTests
           std::tuple<int, int, bool, int, int, bool>> {
  public:
   DBOptionChangeMigrationTests()
-      : DBTestBase("/db_option_change_migration_test") {
+      : DBTestBase("/db_option_change_migration_test", /*env_do_fsync=*/true) {
     level1_ = std::get<0>(GetParam());
     compaction_style1_ = std::get<1>(GetParam());
     is_dynamic1_ = std::get<2>(GetParam());
@@ -354,7 +354,8 @@ INSTANTIATE_TEST_CASE_P(
 class DBOptionChangeMigrationTest : public DBTestBase {
  public:
   DBOptionChangeMigrationTest()
-      : DBTestBase("/db_option_change_migration_test2") {}
+      : DBTestBase("/db_option_change_migration_test2", /*env_do_fsync=*/true) {
+  }
 };
 
 TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {

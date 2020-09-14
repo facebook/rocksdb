@@ -623,8 +623,6 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
         0 /*log_number*/, this, true /*concurrent_memtable_writes*/,
         seq_per_batch_, sub_batch_cnt, true /*batch_per_txn*/,
         write_options.memtable_insert_hint_per_batch);
-
-    WriteStatusCheck(w.status);
     if (write_options.disableWAL) {
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
     }
@@ -639,6 +637,7 @@ Status DBImpl::UnorderedWriteMemtable(const WriteOptions& write_options,
     std::lock_guard<std::mutex> lck(switch_mutex_);
     switch_cv_.notify_all();
   }
+  WriteStatusCheck(w.status);
 
   if (!w.FinalStatus().ok()) {
     return w.FinalStatus();
@@ -689,7 +688,7 @@ Status DBImpl::WriteImplWALOnly(
       InstrumentedMutexLock l(&mutex_);
       bool need_log_sync = false;
       status = PreprocessWrite(write_options, &need_log_sync, &write_context);
-      WriteStatusCheck(status);
+      WriteStatusCheckOnLocked(status);
     }
     if (!status.ok()) {
       WriteThread::WriteGroup write_group;
@@ -830,9 +829,22 @@ Status DBImpl::WriteImplWALOnly(
   return status;
 }
 
+void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
+  // Is setting bg_error_ enough here?  This will at least stop
+  // compaction and fail any further writes.
+  // Caller must hold mutex_.
+  assert(!status.IsIOFenced() || !error_handler_.GetBGError().ok());
+  mutex_.AssertHeld();
+  if (immutable_db_options_.paranoid_checks && !status.ok() &&
+      !status.IsBusy() && !status.IsIncomplete()) {
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
+  }
+}
+
 void DBImpl::WriteStatusCheck(const Status& status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
+  assert(!status.IsIOFenced() || !error_handler_.GetBGError().ok());
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
@@ -844,8 +856,9 @@ void DBImpl::WriteStatusCheck(const Status& status) {
 void DBImpl::IOStatusCheck(const IOStatus& io_status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
-  if (immutable_db_options_.paranoid_checks && !io_status.ok() &&
-      !io_status.IsBusy() && !io_status.IsIncomplete()) {
+  if ((immutable_db_options_.paranoid_checks && !io_status.ok() &&
+       !io_status.IsBusy() && !io_status.IsIncomplete()) ||
+      io_status.IsIOFenced()) {
     mutex_.Lock();
     error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
@@ -1546,11 +1559,14 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
   }
   for (auto& cfd : cfds) {
     autovector<MemTable*> to_delete;
-    cfd->imm()->TrimHistory(&to_delete, cfd->mem()->ApproximateMemoryUsage());
+    bool trimmed = cfd->imm()->TrimHistory(
+        &to_delete, cfd->mem()->ApproximateMemoryUsage());
     if (!to_delete.empty()) {
       for (auto m : to_delete) {
         delete m;
       }
+    }
+    if (trimmed) {
       context->superversion_context.NewSuperVersion();
       assert(context->superversion_context.new_superversion.get() != nullptr);
       cfd->InstallSuperVersion(&context->superversion_context, &mutex_);
@@ -1638,6 +1654,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   std::unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
+  IOStatus io_s;
 
   // Recoverable state is persisted in WAL. After memtable switch, WAL might
   // be deleted, so we write the state to memtable to be persisted as well.
@@ -1683,8 +1700,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   if (creating_new_log) {
     // TODO: Write buffer size passed in should be max of all CF's instead
     // of mutable_cf_options.write_buffer_size.
-    s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
-                  &new_log);
+    io_s = CreateWAL(new_log_number, recycle_log_number, preallocate_block_size,
+                     &new_log);
+    if (s.ok()) {
+      s = io_s;
+    }
   }
   if (s.ok()) {
     SequenceNumber seq = versions_->LastSequence();
@@ -1710,7 +1730,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (!logs_.empty()) {
       // Alway flush the buffer of the last log before switching to a new one
       log::Writer* cur_log_writer = logs_.back().writer;
-      s = cur_log_writer->WriteBuffer();
+      io_s = cur_log_writer->WriteBuffer();
+      if (s.ok()) {
+        s = io_s;
+      }
       if (!s.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
                        "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64
@@ -1745,7 +1768,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
-    error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+    if (!io_s.ok()) {
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
+    } else {
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+    }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
     return s;

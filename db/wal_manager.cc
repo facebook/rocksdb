@@ -121,7 +121,7 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       db_options_.wal_dir, &db_options_, read_options, file_options_, seq,
-      std::move(wal_files), version_set, seq_per_batch_));
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
   return (*iter)->status();
 }
 
@@ -467,7 +467,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
                                          fs_->OptimizeForLogRead(file_options_),
                                          &file, nullptr);
   std::unique_ptr<SequentialFileReader> file_reader(
-      new SequentialFileReader(std::move(file), fname));
+      new SequentialFileReader(std::move(file), fname, io_tracer_));
 
   if (!status.ok()) {
     return status;

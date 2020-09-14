@@ -18,7 +18,8 @@
 namespace ROCKSDB_NAMESPACE {
 class DBWALTestBase : public DBTestBase {
  protected:
-  explicit DBWALTestBase(const std::string& dir_name) : DBTestBase(dir_name) {}
+  explicit DBWALTestBase(const std::string& dir_name)
+      : DBTestBase(dir_name, /*env_do_fsync=*/true) {}
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
@@ -92,7 +93,8 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
-  DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
+  DBWALTestWithEnrichedEnv()
+      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
@@ -528,7 +530,10 @@ TEST_F(DBWALTest, PreallocateBlock) {
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
+TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
+  // TODO(ajkr): Disabled until WAL recycling is fixed for
+  // `kPointInTimeRecovery`.
+
   // For github issue #1303
   for (int i = 0; i < 2; ++i) {
     Options options = CurrentOptions();
@@ -564,7 +569,10 @@ TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
   }
 }
 
-TEST_F(DBWALTest, FullPurgePreservesLogPendingReuse) {
+TEST_F(DBWALTest, DISABLED_FullPurgePreservesLogPendingReuse) {
+  // TODO(ajkr): Disabled until WAL recycling is fixed for
+  // `kPointInTimeRecovery`.
+
   // Ensures full purge cannot delete a WAL while it's in the process of being
   // recycled. In particular, we force the full purge after a file has been
   // chosen for reuse, but before it has been renamed.
@@ -936,12 +944,13 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
-                                  table_cache.get(), &write_buffer_manager,
-                                  &write_controller,
-                                  /*block_cache_tracer=*/nullptr));
+    versions.reset(new VersionSet(
+        test->dbname_, &db_options, env_options, table_cache.get(),
+        &write_buffer_manager, &write_controller,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
 
-    wal_manager.reset(new WalManager(db_options, env_options));
+    wal_manager.reset(
+        new WalManager(db_options, env_options, /*io_tracer=*/nullptr));
 
     std::unique_ptr<log::Writer> current_log_writer;
 

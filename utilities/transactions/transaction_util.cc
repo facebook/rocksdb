@@ -137,18 +137,20 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
 }
 
 Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
-                                              const TransactionKeyMap& key_map,
+                                              const LockTracker& tracker,
                                               bool cache_only) {
   Status result;
 
-  for (auto& key_map_iter : key_map) {
-    uint32_t cf_id = key_map_iter.first;
-    const auto& keys = key_map_iter.second;
+  std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
+      tracker.GetColumnFamilyIterator());
+  assert(cf_it != nullptr);
+  while (cf_it->HasNext()) {
+    ColumnFamilyId cf = cf_it->Next();
 
-    SuperVersion* sv = db_impl->GetAndRefSuperVersion(cf_id);
+    SuperVersion* sv = db_impl->GetAndRefSuperVersion(cf);
     if (sv == nullptr) {
       result = Status::InvalidArgument("Could not access column family " +
-                                       ToString(cf_id));
+                                       ToString(cf));
       break;
     }
 
@@ -157,18 +159,21 @@ Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
 
     // For each of the keys in this transaction, check to see if someone has
     // written to this key since the start of the transaction.
-    for (const auto& key_iter : keys) {
-      const auto& key = key_iter.first;
-      const SequenceNumber key_seq = key_iter.second.seq;
+    std::unique_ptr<LockTracker::KeyIterator> key_it(
+        tracker.GetKeyIterator(cf));
+    assert(key_it != nullptr);
+    while (key_it->HasNext()) {
+      const std::string& key = key_it->Next();
+      PointLockStatus status = tracker.GetPointLockStatus(cf, key);
+      const SequenceNumber key_seq = status.seq;
 
       result = CheckKey(db_impl, sv, earliest_seq, key_seq, key, cache_only);
-
       if (!result.ok()) {
         break;
       }
     }
 
-    db_impl->ReturnAndCleanupSuperVersion(cf_id, sv);
+    db_impl->ReturnAndCleanupSuperVersion(cf, sv);
 
     if (!result.ok()) {
       break;

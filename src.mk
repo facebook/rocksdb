@@ -6,6 +6,7 @@ LIB_SOURCES =                                                   \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_file_addition.cc                                 \
+  db/blob/blob_file_builder.cc                                  \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
   db/blob/blob_log_format.cc                                    \
@@ -22,6 +23,7 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_fifo.cc                       \
   db/compaction/compaction_picker_level.cc                      \
   db/compaction/compaction_picker_universal.cc                  \
+  db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl/db_impl.cc                                         \
@@ -66,6 +68,7 @@ LIB_SOURCES =                                                   \
   db/version_edit.cc                                            \
   db/version_edit_handler.cc                                    \
   db/version_set.cc                                             \
+  db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
@@ -78,6 +81,7 @@ LIB_SOURCES =                                                   \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
+  env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
   file/delete_scheduler.cc                                      \
@@ -112,6 +116,7 @@ LIB_SOURCES =                                                   \
   monitoring/perf_level.cc                                      \
   monitoring/persistent_stats_history.cc                        \
   monitoring/statistics.cc                                      \
+  monitoring/stats_dump_scheduler.cc                            \
   monitoring/thread_status_impl.cc                              \
   monitoring/thread_status_updater.cc                           \
   monitoring/thread_status_updater_debug.cc                     \
@@ -235,6 +240,8 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
+  utilities/transactions/lock/lock_tracker.cc                   \
+  utilities/transactions/lock/point_lock_tracker.cc             \
   utilities/transactions/optimistic_transaction.cc              \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
@@ -334,6 +341,7 @@ TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
   cache/lru_cache_test.cc                                               \
   db/blob/blob_file_addition_test.cc                                    \
+  db/blob/blob_file_builder_test.cc                                     \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
@@ -416,6 +424,7 @@ TEST_MAIN_SOURCES =                                                     \
   env/io_posix_test.cc                                                  \
   env/mock_env_test.cc                                                  \
   file/delete_scheduler_test.cc                                         \
+  file/prefetch_test.cc                                                 \
   file/random_access_file_reader_test.cc                                \
   logging/auto_roll_logger_test.cc                                      \
   logging/env_logger_test.cc                                            \
@@ -428,6 +437,7 @@ TEST_MAIN_SOURCES =                                                     \
   monitoring/histogram_test.cc                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
+  monitoring/stats_dump_scheduler_test.cc                               \
   monitoring/stats_history_test.cc                                      \
   options/options_settable_test.cc                                      \
   options/options_test.cc                                               \
@@ -521,6 +531,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/compression_options.cc                        \
+  java/rocksjni/concurrent_task_limiter.cc                    \
   java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
@@ -553,6 +564,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/sst_file_writerjni.cc                         \
   java/rocksjni/sst_file_readerjni.cc                         \
   java/rocksjni/sst_file_reader_iterator.cc                   \
+  java/rocksjni/sst_partitioner.cc                            \
   java/rocksjni/statistics.cc                                 \
   java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \

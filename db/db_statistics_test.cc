@@ -15,7 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBStatisticsTest : public DBTestBase {
  public:
-  DBStatisticsTest() : DBTestBase("/db_statistics_test") {}
+  DBStatisticsTest()
+      : DBTestBase("/db_statistics_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBStatisticsTest, CompressionStatsTest) {
@@ -139,6 +140,19 @@ TEST_F(DBStatisticsTest, ResetStats) {
       options.statistics->Reset();
     }
   }
+}
+
+TEST_F(DBStatisticsTest, ExcludeTickers) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  DestroyAndReopen(options);
+  options.statistics->set_stats_level(StatsLevel::kExceptTickers);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_EQ(0, options.statistics->getTickerCount(BYTES_WRITTEN));
+  options.statistics->set_stats_level(StatsLevel::kExceptHistogramOrTimers);
+  Reopen(options);
+  ASSERT_EQ("value", Get("foo"));
+  ASSERT_GT(options.statistics->getTickerCount(BYTES_READ), 0);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

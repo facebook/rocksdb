@@ -254,11 +254,29 @@ endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
+option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
+option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
+  endif()
+  if(MSVC)
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
+    endif()
+    # MSVC automatically enables BMI / lzcnt with AVX2.
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+    endif()
+  else()
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+    endif()
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
+    endif()
   endif()
 else()
   if(MSVC)
@@ -546,6 +564,7 @@ set(SOURCES
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_file_addition.cc
+        db/blob/blob_file_builder.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_log_format.cc
@@ -562,6 +581,7 @@ set(SOURCES
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
         db/compaction/compaction_picker_universal.cc
+        db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/db_impl.cc
@@ -606,6 +626,7 @@ set(SOURCES
         db/version_edit.cc
         db/version_edit_handler.cc
         db/version_set.cc
+        db/wal_edit.cc
         db/wal_manager.cc
         db/write_batch.cc
         db/write_batch_base.cc
@@ -616,6 +637,7 @@ set(SOURCES
         env/env_encryption.cc
         env/env_hdfs.cc
         env/file_system.cc
+        env/file_system_tracer.cc
         env/mock_env.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
@@ -649,6 +671,7 @@ set(SOURCES
         monitoring/perf_level.cc
         monitoring/persistent_stats_history.cc
         monitoring/statistics.cc
+        monitoring/stats_dump_scheduler.cc
         monitoring/thread_status_impl.cc
         monitoring/thread_status_updater.cc
         monitoring/thread_status_util.cc
@@ -718,6 +741,7 @@ set(SOURCES
         tools/trace_analyzer_tool.cc
         trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
+        trace_replay/io_tracer.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -774,6 +798,8 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/transactions/lock/lock_tracker.cc
+        utilities/transactions/lock/point_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -994,7 +1020,7 @@ if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
-  
+
 if(WITH_TESTS)
   set(TESTS
         db/db_basic_test.cc
@@ -1005,6 +1031,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
+        db/blob/blob_file_builder_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
@@ -1075,6 +1102,7 @@ if(WITH_TESTS)
         db/version_edit_test.cc
         db/version_set_test.cc
         db/wal_manager_test.cc
+        db/wal_edit_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
@@ -1082,6 +1110,7 @@ if(WITH_TESTS)
         env/io_posix_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
+        file/prefetch_test.cc
         file/random_access_file_reader_test.cc
         logging/auto_roll_logger_test.cc
         logging/env_logger_test.cc
@@ -1094,6 +1123,7 @@ if(WITH_TESTS)
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
+        monitoring/stats_dump_scheduler_test.cc
         monitoring/stats_history_test.cc
         options/options_settable_test.cc
         options/options_test.cc
@@ -1111,6 +1141,7 @@ if(WITH_TESTS)
         table/table_test.cc
         table/block_fetcher_test.cc
         test_util/testutil_test.cc
+        trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
@@ -1199,7 +1230,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${GFLAGS_LIB} ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1223,9 +1254,8 @@ if(WITH_TESTS)
 
   if(ROCKSDB_LIB_FOR_C)
     set(C_TESTS db/c_test.c)
-    # C executables must link to a shared object
     add_executable(c_test db/c_test.c)
-    target_link_libraries(c_test ${ROCKSDB_SHARED_LIB} testharness)
+    target_link_libraries(c_test ${ROCKSDB_LIB_FOR_C} testharness)
     add_test(NAME c_test COMMAND c_test${ARTIFACT_SUFFIX})
     add_dependencies(check c_test)
   endif()
@@ -1236,7 +1266,7 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench
     cache/cache_bench.cc)

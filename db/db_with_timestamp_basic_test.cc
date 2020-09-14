@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBasicTestWithTimestampBase : public DBTestBase {
  public:
   explicit DBBasicTestWithTimestampBase(const std::string& dbname)
-      : DBTestBase(dbname) {}
+      : DBTestBase(dbname, /*env_do_fsync=*/true) {}
 
  protected:
   static std::string Key1(uint64_t k) {
@@ -120,12 +120,15 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
   }
 
   void CheckIterUserEntry(const Iterator* it, const Slice& expected_key,
+                          ValueType expected_value_type,
                           const Slice& expected_value,
                           const Slice& expected_ts) const {
     ASSERT_TRUE(it->Valid());
     ASSERT_OK(it->status());
     ASSERT_EQ(expected_key, it->key());
-    ASSERT_EQ(expected_value, it->value());
+    if (kTypeValue == expected_value_type) {
+      ASSERT_EQ(expected_value, it->value());
+    }
     ASSERT_EQ(expected_ts, it->timestamp());
   }
 
@@ -137,10 +140,30 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     std::string ukey_and_ts;
     ukey_and_ts.assign(expected_ukey.data(), expected_ukey.size());
     ukey_and_ts.append(expected_ts.data(), expected_ts.size());
-    ParsedInternalKey parsed_ikey(ukey_and_ts, expected_seq, expected_val_type);
-    std::string ikey;
-    AppendInternalKey(&ikey, parsed_ikey);
-    ASSERT_EQ(Slice(ikey), it->key());
+    ParsedInternalKey parsed_ikey;
+    ASSERT_TRUE(ParseInternalKey(it->key(), &parsed_ikey));
+    ASSERT_EQ(ukey_and_ts, parsed_ikey.user_key);
+    ASSERT_EQ(expected_val_type, parsed_ikey.type);
+    ASSERT_EQ(expected_seq, parsed_ikey.sequence);
+    if (expected_val_type == kTypeValue) {
+      ASSERT_EQ(expected_value, it->value());
+    }
+    ASSERT_EQ(expected_ts, it->timestamp());
+  }
+
+  void CheckIterEntry(const Iterator* it, const Slice& expected_ukey,
+                      ValueType expected_val_type, const Slice& expected_value,
+                      const Slice& expected_ts) {
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    std::string ukey_and_ts;
+    ukey_and_ts.assign(expected_ukey.data(), expected_ukey.size());
+    ukey_and_ts.append(expected_ts.data(), expected_ts.size());
+
+    ParsedInternalKey parsed_ikey;
+    ASSERT_TRUE(ParseInternalKey(it->key(), &parsed_ikey));
+    ASSERT_EQ(expected_val_type, parsed_ikey.type);
+    ASSERT_EQ(Slice(ukey_and_ts), parsed_ikey.user_key);
     if (expected_val_type == kTypeValue) {
       ASSERT_EQ(expected_value, it->value());
     }
@@ -188,8 +211,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
     uint64_t key = 0;
     for (it->Seek(Key1(0)), key = start_keys[i]; it->Valid();
          it->Next(), ++count, ++key) {
-      CheckIterUserEntry(it.get(), Key1(key), "value" + std::to_string(i),
-                         write_timestamps[i]);
+      CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
+                         "value" + std::to_string(i), write_timestamps[i]);
     }
     size_t expected_count = kMaxKey - start_keys[i] + 1;
     ASSERT_EQ(expected_count, count);
@@ -208,8 +231,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
       it.reset(db_->NewIterator(read_opts));
       for (it->SeekToFirst(), key = std::max(l, start_keys[i]), count = 0;
            it->Valid(); it->Next(), ++key, ++count) {
-        CheckIterUserEntry(it.get(), Key1(key), "value" + std::to_string(i),
-                           write_timestamps[i]);
+        CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
+                           "value" + std::to_string(i), write_timestamps[i]);
       }
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
       l += (kMaxKey / 100);
@@ -220,8 +243,8 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
 }
 
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
-  const int kNumKeysPerFile = 128;
-  const uint64_t kMaxKey = 1024;
+  constexpr int kNumKeysPerFile = 128;
+  constexpr uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -255,16 +278,46 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
     int count = 0;
     uint64_t key = 0;
     for (it->Seek(Key1(0)), key = 0; it->Valid(); it->Next(), ++count, ++key) {
-      CheckIterUserEntry(it.get(), Key1(key), "value" + std::to_string(i),
-                         write_timestamps[i]);
+      CheckIterEntry(it.get(), Key1(key), kTypeValue,
+                     "value" + std::to_string(i), write_timestamps[i]);
       if (i > 0) {
         it->Next();
-        CheckIterUserEntry(it.get(), Key1(key), "value" + std::to_string(i - 1),
-                           write_timestamps[i - 1]);
+        CheckIterEntry(it.get(), Key1(key), kTypeValue,
+                       "value" + std::to_string(i - 1),
+                       write_timestamps[i - 1]);
       }
     }
     size_t expected_count = kMaxKey + 1;
     ASSERT_EQ(expected_count, count);
+  }
+  // Delete all keys@ts=5 and check iteration result with start ts set
+  {
+    std::string write_timestamp = Timestamp(5, 0);
+    WriteOptions write_opts;
+    Slice write_ts = write_timestamp;
+    write_opts.timestamp = &write_ts;
+    for (uint64_t key = 0; key < kMaxKey + 1; ++key) {
+      Status s = db_->Delete(write_opts, Key1(key));
+      ASSERT_OK(s);
+    }
+
+    std::string read_timestamp = Timestamp(6, 0);
+    ReadOptions read_opts;
+    Slice read_ts = read_timestamp;
+    read_opts.timestamp = &read_ts;
+    std::string read_timestamp_lb = Timestamp(2, 0);
+    Slice read_ts_lb = read_timestamp_lb;
+    read_opts.iter_start_ts = &read_ts_lb;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    int count = 0;
+    uint64_t key = 0;
+    for (it->Seek(Key1(0)), key = 0; it->Valid(); it->Next(), ++count, ++key) {
+      CheckIterEntry(it.get(), Key1(key), kTypeDeletionWithTimestamp, Slice(),
+                     write_ts);
+      // Skip key@ts=3 and land on tombstone key@ts=5
+      it->Next();
+    }
+    ASSERT_EQ(kMaxKey + 1, count);
   }
   Close();
 }
@@ -296,34 +349,61 @@ TEST_F(DBBasicTestWithTimestamp, ForwardIterateStartSeqnum) {
   for (size_t i = 0; i != write_ts_list.size(); ++i) {
     Slice write_ts = write_ts_list[i];
     write_opts.timestamp = &write_ts;
-    uint64_t k = kMinKey;
-    do {
-      Status s = db_->Put(write_opts, Key1(k), "value" + std::to_string(i));
-      ASSERT_OK(s);
-      if (k == kMaxKey) {
-        break;
+    for (uint64_t k = kMaxKey; k >= kMinKey; --k) {
+      Status s;
+      if (k % 2) {
+        s = db_->Put(write_opts, Key1(k), "value" + std::to_string(i));
+      } else {
+        s = db_->Delete(write_opts, Key1(k));
       }
-      ++k;
-    } while (k != 0);
+      ASSERT_OK(s);
+    }
     start_seqs.push_back(db_->GetLatestSequenceNumber());
   }
   std::vector<std::string> read_ts_list;
   for (int t = 0; t != kNumTimestamps - 1; ++t) {
     read_ts_list.push_back(Timestamp(2 * t + 3, /*do not care*/ 17));
   }
+
   ReadOptions read_opts;
+  // Scan with only read_opts.iter_start_seqnum set.
   for (size_t i = 0; i != read_ts_list.size(); ++i) {
     Slice read_ts = read_ts_list[i];
     read_opts.timestamp = &read_ts;
-    read_opts.iter_start_seqnum = start_seqs[i];
+    read_opts.iter_start_seqnum = start_seqs[i] + 1;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
-    SequenceNumber expected_seq = start_seqs[i] + 1;
+    SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
     uint64_t key = kMinKey;
     for (iter->Seek(Key1(kMinKey)); iter->Valid(); iter->Next()) {
-      CheckIterEntry(iter.get(), Key1(key), expected_seq, kTypeValue,
+      CheckIterEntry(
+          iter.get(), Key1(key), expected_seq,
+          (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
+          (key % 2) ? "value" + std::to_string(i + 1) : std::string(),
+          write_ts_list[i + 1]);
+      ++key;
+      --expected_seq;
+    }
+  }
+  // Scan with both read_opts.iter_start_seqnum and read_opts.iter_start_ts set.
+  std::vector<std::string> read_ts_lb_list;
+  for (int t = 0; t < kNumTimestamps - 1; ++t) {
+    read_ts_lb_list.push_back(Timestamp(2 * t, /*do not care*/ 17));
+  }
+  for (size_t i = 0; i < read_ts_list.size(); ++i) {
+    Slice read_ts = read_ts_list[i];
+    Slice read_ts_lb = read_ts_lb_list[i];
+    read_opts.timestamp = &read_ts;
+    read_opts.iter_start_ts = &read_ts_lb;
+    read_opts.iter_start_seqnum = start_seqs[i] + 1;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    uint64_t key = kMinKey;
+    SequenceNumber expected_seq = start_seqs[i] + (kMaxKey - kMinKey) + 1;
+    for (it->Seek(Key1(kMinKey)); it->Valid(); it->Next()) {
+      CheckIterEntry(it.get(), Key1(key), expected_seq,
+                     (key % 2) ? kTypeValue : kTypeDeletionWithTimestamp,
                      "value" + std::to_string(i + 1), write_ts_list[i + 1]);
       ++key;
-      ++expected_seq;
+      --expected_seq;
     }
   }
   Close();
@@ -357,7 +437,7 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
     read_opts.timestamp = &ts;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->SeekToFirst();
-    CheckIterUserEntry(iter.get(), "foo", "value0", ts_str);
+    CheckIterUserEntry(iter.get(), "foo", kTypeValue, "value0", ts_str);
     ASSERT_EQ(
         1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
   }
@@ -403,7 +483,7 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->Seek("a");
     iter->Next();
-    CheckIterUserEntry(iter.get(), "b", "new_value", ts_str);
+    CheckIterUserEntry(iter.get(), "b", kTypeValue, "new_value", ts_str);
     ASSERT_EQ(
         1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
   }
@@ -505,6 +585,324 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   s = db_->Get(read_opts, "a", &value);
   ASSERT_OK(s);
   ASSERT_EQ("value0", value);
+  Close();
+}
+
+class DataVisibilityTest : public DBBasicTestWithTimestampBase {
+ public:
+  DataVisibilityTest() : DBBasicTestWithTimestampBase("data_visibility_test") {}
+};
+
+// Application specifies timestamp but not snapshot.
+//           reader              writer
+//                               ts'=90
+//           ts=100
+//           seq=10
+//                               seq'=11
+//                               write finishes
+//         GetImpl(ts,seq)
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=1t1 but seq<s1,
+// the key should not be returned.
+TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot1) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::GetImpl:3",
+       "DataVisibilityTest::PointLookupWithoutSnapshot1:BeforePut"},
+      {"DataVisibilityTest::PointLookupWithoutSnapshot1:AfterPut",
+       "DBImpl::GetImpl:4"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT(
+        "DataVisibilityTest::PointLookupWithoutSnapshot1:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value");
+    ASSERT_OK(s);
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithoutSnapshot1:AfterPut");
+  });
+  ReadOptions read_opts;
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+
+  writer_thread.join();
+  ASSERT_TRUE(s.IsNotFound());
+  Close();
+}
+
+// Application specifies timestamp but not snapshot.
+//           reader              writer
+//                               ts'=90
+//           ts=100
+//           seq=10
+//                               seq'=11
+//                               write finishes
+//                               Flush
+//         GetImpl(ts,seq)
+// It is OK to return <k, t1, s1> if ts>=t1 AND seq>=s1. If ts>=t1 but seq<s1,
+// the key should not be returned.
+TEST_F(DataVisibilityTest, PointLookupWithoutSnapshot2) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::GetImpl:3",
+       "DataVisibilityTest::PointLookupWithoutSnapshot2:BeforePut"},
+      {"DataVisibilityTest::PointLookupWithoutSnapshot2:AfterPut",
+       "DBImpl::GetImpl:4"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT(
+        "DataVisibilityTest::PointLookupWithoutSnapshot2:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value");
+    ASSERT_OK(s);
+    ASSERT_OK(Flush());
+
+    write_ts_str = Timestamp(2, 0);
+    write_ts = write_ts_str;
+    write_opts.timestamp = &write_ts;
+    s = db_->Put(write_opts, "bar", "value");
+    ASSERT_OK(s);
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithoutSnapshot2:AfterPut");
+  });
+  ReadOptions read_opts;
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+  writer_thread.join();
+  ASSERT_TRUE(s.IsNotFound());
+  Close();
+}
+
+// Application specifies both timestamp and snapshot.
+//       reader               writer
+//       seq=10
+//                            ts'=90
+//       ts=100
+//                            seq'=11
+//                            write finishes
+//       GetImpl(ts,seq)
+// Since application specifies both timestamp and snapshot, application expects
+// to see data that visible in BOTH timestamp and sequence number. Therefore,
+// <k, t1, s1> can be returned only if t1<=ts AND s1<=seq.
+TEST_F(DataVisibilityTest, PointLookupWithSnapshot1) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DataVisibilityTest::PointLookupWithSnapshot1:AfterTakingSnap",
+       "DataVisibilityTest::PointLookupWithSnapshot1:BeforePut"},
+      {"DataVisibilityTest::PointLookupWithSnapshot1:AfterPut",
+       "DBImpl::GetImpl:1"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot1:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value");
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot1:AfterPut");
+    ASSERT_OK(s);
+  });
+  ReadOptions read_opts;
+  const Snapshot* snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DataVisibilityTest::PointLookupWithSnapshot1:AfterTakingSnap");
+  read_opts.snapshot = snap;
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+  writer_thread.join();
+
+  ASSERT_TRUE(s.IsNotFound());
+
+  db_->ReleaseSnapshot(snap);
+  Close();
+}
+
+// Application specifies both timestamp and snapshot.
+//       reader               writer
+//       seq=10
+//                            ts'=90
+//       ts=100
+//                            seq'=11
+//                            write finishes
+//                            Flush
+//       GetImpl(ts,seq)
+// Since application specifies both timestamp and snapshot, application expects
+// to see data that visible in BOTH timestamp and sequence number. Therefore,
+// <k, t1, s1> can be returned only if t1<=ts AND s1<=seq.
+TEST_F(DataVisibilityTest, PointLookupWithSnapshot2) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DataVisibilityTest::PointLookupWithSnapshot2:AfterTakingSnap",
+       "DataVisibilityTest::PointLookupWithSnapshot2:BeforePut"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    std::string write_ts_str = Timestamp(1, 0);
+    Slice write_ts = write_ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &write_ts;
+    TEST_SYNC_POINT("DataVisibilityTest::PointLookupWithSnapshot2:BeforePut");
+    Status s = db_->Put(write_opts, "foo", "value1");
+    ASSERT_OK(s);
+    ASSERT_OK(Flush());
+
+    write_ts_str = Timestamp(2, 0);
+    write_ts = write_ts_str;
+    write_opts.timestamp = &write_ts;
+    s = db_->Put(write_opts, "bar", "value2");
+    ASSERT_OK(s);
+  });
+  const Snapshot* snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DataVisibilityTest::PointLookupWithSnapshot2:AfterTakingSnap");
+  writer_thread.join();
+  std::string read_ts_str = Timestamp(3, 0);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.snapshot = snap;
+  read_opts.timestamp = &read_ts;
+  std::string value;
+  Status s = db_->Get(read_opts, "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  db_->ReleaseSnapshot(snap);
+  Close();
+}
+
+// Application specifies timestamp but not snapshot.
+//      reader                writer
+//                            ts'=90
+//      ts=100
+//      seq=10
+//                            seq'=11
+//                            write finishes
+//      scan(ts,seq)
+// <k, t1, s1> can be seen in scan as long as ts>=t1 AND seq>=s1. If ts>=t1 but
+// seq<s1, then the key should not be returned.
+TEST_F(DataVisibilityTest, RangeScanWithoutSnapshot) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::NewIterator:3",
+       "DataVisibilityTest::RangeScanWithoutSnapshot:BeforePut"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    WriteOptions write_opts;
+    TEST_SYNC_POINT("DataVisibilityTest::RangeScanWithoutSnapshot:BeforePut");
+    for (int i = 0; i < 3; ++i) {
+      std::string write_ts_str = Timestamp(i + 1, 0);
+      Slice write_ts = write_ts_str;
+      write_opts.timestamp = &write_ts;
+      Status s = db_->Put(write_opts, "key" + std::to_string(i),
+                          "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  });
+  std::string read_ts_str = Timestamp(10, 0);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  read_opts.timestamp = &read_ts;
+  Iterator* it = db_->NewIterator(read_opts);
+  ASSERT_NE(nullptr, it);
+  writer_thread.join();
+  it->SeekToFirst();
+  ASSERT_FALSE(it->Valid());
+  delete it;
+  Close();
+}
+
+// Application specifies both timestamp and snapshot.
+//       reader         writer
+//       seq=10
+//                      ts'=90
+//       ts=100         seq'=11
+//                      write finishes
+//       scan(ts,seq)
+// <k, t1, s1> can be seen by the scan only if t1<=ts AND s1<=seq. If t1<=ts
+// but s1>seq, then the key should not be returned.
+TEST_F(DataVisibilityTest, RangeScanWithSnapshot) {
+  Options options = CurrentOptions();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DataVisibilityTest::RangeScanWithSnapshot:AfterTakingSnapshot",
+       "DataVisibilityTest::RangeScanWithSnapshot:BeforePut"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread([this]() {
+    WriteOptions write_opts;
+    TEST_SYNC_POINT("DataVisibilityTest::RangeScanWithSnapshot:BeforePut");
+    for (int i = 0; i < 3; ++i) {
+      std::string write_ts_str = Timestamp(i + 1, 0);
+      Slice write_ts = write_ts_str;
+      write_opts.timestamp = &write_ts;
+      Status s = db_->Put(write_opts, "key" + std::to_string(i),
+                          "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  });
+  const Snapshot* snap = db_->GetSnapshot();
+  TEST_SYNC_POINT(
+      "DataVisibilityTest::RangeScanWithSnapshot:AfterTakingSnapshot");
+
+  writer_thread.join();
+
+  std::string read_ts_str = Timestamp(10, 0);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.snapshot = snap;
+  read_opts.total_order_seek = true;
+  read_opts.timestamp = &read_ts;
+  Iterator* it = db_->NewIterator(read_opts);
+  ASSERT_NE(nullptr, it);
+  it->Seek("key0");
+  ASSERT_FALSE(it->Valid());
+
+  delete it;
+  db_->ReleaseSnapshot(snap);
   Close();
 }
 
@@ -1049,8 +1447,8 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
 
       // Seek to kMaxKey
       iter->Seek(Key1(kMaxKey));
-      CheckIterUserEntry(iter.get(), Key1(kMaxKey), "value" + std::to_string(i),
-                         write_ts_list[i]);
+      CheckIterUserEntry(iter.get(), Key1(kMaxKey), kTypeValue,
+                         "value" + std::to_string(i), write_ts_list[i]);
       iter->Next();
       ASSERT_FALSE(iter->Valid());
     }
@@ -1084,7 +1482,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
               pe->Transform(saved_prev_key) != pe->Transform(start_key)) {
             break;
           }
-          CheckIterUserEntry(it.get(), Key1(expected_key),
+          CheckIterUserEntry(it.get(), Key1(expected_key), kTypeValue,
                              "value" + std::to_string(i), write_ts_list[i]);
           ++count;
           ++expected_key;

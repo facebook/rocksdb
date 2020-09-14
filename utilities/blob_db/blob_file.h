@@ -98,9 +98,6 @@ class BlobFile {
   // time when the random access reader was last created.
   std::atomic<std::int64_t> last_access_{-1};
 
-  // last time file was fsync'd/fdatasyncd
-  std::atomic<uint64_t> last_fsync_{0};
-
   bool header_valid_{false};
 
   bool footer_valid_{false};
@@ -184,9 +181,6 @@ class BlobFile {
     return obsolete_sequence_;
   }
 
-  // we will assume this is atomic
-  bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
-
   Status Fsync();
 
   uint64_t GetFileSize() const {
@@ -195,7 +189,9 @@ class BlobFile {
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
 
-  ExpirationRange GetExpirationRange() const { return expiration_range_; }
+  const ExpirationRange& GetExpirationRange() const {
+    return expiration_range_;
+  }
 
   void ExtendExpirationRange(uint64_t expiration) {
     expiration_range_.first = std::min(expiration_range_.first, expiration);

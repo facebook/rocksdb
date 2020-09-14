@@ -28,6 +28,7 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   if (!enable_ || reader == nullptr) {
     return Status::OK();
   }
+  TEST_SYNC_POINT("FilePrefetchBuffer::Prefetch:Start");
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
   size_t offset_ = static_cast<size_t>(offset);
   uint64_t rounddown_offset = Rounddown(offset_, alignment);

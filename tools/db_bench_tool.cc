@@ -685,6 +685,11 @@ DEFINE_int32(level0_file_num_compaction_trigger,
              "Number of files in level-0"
              " when compactions start");
 
+DEFINE_uint64(periodic_compaction_seconds,
+              ROCKSDB_NAMESPACE::Options().periodic_compaction_seconds,
+              "Files older than this will be picked up for compaction and"
+              " rewritten to the same level");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value <= 0 || value>=100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0< pct <100 \n",
@@ -947,11 +952,17 @@ static bool ValidateTableCacheNumshardbits(const char* flagname,
 DEFINE_int32(table_cache_numshardbits, 4, "");
 
 #ifndef ROCKSDB_LITE
-DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
-              " with --hdfs.");
+DEFINE_string(env_uri, "",
+              "URI for registry Env lookup. Mutually exclusive"
+              " with --hdfs and --fs_uri");
+DEFINE_string(fs_uri, "",
+              "URI for registry Filesystem lookup. Mutually exclusive"
+              " with --hdfs and --env_uri."
+              " Creates a default environment with the specified filesystem.");
 #endif  // ROCKSDB_LITE
-DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri.");
+DEFINE_string(hdfs, "",
+              "Name of hdfs environment. Mutually exclusive with"
+              " --env_uri and --fs_uri");
 
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
@@ -980,6 +991,15 @@ DEFINE_int32(thread_status_per_interval, 0,
 
 DEFINE_int32(perf_level, ROCKSDB_NAMESPACE::PerfLevel::kDisable,
              "Level of perf collection");
+
+#ifndef ROCKSDB_LITE
+static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
+    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
+  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
+  return composite_env.get();
+}
+#endif
 
 static bool ValidateRateLimit(const char* flagname, double value) {
   const double EPSILON = 1e-10;
@@ -2880,9 +2900,17 @@ class Benchmark {
     fprintf(stderr, "...Verified\n");
   }
 
+  void ErrorExit() {
+    db_.DeleteDBs();
+    for (size_t i = 0; i < multi_dbs_.size(); i++) {
+      delete multi_dbs_[i].db;
+    }
+    exit(1);
+  }
+
   void Run() {
     if (!SanityCheck()) {
-      exit(1);
+      ErrorExit();
     }
     Open(&open_options_);
     PrintHeader();
@@ -2921,7 +2949,7 @@ class Benchmark {
         auto it = name.find('[');
         if (it == std::string::npos) {
           fprintf(stderr, "unknown benchmark arguments '%s'\n", name.c_str());
-          exit(1);
+          ErrorExit();
         }
         std::string args = name.substr(it + 1);
         args.resize(args.size() - 1);
@@ -2954,7 +2982,7 @@ class Benchmark {
           fprintf(stderr,
                   "Please disable_auto_compactions in FillDeterministic "
                   "benchmark\n");
-          exit(1);
+          ErrorExit();
         }
         if (num_threads > 1) {
           fprintf(stderr,
@@ -3006,7 +3034,7 @@ class Benchmark {
           fprintf(stderr,
                   "Please set use_existing_keys to true and specify a "
                   "row cache size in readtorowcache benchmark\n");
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::ReadToRowCache;
       } else if (name == "readtocache") {
@@ -3071,7 +3099,7 @@ class Benchmark {
         if (FLAGS_merge_operator.empty()) {
           fprintf(stdout, "%-12s : skipped (--merge_operator is unknown)\n",
                   name.c_str());
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::ReadRandomMergeRandom;
       } else if (name == "updaterandom") {
@@ -3137,18 +3165,18 @@ class Benchmark {
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
-          exit(1);
+          ErrorExit();
         }
         if (FLAGS_trace_file == "") {
           fprintf(stderr, "Please set --trace_file to be replayed from\n");
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::Replay;
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
-        exit(1);
+        ErrorExit();
       }
 
       if (fresh_db) {
@@ -3189,13 +3217,13 @@ class Benchmark {
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           s = db_.db->StartTrace(trace_options_, std::move(trace_writer));
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           fprintf(stdout, "Tracing the workload to: [%s]\n",
                   FLAGS_trace_file.c_str());
@@ -3207,13 +3235,13 @@ class Benchmark {
             fprintf(stderr,
                     "Block cache trace sampling frequency must be higher than "
                     "0.\n");
-            exit(1);
+            ErrorExit();
           }
           if (FLAGS_block_cache_trace_max_trace_file_size_in_bytes <= 0) {
             fprintf(stderr,
                     "The maximum file size for block cache tracing must be "
                     "higher than 0.\n");
-            exit(1);
+            ErrorExit();
           }
           block_cache_trace_options_.max_trace_file_size =
               FLAGS_block_cache_trace_max_trace_file_size_in_bytes;
@@ -3227,7 +3255,7 @@ class Benchmark {
             fprintf(stderr,
                     "Encountered an error when creating trace writer, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           s = db_.db->StartBlockCacheTrace(block_cache_trace_options_,
                                            std::move(block_cache_trace_writer));
@@ -3236,7 +3264,7 @@ class Benchmark {
                 stderr,
                 "Encountered an error when starting block cache tracing, %s\n",
                 s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           fprintf(stdout, "Tracing block cache accesses to: [%s]\n",
                   FLAGS_block_cache_trace_file.c_str());
@@ -3962,6 +3990,7 @@ class Benchmark {
     options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
+    options.periodic_compaction_seconds = FLAGS_periodic_compaction_seconds;
 
     // fill storage options
     options.advise_random_on_open = FLAGS_advise_random_on_open;
@@ -4554,7 +4583,7 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
     }
     thread->stats.AddBytes(bytes);
@@ -5365,18 +5394,11 @@ class Benchmark {
   // based on the hotness of the prefix and also the key hotness distribution.
   class GenerateTwoTermExpKeys {
    public:
-    int64_t keyrange_rand_max_;
-    int64_t keyrange_size_;
-    int64_t keyrange_num_;
-    bool initiated_;
+    // Avoid uninitialized warning-as-error in some compilers
+    int64_t keyrange_rand_max_ = 0;
+    int64_t keyrange_size_ = 0;
+    int64_t keyrange_num_ = 0;
     std::vector<KeyrangeUnit> keyrange_set_;
-
-    GenerateTwoTermExpKeys() {
-      keyrange_rand_max_ = FLAGS_num;
-      initiated_ = false;
-    }
-
-    ~GenerateTwoTermExpKeys() {}
 
     // Initiate the KeyrangeUnit vector and calculate the size of each
     // KeyrangeUnit.
@@ -5385,7 +5407,6 @@ class Benchmark {
                                    double prefix_d) {
       int64_t amplify = 0;
       int64_t keyrange_start = 0;
-      initiated_ = true;
       if (FLAGS_keyrange_num <= 0) {
         keyrange_num_ = 1;
       } else {
@@ -5642,7 +5663,7 @@ class Benchmark {
             gen.Generate(static_cast<unsigned int>(val_size)));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
+          ErrorExit();
         }
 
         if (thread->shared->write_rate_limiter) {
@@ -6201,7 +6222,7 @@ class Benchmark {
         Status s = db->Put(write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
+          ErrorExit();
         }
         put_weight--;
         writes_done++;
@@ -6306,7 +6327,7 @@ class Benchmark {
       Status s = db->Put(write_options_, key, Slice(new_value));
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       thread->stats.FinishedOps(nullptr, db, 1);
     }
@@ -6359,7 +6380,7 @@ class Benchmark {
       Status s = db->Put(write_options_, key, value);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       bytes += key.size() + value.size();
       thread->stats.FinishedOps(nullptr, db, 1, kUpdate);
@@ -6896,7 +6917,7 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       bytes = key.size() + val.size();
       thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
@@ -7091,15 +7112,28 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_blob_db_compression_type_e =
     StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
-  if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
-    fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
+  int env_opts =
+      !FLAGS_hdfs.empty() + !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
+  if (env_opts > 1) {
+    fprintf(stderr,
+            "Error: --hdfs, --env_uri and --fs_uri are mutually exclusive\n");
     exit(1);
-  } else if (!FLAGS_env_uri.empty()) {
+  }
+
+  if (!FLAGS_env_uri.empty()) {
     Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
     }
+  } else if (!FLAGS_fs_uri.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
+    if (fs == nullptr) {
+      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    FLAGS_env = GetCompositeEnv(fs);
   }
 #endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {

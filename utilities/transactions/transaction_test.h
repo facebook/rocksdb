@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -40,6 +41,7 @@ enum WriteOrdering : bool { kOrderedWrite, kUnorderedWrite };
 class TransactionTestBase : public ::testing::Test {
  public:
   TransactionDB* db;
+  SpecialEnv special_env;
   FaultInjectionTestEnv* env;
   std::string dbname;
   Options options;
@@ -50,14 +52,17 @@ class TransactionTestBase : public ::testing::Test {
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
                       TxnDBWritePolicy write_policy,
                       WriteOrdering write_ordering)
-      : db(nullptr), env(nullptr), use_stackable_db_(use_stackable_db) {
+      : db(nullptr),
+        special_env(Env::Default()),
+        env(nullptr),
+        use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env = new FaultInjectionTestEnv(Env::Default());
+    env = new FaultInjectionTestEnv(&special_env);
     options.env = env;
     options.two_write_queues = two_write_queue;
     dbname = test::PerThreadDBPath("transaction_testdb");

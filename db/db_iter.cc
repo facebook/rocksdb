@@ -223,11 +223,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
-    assert(iterate_upper_bound_ == nullptr || iter_.MayBeOutOfUpperBound() ||
+    assert(iterate_upper_bound_ == nullptr ||
+           iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound ||
            user_comparator_.CompareWithoutTimestamp(
                ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
                /*b_has_ts=*/false) < 0);
-    if (iterate_upper_bound_ != nullptr && iter_.MayBeOutOfUpperBound() &&
+    if (iterate_upper_bound_ != nullptr &&
+        iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound &&
         user_comparator_.CompareWithoutTimestamp(
             ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
             /*b_has_ts=*/false) >= 0) {
@@ -246,11 +248,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
     }
 
     assert(ikey_.user_key.size() >= timestamp_size_);
-    Slice ts;
+    Slice ts = timestamp_size_ > 0 ? ExtractTimestampFromUserKey(
+                                         ikey_.user_key, timestamp_size_)
+                                   : Slice();
     bool more_recent = false;
-    if (timestamp_size_ > 0) {
-      ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
-    }
     if (IsVisible(ikey_.sequence, ts, &more_recent)) {
       // If the previous entry is of seqnum 0, the current entry will not
       // possibly be skipped. This condition can potentially be relaxed to
@@ -285,7 +286,20 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             // 2) return ikey only if ikey.seqnum >= start_seqnum_
             // note that if deletion seqnum is < start_seqnum_ we
             // just skip it like in normal iterator.
-            if (start_seqnum_ > 0 && ikey_.sequence >= start_seqnum_)  {
+            if (start_seqnum_ > 0) {
+              if (ikey_.sequence >= start_seqnum_) {
+                saved_key_.SetInternalKey(ikey_);
+                valid_ = true;
+                return true;
+              } else {
+                saved_key_.SetUserKey(
+                    ikey_.user_key,
+                    !pin_thru_lifetime_ ||
+                        !iter_.iter()->IsKeyPinned() /* copy */);
+                skipping_saved_key = true;
+                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              }
+            } else if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
               valid_ = true;
               return true;
@@ -300,10 +314,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeValue:
           case kTypeBlobIndex:
             if (start_seqnum_ > 0) {
-              // we are taking incremental snapshot here
-              // incremental snapshots aren't supported on DB with range deletes
-              assert(ikey_.type != kTypeBlobIndex);
               if (ikey_.sequence >= start_seqnum_) {
+                assert(ikey_.type != kTypeBlobIndex);
                 saved_key_.SetInternalKey(ikey_);
                 valid_ = true;
                 return true;
@@ -316,6 +328,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                         !iter_.iter()->IsKeyPinned() /* copy */);
                 skipping_saved_key = true;
               }
+            } else if (timestamp_lb_) {
+              saved_key_.SetInternalKey(ikey_);
+              valid_ = true;
+              return true;
             } else {
               saved_key_.SetUserKey(
                   ikey_.user_key, !pin_thru_lifetime_ ||
@@ -1193,7 +1209,8 @@ void DBIter::Seek(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
+    // TODO: What do we do if this returns an error?
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -1254,7 +1271,9 @@ void DBIter::SeekForPrev(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
+    // TODO: What do we do if this returns an error?
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 

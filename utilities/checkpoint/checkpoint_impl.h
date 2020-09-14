@@ -58,7 +58,7 @@ class CheckpointImpl : public Checkpoint {
                            const std::string& contents, FileType type)>
           create_file_cb,
       uint64_t* sequence_number, uint64_t log_size_for_flush,
-      const bool& get_live_table_checksum = false);
+      bool get_live_table_checksum = false);
 
  private:
   void CleanStagingDirectory(const std::string& path, Logger* info_log);

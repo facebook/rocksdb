@@ -60,8 +60,16 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
       source "$PWD/build_tools/fbcode_config4.8.1.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_5xx" ]; then
       source "$PWD/build_tools/fbcode_config.sh"
-    else
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007" ]; then
       source "$PWD/build_tools/fbcode_config_platform007.sh"
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
+      source "$PWD/build_tools/fbcode_config_platform009.sh"
+    elif [ -z "$USE_CLANG" ]; then
+        # Still use platform007 for gcc by default for build break on
+        # some hosts.
+      source "$PWD/build_tools/fbcode_config_platform007.sh"
+    else
+      source "$PWD/build_tools/fbcode_config_platform009.sh"
     fi
 fi
 
@@ -86,6 +94,16 @@ if test -z "$CXX"; then
         CXX=clang++
     else
         CXX=g++
+    fi
+fi
+
+if test -z "$AR"; then
+    if [ -x "$(command -v gcc-ar)" ]; then
+        AR=gcc-ar
+    elif [ -x "$(command -v llvm-ar)" ]; then
+        AR=llvm-ar
+    else
+        AR=ar
     fi
 fi
 
@@ -647,11 +665,18 @@ if test "$TRY_SSE_ETC"; then
   # It doesn't even really check that your current CPU is compatible.
   #
   # SSE4.2 available since nehalem, ca. 2008-2010
+  # Includes POPCNT for BitsSetToOne, BitParity
   TRY_SSE42="-msse4.2"
   # PCLMUL available since westmere, ca. 2010-2011
   TRY_PCLMUL="-mpclmul"
   # AVX2 available since haswell, ca. 2013-2015
   TRY_AVX2="-mavx2"
+  # BMI available since haswell, ca. 2013-2015
+  # Primarily for TZCNT for CountTrailingZeroBits
+  TRY_BMI="-mbmi"
+  # LZCNT available since haswell, ca. 2013-2015
+  # For FloorLog2
+  TRY_LZCNT="-mlzcnt"
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -698,6 +723,34 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS $TRY_AVX2 -DHAVE_AVX2"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use AVX2 intrinsics, disabling" >&2
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <immintrin.h>
+  int main(int argc, char *argv[]) {
+    (void)argv;
+    return (int)_tzcnt_u64((uint64_t)argc);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_BMI -DHAVE_BMI"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use BMI intrinsics, disabling" >&2
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <immintrin.h>
+  int main(int argc, char *argv[]) {
+    (void)argv;
+    return (int)_lzcnt_u64((uint64_t)argc);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_LZCNT -DHAVE_LZCNT"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use LZCNT intrinsics, disabling" >&2
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -756,6 +809,7 @@ ROCKSDB_PATCH=`build_tools/version.sh patch`
 
 echo "CC=$CC" >> "$OUTPUT"
 echo "CXX=$CXX" >> "$OUTPUT"
+echo "AR=$AR" >> "$OUTPUT"
 echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <regex>
 #include <string>
 #include <utility>
 
@@ -37,6 +38,148 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+
+class DummyFileChecksumGen : public FileChecksumGenerator {
+ public:
+  explicit DummyFileChecksumGen(const FileChecksumGenContext& /* context */,
+                                bool state) {
+    if (state) {
+      checksum_ = 0;
+    } else {
+      checksum_ = 1;
+    }
+  }
+
+  void Update(const char* /* data */, size_t /* n */) override {}
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "DummyFileChecksum"; }
+
+ private:
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class DummyFileChecksumGenFactory : public FileChecksumGenFactory {
+ public:
+  explicit DummyFileChecksumGenFactory(bool state = false) : state_(state) {}
+
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "DummyFileChecksum") {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new DummyFileChecksumGen(context, state_));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "DummyFileChecksumGenFactory"; }
+
+ private:
+  bool state_;
+};
+
+class FileHash32Gen : public FileChecksumGenerator {
+ public:
+  explicit FileHash32Gen(const FileChecksumGenContext& /*context*/) {
+    checksum_ = 0;
+  }
+
+  void Update(const char* data, size_t n) override { content_.append(data, n); }
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    const char* str = content_.c_str();
+    checksum_ = Hash(str, strlen(str), 1);
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "FileHash32"; }
+
+ private:
+  std::string content_;
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class FileHash64Gen : public FileChecksumGenerator {
+ public:
+  explicit FileHash64Gen(const FileChecksumGenContext& /*context*/) {
+    checksum_ = 0;
+  }
+
+  void Update(const char* data, size_t n) override { content_.append(data, n); }
+
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    const char* str = content_.c_str();
+    checksum_ = Hash64(str, strlen(str), 1);
+    // Store as big endian raw bytes
+    PutFixed64(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
+  }
+
+  const char* Name() const override { return "FileHash64"; }
+
+ private:
+  std::string content_;
+  uint64_t checksum_;
+  std::string checksum_str_;
+};
+
+class FileHash32GenFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileHash32") {
+      return std::unique_ptr<FileChecksumGenerator>(new FileHash32Gen(context));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "FileHash32GenFactory"; }
+};
+
+class FileHashGenFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileHash64") {
+      return std::unique_ptr<FileChecksumGenerator>(new FileHash64Gen(context));
+    } else if (context.requested_checksum_func_name == "FileHash32") {
+      return std::unique_ptr<FileChecksumGenerator>(new FileHash32Gen(context));
+    } else {
+      return nullptr;
+    }
+  }
+
+  const char* Name() const override { return "FileHashGenFactory"; }
+};
 
 class DummyDB : public StackableDB {
  public:
@@ -506,7 +649,20 @@ class FileManager : public EnvWrapper {
 }; // FileManager
 
 // utility functions
-static size_t FillDB(DB* db, int from, int to) {
+namespace {
+
+enum FillDBFlushAction {
+  kFlushMost,
+  kFlushAll,
+  kAutoFlushOnly,
+};
+
+// Many tests in this file expect FillDB to write at least one sst file,
+// so the default behavior (if not kAutoFlushOnly) of FillDB is to force
+// a flush. But to ensure coverage of the WAL file case, we also (by default)
+// do one Put after the Flush (kFlushMost).
+size_t FillDB(DB* db, int from, int to,
+              FillDBFlushAction flush_action = kFlushMost) {
   size_t bytes_written = 0;
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
@@ -514,11 +670,18 @@ static size_t FillDB(DB* db, int from, int to) {
     bytes_written += key.size() + value.size();
 
     EXPECT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
+
+    if (flush_action == kFlushMost && i == to - 2) {
+      EXPECT_OK(db->Flush(FlushOptions()));
+    }
+  }
+  if (flush_action == kFlushAll) {
+    EXPECT_OK(db->Flush(FlushOptions()));
   }
   return bytes_written;
 }
 
-static void AssertExists(DB* db, int from, int to) {
+void AssertExists(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
     std::string value;
@@ -527,7 +690,7 @@ static void AssertExists(DB* db, int from, int to) {
   }
 }
 
-static void AssertEmpty(DB* db, int from, int to) {
+void AssertEmpty(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
     std::string value = "testvalue" + ToString(i);
@@ -536,6 +699,7 @@ static void AssertEmpty(DB* db, int from, int to) {
     ASSERT_TRUE(s.IsNotFound());
   }
 }
+}  // namespace
 
 class BackupableDBTest : public testing::Test {
  public:
@@ -604,10 +768,8 @@ class BackupableDBTest : public testing::Test {
     db_.reset(db);
   }
 
-  void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
-                             ShareOption shared_option = kShareNoChecksum) {
-    // reset all the defaults
-    test_backup_env_->SetLimitWrittenFiles(1000000);
+  void InitializeDBAndBackupEngine(bool dummy = false) {
+    // reset all the db env defaults
     test_db_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetDummySequentialFile(dummy);
 
@@ -619,14 +781,19 @@ class BackupableDBTest : public testing::Test {
       ASSERT_OK(DB::Open(options_, dbname_, &db));
     }
     db_.reset(db);
+  }
+
+  virtual void OpenDBAndBackupEngine(
+      bool destroy_old_data = false, bool dummy = false,
+      ShareOption shared_option = kShareNoChecksum) {
+    InitializeDBAndBackupEngine(dummy);
+    // reset backup env defaults
+    test_backup_env_->SetLimitWrittenFiles(1000000);
     backupable_options_->destroy_old_data = destroy_old_data;
     backupable_options_->share_table_files = shared_option != kNoShare;
     backupable_options_->share_files_with_checksum =
         shared_option == kShareWithChecksum;
-    BackupEngine* backup_engine;
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
-                                 &backup_engine));
-    backup_engine_.reset(backup_engine);
+    OpenBackupEngine(destroy_old_data);
   }
 
   void CloseDBAndBackupEngine() {
@@ -634,8 +801,8 @@ class BackupableDBTest : public testing::Test {
     backup_engine_.reset();
   }
 
-  void OpenBackupEngine() {
-    backupable_options_->destroy_old_data = false;
+  void OpenBackupEngine(bool destroy_old_data = false) {
+    backupable_options_->destroy_old_data = destroy_old_data;
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
@@ -764,7 +931,300 @@ class BackupableDBTestWithParam : public BackupableDBTest,
   BackupableDBTestWithParam() {
     backupable_options_->share_files_with_checksum = GetParam();
   }
+  void OpenDBAndBackupEngine(
+      bool destroy_old_data = false, bool dummy = false,
+      ShareOption shared_option = kShareNoChecksum) override {
+    BackupableDBTest::InitializeDBAndBackupEngine(dummy);
+    // reset backup env defaults
+    test_backup_env_->SetLimitWrittenFiles(1000000);
+    backupable_options_->destroy_old_data = destroy_old_data;
+    backupable_options_->share_table_files = shared_option != kNoShare;
+    // NOTE: keep share_files_with_checksum setting from constructor
+    OpenBackupEngine(destroy_old_data);
+  }
 };
+
+TEST_F(BackupableDBTest, DbAndBackupSameCustomChecksum) {
+  const int keys_iteration = 5000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  // backup uses it default crc32c
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  // backup uses db crc32c
+  backupable_options_->file_checksum_gen_factory =
+      GetFileChecksumGenCrc32cFactory();
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  std::shared_ptr<FileChecksumGenFactory> hash_factory =
+      std::make_shared<FileHashGenFactory>();
+  options_.file_checksum_gen_factory = hash_factory;
+  backupable_options_->file_checksum_gen_factory = hash_factory;
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration + 1);
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+
+  // Mimic a checksum mismatch for custom checksum function by using a dummy
+  // checksum function with a state
+  std::shared_ptr<FileChecksumGenFactory> dummy_factory_0 =
+      std::make_shared<DummyFileChecksumGenFactory>(false);
+  std::shared_ptr<FileChecksumGenFactory> dummy_factory_1 =
+      std::make_shared<DummyFileChecksumGenFactory>(true);
+  FileChecksumGenContext context;
+  // Both factories have the same generator name
+  std::string dummy_checksum_function_name =
+      dummy_factory_0->CreateFileChecksumGenerator(context)->Name();
+  options_.file_checksum_gen_factory = dummy_factory_0;
+  for (const auto& sopt : kAllShareOptions) {
+    backupable_options_->file_checksum_gen_factory = dummy_factory_1;
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    // DB and backup engine do not have the same custom checksum function
+    // "state"
+    Status s = backup_engine_->CreateNewBackup(db_.get());
+    ASSERT_NOK(s);
+    ASSERT_TRUE(
+        s.ToString().find("Corruption: " + dummy_checksum_function_name +
+                          " mismatch") != std::string::npos);
+    CloseBackupEngine();
+
+    // Change custom checksum function and try again
+    backupable_options_->file_checksum_gen_factory = dummy_factory_0;
+    OpenBackupEngine(true /* destroy_old_data */);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseBackupEngine();
+
+    // Try verifying or restoring a backup using a different custom checksum
+    // function "state"
+    backupable_options_->file_checksum_gen_factory = dummy_factory_1;
+    OpenBackupEngine(false /* destroy_old_data */);
+    ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseDBAndBackupEngine();
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
+
+TEST_F(BackupableDBTest, CustomChecksumTransition) {
+  const int keys_iteration = 5000;
+  std::shared_ptr<FileChecksumGenFactory> hash32_factory =
+      std::make_shared<FileHash32GenFactory>();
+  std::shared_ptr<FileChecksumGenFactory> hash_factory =
+      std::make_shared<FileHashGenFactory>();
+  for (const auto& sopt : kAllShareOptions) {
+    // 1) with one custom checksum function (FileHash32GenFactory) for both
+    //    db and backup
+    int i = 0;
+    options_.file_checksum_gen_factory = hash32_factory;
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    // open with old backup
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    // verify the backup with checksum
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (i + 2));
+
+    // 2) with two custom checksum functions (FileHashGenFactory) for db
+    //    but one custom checksum function (FileHash32GenFactory) for backup
+    ++i;
+    options_.file_checksum_gen_factory = hash_factory;
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    // note that the checksum factory for backup does not know the custom
+    // checksum function used in the db
+    ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+    // but it knows the custom checksum function for the older backup
+    ASSERT_OK(backup_engine_->VerifyBackup(i, true));
+    // reset the factory to nullptr and try again
+    CloseBackupEngine();
+    backupable_options_->file_checksum_gen_factory = nullptr;
+    OpenBackupEngine();
+    ASSERT_NOK(backup_engine_->DeleteBackup(i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(i, 0, keys_iteration * i, keys_iteration * (i + 1));
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (i + 2));
+    // Now set the factory to the same as the one used in the db
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseBackupEngine();
+
+    ++i;
+    // Say, we accidentally change the factory
+    backupable_options_->file_checksum_gen_factory = hash32_factory;
+    OpenBackupEngine();
+    // Unable to verify the latest backup.
+    ASSERT_NOK(backup_engine_->VerifyBackup(i + 1, true));
+    // Unable to restore the latest backup.
+    ASSERT_NOK(backup_engine_->RestoreDBFromBackup(i + 1, dbname_, dbname_));
+    CloseBackupEngine();
+    // Reset the factory to the same as the one used in the db.
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(i + 1, dbname_, dbname_));
+    ASSERT_OK(backup_engine_->DeleteBackup(i + 1));
+    --i;
+    CloseDBAndBackupEngine();
+
+    // 3) with one custom checksum function (FileHash32GenFactory) for db
+    //    but two custom checksum functions (FileHashGenFactory) for backup
+    // note that the checksum factory for backup does know the checksum
+    // function in the db
+    ++i;
+    options_.file_checksum_gen_factory = hash32_factory;
+    backupable_options_->file_checksum_gen_factory = hash_factory;
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+    ASSERT_OK(backup_engine_->VerifyBackup(i - 1, true));
+    ASSERT_OK(backup_engine_->VerifyBackup(i, true));
+    ASSERT_OK(backup_engine_->VerifyBackup(i + 1, true));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(i - 1, 0, keys_iteration * (i - 1),
+                            keys_iteration * i);
+    AssertBackupConsistency(i, 0, keys_iteration * i, keys_iteration * (i + 1));
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (i + 2));
+
+    // 4) no custom checksums
+    ++i;
+    options_.file_checksum_gen_factory = nullptr;
+    backupable_options_->file_checksum_gen_factory = nullptr;
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    for (int j = 0; j <= i; ++j) {
+      ASSERT_OK(backup_engine_->VerifyBackup(j + 1, true));
+    }
+    CloseDBAndBackupEngine();
+    for (int j = 0; j <= i; ++j) {
+      AssertBackupConsistency(j + 1, 0, keys_iteration * (j + 1),
+                              keys_iteration * (j + 2));
+    }
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
+
+TEST_F(BackupableDBTest, CustomChecksumNoNewDbTables) {
+  const int keys_iteration = 5000;
+  std::vector<std::shared_ptr<FileChecksumGenFactory>> checksum_factories{
+      nullptr, GetFileChecksumGenCrc32cFactory(),
+      std::make_shared<FileHash32GenFactory>(),
+      std::make_shared<FileHashGenFactory>()};
+
+  for (const auto& sopt : kAllShareOptions) {
+    for (const auto& f : checksum_factories) {
+      options_.file_checksum_gen_factory = f;
+      backupable_options_->file_checksum_gen_factory = f;
+      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                            sopt);
+      FillDB(db_.get(), 0, keys_iteration);
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+      // No new table files have been created since the last backup.
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->VerifyBackup(2, true));
+      CloseDBAndBackupEngine();
+      AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+      AssertBackupConsistency(2, 0, keys_iteration, keys_iteration * 2);
+
+      OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                            sopt);
+      // No new table files have been created since the last backup and backup
+      // engine opening
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->VerifyBackup(3, true));
+      CloseDBAndBackupEngine();
+      AssertBackupConsistency(3, 0, keys_iteration, keys_iteration * 2);
+
+      // delete old data
+      DestroyDB(dbname_, options_);
+    }
+  }
+}
+
+TEST_F(BackupableDBTest, FileCollision) {
+  const int keys_iteration = 5000;
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+
+    // If the db directory has been cleaned up, it is sensitive to file
+    // collision.
+    DestroyDB(dbname_, options_);
+
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * 2);
+    if (sopt != kShareNoChecksum) {
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    } else {
+      // The new table files created in FillDB() will clash with the old
+      // backup and sharing tables with no checksum will have the file
+      // collision problem.
+      ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->PurgeOldBackups(0));
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    }
+    CloseDBAndBackupEngine();
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
 
 // This test verifies that the verifyBackup method correctly identifies
 // invalid backups
@@ -821,7 +1281,8 @@ TEST_P(BackupableDBTestWithParam, OfflineIntegrationTest) {
       // ---- insert new data and back up ----
       OpenDBAndBackupEngine(destroy_data);
       destroy_data = false;
-      FillDB(db_.get(), keys_iteration * i, fill_up_to);
+      // kAutoFlushOnly to preserve legacy test behavior (consider updating)
+      FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
       CloseDBAndBackupEngine();
       DestroyDB(dbname_, options_);
@@ -864,7 +1325,8 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
     // in last iteration, put smaller amount of data,
     // so that backups can share sst files
     int fill_up_to = std::min(keys_iteration * (i + 1), max_key);
-    FillDB(db_.get(), keys_iteration * i, fill_up_to);
+    // kAutoFlushOnly to preserve legacy test behavior (consider updating)
+    FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
     // we should get consistent results with flush_before_backup
     // set to both true and false
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
@@ -1192,7 +1654,6 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1209,7 +1670,6 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kNoShare);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1227,7 +1687,6 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
 
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1242,7 +1701,6 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
-  ASSERT_OK(db_->Flush(FlushOptions()));
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomTableFileInDB());
@@ -1251,65 +1709,15 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   CloseDBAndBackupEngine();
 }
 
-TEST_F(BackupableDBTest, TableFileCorruptedDuringBackup) {
+TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
-  std::vector<std::shared_ptr<FileChecksumGenFactory>> fac{
-      nullptr, GetFileChecksumGenCrc32cFactory()};
-  for (auto& f : fac) {
-    options_.file_checksum_gen_factory = f;
-    if (f == nullptr) {
-      // When share_files_with_checksum is on, we calculate checksums of table
-      // files before and after copying. So we can test whether a corruption has
-      // happened during the file is copied to backup directory.
-      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
-                            kShareWithChecksum);
-    } else {
-      // Default DB table file checksum is on, we calculate checksums of table
-      // files before copying to verify it with the one stored in DB manifest
-      // and also calculate checksum after copying. So we can test whether a
-      // corruption has happened during the file is copied to backup directory
-      // even if we do not place table files in shared_checksum directory.
-      OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
-                            kNoShare);
-    }
-    FillDB(db_.get(), 0, keys_iteration);
-    bool corrupted = false;
-    // corrupt files when copying to the backup directory
-    SyncPoint::GetInstance()->SetCallBack(
-        "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
-        [&](void* data) {
-          if (data != nullptr) {
-            Slice* d = reinterpret_cast<Slice*>(data);
-            if (!d->empty()) {
-              d->remove_suffix(1);
-              corrupted = true;
-            }
-          }
-        });
-    SyncPoint::GetInstance()->EnableProcessing();
-    Status s = backup_engine_->CreateNewBackup(db_.get());
-    if (corrupted) {
-      ASSERT_NOK(s);
-    } else {
-      // should not in this path in normal cases
-      ASSERT_OK(s);
-    }
+  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
+  // When share_files_with_checksum is on, we calculate checksums of table
+  // files before and after copying. So we can test whether a corruption has
+  // happened during the file is copied to backup directory.
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
 
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-
-    CloseDBAndBackupEngine();
-    // delete old files in db
-    ASSERT_OK(DestroyDB(dbname_, options_));
-  }
-}
-
-TEST_P(BackupableDBTestWithParam,
-       TableFileCorruptedDuringBackupWithDefaultDbChecksum) {
-  const int keys_iteration = 100000;
-
-  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-  OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, keys_iteration);
   bool corrupted = false;
   // corrupt files when copying to the backup directory
@@ -1341,6 +1749,46 @@ TEST_P(BackupableDBTestWithParam,
   ASSERT_OK(DestroyDB(dbname_, options_));
 }
 
+TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
+  const int keys_iteration = 50000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  for (auto& sopt : kAllShareOptions) {
+    // Since the default DB table file checksum is on, we obtain checksums of
+    // table files from the DB manifest before copying and verify it with the
+    // one calculated during copying.
+    // Therefore, we can test whether a corruption has happened during the file
+    // being copied to backup directory.
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+
+    FillDB(db_.get(), 0, keys_iteration);
+
+    // corrupt files when copying to the backup directory
+    SyncPoint::GetInstance()->SetCallBack(
+        "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+        [&](void* data) {
+          if (data != nullptr) {
+            Slice* d = reinterpret_cast<Slice*>(data);
+            if (!d->empty()) {
+              d->remove_suffix(1);
+            }
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    // The only case that we can't detect a corruption is when the file
+    // being backed up is empty. But as keys_iteration is large, such
+    // a case shouldn't have happened and we should be able to detect
+    // the corruption.
+    ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    CloseDBAndBackupEngine();
+    // delete old files in db
+    ASSERT_OK(DestroyDB(dbname_, options_));
+  }
+}
+
 TEST_F(BackupableDBTest, InterruptCreationTest) {
   // Interrupt backup creation by failing new writes and failing cleanup of the
   // partial state. Then verify a subsequent backup can still succeed.
@@ -1365,6 +1813,55 @@ TEST_F(BackupableDBTest, InterruptCreationTest) {
   // latest backup should have all the keys
   CloseDBAndBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration);
+}
+
+TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
+  const int keys_iteration = 5000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    // That FillDB leaves a mix of flushed and unflushed data
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1",
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before"},
+         {"BackupableDBTest::FlushCompactDuringBackupCheckpoint:After",
+          "CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::port::Thread flush_thread{[this]() {
+      TEST_SYNC_POINT(
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before");
+      FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
+      ASSERT_OK(db_->Flush(FlushOptions()));
+      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+      dbi->TEST_WaitForFlushMemTable();
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      dbi->TEST_WaitForCompact();
+      TEST_SYNC_POINT(
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:After");
+    }};
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    flush_thread.join();
+    CloseDBAndBackupEngine();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    if (sopt == kShareWithChecksum) {
+      // Ensure we actually got DB manifest checksums by inspecting
+      // shared_checksum file names for hex checksum component
+      std::regex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
+      std::vector<FileAttributes> children;
+      const std::string dir = backupdir_ + "/shared_checksum";
+      ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+      for (const auto& child : children) {
+        if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+          continue;
+        }
+        const std::string match("match");
+        EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
+      }
+    }
+    AssertBackupConsistency(0, 0, keys_iteration);
+  }
 }
 
 inline std::string OptionsPath(std::string ret, int backupID) {
@@ -1575,75 +2072,88 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 }
 
 //  Verify backup and restore with share_files_with_checksum on and
-//  share_files_with_checksum_naming = kChecksumAndDbSessionId
+//  share_files_with_checksum_naming = kOptionalChecksumAndDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
-  // Use session id in the name of SST file backup
+  // Use session id in the name of SST files
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kChecksumAndDbSessionId);
+              kOptionalChecksumAndDbSessionId);
   const int keys_iteration = 5000;
-  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
-  for (int i = 0; i < 5; ++i) {
-    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
-  }
-  CloseDBAndBackupEngine();
+  int i = 0;
 
-  for (int i = 0; i < 5; ++i) {
-    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
-                            keys_iteration * 6);
-  }
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
+  CloseDBAndBackupEngine();
+  AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                          keys_iteration * (i + 2));
+
+  // Both checksum and session id in the name of SST files
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(false, false, kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
+  CloseDBAndBackupEngine();
+  AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                          keys_iteration * (i + 2));
 }
 
 // Verify backup and restore with share_files_with_checksum off and then
-// transition this option and share_files_with_checksum_naming to be
-// kChecksumAndDbSessionId
+// transition this option to on and share_files_with_checksum_naming to be
+// kOptionalChecksumAndDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   const int keys_iteration = 5000;
   // We may set share_files_with_checksum_naming to kChecksumAndFileSize
   // here but even if we don't, it should have no effect when
   // share_files_with_checksum is false
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kChecksumAndDbSessionId);
+              kOptionalChecksumAndDbSessionId);
   // set share_files_with_checksum to false
   OpenDBAndBackupEngine(true, false, kShareNoChecksum);
-  for (int i = 0; i < 5; ++i) {
+  int j = 3;
+  for (int i = 0; i < j; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   }
   CloseDBAndBackupEngine();
 
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < j; ++i) {
     AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
-                            keys_iteration * 6);
+                            keys_iteration * (j + 1));
   }
 
   // set share_files_with_checksum to true and do some more backups
   // and use session id in the name of SST file backup
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kChecksumAndDbSessionId);
+              kOptionalChecksumAndDbSessionId);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
-  for (int i = 5; i < 10; ++i) {
-    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
-  }
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+  // Use checksum in the name as well
+  ++j;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
   // Verify first (about to delete)
-  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 11);
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * (j + 1));
 
   // For an extra challenge, make sure that GarbageCollect / DeleteBackup
   // is OK even if we open without share_table_files but with
-  // share_files_with_checksum_naming being kChecksumAndDbSessionId
+  // share_files_with_checksum_naming being kOptionalChecksumAndDbSessionId
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kChecksumAndDbSessionId);
+              kOptionalChecksumAndDbSessionId);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(1);
   backup_engine_->GarbageCollect();
   CloseDBAndBackupEngine();
 
   // Verify second (about to delete)
-  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 11);
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * (j + 1));
 
   // Use checksum and file size for backup table file names and open without
   // share_table_files
@@ -1655,42 +2165,49 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   CloseDBAndBackupEngine();
 
   // Verify rest (not deleted)
-  for (int i = 1; i < 9; ++i) {
-    AssertBackupConsistency(i + 2, 0, keys_iteration * (i + 2),
-                            keys_iteration * 11);
+  for (int i = 2; i < j; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (j + 1));
   }
 }
 
 // Verify backup and restore with share_files_with_checksum on and transition
-// from kChecksumAndFileSize to kChecksumAndDbSessionId
+// from kChecksumAndFileSize to kOptionalChecksumAndDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
   const int keys_iteration = 5000;
   // set share_files_with_checksum to true
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
-  for (int i = 0; i < 5; ++i) {
+  int j = 3;
+  for (int i = 0; i < j; ++i) {
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   }
   CloseDBAndBackupEngine();
 
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < j; ++i) {
     AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
-                            keys_iteration * 6);
+                            keys_iteration * (j + 1));
   }
 
   backupable_options_->share_files_with_checksum_naming =
-      kChecksumAndDbSessionId;
+      kOptionalChecksumAndDbSessionId;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
-  for (int i = 5; i < 10; ++i) {
-    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
-  }
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  ++j;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
   CloseDBAndBackupEngine();
 
   // Verify first (about to delete)
-  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 11);
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * (j + 1));
 
   // For an extra challenge, make sure that GarbageCollect / DeleteBackup
   // is OK even if we open without share_table_files
@@ -1700,7 +2217,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   CloseDBAndBackupEngine();
 
   // Verify second (about to delete)
-  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 11);
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * (j + 1));
 
   // Use checksum and file size for backup table file names and open without
   // share_table_files
@@ -1712,9 +2229,9 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   CloseDBAndBackupEngine();
 
   // Verify rest (not deleted)
-  for (int i = 2; i < 10; ++i) {
+  for (int i = 2; i < j; ++i) {
     AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
-                            keys_iteration * 11);
+                            keys_iteration * (j + 1));
   }
 }
 
@@ -1803,77 +2320,91 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
   // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
   OpenDBAndBackupEngine(true);
-  FillDB(db_.get(), 0, 100);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 100, 200);
+  FillDB(db_.get(), 0, 100, kFlushAll);
+  FillDB(db_.get(), 100, 200, kFlushAll);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  FillDB(db_.get(), 200, 300);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 300, 400);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 400, 500);
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  FillDB(db_.get(), 200, 300, kFlushAll);
+  FillDB(db_.get(), 300, 400, kFlushAll);
+  FillDB(db_.get(), 400, 500, kFlushAll);
   CloseDBAndBackupEngine();
 
   // all data should be there if we call with keep_log_files = true
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
-TEST_F(BackupableDBTest, RateLimiting) {
-  size_t const kMicrosPerSec = 1000 * 1000LL;
-  uint64_t const MB = 1024 * 1024;
+class BackupableDBRateLimitingTestWithParam
+    : public BackupableDBTest,
+      public testing::WithParamInterface<
+          std::tuple<bool /* make throttle */,
+                     int /* 0 = single threaded, 1 = multi threaded*/,
+                     std::pair<uint64_t, uint64_t> /* limits */>> {
+ public:
+  BackupableDBRateLimitingTestWithParam() {}
+};
 
-  const std::vector<std::pair<uint64_t, uint64_t>> limits(
-      {{1 * MB, 5 * MB}, {2 * MB, 3 * MB}});
+uint64_t const MB = 1024 * 1024;
+
+INSTANTIATE_TEST_CASE_P(
+    RateLimiting, BackupableDBRateLimitingTestWithParam,
+    ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 1,
+                                      std::make_pair(2 * MB, 3 * MB))));
+
+TEST_P(BackupableDBRateLimitingTestWithParam, RateLimiting) {
+  size_t const kMicrosPerSec = 1000 * 1000LL;
 
   std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
   std::shared_ptr<RateLimiter> restoreThrottler(NewGenericRateLimiter(1));
 
-  for (bool makeThrottler : {false, true}) {
-    if (makeThrottler) {
-      backupable_options_->backup_rate_limiter = backupThrottler;
-      backupable_options_->restore_rate_limiter = restoreThrottler;
-    }
-    // iter 0 -- single threaded
-    // iter 1 -- multi threaded
-    for (int iter = 0; iter < 2; ++iter) {
-      for (const auto& limit : limits) {
-        // destroy old data
-        DestroyDB(dbname_, Options());
-        if (makeThrottler) {
-          backupThrottler->SetBytesPerSecond(limit.first);
-          restoreThrottler->SetBytesPerSecond(limit.second);
-        } else {
-          backupable_options_->backup_rate_limit = limit.first;
-          backupable_options_->restore_rate_limit = limit.second;
-        }
-        backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
-        options_.compression = kNoCompression;
-        OpenDBAndBackupEngine(true);
-        size_t bytes_written = FillDB(db_.get(), 0, 100000);
-
-        auto start_backup = db_chroot_env_->NowMicros();
-        ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-        auto backup_time = db_chroot_env_->NowMicros() - start_backup;
-        auto rate_limited_backup_time =
-            (bytes_written * kMicrosPerSec) / limit.first;
-        ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
-
-        CloseDBAndBackupEngine();
-
-        OpenBackupEngine();
-        auto start_restore = db_chroot_env_->NowMicros();
-        ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-        auto restore_time = db_chroot_env_->NowMicros() - start_restore;
-        CloseBackupEngine();
-        auto rate_limited_restore_time =
-            (bytes_written * kMicrosPerSec) / limit.second;
-        ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
-
-        AssertBackupConsistency(0, 0, 100000, 100010);
-      }
-    }
+  bool makeThrottler = std::get<0>(GetParam());
+  if (makeThrottler) {
+    backupable_options_->backup_rate_limiter = backupThrottler;
+    backupable_options_->restore_rate_limiter = restoreThrottler;
   }
+
+  // iter 0 -- single threaded
+  // iter 1 -- multi threaded
+  int iter = std::get<1>(GetParam());
+  const std::pair<uint64_t, uint64_t> limit = std::get<2>(GetParam());
+
+  // destroy old data
+  DestroyDB(dbname_, Options());
+  if (makeThrottler) {
+    backupThrottler->SetBytesPerSecond(limit.first);
+    restoreThrottler->SetBytesPerSecond(limit.second);
+  } else {
+    backupable_options_->backup_rate_limit = limit.first;
+    backupable_options_->restore_rate_limit = limit.second;
+  }
+  backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
+  options_.compression = kNoCompression;
+  OpenDBAndBackupEngine(true);
+  size_t bytes_written = FillDB(db_.get(), 0, 100000);
+
+  auto start_backup = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+  auto backup_time = db_chroot_env_->NowMicros() - start_backup;
+  auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) / limit.first;
+  ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
+
+  CloseDBAndBackupEngine();
+
+  OpenBackupEngine();
+  auto start_restore = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  auto restore_time = db_chroot_env_->NowMicros() - start_restore;
+  CloseBackupEngine();
+  auto rate_limited_restore_time =
+      (bytes_written * kMicrosPerSec) / limit.second;
+  ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
+
+  AssertBackupConsistency(0, 0, 100000, 100010);
 }
 
 TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
@@ -2005,7 +2536,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   DestroyDB(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
   OpenDBAndBackupEngine(true);
-  FillDB(db_.get(), 0, 100);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
@@ -2029,7 +2560,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
   std::string prev_manifest_path =
       DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
-  FillDB(db_.get(), 0, 100);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
@@ -2239,8 +2770,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   for (int i = 0; i < kNumBackups; ++i) {
     FillDB(db_.get(), i * kNumKeysPerBackup /* from */,
-           (i + 1) * kNumKeysPerBackup /* to */);
-    ASSERT_OK(db_->Flush(FlushOptions()));
+           (i + 1) * kNumKeysPerBackup /* to */, kFlushAll);
 
     // Clear the file open counters and then do a bunch of backup engine ops.
     // For all ops, files should be opened in direct mode.
@@ -2259,7 +2789,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
 
     // Verify backup engine always opened files with direct I/O
     ASSERT_EQ(0, test_db_env_->num_writers());
-    ASSERT_GT(test_db_env_->num_direct_rand_readers(), 0);
+    ASSERT_GE(test_db_env_->num_direct_rand_readers(), 0);
     ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
     // Currently the DB doesn't support reading WALs or manifest with direct
     // I/O, so subtract two.

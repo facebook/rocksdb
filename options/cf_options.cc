@@ -94,9 +94,29 @@ static Status ParseCompressionOptions(const std::string& value,
         ParseInt(value.substr(start, value.size() - start));
     end = value.find(':', start);
   }
-  // parallel_threads is not serialized with this format.
-  // We plan to upgrade the format to a JSON-like format.
-  compression_opts.parallel_threads = CompressionOptions().parallel_threads;
+
+  // parallel_threads is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    // Since parallel_threads comes before enabled but was added optionally
+    // later, we need to check if this is the final token (meaning it is the
+    // enabled bit), or if there is another token (meaning this one is
+    // parallel_threads)
+    end = value.find(':', start);
+    if (end != std::string::npos) {
+      compression_opts.parallel_threads =
+          ParseInt(value.substr(start, value.size() - start));
+    } else {
+      // parallel_threads is not serialized with this format, but enabled is
+      compression_opts.parallel_threads = CompressionOptions().parallel_threads;
+      compression_opts.enabled =
+          ParseBoolean("", value.substr(start, value.size() - start));
+    }
+  }
 
   // enabled is optional for backwards compatibility
   if (end != std::string::npos) {
@@ -113,6 +133,41 @@ static Status ParseCompressionOptions(const std::string& value,
 
 const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
 const std::string kOptNameCompOpts = "compression_opts";
+
+// OptionTypeInfo map for CompressionOptions
+static std::unordered_map<std::string, OptionTypeInfo>
+    compression_options_type_info = {
+        {"window_bits",
+         {offsetof(struct CompressionOptions, window_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, window_bits)}},
+        {"level",
+         {offsetof(struct CompressionOptions, level), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, level)}},
+        {"strategy",
+         {offsetof(struct CompressionOptions, strategy), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, strategy)}},
+        {"max_dict_bytes",
+         {offsetof(struct CompressionOptions, max_dict_bytes), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, max_dict_bytes)}},
+        {"zstd_max_train_bytes",
+         {offsetof(struct CompressionOptions, zstd_max_train_bytes),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, zstd_max_train_bytes)}},
+        {"parallel_threads",
+         {offsetof(struct CompressionOptions, parallel_threads),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, parallel_threads)}},
+        {"enabled",
+         {offsetof(struct CompressionOptions, enabled), OptionType::kBoolean,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct CompressionOptions, enabled)}},
+};
 
 static std::unordered_map<std::string, OptionTypeInfo>
     fifo_compaction_options_type_info = {
@@ -576,33 +631,71 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable,
           offsetof(struct MutableCFOptions, sample_for_compression)}},
+        {"enable_blob_files",
+         {offset_of(&ColumnFamilyOptions::enable_blob_files),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, enable_blob_files)}},
+        {"min_blob_size",
+         {offset_of(&ColumnFamilyOptions::min_blob_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, min_blob_size)}},
+        {"blob_file_size",
+         {offset_of(&ColumnFamilyOptions::blob_file_size), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, blob_file_size)}},
+        {"blob_compression_type",
+         {offset_of(&ColumnFamilyOptions::blob_compression_type),
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, blob_compression_type)}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
         {kOptNameCompOpts,
-         {offset_of(&ColumnFamilyOptions::compression_opts),
-          OptionType::kUnknown, OptionVerificationType::kNormal,
-          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever |
-           OptionTypeFlags::kMutable),
-          offsetof(struct MutableCFOptions, compression_opts),
-          // Parses the value as a CompressionOptions
-          [](const ConfigOptions& /*opts*/, const std::string& name,
-             const std::string& value, char* addr) {
-            auto* compression = reinterpret_cast<CompressionOptions*>(addr);
-            return ParseCompressionOptions(value, name, *compression);
-          }}},
+         OptionTypeInfo::Struct(
+             kOptNameCompOpts, &compression_options_type_info,
+             offset_of(&ColumnFamilyOptions::compression_opts),
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever),
+             offsetof(struct MutableCFOptions, compression_opts),
+             [](const ConfigOptions& opts, const std::string& name,
+                const std::string& value, char* addr) {
+               // This is to handle backward compatibility, where
+               // compression_options was a ":" separated list.
+               if (name == kOptNameCompOpts &&
+                   value.find("=") == std::string::npos) {
+                 auto* compression =
+                     reinterpret_cast<CompressionOptions*>(addr);
+                 return ParseCompressionOptions(value, name, *compression);
+               } else {
+                 return OptionTypeInfo::ParseStruct(
+                     opts, kOptNameCompOpts, &compression_options_type_info,
+                     name, value, addr);
+               }
+             })},
         {kOptNameBMCompOpts,
-         {offset_of(&ColumnFamilyOptions::bottommost_compression_opts),
-          OptionType::kUnknown, OptionVerificationType::kNormal,
-          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever |
-           OptionTypeFlags::kMutable),
-          offsetof(struct MutableCFOptions, bottommost_compression_opts),
-          // Parses the value as a CompressionOptions
-          [](const ConfigOptions& /*opts*/, const std::string& name,
-             const std::string& value, char* addr) {
-            auto* compression = reinterpret_cast<CompressionOptions*>(addr);
-            return ParseCompressionOptions(value, name, *compression);
-          }}},
+         OptionTypeInfo::Struct(
+             kOptNameBMCompOpts, &compression_options_type_info,
+             offset_of(&ColumnFamilyOptions::bottommost_compression_opts),
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kMutable | OptionTypeFlags::kCompareNever),
+             offsetof(struct MutableCFOptions, bottommost_compression_opts),
+             [](const ConfigOptions& opts, const std::string& name,
+                const std::string& value, char* addr) {
+               // This is to handle backward compatibility, where
+               // compression_options was a ":" separated list.
+               if (name == kOptNameBMCompOpts &&
+                   value.find("=") == std::string::npos) {
+                 auto* compression =
+                     reinterpret_cast<CompressionOptions*>(addr);
+                 return ParseCompressionOptions(value, name, *compression);
+               } else {
+                 return OptionTypeInfo::ParseStruct(
+                     opts, kOptNameBMCompOpts, &compression_options_type_info,
+                     name, value, addr);
+               }
+             })},
         // End special case properties
 };
 
@@ -684,12 +777,12 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       preserve_deletes(db_options.preserve_deletes),
       listeners(db_options.listeners),
       row_cache(db_options.row_cache),
-      max_subcompactions(db_options.max_subcompactions),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor.get()),
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
-      file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()) {}
+      file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()),
+      sst_partitioner_factory(cf_options.sst_partitioner_factory) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
@@ -845,6 +938,16 @@ void MutableCFOptions::Dump(Logger* log) const {
                  compaction_options_fifo.max_table_files_size);
   ROCKS_LOG_INFO(log, "compaction_options_fifo.allow_compaction : %d",
                  compaction_options_fifo.allow_compaction);
+
+  // Blob file related options
+  ROCKS_LOG_INFO(log, "                        enable_blob_files: %s",
+                 enable_blob_files ? "true" : "false");
+  ROCKS_LOG_INFO(log, "                            min_blob_size: %" PRIu64,
+                 min_blob_size);
+  ROCKS_LOG_INFO(log, "                           blob_file_size: %" PRIu64,
+                 blob_file_size);
+  ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
+                 CompressionTypeToString(blob_compression_type).c_str());
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

@@ -157,13 +157,13 @@ class TestFSDirectory : public FSDirectory {
 
 class FaultInjectionTestFS : public FileSystemWrapper {
  public:
-  explicit FaultInjectionTestFS(std::shared_ptr<FileSystem> base)
+  explicit FaultInjectionTestFS(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
-        thread_local_error_(
-            new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {}
-  virtual ~FaultInjectionTestFS() {}
+        thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
+  }
+  virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
 

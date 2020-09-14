@@ -18,6 +18,7 @@ typedef uint64_t SequenceNumber;
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
 // User-oriented representation of internal key types.
+// Ordering of this enum entries should not change.
 enum EntryType {
   kEntryPut,
   kEntryDelete,
@@ -25,6 +26,7 @@ enum EntryType {
   kEntryMerge,
   kEntryRangeDeletion,
   kEntryBlobIndex,
+  kEntryDeleteWithTimestamp,
   kEntryOther,
 };
 

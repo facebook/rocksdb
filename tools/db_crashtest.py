@@ -29,6 +29,9 @@ expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
+    "backup_max_size": 100 * 1024 * 1024,
+    # Consider larger number when backups considered more stable
+    "backup_one_in": 100000,
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
@@ -58,6 +61,7 @@ default_params = {
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.
@@ -66,6 +70,7 @@ default_params = {
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "iterpercent": 10,
+    "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
@@ -127,7 +132,8 @@ default_params = {
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
-    "sync_fault_injection": False
+    "sync_fault_injection": False,
+    "get_property_one_in": 1000000,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
