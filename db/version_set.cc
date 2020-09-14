@@ -4745,10 +4745,10 @@ Status VersionSet::Recover(
     reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    VersionEditHandler handler(read_only, column_families,
-                               const_cast<VersionSet*>(this),
-                               /*track_missing_files=*/false,
-                               /*no_error_if_table_files_missing=*/false);
+    VersionEditHandler handler(
+        read_only, column_families, const_cast<VersionSet*>(this),
+        /*track_missing_files=*/false,
+        /*no_error_if_table_files_missing=*/false, io_tracer_);
     handler.Iterate(reader, &log_read_status, db_id);
     s = handler.status();
     if (s.ok()) {

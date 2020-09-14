@@ -37,7 +37,8 @@ class VersionEditHandler {
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool ignore_missing_files, bool no_error_if_table_files_missing, const std::shared_ptr<IOTracer>& io_tracer);
+      bool no_error_if_table_files_missing,
+      const std::shared_ptr<IOTracer>& io_tracer);
 
   virtual ~VersionEditHandler() {}
 
