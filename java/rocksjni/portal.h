@@ -18,6 +18,7 @@
 #include <jni.h>
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -34,6 +35,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/trace_writer_jnicallback.h"
@@ -7657,6 +7659,94 @@ class SanityLevelJni {
         // undefined/default
         return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelExactMatch;
     }
+  }
+};
+
+// The portal class for org.rocksdb.AbstractListener.EnabledEventCallback
+class EnabledEventCallbackJni {
+ public:
+  // Returns the set of equivalent C++
+  // rocksdb::EnabledEventCallbackJni::EnabledEventCallback enums for
+  // the provided Java jenabled_event_callback_values
+  static std::set<EnabledEventCallback> toCppEnabledEventCallbacks(
+      jlong jenabled_event_callback_values) {
+    std::set<EnabledEventCallback> enabled_event_callbacks;
+    for (size_t i = 0; i < EnabledEventCallback::NUM_ENABLED_EVENT_CALLBACK; ++i) {
+      if (((1 << i) & jenabled_event_callback_values) == 1) {
+        enabled_event_callbacks.emplace(static_cast<EnabledEventCallback>(i));
+      }
+    }
+    return enabled_event_callbacks;
+  }
+};
+
+// The portal class for org.rocksdb.AbstractEventListener
+class AbstractEventListenerJni : public RocksDBNativeClass<
+    const rocksdb::EventListenerJniCallback*,
+    AbstractEventListenerJni> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractEventListener
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractEventListener");
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onFlushCompletedProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getOnFlushCompletedProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onFlushCompletedProxy",
+        "(JLorg/rocksdb/FlushJobInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+class FlushJobInfoJni : public JavaClass {
+ public:
+  /**
+   * Create a new Java org.rocksdb.FlushJobInfo object.
+   *
+   * @param env A pointer to the Java environment
+   * @param flush_job_info A Cpp flush job info object
+   *
+   * @return A reference to a Java org.rocksdb.FlushJobInfo object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject fromCppFlushJobInfo(JNIEnv* env,
+      const rocksdb::FlushJobInfo* /*flush_job_info*/) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    //TODO(AR) implement
+    return nullptr;
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/FlushJobInfo");
   }
 };
 }  // namespace ROCKSDB_NAMESPACE
