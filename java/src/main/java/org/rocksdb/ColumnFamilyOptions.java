@@ -52,6 +52,7 @@ public class ColumnFamilyOptions extends RocksObject
     this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
     this.bottommostCompressionOptions_ = other.bottommostCompressionOptions_;
     this.compressionOptions_ = other.compressionOptions_;
+    this.compactionThreadLimiter_ = other.compactionThreadLimiter_;
   }
 
   /**
@@ -852,6 +853,20 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setCompactionThreadLimiter(
+      final ConcurrentTaskLimiter compactionThreadLimiter) {
+    setCompactionThreadLimiter(nativeHandle_, compactionThreadLimiter.nativeHandle_);
+    this.compactionThreadLimiter_ = compactionThreadLimiter;
+    return this;
+  }
+
+  @Override
+  public ConcurrentTaskLimiter compactionThreadLimiter() {
+    assert (isOwningHandle());
+    return this.compactionThreadLimiter_;
+  }
+
+  @Override
   public SstPartitionerFactory sstPartitionerFactory() {
     return sstPartitionerFactory_;
   }
@@ -1018,6 +1033,8 @@ public class ColumnFamilyOptions extends RocksObject
     final boolean forceConsistencyChecks);
   private native boolean forceConsistencyChecks(final long handle);
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
+  private static native void setCompactionThreadLimiter(
+      final long nativeHandle_, final long compactionThreadLimiterHandle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!
@@ -1032,4 +1049,5 @@ public class ColumnFamilyOptions extends RocksObject
   private CompressionOptions bottommostCompressionOptions_;
   private CompressionOptions compressionOptions_;
   private SstPartitionerFactory sstPartitionerFactory_;
+  private ConcurrentTaskLimiter compactionThreadLimiter_;
 }
