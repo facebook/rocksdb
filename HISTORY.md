@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
 
+## 6.12.2 (2020-09-14)
+### Public API Change
+* BlobDB now exposes the start of the expiration range of TTL blob files via the `GetLiveFilesMetaData` API.
+
 ## 6.12.1 (2020-08-20)
 ### Bug fixes
 * BackupEngine::CreateNewBackup could fail intermittently with non-OK status when backing up a read-write DB configured with a DBOptions::file_checksum_gen_factory. This issue has been worked-around such that CreateNewBackup should succeed, but (until fully fixed) BackupEngine might not see all checksums available in the DB.
