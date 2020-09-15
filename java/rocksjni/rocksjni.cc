@@ -81,8 +81,8 @@ jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path,
       [error_if_wal_file_exists](const ROCKSDB_NAMESPACE::Options& options,
-                                const std::string& db_path,
-                                ROCKSDB_NAMESPACE::DB** db) {
+                                 const std::string& db_path,
+                                 ROCKSDB_NAMESPACE::DB** db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
                                                       error_if_wal_file_exists);
       });
