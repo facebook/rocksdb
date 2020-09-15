@@ -159,6 +159,12 @@ class EncryptionProvider {
       const std::string& fname, const EnvOptions& options, Slice& prefix,
       std::unique_ptr<BlockAccessCipherStream>* result) = 0;
 
+  // Returns a string representing an encryption marker prefix for this
+  // provider. If a marker is provided, this marker can be used to tell whether
+  // or not a file is encrypted by this provider.  The maker will also be part
+  // of any encryption prefix for this provider.
+  virtual std::string GetMarker() const { return ""; }
+
  protected:
   // Optional method to initialize an EncryptionProvider in the TEST
   // environment.

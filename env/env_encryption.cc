@@ -414,6 +414,8 @@ Status EncryptedRandomRWFile::Close() { return file_->Close(); }
 // EncryptedEnv implements an Env wrapper that adds encryption to files stored
 // on disk.
 class EncryptedEnvImpl : public EnvWrapper {
+  // Returns the raw encryption provider that should be used to write the input
+  // encrypted file.  If there is no such provider, NotFound is returned.
   Status GetWritableProvider(const std::string& /*fname*/,
                              EncryptionProvider** result) {
     if (provider_) {
@@ -425,6 +427,8 @@ class EncryptedEnvImpl : public EnvWrapper {
     }
   }
 
+  // Returns the raw encryption provider that should be used to read the input
+  // encrypted file.  If there is no such provider, NotFound is returned.
   Status GetReadableProvider(const std::string& /*fname*/,
                              EncryptionProvider** result) {
     if (provider_) {
@@ -436,6 +440,17 @@ class EncryptedEnvImpl : public EnvWrapper {
     }
   }
 
+  // Creates a CipherStream for the underlying file/name using the options
+  // If a writable provider is found and encryption is enabled, uses
+  // this provider to create a cipher stream.
+  // @param fname         Name of the writable file
+  // @param underlying    The underlying "raw" file
+  // @param options       Options for creating the file/cipher
+  // @param prefix_length Returns the length of the encryption prefix used for
+  // this file
+  // @param stream        Returns the cipher stream to use for this file if it
+  // should be encrypted
+  // @return OK on success, non-OK on failure.
   template <class TypeFile>
   Status CreateWritableCipherStream(
       const std::string& fname, const std::unique_ptr<TypeFile>& underlying,
@@ -474,6 +489,38 @@ class EncryptedEnvImpl : public EnvWrapper {
   }
 
   template <class TypeFile>
+  Status CreateWritableEncryptedFile(const std::string& fname,
+                                     std::unique_ptr<TypeFile>& underlying,
+                                     const EnvOptions& options,
+                                     std::unique_ptr<TypeFile>* result) {
+    // Create cipher stream
+    std::unique_ptr<BlockAccessCipherStream> stream;
+    size_t prefix_length;
+    Status status = CreateWritableCipherStream(fname, underlying, options,
+                                               &prefix_length, &stream);
+    if (status.ok()) {
+      if (stream) {
+        result->reset(new EncryptedWritableFile(
+            std::move(underlying), std::move(stream), prefix_length));
+      } else {
+        result->reset(underlying.release());
+      }
+    }
+    return status;
+  }
+
+  // Creates a CipherStream for the underlying file/name using the options
+  // If a writable provider is found and encryption is enabled, uses
+  // this provider to create a cipher stream.
+  // @param fname         Name of the writable file
+  // @param underlying    The underlying "raw" file
+  // @param options       Options for creating the file/cipher
+  // @param prefix_length Returns the length of the encryption prefix used for
+  // this file
+  // @param stream        Returns the cipher stream to use for this file if it
+  // should be encrypted
+  // @return OK on success, non-OK on failure.
+  template <class TypeFile>
   Status CreateRandomWriteCipherStream(
       const std::string& fname, const std::unique_ptr<TypeFile>& underlying,
       const EnvOptions& options, size_t* prefix_length,
@@ -510,6 +557,17 @@ class EncryptedEnvImpl : public EnvWrapper {
     return status;
   }
 
+  // Creates a CipherStream for the underlying file/name using the options
+  // If a readable provider is found and the file is encrypted, uses
+  // this provider to create a cipher stream.
+  // @param fname         Name of the writable file
+  // @param underlying    The underlying "raw" file
+  // @param options       Options for creating the file/cipher
+  // @param prefix_length Returns the length of the encryption prefix used for
+  // this file
+  // @param stream        Returns the cipher stream to use for this file if it
+  // is encrypted
+  // @return OK on success, non-OK on failure.
   template <class TypeFile>
   Status CreateSequentialCipherStream(
       const std::string& fname, const std::unique_ptr<TypeFile>& underlying,
@@ -533,6 +591,17 @@ class EncryptedEnvImpl : public EnvWrapper {
     return provider_->CreateCipherStream(fname, options, prefix, stream);
   }
 
+  // Creates a CipherStream for the underlying file/name using the options
+  // If a readable provider is found and the file is encrypted, uses
+  // this provider to create a cipher stream.
+  // @param fname         Name of the writable file
+  // @param underlying    The underlying "raw" file
+  // @param options       Options for creating the file/cipher
+  // @param prefix_length Returns the length of the encryption prefix used for
+  // this file
+  // @param stream        Returns the cipher stream to use for this file if it
+  // is encrypted
+  // @return OK on success, non-OK on failure.
   template <class TypeFile>
   Status CreateRandomReadCipherStream(
       const std::string& fname, const std::unique_ptr<TypeFile>& underlying,
@@ -608,8 +677,12 @@ class EncryptedEnvImpl : public EnvWrapper {
     status = CreateRandomReadCipherStream(fname, underlying, options,
                                           &prefix_length, &stream);
     if (status.ok()) {
-      result->reset(new EncryptedRandomAccessFile(
-          std::move(underlying), std::move(stream), prefix_length));
+      if (stream) {
+        result->reset(new EncryptedRandomAccessFile(
+            std::move(underlying), std::move(stream), prefix_length));
+      } else {
+        result->reset(underlying.release());
+      }
     }
     return status;
   }
@@ -628,16 +701,7 @@ class EncryptedEnvImpl : public EnvWrapper {
     if (!status.ok()) {
       return status;
     }
-    // Create cipher stream
-    std::unique_ptr<BlockAccessCipherStream> stream;
-    size_t prefix_length;
-    status = CreateWritableCipherStream(fname, underlying, options,
-                                        &prefix_length, &stream);
-    if (status.ok()) {
-      result->reset(new EncryptedWritableFile(
-          std::move(underlying), std::move(stream), prefix_length));
-    }
-    return status;
+    return CreateWritableEncryptedFile(fname, underlying, options, result);
   }
 
   // Create an object that writes to a new file with the specified
@@ -660,16 +724,7 @@ class EncryptedEnvImpl : public EnvWrapper {
     if (!status.ok()) {
       return status;
     }
-    // Create cipher stream
-    std::unique_ptr<BlockAccessCipherStream> stream;
-    size_t prefix_length;
-    status = CreateWritableCipherStream(fname, underlying, options,
-                                        &prefix_length, &stream);
-    if (status.ok()) {
-      result->reset(new EncryptedWritableFile(
-          std::move(underlying), std::move(stream), prefix_length));
-    }
-    return status;
+    return CreateWritableEncryptedFile(fname, underlying, options, result);
   }
 
   // Reuse an existing file by renaming it and opening it as writable.
@@ -688,16 +743,7 @@ class EncryptedEnvImpl : public EnvWrapper {
     if (!status.ok()) {
       return status;
     }
-    // Create cipher stream
-    std::unique_ptr<BlockAccessCipherStream> stream;
-    size_t prefix_length;
-    status = CreateWritableCipherStream(fname, underlying, options,
-                                        &prefix_length, &stream);
-    if (status.ok()) {
-      result->reset(new EncryptedWritableFile(
-          std::move(underlying), std::move(stream), prefix_length));
-    }
-    return status;
+    return CreateWritableEncryptedFile(fname, underlying, options, result);
   }
 
   // Open `fname` for random read and write, if file doesn't exist the file
@@ -733,8 +779,12 @@ class EncryptedEnvImpl : public EnvWrapper {
                                              &prefix_length, &stream);
     }
     if (status.ok()) {
-      result->reset(new EncryptedRandomRWFile(
-          std::move(underlying), std::move(stream), prefix_length));
+      if (stream) {
+        result->reset(new EncryptedRandomRWFile(
+            std::move(underlying), std::move(stream), prefix_length));
+      } else {
+        result->reset(underlying.release());
+      }
     }
     return status;
   }
