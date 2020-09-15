@@ -455,6 +455,24 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
   SstPartitionerFactory sstPartitionerFactory();
 
   /**
+   * Compaction concurrent thread limiter for the column family.
+   * If non-nullptr, use given concurrent thread limiter to control
+   * the max outstanding compaction tasks. Limiter can be shared with
+   * multiple column families across db instances.
+   *
+   * @param concurrentTaskLimiter The compaction thread limiter.
+   * @return the reference of the current options.
+   */
+  T setCompactionThreadLimiter(ConcurrentTaskLimiter concurrentTaskLimiter);
+
+  /**
+   * Get compaction thread limiter
+   *
+   * @return Compaction thread limiter
+   */
+  ConcurrentTaskLimiter compactionThreadLimiter();
+
+  /**
    * Default memtable memory budget used with the following methods:
    *
    * <ol>

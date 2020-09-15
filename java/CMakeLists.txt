@@ -26,6 +26,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
+        rocksjni/concurrent_task_limiter.cc
         rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
@@ -153,6 +154,8 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
   src/main/java/org/rocksdb/LevelMetaData.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java

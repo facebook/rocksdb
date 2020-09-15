@@ -2278,6 +2278,79 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_destroy(ro);
   }
 
+  StartPhase("write_options");
+  {
+    rocksdb_writeoptions_t* wo;
+    wo = rocksdb_writeoptions_create();
+
+    rocksdb_writeoptions_set_sync(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_sync(wo));
+
+    rocksdb_writeoptions_disable_WAL(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_disable_WAL(wo));
+
+    rocksdb_writeoptions_set_ignore_missing_column_families(wo, 1);
+    CheckCondition(1 ==
+                   rocksdb_writeoptions_get_ignore_missing_column_families(wo));
+
+    rocksdb_writeoptions_set_no_slowdown(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_no_slowdown(wo));
+
+    rocksdb_writeoptions_set_low_pri(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_low_pri(wo));
+
+    rocksdb_writeoptions_set_memtable_insert_hint_per_batch(wo, 1);
+    CheckCondition(1 ==
+                   rocksdb_writeoptions_get_memtable_insert_hint_per_batch(wo));
+
+    rocksdb_writeoptions_destroy(wo);
+  }
+
+  StartPhase("compact_options");
+  {
+    rocksdb_compactoptions_t* co;
+    co = rocksdb_compactoptions_create();
+
+    rocksdb_compactoptions_set_exclusive_manual_compaction(co, 1);
+    CheckCondition(1 ==
+                   rocksdb_compactoptions_get_exclusive_manual_compaction(co));
+
+    rocksdb_compactoptions_set_bottommost_level_compaction(co, 1);
+    CheckCondition(1 ==
+                   rocksdb_compactoptions_get_bottommost_level_compaction(co));
+
+    rocksdb_compactoptions_set_change_level(co, 1);
+    CheckCondition(1 == rocksdb_compactoptions_get_change_level(co));
+
+    rocksdb_compactoptions_set_target_level(co, 1);
+    CheckCondition(1 == rocksdb_compactoptions_get_target_level(co));
+
+    rocksdb_compactoptions_destroy(co);
+  }
+
+  StartPhase("flush_options");
+  {
+    rocksdb_flushoptions_t* fo;
+    fo = rocksdb_flushoptions_create();
+
+    rocksdb_flushoptions_set_wait(fo, 1);
+    CheckCondition(1 == rocksdb_flushoptions_get_wait(fo));
+
+    rocksdb_flushoptions_destroy(fo);
+  }
+
+  StartPhase("cache_options");
+  {
+    rocksdb_cache_t* co;
+    co = rocksdb_cache_create_lru(100);
+    CheckCondition(100 == rocksdb_cache_get_capacity(co));
+
+    rocksdb_cache_set_capacity(co, 200);
+    CheckCondition(200 == rocksdb_cache_get_capacity(co));
+
+    rocksdb_cache_destroy(co);
+  }
+
   StartPhase("iterate_upper_bound");
   {
     // Create new empty database
