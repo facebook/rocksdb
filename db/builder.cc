@@ -13,6 +13,7 @@
 #include <deque>
 #include <vector>
 
+#include "db/blob/blob_file_builder.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -67,13 +68,14 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, Env* env, FileSystem* fs,
+    const std::string& dbname, VersionSet* versions, Env* env, FileSystem* fs,
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
-    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
+    FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
+    const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
@@ -107,6 +109,7 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+  std::vector<std::string> blob_file_paths;
   std::string file_checksum = kUnknownFileChecksum;
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
 #ifndef ROCKSDB_LITE
@@ -163,11 +166,22 @@ Status BuildTable(
                       snapshots.empty() ? 0 : snapshots.back(),
                       snapshot_checker);
 
+    std::unique_ptr<BlobFileBuilder> blob_file_builder(
+        (mutable_cf_options.enable_blob_files && blob_file_additions)
+            ? new BlobFileBuilder(versions, env, fs, &ioptions,
+                                  &mutable_cf_options, &file_options, job_id,
+                                  column_family_id, column_family_name,
+                                  io_priority, write_hint, &blob_file_paths,
+                                  blob_file_additions)
+            : nullptr);
+
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
-        true /* internal key corruption is not ok */, range_del_agg.get());
+        true /* internal key corruption is not ok */, range_del_agg.get(),
+        blob_file_builder.get());
+
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
@@ -200,9 +214,16 @@ Status BuildTable(
     }
 
     // Finish and check for builder errors
-    bool empty = builder->IsEmpty();
     s = c_iter.status();
+
+    if (blob_file_builder) {
+      if (s.ok()) {
+        s = blob_file_builder->Finish();
+      }
+    }
+
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
+    const bool empty = builder->IsEmpty();
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
@@ -290,7 +311,19 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
-    fs->DeleteFile(fname, IOOptions(), nullptr);
+    constexpr IODebugContext* dbg = nullptr;
+
+    fs->DeleteFile(fname, IOOptions(), dbg);
+
+    assert(blob_file_additions || blob_file_paths.empty());
+
+    if (blob_file_additions) {
+      for (const std::string& blob_file_path : blob_file_paths) {
+        fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+      }
+
+      blob_file_additions->clear();
+    }
   }
 
   if (meta->fd.GetFileSize() == 0) {

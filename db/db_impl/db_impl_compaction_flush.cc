@@ -142,6 +142,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     SnapshotChecker* snapshot_checker, LogBuffer* log_buffer,
     Env::Priority thread_pri) {
   mutex_.AssertHeld();
+  assert(cfd);
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
@@ -203,10 +204,28 @@ Status DBImpl::FlushMemTableToOutputFile(
     if (made_progress) {
       *made_progress = true;
     }
+
+    const std::string& column_family_name = cfd->GetName();
+
+    Version* const current = cfd->current();
+    assert(current);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
     VersionStorageInfo::LevelSummaryStorage tmp;
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
-                     cfd->GetName().c_str(),
-                     cfd->current()->storage_info()->LevelSummary(&tmp));
+                     column_family_name.c_str(),
+                     storage_info->LevelSummary(&tmp));
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+    if (!blob_files.empty()) {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
+                       "\n",
+                       column_family_name.c_str(), blob_files.begin()->first,
+                       blob_files.rbegin()->first);
+    }
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
@@ -544,16 +563,36 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     assert(num_cfs ==
            static_cast<int>(job_context->superversion_contexts.size()));
     for (int i = 0; i != num_cfs; ++i) {
+      assert(cfds[i]);
+
       if (cfds[i]->IsDropped()) {
         continue;
       }
       InstallSuperVersionAndScheduleWork(cfds[i],
                                          &job_context->superversion_contexts[i],
                                          all_mutable_cf_options[i]);
+
+      const std::string& column_family_name = cfds[i]->GetName();
+
+      Version* const current = cfds[i]->current();
+      assert(current);
+
+      const VersionStorageInfo* const storage_info = current->storage_info();
+      assert(storage_info);
+
       VersionStorageInfo::LevelSummaryStorage tmp;
       ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
-                       cfds[i]->GetName().c_str(),
-                       cfds[i]->current()->storage_info()->LevelSummary(&tmp));
+                       column_family_name.c_str(),
+                       storage_info->LevelSummary(&tmp));
+
+      const auto& blob_files = storage_info->GetBlobFiles();
+      if (!blob_files.empty()) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Blob file summary: head=%" PRIu64
+                         ", tail=%" PRIu64 "\n",
+                         column_family_name.c_str(), blob_files.begin()->first,
+                         blob_files.rbegin()->first);
+      }
     }
     if (made_progress) {
       *made_progress = true;
