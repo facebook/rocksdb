@@ -126,6 +126,10 @@ class EmptyIterator : public Iterator {
     return Slice();
   }
   Status status() const override { return status_; }
+  bool ChecksLowerBound() const override { return false; }
+  const Slice* lower_bound() const override { return nullptr; }
+  bool ChecksUpperBound() const override { return false; }
+  const Slice* upper_bound() const override { return nullptr; }
 
  private:
   Status status_;

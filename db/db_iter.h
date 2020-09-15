@@ -198,6 +198,10 @@ class DBIter final : public Iterator {
   }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
+  bool ChecksLowerBound() const override { return true; }
+  const Slice* lower_bound() const override { return iterate_lower_bound_; }
+  bool ChecksUpperBound() const override { return true; }
+  const Slice* upper_bound() const override { return iterate_upper_bound_; }
 
   void Next() final override;
   void Prev() final override;

@@ -49,6 +49,10 @@ class BaseDeltaIterator : public Iterator {
   Slice key() const override;
   Slice value() const override;
   Status status() const override;
+  bool ChecksLowerBound() const override;
+  const Slice* lower_bound() const override;
+  bool ChecksUpperBound() const override;
+  const Slice* upper_bound() const override;
   void Invalidate(Status s);
 
  private:

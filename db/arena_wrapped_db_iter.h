@@ -68,6 +68,14 @@ class ArenaWrappedDBIter : public Iterator {
   bool IsBlob() const { return db_iter_->IsBlob(); }
 
   Status GetProperty(std::string prop_name, std::string* prop) override;
+  bool ChecksLowerBound() const override {
+    return db_iter_->ChecksLowerBound();
+  }
+  const Slice* lower_bound() const override { return db_iter_->lower_bound(); }
+  bool ChecksUpperBound() const override {
+    return db_iter_->ChecksUpperBound();
+  }
+  const Slice* upper_bound() const override { return db_iter_->upper_bound(); }
 
   Status Refresh() override;
 

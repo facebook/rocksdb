@@ -221,6 +221,18 @@ Status BaseDeltaIterator::status() const {
   return delta_iterator_->status();
 }
 
+bool BaseDeltaIterator::ChecksLowerBound() const { return false; }
+
+const Slice* BaseDeltaIterator::lower_bound() const {
+  return base_iterator_lower_bound();
+}
+
+bool BaseDeltaIterator::ChecksUpperBound() const { return true; }
+
+const Slice* BaseDeltaIterator::upper_bound() const {
+  return base_iterator_upper_bound();
+}
+
 void BaseDeltaIterator::Invalidate(Status s) { status_ = s; }
 
 void BaseDeltaIterator::AssertInvariants() {

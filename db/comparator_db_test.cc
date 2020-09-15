@@ -55,6 +55,10 @@ class KVIter : public Iterator {
   Slice key() const override { return iter_->first; }
   Slice value() const override { return iter_->second; }
   Status status() const override { return Status::OK(); }
+  bool ChecksLowerBound() const override { return false; }
+  const Slice* lower_bound() const override { return nullptr; }
+  bool ChecksUpperBound() const override { return false; }
+  const Slice* upper_bound() const override { return nullptr; }
 
  private:
   const stl_wrappers::KVMap* const map_;
