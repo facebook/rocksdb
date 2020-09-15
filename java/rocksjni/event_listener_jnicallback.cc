@@ -27,6 +27,18 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
   } else {
     m_on_flush_completed_proxy_mid = nullptr;
   }
+
+  if (enabled_event_callbacks.count(
+      EnabledEventCallback::ON_TABLE_FILE_DELETED) == 1) {
+    m_on_table_file_deleted_mid =
+        AbstractEventListenerJni::getOnTableFileDeletedMethodId(env);
+    if(m_on_table_file_deleted_mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return;
+    }
+  } else {
+    m_on_table_file_deleted_mid = nullptr;
+  }
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {
@@ -35,40 +47,76 @@ EventListenerJniCallback::~EventListenerJniCallback() {
 
 void EventListenerJniCallback::OnFlushCompleted(DB* db,
     const FlushJobInfo& flush_job_info) {
-  if (m_on_flush_completed_proxy_mid != nullptr) {
-    jboolean attached_thread = JNI_FALSE;
-    JNIEnv* env = getJniEnv(&attached_thread);
-    if (env == nullptr) {
-      return;
-    }
-
-    jobject jflush_job_info =
-        FlushJobInfoJni::fromCppFlushJobInfo(env, &flush_job_info);
-    if (jflush_job_info == nullptr) {
-      // exception thrown from fromCppFlushJobInfo
-      env->ExceptionDescribe();  // print out exception to stderr
-      releaseJniEnv(attached_thread);
-      return;
-    }
-
-    env->CallVoidMethod(m_jcallback_obj,
-        m_on_flush_completed_proxy_mid,
-        reinterpret_cast<jlong>(db),
-        jflush_job_info);
-
-    env->DeleteLocalRef(jflush_job_info);
-
-    if(env->ExceptionCheck()) {
-      // exception thrown from CallVoidMethod
-      env->ExceptionDescribe();  // print out exception to stderr
-    }
-
-    releaseJniEnv(attached_thread);
+  if (m_on_flush_completed_proxy_mid == nullptr) {
+    return;
   }
+
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = getJniEnv(&attached_thread);
+  if (env == nullptr) {
+    return;
+  }
+
+  jobject jflush_job_info =
+      FlushJobInfoJni::fromCppFlushJobInfo(env, &flush_job_info);
+  if (jflush_job_info == nullptr) {
+    // exception thrown from fromCppFlushJobInfo
+    env->ExceptionDescribe();  // print out exception to stderr
+    releaseJniEnv(attached_thread);
+    return;
+  }
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_flush_completed_proxy_mid,
+      reinterpret_cast<jlong>(db),
+      jflush_job_info);
+
+  env->DeleteLocalRef(jflush_job_info);
+
+  if(env->ExceptionCheck()) {
+    // exception thrown from CallVoidMethod
+    env->ExceptionDescribe();  // print out exception to stderr
+  }
+
+  releaseJniEnv(attached_thread);
 }
 
 void EventListenerJniCallback::OnFlushBegin(DB* /*db*/, const FlushJobInfo& /*flush_job_info*/) {}
-void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
+
+void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& info) {
+  if (m_on_table_file_deleted_mid == nullptr) {
+    return;
+  }
+
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = getJniEnv(&attached_thread);
+  if (env == nullptr) {
+    return;
+  }
+
+  jobject jdeletion_info =
+      TableFileDeletionInfoJni::fromCppTableFileDeletionInfo(env, &info);
+  if (jdeletion_info == nullptr) {
+    // exception thrown from fromCppFlushJobInfo
+    env->ExceptionDescribe();  // print out exception to stderr
+    releaseJniEnv(attached_thread);
+    return;
+  }
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_table_file_deleted_mid,
+      jdeletion_info);
+
+  env->DeleteLocalRef(jdeletion_info);
+
+  if(env->ExceptionCheck()) {
+    // exception thrown from CallVoidMethod
+    env->ExceptionDescribe();  // print out exception to stderr
+  }
+
+  releaseJniEnv(attached_thread);
+}
+
 void EventListenerJniCallback::OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
 void EventListenerJniCallback::OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
 void EventListenerJniCallback::OnTableFileCreated(const TableFileCreationInfo& /*info*/) {}

@@ -137,6 +137,20 @@ public abstract class AbstractEventListener extends RocksCallbackObject
     // no-op
   }
 
+  /**
+   * Called from JNI, proxy for
+   *     {@link #onFlushBegin(RocksDB ,FlushJobInfo)}.
+   *
+   * @param dbHandle native handle of the database
+   * @param flushJobInfo the flush job info
+   */
+  private void onFlushBeginProxy(final long dbHandle,
+                                 final FlushJobInfo flushJobInfo) {
+    final RocksDB db = new RocksDB(dbHandle);
+    db.disOwnNativeHandle();  // we don't own this!
+    onFlushBegin(db, flushJobInfo);
+  }
+
   @Override
   public void onTableFileDeleted(
       final TableFileDeletionInfo tableFileDeletionInfo) {

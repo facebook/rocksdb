@@ -44,7 +44,7 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
  public:
   EventListenerJniCallback(JNIEnv* env, jobject jevent_listener,
       const std::set<EnabledEventCallback>& enabled_event_callbacks);
-  ~EventListenerJniCallback();
+  virtual ~EventListenerJniCallback();
   virtual void OnFlushCompleted(DB* db, const FlushJobInfo& flush_job_info);
   virtual void OnFlushBegin(DB* db, const FlushJobInfo& flush_job_info);
   virtual void OnTableFileDeleted(const TableFileDeletionInfo& info);
@@ -70,6 +70,7 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
  private:
   const std::set<EnabledEventCallback> m_enabled_event_callbacks;
   jmethodID m_on_flush_completed_proxy_mid;
+  jmethodID m_on_table_file_deleted_mid;
 };
 
 }  //namespace rocksdb

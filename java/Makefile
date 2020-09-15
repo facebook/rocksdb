@@ -130,6 +130,7 @@ JAVA_TESTS = \
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
+	org.rocksdb.EventListenerTest\
 	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.IntComparatorTest\
