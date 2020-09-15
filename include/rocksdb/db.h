@@ -157,7 +157,7 @@ class DB {
   // return Status::NotSupported.
   static Status OpenForReadOnly(const Options& options, const std::string& name,
                                 DB** dbptr,
-                                bool error_if_log_file_exist = false);
+                                bool error_if_wal_file_exists = false);
 
   // Open the database for read only with column families. When opening DB with
   // read only, you can specify only a subset of column families in the
@@ -171,7 +171,7 @@ class DB {
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      bool error_if_log_file_exist = false);
+      bool error_if_wal_file_exists = false);
 
   // The following OpenAsSecondary functions create a secondary instance that
   // can dynamically tail the MANIFEST of a primary that must have already been

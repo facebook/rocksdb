@@ -76,15 +76,15 @@ jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
  */
 jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jboolean jerror_if_log_file_exist) {
-  const bool error_if_log_file_exist = jerror_if_log_file_exist == JNI_TRUE;
+    jboolean jerror_if_wal_file_exists) {
+  const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path,
-      [error_if_log_file_exist](const ROCKSDB_NAMESPACE::Options& options,
+      [error_if_wal_file_exists](const ROCKSDB_NAMESPACE::Options& options,
                                 const std::string& db_path,
                                 ROCKSDB_NAMESPACE::DB** db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
-                                                      error_if_log_file_exist);
+                                                      error_if_wal_file_exists);
       });
 }
 
@@ -181,11 +181,11 @@ jlongArray rocksdb_open_helper(
 jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
     jobjectArray jcolumn_names, jlongArray jcolumn_options,
-    jboolean jerror_if_log_file_exist) {
-  const bool error_if_log_file_exist = jerror_if_log_file_exist == JNI_TRUE;
+    jboolean jerror_if_wal_file_exists) {
+  const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-      [error_if_log_file_exist](
+      [error_if_wal_file_exists](
           const ROCKSDB_NAMESPACE::DBOptions& options,
           const std::string& db_path,
           const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
@@ -194,7 +194,7 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
           ROCKSDB_NAMESPACE::DB** db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(
             options, db_path, column_families, handles, db,
-            error_if_log_file_exist);
+            error_if_wal_file_exists);
       });
 }
 

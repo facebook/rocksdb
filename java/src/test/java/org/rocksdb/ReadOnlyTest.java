@@ -304,7 +304,7 @@ public class ReadOnlyTest {
   }
 
   @Test(expected = RocksDBException.class)
-  public void errorIfLogFileExists() throws RocksDBException {
+  public void errorIfWalFileExists() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       // no-op
@@ -319,7 +319,7 @@ public class ReadOnlyTest {
            final RocksDB rDb = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(),
                cfDescriptors, readOnlyColumnFamilyHandleList, true);) {
         try {
-          // no-op... should have raised an error as errorIfLogFileExists=true
+          // no-op... should have raised an error as errorIfWalFileExists=true
 
         } finally {
           for (final ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {

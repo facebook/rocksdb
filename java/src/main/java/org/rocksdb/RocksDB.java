@@ -366,8 +366,8 @@ public class RocksDB extends RocksObject {
    *
    * @param options {@link Options} instance.
    * @param path the path to the RocksDB.
-   * @param errorIfLogFileExists true to raise an error when opening the db
-   *            if the log file exists, false otherwise.
+   * @param errorIfWalFileExists true to raise an error when opening the db
+   *            if a Write Ahead Log file exists, false otherwise.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
@@ -375,11 +375,11 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public static RocksDB openReadOnly(final Options options, final String path,
-      final boolean errorIfLogFileExists) throws RocksDBException {
+      final boolean errorIfWalFileExists) throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
-    final RocksDB db = new RocksDB(openROnly(options.nativeHandle_, path, errorIfLogFileExists));
+    final RocksDB db = new RocksDB(openROnly(options.nativeHandle_, path, errorIfWalFileExists));
     db.storeOptionsInstance(options);
     return db;
   }
@@ -453,8 +453,8 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
-   * @param errorIfLogFileExists true to raise an error when opening the db
-   *            if the log file exists, false otherwise.
+   * @param errorIfWalFileExists true to raise an error when opening the db
+   *            if a Write Ahead Log file exists, false otherwise.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
@@ -463,7 +463,7 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB openReadOnly(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles, final boolean errorIfLogFileExists)
+      final List<ColumnFamilyHandle> columnFamilyHandles, final boolean errorIfWalFileExists)
       throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
@@ -479,7 +479,7 @@ public class RocksDB extends RocksObject {
     }
 
     final long[] handles =
-        openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles, errorIfLogFileExists);
+        openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles, errorIfWalFileExists);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -4435,7 +4435,7 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyOptions) throws RocksDBException;
 
   private native static long openROnly(final long optionsHandle, final String path,
-      final boolean errorIfLogFileExists) throws RocksDBException;
+      final boolean errorIfWalFileExists) throws RocksDBException;
 
   /**
    * @param optionsHandle Native handle pointing to an Options object
@@ -4451,7 +4451,7 @@ public class RocksDB extends RocksObject {
    */
   private native static long[] openROnly(final long optionsHandle, final String path,
       final byte[][] columnFamilyNames, final long[] columnFamilyOptions,
-      final boolean errorIfLogFileExists) throws RocksDBException;
+      final boolean errorIfWalFileExists) throws RocksDBException;
 
   private native static long openAsSecondary(final long optionsHandle, final String path,
       final String secondaryPath) throws RocksDBException;
