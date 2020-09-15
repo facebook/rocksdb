@@ -67,7 +67,6 @@ void EventListenerJniCallback::OnFlushCompleted(DB* db,
   }
 }
 
-//TODO(AR) implement the below
 void EventListenerJniCallback::OnFlushBegin(DB* /*db*/, const FlushJobInfo& /*flush_job_info*/) {}
 void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
 void EventListenerJniCallback::OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}

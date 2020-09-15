@@ -7,7 +7,7 @@ package org.rocksdb;
 
 public class FlushJobInfo {
   private final long columnFamilyId;
-  private final byte columnFamilyName;
+  private final String columnFamilyName;
   private final String filePath;
   private final long threadId;
   private final int jobId;
@@ -22,7 +22,7 @@ public class FlushJobInfo {
    * Access is private as this will only be constructed from
    * C++ via JNI.
    */
-  private FlushJobInfo(final long columnFamilyId, final byte columnFamilyName,
+  private FlushJobInfo(final long columnFamilyId, final String columnFamilyName,
       final String filePath, final long threadId, final int jobId,
       final boolean triggeredWritesSlowdown, final boolean triggeredWritesStop,
       final long smallestSeqno, final long largestSeqno,
@@ -54,7 +54,7 @@ public class FlushJobInfo {
    *
    * @return the name of the column family
    */
-  public byte getColumnFamilyName() {
+  public String getColumnFamilyName() {
     return columnFamilyName;
   }
 

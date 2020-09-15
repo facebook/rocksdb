@@ -7734,19 +7734,31 @@ class FlushJobInfoJni : public JavaClass {
    * nullptr if an an exception occurs
    */
   static jobject fromCppFlushJobInfo(JNIEnv* env,
-      const rocksdb::FlushJobInfo* /*flush_job_info*/) {
+      const ROCKSDB_NAMESPACE::FlushJobInfo* flush_job_info) {
     jclass jclazz = getJClass(env);
     if (jclazz == nullptr) {
       // exception occurred accessing class
       return nullptr;
     }
+    /*static*/ jmethodID ctor = getConstructor0(env, jclazz);
+    // TODO(TP): add TableProperties
+    jobject jflush_job_info = env->NewObject(jclazz, ctor, static_cast<jlong>(flush_job_info->cf_id),
+        JniUtil::toJavaString(env, &flush_job_info->cf_name), JniUtil::toJavaString(env, &flush_job_info->file_path),
+        static_cast<jlong>(flush_job_info->thread_id), static_cast<jint>(flush_job_info->job_id),
+        static_cast<jboolean>(flush_job_info->triggered_writes_slowdown), static_cast<jboolean>(flush_job_info->triggered_writes_stop),
+        static_cast<jlong>(flush_job_info->smallest_seqno), static_cast<jlong>(flush_job_info->largest_seqno),
+        nullptr, static_cast<jbyte>(flush_job_info->flush_reason));
 
-    //TODO(AR) implement
-    return nullptr;
+    return jflush_job_info;
   }
 
   static jclass getJClass(JNIEnv* env) {
     return JavaClass::getJClass(env, "org/rocksdb/FlushJobInfo");
+  }
+
+  static jmethodID getConstructor0(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(JLjava/lang/String;Ljava/lang/String;JIZZJJLorg/rocksdb/TableProperties;B)V");
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

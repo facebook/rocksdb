@@ -1063,7 +1063,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * @return the instance of the current object.
    */
-  T setListeners(final List<AbstractEventListener> listeners);
+  T setListeners(final AbstractEventListener... listeners);
 
   /**
    * If true, then the status of the threads involved in this DB will

@@ -21,11 +21,11 @@
 jlong Java_org_rocksdb_AbstractEventListener_createNewEventListener(
     JNIEnv* env, jobject jobj, jlong jenabled_event_callback_values) {
   auto enabled_event_callbacks =
-      rocksdb::EnabledEventCallbackJni::toCppEnabledEventCallbacks(
+      ROCKSDB_NAMESPACE::EnabledEventCallbackJni::toCppEnabledEventCallbacks(
         jenabled_event_callback_values);
   auto* sptr_event_listener =
-      new std::shared_ptr<rocksdb::EventListenerJniCallback>(
-         new rocksdb::EventListenerJniCallback(
+      new std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>(
+         new ROCKSDB_NAMESPACE::EventListenerJniCallback(
                env, jobj, enabled_event_callbacks));
   return reinterpret_cast<jlong>(sptr_event_listener);
 }

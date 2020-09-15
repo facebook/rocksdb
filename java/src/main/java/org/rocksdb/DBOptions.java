@@ -885,7 +885,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setListeners(final List<AbstractEventListener> listeners) {
+  public DBOptions setListeners(final AbstractEventListener... listeners) {
     assert(isOwningHandle());
     setEventListeners(nativeHandle_,
         RocksCallbackObject.toNativeHandleList(listeners));
@@ -1440,7 +1440,7 @@ public class DBOptions extends RocksObject
       final long handle, final boolean strictBytesPerSync);
   private native boolean strictBytesPerSync(
       final long handle);
-  private native long setEventListeners(final long handle,
+  private static native void setEventListeners(final long handle,
       final long[] eventListenerHandles);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);

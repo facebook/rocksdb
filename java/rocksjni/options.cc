@@ -1769,6 +1769,30 @@ jboolean Java_org_rocksdb_Options_strictBytesPerSync(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setEventListeners
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_Options_setEventListeners
+  (JNIEnv *env, jclass, jlong jhandle, jlongArray jlistener_array) {
+  std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>> listeners_vec;
+  jlong* ptr_jlistener_array = env->GetLongArrayElements(jlistener_array, nullptr);
+  if (ptr_jlistener_array == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  const jsize array_size = env->GetArrayLength(jlistener_array);
+  for (jsize i = 0; i < array_size; ++i) {
+    const auto& listener_sptr =
+        *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(ptr_jlistener_array[i]);
+    listeners_vec.push_back(listener_sptr);
+  }
+
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opt->listeners = std::move(listeners_vec);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setEnableThreadTracking
  * Signature: (JZ)V
  */
