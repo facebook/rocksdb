@@ -113,6 +113,7 @@ class Status {
     kManualCompactionPaused = 11,
     kOverwritten = 12,
     kTxnNotPrepared = 13,
+    kIOFenced = 14,
     kMaxSubCode
   };
 
@@ -480,6 +481,14 @@ class Status {
     checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     return (code() == kInvalidArgument) && (subcode() == kTxnNotPrepared);
+  }
+
+  // Returns true iff the status indicates a IOFenced error.
+  bool IsIOFenced() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return (code() == kIOError) && (subcode() == kIOFenced);
   }
 
   // Return a string representation of this status suitable for printing.

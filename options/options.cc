@@ -135,7 +135,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "           Options.table_factory: %s",
                    table_factory->Name());
   ROCKS_LOG_HEADER(log, "           table_factory options: %s",
-                   table_factory->GetPrintableTableOptions().c_str());
+                   table_factory->GetPrintableOptions().c_str());
   ROCKS_LOG_HEADER(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt,
                    write_buffer_size);
   ROCKS_LOG_HEADER(log, " Options.max_write_buffer_number: %d",

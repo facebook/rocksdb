@@ -31,12 +31,13 @@ BlobFileBuilder::BlobFileBuilder(
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
+    std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
                       fs, immutable_cf_options, mutable_cf_options,
                       file_options, job_id, column_family_id,
                       column_family_name, io_priority, write_hint,
-                      blob_file_additions) {}
+                      blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, Env* env, FileSystem* fs,
@@ -45,6 +46,7 @@ BlobFileBuilder::BlobFileBuilder(
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
+    std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
       env_(env),
@@ -59,6 +61,7 @@ BlobFileBuilder::BlobFileBuilder(
       column_family_name_(column_family_name),
       io_priority_(io_priority),
       write_hint_(write_hint),
+      blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
       blob_bytes_(0) {
@@ -67,7 +70,10 @@ BlobFileBuilder::BlobFileBuilder(
   assert(fs_);
   assert(immutable_cf_options_);
   assert(file_options_);
+  assert(blob_file_paths_);
+  assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
+  assert(blob_file_additions_->empty());
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
@@ -145,7 +151,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
 
   assert(immutable_cf_options_);
   assert(!immutable_cf_options_->cf_paths.empty());
-  const std::string blob_file_path = BlobFileName(
+  std::string blob_file_path = BlobFileName(
       immutable_cf_options_->cf_paths.front().path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
@@ -161,6 +167,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
     }
   }
 
+  // Note: files get added to blob_file_paths_ right after the open, so they
+  // can be cleaned up upon failure. Contrast this with blob_file_additions_,
+  // which only contains successfully written files.
+  assert(blob_file_paths_);
+  blob_file_paths_->emplace_back(std::move(blob_file_path));
+
   assert(file);
   file->SetIOPriority(io_priority_);
   file->SetWriteLifeTimeHint(write_hint_);
@@ -168,7 +180,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   Statistics* const statistics = immutable_cf_options_->statistics;
 
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_path, *file_options_, env_,
+      std::move(file), blob_file_paths_->back(), *file_options_, env_,
       nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory));
 

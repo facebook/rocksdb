@@ -5,15 +5,17 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
-
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 
 public class OptionsTest {
 
@@ -1315,6 +1317,38 @@ public class OptionsTest {
              new ConcurrentTaskLimiterImpl("name", 3)) {
       options.setCompactionThreadLimiter(compactionThreadLimiter);
       assertThat(options.compactionThreadLimiter()).isEqualTo(compactionThreadLimiter);
+    }
+  }
+
+  @Test
+  public void oldDefaults() {
+    try (final Options options = new Options()) {
+      options.oldDefaults(4, 6);
+      assertThat(options.writeBufferSize()).isEqualTo(4 << 20);
+      assertThat(options.compactionPriority()).isEqualTo(CompactionPriority.ByCompensatedSize);
+      assertThat(options.targetFileSizeBase()).isEqualTo(2 * 1048576);
+      assertThat(options.maxBytesForLevelBase()).isEqualTo(10 * 1048576);
+      assertThat(options.softPendingCompactionBytesLimit()).isEqualTo(0);
+      assertThat(options.hardPendingCompactionBytesLimit()).isEqualTo(0);
+      assertThat(options.level0StopWritesTrigger()).isEqualTo(24);
+    }
+  }
+
+  @Test
+  public void optimizeForSmallDbWithCache() {
+    try (final Options options = new Options(); final Cache cache = new LRUCache(1024)) {
+      assertThat(options.optimizeForSmallDb(cache)).isEqualTo(options);
+    }
+  }
+
+  @Test
+  public void cfPaths() throws IOException {
+    try (final Options options = new Options()) {
+      final List<DbPath> paths = Arrays.asList(
+          new DbPath(Paths.get("test1"), 2 << 25), new DbPath(Paths.get("/test2/path"), 2 << 25));
+      assertThat(options.cfPaths()).isEqualTo(Collections.emptyList());
+      assertThat(options.setCfPaths(paths)).isEqualTo(options);
+      assertThat(options.cfPaths()).isEqualTo(paths);
     }
   }
 }

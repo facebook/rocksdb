@@ -3,9 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/compaction/compaction_iterator.h"
+
 #include <cinttypes>
 
-#include "db/compaction/compaction_iterator.h"
+#include "db/blob/blob_file_builder.h"
 #include "db/snapshot_checker.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -36,7 +38,8 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
-    CompactionRangeDelAggregator* range_del_agg, const Compaction* compaction,
+    CompactionRangeDelAggregator* range_del_agg,
+    BlobFileBuilder* blob_file_builder, const Compaction* compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
@@ -46,6 +49,7 @@ CompactionIterator::CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
+          blob_file_builder,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
@@ -58,6 +62,7 @@ CompactionIterator::CompactionIterator(
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
+    BlobFileBuilder* blob_file_builder,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
@@ -74,6 +79,7 @@ CompactionIterator::CompactionIterator(
       report_detailed_time_(report_detailed_time),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
+      blob_file_builder_(blob_file_builder),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
@@ -661,20 +667,37 @@ void CompactionIterator::NextFromInput() {
 
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
-    if (compaction_filter_ && ikey_.type == kTypeBlobIndex) {
-      const auto blob_decision = compaction_filter_->PrepareBlobOutput(
-          user_key(), value_, &compaction_filter_value_);
+    if (ikey_.type == kTypeValue) {
+      if (blob_file_builder_) {
+        blob_index_.clear();
+        const Status s =
+            blob_file_builder_->Add(user_key(), value_, &blob_index_);
 
-      if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
-        status_ = Status::Corruption(
-            "Corrupted blob reference encountered during GC");
-        valid_ = false;
-      } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
-        status_ = Status::IOError("Could not relocate blob during GC");
-        valid_ = false;
-      } else if (blob_decision ==
-                 CompactionFilter::BlobDecision::kChangeValue) {
-        value_ = compaction_filter_value_;
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+        } else if (!blob_index_.empty()) {
+          value_ = blob_index_;
+          ikey_.type = kTypeBlobIndex;
+          current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+        }
+      }
+    } else if (ikey_.type == kTypeBlobIndex) {
+      if (compaction_filter_) {
+        const auto blob_decision = compaction_filter_->PrepareBlobOutput(
+            user_key(), value_, &compaction_filter_value_);
+
+        if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
+          status_ = Status::Corruption(
+              "Corrupted blob reference encountered during GC");
+          valid_ = false;
+        } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
+          status_ = Status::IOError("Could not relocate blob during GC");
+          valid_ = false;
+        } else if (blob_decision ==
+                   CompactionFilter::BlobDecision::kChangeValue) {
+          value_ = compaction_filter_value_;
+        }
       }
     }
 

@@ -543,7 +543,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           return s;
         }
 
-        blob_file_additions_.emplace_back(blob_file_addition);
+        AddBlobFile(std::move(blob_file_addition));
         break;
       }
 
@@ -554,7 +554,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           return s;
         }
 
-        blob_file_garbages_.emplace_back(blob_file_garbage);
+        AddBlobFileGarbage(std::move(blob_file_garbage));
         break;
       }
 
