@@ -115,7 +115,9 @@ enum class FlushReason : int {
   kAutoCompaction = 0x09,
   kManualFlush = 0x0a,
   kErrorRecovery = 0xb,
-  kFlushNoSwitchMemtable = 0xc,
+  // When set the flush reason to kErrorRecoveryRetryFlush, SwitchMemtable
+  // will not be called to avoid many small immutable memtables.
+  kErrorRecoveryRetryFlush = 0xc,
 };
 
 enum class BackgroundErrorReason {

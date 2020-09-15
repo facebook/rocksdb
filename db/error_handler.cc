@@ -103,6 +103,15 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
                          Status::Code::kIOError, Status::SubCode::kSpaceLimit,
                          true),
          Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kIOFenced,
+                         true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kIOFenced,
+                         false),
+         Status::Severity::kFatalError},
+
 };
 
 std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
@@ -372,7 +381,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       // set the soft_error_no_bg_work_ to true. At the same time, since DB
       // continues to receive writes when BG error is soft error, to avoid
       // to many small memtable being generated during auto resume, the flush
-      // reason is set to kFlushNoSwitchMemtable.
+      // reason is set to kErrorRecoveryRetryFlush.
       Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
       if (recovery_in_prog_ && recovery_error_.ok()) {
         recovery_error_ = bg_err;
@@ -381,7 +390,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
         bg_error_ = bg_err;
       }
       soft_error_no_bg_work_ = true;
-      context.flush_reason = FlushReason::kFlushNoSwitchMemtable;
+      context.flush_reason = FlushReason::kErrorRecoveryRetryFlush;
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     } else {
@@ -485,12 +494,19 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
     // the bg work should follow this tag.
     soft_error_no_bg_work_ = false;
 
-    // In manual resume, the flush reason is kErrorRecovery.
-    recover_context_.flush_reason = FlushReason::kErrorRecovery;
+    // In manual resume, if the bg error is a soft error and also requires
+    // no bg work, the error must be recovered by call the flush with
+    // flush reason: kErrorRecoveryRetryFlush. In other case, the flush
+    // reason is set to kErrorRecovery.
+    if (no_bg_work_original_flag) {
+      recover_context_.flush_reason = FlushReason::kErrorRecoveryRetryFlush;
+    } else {
+      recover_context_.flush_reason = FlushReason::kErrorRecovery;
+    }
   }
 
   if (bg_error_.severity() == Status::Severity::kSoftError &&
-      no_bg_work_original_flag == false) {
+      recover_context_.flush_reason == FlushReason::kErrorRecovery) {
     // Simply clear the background error and return
     recovery_error_ = Status::OK();
     return ClearBGError();
