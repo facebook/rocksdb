@@ -1372,7 +1372,7 @@ public class OptionsTest {
 
   @Test
   public void writeDbidToManifest() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       assertThat(options.writeDbidToManifest()).isEqualTo(false);
       assertThat(options.setWriteDbidToManifest(true)).isEqualTo(options);
       assertThat(options.writeDbidToManifest()).isEqualTo(true);
@@ -1381,7 +1381,7 @@ public class OptionsTest {
 
   @Test
   public void logReadaheadSize() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       assertThat(options.logReadaheadSize()).isEqualTo(0);
       final int size = 1024 * 1024 * 100;
       assertThat(options.setLogReadaheadSize(size)).isEqualTo(options);
@@ -1391,7 +1391,7 @@ public class OptionsTest {
 
   @Test
   public void bestEffortsRecovery() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       assertThat(options.bestEffortsRecovery()).isEqualTo(false);
       assertThat(options.setBestEffortsRecovery(true)).isEqualTo(options);
       assertThat(options.bestEffortsRecovery()).isEqualTo(true);
@@ -1400,7 +1400,7 @@ public class OptionsTest {
 
   @Test
   public void maxBgerrorResumeCount() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       final int INT_MAX = 2147483647;
       assertThat(options.maxBgerrorResumeCount()).isEqualTo(INT_MAX);
       assertThat(options.setMaxBgErrorResumeCount(-1)).isEqualTo(options);
@@ -1410,7 +1410,7 @@ public class OptionsTest {
 
   @Test
   public void bgerrorResumeRetryInterval() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       assertThat(options.bgerrorResumeRetryInterval()).isEqualTo(1000000);
       final long newRetryInterval = 24 * 3600 * 1000000L;
       assertThat(options.setBgerrorResumeRetryInterval(newRetryInterval)).isEqualTo(options);
@@ -1420,7 +1420,7 @@ public class OptionsTest {
 
   @Test
   public void maxWriteBatchGroupSizeBytes() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       assertThat(options.maxWriteBatchGroupSizeBytes()).isEqualTo(1024 * 1024);
       final long size = 1024 * 1024 * 1024 * 10L;
       assertThat(options.setMaxWriteBatchGroupSizeBytes(size)).isEqualTo(options);
@@ -1430,7 +1430,7 @@ public class OptionsTest {
 
   @Test
   public void skipCheckingSstFileSizesOnDbOpen() {
-    try(final Options options = new Options()) {
+    try (final Options options = new Options()) {
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
       assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);

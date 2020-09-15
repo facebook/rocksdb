@@ -1623,7 +1623,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * If set to true, takes precedence over
    * {@link ReadOptions#setBackgroundPurgeOnIteratorCleanup(boolean)}.
    *
-   * @param avoidUnnecessaryBlockingIO If true, working thread may avoid doing unnecessary operation.
+   * @param avoidUnnecessaryBlockingIO If true, working thread may avoid doing unnecessary
+   *     operation.
    * @return the reference to the current options.
    */
   T setAvoidUnnecessaryBlockingIO(final boolean avoidUnnecessaryBlockingIO);
@@ -1766,7 +1767,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *
    * Default: INT_MAX
    *
-   * @param maxBgerrorResumeCount maximum number of times db resume should be called when IO Error happens.
+   * @param maxBgerrorResumeCount maximum number of times db resume should be called when IO Error
+   *     happens.
    * @return the instance of the current object.
    */
   T setMaxBgErrorResumeCount(final int maxBgerrorResumeCount);
