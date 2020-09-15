@@ -38,7 +38,7 @@
   } while (0)
 #endif
 
-extern uint32_t pmull_runtime_flag;
+extern bool pmull_runtime_flag;
 
 uint32_t crc32c_runtime_check(void) {
 #ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
@@ -49,12 +49,12 @@ uint32_t crc32c_runtime_check(void) {
 #endif
 }
 
-uint32_t crc32c_pmull_runtime_check(void) {
+bool crc32c_pmull_runtime_check(void) {
 #ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
   uint64_t auxv = getauxval(AT_HWCAP);
   return (auxv & HWCAP_PMULL) != 0;
 #else
-  return 0;
+  return false;
 #endif
 }
 

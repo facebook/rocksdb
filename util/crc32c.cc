@@ -42,7 +42,7 @@
 #endif
 
 #if defined(__linux__) && defined(HAVE_ARM64_CRC)
-uint32_t pmull_runtime_flag = 0;
+bool pmull_runtime_flag = false;
 #endif
 
 namespace ROCKSDB_NAMESPACE {
