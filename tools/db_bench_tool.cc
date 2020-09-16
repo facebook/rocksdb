@@ -1343,7 +1343,8 @@ DEFINE_bool(report_file_operations, false, "if report number of file "
 DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 
 DEFINE_bool(read_with_latest_user_timestamp, true,
-            "Use latest timestamp for read");
+            "If true, always use the current latest timestamp for read. If "
+            "false, choose a random timestamp from the past.");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -2266,6 +2267,7 @@ class TimestampEmulator {
     if (FLAGS_read_with_latest_user_timestamp) {
       return Allocate(scratch);
     }
+    // Choose a random timestamp from the past.
     uint64_t ts = rand.Next() % Get();
     EncodeFixed64(scratch, ts);
     return Slice(scratch, FLAGS_user_timestamp_size);
@@ -6455,6 +6457,7 @@ class Benchmark {
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
       Slice ts;
       if (user_timestamp_size_ > 0) {
+        // Read with newest timestamp because we are doing rmw.
         ts = mock_app_clock_->Allocate(ts_guard.get());
         options.timestamp = &ts;
       }
