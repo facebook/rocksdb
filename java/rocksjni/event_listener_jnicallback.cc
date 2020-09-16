@@ -53,9 +53,7 @@ void EventListenerJniCallback::OnFlushCompleted(DB* db,
 
   jboolean attached_thread = JNI_FALSE;
   JNIEnv* env = getJniEnv(&attached_thread);
-  if (env == nullptr) {
-    return;
-  }
+  assert(env != nullptr);
 
   jobject jflush_job_info =
       FlushJobInfoJni::fromCppFlushJobInfo(env, &flush_job_info);

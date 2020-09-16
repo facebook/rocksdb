@@ -7682,7 +7682,7 @@ class EnabledEventCallbackJni {
 
 // The portal class for org.rocksdb.AbstractEventListener
 class AbstractEventListenerJni : public RocksDBNativeClass<
-    const rocksdb::EventListenerJniCallback*,
+    const ROCKSDB_NAMESPACE::EventListenerJniCallback*,
     AbstractEventListenerJni> {
  public:
   /**
@@ -7721,19 +7721,19 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
     return mid;
   }
 
-    static jmethodID getOnTableFileDeletedMethodId(JNIEnv* env) {
-      jclass jclazz = getJClass(env);
-      if(jclazz == nullptr) {
-        // exception occurred accessing class
-        return nullptr;
-      }
-
-      static jmethodID mid = env->GetMethodID(
-          jclazz, "onTableFileDeleted",
-          "(Lorg/rocksdb/TableFileDeletionInfo;)V");
-      assert(mid != nullptr);
-      return mid;
+  static jmethodID getOnTableFileDeletedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
     }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onTableFileDeleted",
+        "(Lorg/rocksdb/TableFileDeletionInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
 };
 
 class FlushJobInfoJni : public JavaClass {
@@ -7755,6 +7755,7 @@ class FlushJobInfoJni : public JavaClass {
       return nullptr;
     }
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
     // TODO(TP): add TableProperties
     return env->NewObject(jclazz, ctor, static_cast<jlong>(flush_job_info->cf_id),
         JniUtil::toJavaString(env, &flush_job_info->cf_name), JniUtil::toJavaString(env, &flush_job_info->file_path),
@@ -7793,6 +7794,7 @@ class TableFileDeletionInfoJni : public JavaClass {
       return nullptr;
     }
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
     // TODO(TP): add Status
     return env->NewObject(jclazz, ctor, JniUtil::toJavaString(env, &file_del_info->db_name),
         JniUtil::toJavaString(env, &file_del_info->file_path), static_cast<jint>(file_del_info->job_id),

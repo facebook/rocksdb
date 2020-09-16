@@ -1066,6 +1066,16 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   T setListeners(final AbstractEventListener... listeners);
 
   /**
+   * Sets the {@link EventListener}s whose callback functions
+   * will be called when specific RocksDB event happens.
+   *
+   * @param listeners the listeners who should be notified on various events.
+   *
+   * @return the instance of the current object.
+   */
+   AbstractEventListener[] listeners();
+
+  /**
    * If true, then the status of the threads involved in this DB will
    * be tracked and available via GetThreadList() API.
    *

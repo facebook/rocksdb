@@ -10,8 +10,12 @@ import org.junit.Test;
 
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class DBOptionsTest {
 
@@ -893,6 +897,40 @@ public class DBOptionsTest {
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
       assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
       assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void eventListeners() {
+    final AtomicBoolean wasCalled1 = new AtomicBoolean();
+    final AtomicBoolean wasCalled2 = new AtomicBoolean();
+    try (final DBOptions options = new DBOptions();
+         final AbstractEventListener el1 = new AbstractEventListener() {
+           @Override
+           public void onTableFileDeleted(
+               final TableFileDeletionInfo tableFileDeletionInfo) {
+             wasCalled1.set(true);
+           }
+         };
+         final AbstractEventListener el2 = new AbstractEventListener() {
+           @Override
+           public void onMemTableSealed(final MemTableInfo memTableInfo) {
+             wasCalled2.set(true);
+           }
+         }) {
+      assertThat(options.setListeners(el1, el2)).isEqualTo(options);
+      AbstractEventListener[] listeners = options.listeners();
+      assertEquals(el1, listeners[0]);
+      assertEquals(el2, listeners[1]);
+      options.setListeners();
+      listeners[0].onTableFileDeleted(null);
+      assertTrue(wasCalled1.get());
+      listeners[1].onMemTableSealed(null);
+      assertTrue(wasCalled2.get());
+      AbstractEventListener[] listeners2 = options.listeners();
+      assertNotNull(listeners2);
+      assertEquals(0, listeners2.length);
+
     }
   }
 }

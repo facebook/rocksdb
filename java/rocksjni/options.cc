@@ -1767,13 +1767,8 @@ jboolean Java_org_rocksdb_Options_strictBytesPerSync(
   return static_cast<jboolean>(opt->strict_bytes_per_sync);
 }
 
-/*
- * Class:     org_rocksdb_Options
- * Method:    setEventListeners
- * Signature: (J[J)V
- */
-void Java_org_rocksdb_Options_setEventListeners
-  (JNIEnv *env, jclass, jlong jhandle, jlongArray jlistener_array) {
+static void rocksdb_set_event_listeners_helper(JNIEnv *env, jlongArray jlistener_array,
+    std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>& listener_sptr_vec) {
   std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>> listeners_vec;
   jlong* ptr_jlistener_array = env->GetLongArrayElements(jlistener_array, nullptr);
   if (ptr_jlistener_array == nullptr) {
@@ -1787,8 +1782,46 @@ void Java_org_rocksdb_Options_setEventListeners
     listeners_vec.push_back(listener_sptr);
   }
 
+  listener_sptr_vec = std::move(listeners_vec);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setEventListeners
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_Options_setEventListeners
+  (JNIEnv *env, jclass, jlong jhandle, jlongArray jlistener_array) {
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opt->listeners = std::move(listeners_vec);
+  rocksdb_set_event_listeners_helper(env, jlistener_array, opt->listeners);
+}
+
+static jobjectArray rocksdb_get_event_listeners_helper(JNIEnv *env,
+    const std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>& listener_sptr_vec) {
+  jsize sz = static_cast<jsize>(listener_sptr_vec.size());
+  jclass jlistener_clazz = ROCKSDB_NAMESPACE::AbstractEventListenerJni::getJClass(env);
+  jobjectArray jlisteners = env->NewObjectArray(sz, jlistener_clazz, nullptr);
+  if (jlisteners == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+  for (jsize i = 0; i < sz; ++i) {
+    const auto *jni_cb = dynamic_cast<ROCKSDB_NAMESPACE::JniCallback*>(listener_sptr_vec[i].get());
+    //jclass clazz = env->GetObjectClass(jni_cb->GetJavaObject());
+    env->SetObjectArrayElement(jlisteners, i, jni_cb->GetJavaObject());
+  }
+  return jlisteners;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    eventListeners
+ * Signature: (J)[Lorg/rocksdb/AbstractEventListener;
+ */
+jobjectArray Java_org_rocksdb_Options_eventListeners
+  (JNIEnv *env, jclass, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return rocksdb_get_event_listeners_helper(env, opt->listeners);
 }
 
 /*
@@ -6571,6 +6604,28 @@ jboolean Java_org_rocksdb_DBOptions_strictBytesPerSync(
   return static_cast<jboolean>(
       reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle)
           ->strict_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEventListeners
+ * Signature: (J[J)V
+ */
+void Java_org_rocksdb_DBOptions_setEventListeners
+  (JNIEnv *env, jclass, jlong jhandle, jlongArray jlistener_array) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  rocksdb_set_event_listeners_helper(env, jlistener_array, opt->listeners);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    eventListeners
+ * Signature: (J)[Lorg/rocksdb/AbstractEventListener;
+ */
+jobjectArray Java_org_rocksdb_DBOptions_eventListeners
+  (JNIEnv *env, jclass, jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::DBOptions*>(jhandle);
+  return rocksdb_get_event_listeners_helper(env, opt->listeners);
 }
 
 /*

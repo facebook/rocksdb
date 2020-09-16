@@ -893,6 +893,12 @@ public class DBOptions extends RocksObject
   }
 
   @Override
+  public AbstractEventListener[] listeners() {
+    assert(isOwningHandle());
+    return eventListeners(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setEnableThreadTracking(final boolean enableThreadTracking) {
     assert(isOwningHandle());
     setEnableThreadTracking(nativeHandle_, enableThreadTracking);
@@ -1442,6 +1448,7 @@ public class DBOptions extends RocksObject
       final long handle);
   private static native void setEventListeners(final long handle,
       final long[] eventListenerHandles);
+  private static native AbstractEventListener[] eventListeners(final long handle);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);
   private native boolean enableThreadTracking(long handle);

@@ -29,3 +29,13 @@ jlong Java_org_rocksdb_AbstractEventListener_createNewEventListener(
                env, jobj, enabled_event_callbacks));
   return reinterpret_cast<jlong>(sptr_event_listener);
 }
+
+/*
+ * Class:     org_rocksdb_AbstractEventListener
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_AbstractEventListener_disposeInternal
+  (JNIEnv *, jobject, jlong jhandle) {
+  delete reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(jhandle);
+}
