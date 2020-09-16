@@ -8,6 +8,7 @@
 #include "logging/logging.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -394,6 +395,23 @@ Status ConfigurableHelper::ConfigureOption(
   if (opt_name == name) {
     return configurable.ParseOption(config_options, opt_info, opt_name, value,
                                     opt_ptr);
+  } else if (opt_info.IsCustomizable() &&
+             EndsWith(opt_name, Configurable::kIdPropSuffix)) {
+    return configurable.ParseOption(config_options, opt_info, name, value,
+                                    opt_ptr);
+
+  } else if (opt_info.IsCustomizable()) {
+    Customizable* custom = opt_info.AsRawPointer<Customizable>(opt_ptr);
+    if (value.empty()) {
+      return Status::OK();
+    } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
+      return configurable.ParseOption(config_options, opt_info, name, value,
+                                      opt_ptr);
+    } else if (value.find("=") != std::string::npos) {
+      return custom->ConfigureFromString(config_options, value);
+    } else {
+      return custom->ConfigureOption(config_options, name, value);
+    }
   } else if (opt_info.IsStruct() || opt_info.IsConfigurable()) {
     return configurable.ParseOption(config_options, opt_info, name, value,
                                     opt_ptr);

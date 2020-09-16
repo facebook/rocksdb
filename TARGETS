@@ -240,6 +240,7 @@ cpp_library(
         "monitoring/thread_status_util_debug.cc",
         "options/cf_options.cc",
         "options/configurable.cc",
+        "options/customizable.cc",
         "options/db_options.cc",
         "options/options.cc",
         "options/options_helper.cc",
@@ -756,6 +757,13 @@ ROCKS_TESTS = [
     [
         "cuckoo_table_reader_test",
         "table/cuckoo/cuckoo_table_reader_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "customizable_test",
+        "options/customizable_test.cc",
         "serial",
         [],
         [],

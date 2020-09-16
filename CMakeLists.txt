@@ -678,6 +678,7 @@ set(SOURCES
         monitoring/thread_status_util_debug.cc
         options/cf_options.cc
         options/configurable.cc
+        options/customizable.cc
         options/db_options.cc
         options/options.cc
         options/options_helper.cc
@@ -1128,6 +1129,7 @@ if(WITH_TESTS)
         monitoring/stats_dump_scheduler_test.cc
         monitoring/stats_history_test.cc
         options/configurable_test.cc
+        options/customizable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
