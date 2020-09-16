@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
 
+## 6.12.3 (2020-09-16)
+### Bug fixes
+* Fixed a bug in size-amp-triggered and periodic-triggered universal compaction, where the compression settings for the first input level were used rather than the compression settings for the output (bottom) level.
+
 ## 6.12.2 (2020-09-14)
 ### Public API Change
 * BlobDB now exposes the start of the expiration range of TTL blob files via the `GetLiveFilesMetaData` API.
