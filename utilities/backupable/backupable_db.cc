@@ -47,6 +47,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+
 inline uint32_t ChecksumHexToInt32(const std::string& checksum_hex) {
   std::string checksum_str;
   Slice(checksum_hex).DecodeHex(&checksum_str);
@@ -149,9 +151,13 @@ class BackupEngineImpl : public BackupEngine {
 
   Status Initialize();
 
-  // Obtain the naming option for backup table files
-  BackupTableNameOption GetTableNamingOption() const {
-    return options_.share_files_with_checksum_naming;
+  ShareFilesNaming GetNamingNoFlags() const {
+    return options_.share_files_with_checksum_naming &
+           BackupableDBOptions::kMaskNoNamingFlags;
+  }
+  ShareFilesNaming GetNamingFlags() const {
+    return options_.share_files_with_checksum_naming &
+           BackupableDBOptions::kMaskNamingFlags;
   }
 
  private:
@@ -186,7 +192,7 @@ class BackupEngineImpl : public BackupEngine {
     // currently
     const std::string db_id;
     // db_session_id appears in the backup SST filename if the table naming
-    // option is kOptionalChecksumAndDbSessionId
+    // option is kUseDbSessionId
     const std::string db_session_id;
   };
 
@@ -320,9 +326,17 @@ class BackupEngineImpl : public BackupEngine {
     return GetSharedChecksumDirRel() + "/" + (tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
-  inline bool UseSessionId(const std::string& sid) const {
-    return GetTableNamingOption() == kOptionalChecksumAndDbSessionId &&
-           !sid.empty();
+  inline bool UseLegacyNaming(const std::string& sid) const {
+    return GetNamingNoFlags() ==
+               BackupableDBOptions::kLegacyCrc32cAndFileSize ||
+           sid.empty();
+  }
+  inline bool UseInterimNaming(const std::string& sid) const {
+    // The indicator of SST file from early internal 6.12 release
+    // is a '-' in the DB session id. DB session id was made more
+    // concise without '-' after that.
+    return (GetNamingFlags() & BackupableDBOptions::kFlagMatchInterimNaming) &&
+           sid.find('-') != std::string::npos;
   }
   inline std::string GetSharedFileWithChecksum(
       const std::string& file, bool has_checksum,
@@ -330,19 +344,22 @@ class BackupEngineImpl : public BackupEngine {
       const std::string& db_session_id) const {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
-    if (UseSessionId(db_session_id)) {
-      if (has_checksum) {
-        return file_copy.insert(file_copy.find_last_of('.'),
-                                "_" + checksum_hex + "_" + db_session_id);
-      } else {
-        return file_copy.insert(file_copy.find_last_of('.'),
-                                "_" + db_session_id);
-      }
+    if (UseLegacyNaming(db_session_id)) {
+      assert(has_checksum);
+      (void)has_checksum;
+      file_copy.insert(file_copy.find_last_of('.'),
+                       "_" + ToString(ChecksumHexToInt32(checksum_hex)) + "_" +
+                           ToString(file_size));
+    } else if (UseInterimNaming(db_session_id)) {
+      file_copy.insert(file_copy.find_last_of('.'), "_" + db_session_id);
     } else {
-      return file_copy.insert(file_copy.find_last_of('.'),
-                              "_" + ToString(ChecksumHexToInt32(checksum_hex)) +
-                                  "_" + ToString(file_size));
+      file_copy.insert(file_copy.find_last_of('.'), "_s" + db_session_id);
+      if (GetNamingFlags() & BackupableDBOptions::kFlagIncludeFileSize) {
+        file_copy.insert(file_copy.find_last_of('.'),
+                         "_" + ToString(file_size));
+      }
     }
+    return file_copy;
   }
   inline std::string GetFileFromChecksumFile(const std::string& file) const {
     assert(file.size() == 0 || file[0] != '/');
@@ -1598,7 +1615,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
-    if (GetTableNamingOption() == kOptionalChecksumAndDbSessionId) {
+    if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
@@ -1621,7 +1638,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       return Status::NotFound("File missing: " + src_dir + fname);
     }
     // dst_relative depends on the following conditions:
-    // 1) the naming scheme is kOptionalChecksumAndDbSessionId,
+    // 1) the naming scheme is kUseDbSessionId,
     // 2) db_session_id is not empty,
     // 3) checksum is available in the DB manifest.
     // If 1,2,3) are satisfied, then dst_relative will be of the form:
@@ -1697,6 +1714,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       } else {
         // file exists and referenced
         if (!has_checksum) {
+          // FIXME(peterd): extra I/O
           s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
                                 size_limit, &checksum_hex);
           if (!s.ok()) {
@@ -1704,7 +1722,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
           }
           has_checksum = true;
         }
-        if (UseSessionId(db_session_id)) {
+        if (!db_session_id.empty()) {
           ROCKS_LOG_INFO(options_.info_log,
                          "%s already present, with checksum %s, size %" PRIu64
                          " and DB session identity %s",
@@ -1734,6 +1752,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       ROCKS_LOG_INFO(options_.info_log,
                      "%s already present, calculate checksum", fname.c_str());
       if (!has_checksum) {
+        // FIXME(peterd): extra I/O
         s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
                               size_limit, &checksum_hex);
         if (!s.ok()) {
