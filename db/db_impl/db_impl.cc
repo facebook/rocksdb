@@ -3694,13 +3694,29 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
 }
 
 void DBImpl::SetDbSessionId() {
-  // GenerateUniqueId() generates an identifier
-  // that has a negligible probability of being duplicated
-  db_session_id_ = env_->GenerateUniqueId();
-  // Remove the extra '\n' at the end if there is one
-  if (!db_session_id_.empty() && db_session_id_.back() == '\n') {
-    db_session_id_.pop_back();
+  // GenerateUniqueId() generates an identifier that has a negligible
+  // probability of being duplicated, ~128 bits of entropy
+  std::string uuid = env_->GenerateUniqueId();
+
+  // Hash and reformat that down to a more compact format, 20 characters
+  // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
+  // to expect no collisions across a billion servers each opening DBs
+  // a million times (~2^50). Benefits vs. raw unique id:
+  // * Save ~ dozen bytes per SST file
+  // * Shorter shared backup file names (some platforms have low limits)
+  // * Visually distinct from DB id format
+  uint64_t a = NPHash64(uuid.data(), uuid.size(), 1234U);
+  uint64_t b = NPHash64(uuid.data(), uuid.size(), 5678U);
+  db_session_id_.resize(20);
+  static const char* const base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  size_t i = 0;
+  for (; i < 10U; ++i, a /= 36U) {
+    db_session_id_[i] = base36[a % 36];
   }
+  for (; i < 20U; ++i, b /= 36U) {
+    db_session_id_[i] = base36[b % 36];
+  }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::SetDbSessionId", &db_session_id_);
 }
 
 // Default implementation -- returns not supported status
