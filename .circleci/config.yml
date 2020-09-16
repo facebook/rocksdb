@@ -163,7 +163,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-clang-10
-      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 EXCLUDE_TESTS_REGEX="TransactionStressTest|SnapshotConcurrentAccess|SeqAdvanceConcurrent|DeadlockStress|MultiThreadedDBTest.MultiThreaded|WriteUnpreparedStressTest.ReadYourOwnWriteStress|DBAsBaseDB/TransactionStressTest|FlushCloseWALFiles|BackgroundPurgeCFDropTest" make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. Exclude FlushCloseWALFiles and BackgroundPurgeCFDropTest for occasional failures.
+      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out.
       - post-steps
 
   build-linux-clang10-ubsan:
