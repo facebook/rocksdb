@@ -1889,7 +1889,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case GetContext::kBlobIndex:
+      case GetContext::kUnexpectedBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
@@ -2076,7 +2076,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
               Status::Corruption("corrupted key for ", iter->lkey->user_key());
           file_range.MarkKeyDone(iter);
           continue;
-        case GetContext::kBlobIndex:
+        case GetContext::kUnexpectedBlobIndex:
           ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
           *status = Status::NotSupported(
               "Encounter unexpected blob index. Please open DB with "
