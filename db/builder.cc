@@ -98,7 +98,6 @@ Status BuildTable(
   const size_t kReportFlushIOStatsEvery = 1048576;
   uint64_t paranoid_hash = 0;
   Status s;
-  IOStatus io_s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -131,7 +130,7 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      io_s = NewWritableFile(fs, fname, &file, file_options);
+      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
       s = io_s;
       if (io_status->ok()) {
         *io_status = io_s;
@@ -229,9 +228,8 @@ Status BuildTable(
     } else {
       s = builder->Finish();
     }
-    io_s = builder->io_status();
     if (io_status->ok()) {
-      *io_status = io_s;
+      *io_status = builder->io_status();
     }
 
     if (s.ok() && !empty) {
@@ -313,17 +311,18 @@ Status BuildTable(
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
     constexpr IODebugContext* dbg = nullptr;
 
-    fs->DeleteFile(fname, IOOptions(), dbg);
+    Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
 
     assert(blob_file_additions || blob_file_paths.empty());
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+        ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
       }
 
       blob_file_additions->clear();
     }
+    ignored.PermitUncheckedError();
   }
 
   if (meta->fd.GetFileSize() == 0) {

@@ -433,7 +433,7 @@ void PersistentCacheDBTest::RunTest(
     options.create_if_missing = true;
     DestroyAndReopen(options);
 
-    pcache->Close();
+    ASSERT_OK(pcache->Close());
   }
 }
 

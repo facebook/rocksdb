@@ -666,7 +666,7 @@ void DBTestBase::Reopen(const Options& options) {
 
 void DBTestBase::Close() {
   for (auto h : handles_) {
-    db_->DestroyColumnFamilyHandle(h);
+    EXPECT_OK(db_->DestroyColumnFamilyHandle(h));
   }
   handles_.clear();
   delete db_;

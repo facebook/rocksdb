@@ -581,6 +581,8 @@ ifdef ASSERT_STATUS_CHECKED
 		coding_test \
 		crc32c_test \
 		dbformat_test \
+		db_options_test \
+		options_file_test \
 		defer_test \
 		filename_test \
 		dynamic_bloom_test \
@@ -588,6 +590,7 @@ ifdef ASSERT_STATUS_CHECKED
 		env_test \
 		env_logger_test \
 		event_logger_test \
+		auto_roll_logger_test \
 		file_indexer_test \
 		hash_table_test \
 		hash_test \
@@ -616,6 +619,8 @@ ifdef ASSERT_STATUS_CHECKED
 		filelock_test \
 		timer_queue_test \
 		timer_test \
+		options_util_test \
+		persistent_cache_test \
 		util_merge_operators_test \
 		block_cache_trace_analyzer_test \
 		block_cache_tracer_test \
