@@ -1484,6 +1484,9 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         // TODO(haoyu): Differentiate cache hit on uncompressed block cache and
         // compressed block cache.
         is_cache_hit = true;
+        if (prefetch_buffer) {
+          prefetch_buffer->UpdatePrevBlock(handle.offset(), block_size(handle));
+        }
       }
     }
 
