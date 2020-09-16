@@ -776,6 +776,13 @@ class Version {
     return storage_info_.user_comparator_;
   }
 
+  // Interprets index_entry as a blob reference, and (assuming the corresponding
+  // blob file is part of this Version) retrieves the blob and saves it in
+  // *get_context.
+  // REQUIRES: index_entry stores an encoded blob reference
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 const Slice& index_entry, GetContext* get_context) const;
+
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
   // the filter block may already be cached, but we still do not access it such

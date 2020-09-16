@@ -96,11 +96,15 @@ void GetContext::MarkKeyMayExist() {
 }
 
 void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
-  assert(state_ == kNotFound);
+  assert(state_ == kNotFound || state_ == kFound);
   appendToReplayLog(replay_log_, kTypeValue, value);
 
   state_ = kFound;
   if (LIKELY(pinnable_val_ != nullptr)) {
+    if (pinnable_val_->IsPinned()) {
+      pinnable_val_->Reset();
+    }
+
     pinnable_val_->PinSelf(value);
   }
 }

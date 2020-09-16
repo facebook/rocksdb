@@ -22,6 +22,8 @@
 #include <vector>
 
 #include "compaction/compaction.h"
+#include "db/blob/blob_index.h"
+#include "db/blob/blob_log_format.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -54,6 +56,7 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
+#include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
@@ -1780,6 +1783,103 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       version_number_(version_number),
       io_tracer_(io_tracer) {}
 
+Status Version::GetBlob(const ReadOptions& /* read_options */,
+                        const Slice& user_key, const Slice& index_entry,
+                        GetContext* get_context) const {
+  assert(get_context);
+
+  BlobIndex blob_index;
+  Status s = blob_index.DecodeFrom(index_entry);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (blob_index.HasTTL() || blob_index.IsInlined()) {
+    return Status::Corruption("Unexpected TTL/inlined blob index");
+  }
+
+  const auto& blob_files = storage_info_.GetBlobFiles();
+
+  const auto it = blob_files.find(blob_index.file_number());
+  if (it == blob_files.end()) {
+    return Status::Corruption("Invalid blob file number");
+  }
+
+  if (blob_index.offset() <
+      (BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + user_key.size())) {
+    return Status::Corruption("Invalid blob offset");
+  }
+
+  const ImmutableCFOptions* const ioptions = cfd_->ioptions();
+  assert(ioptions);
+
+  std::unique_ptr<FSRandomAccessFile> file;
+  const std::string blob_file_path =
+      BlobFileName(ioptions->cf_paths.front().path, blob_index.file_number());
+
+  assert(ioptions->fs);
+  s = ioptions->fs->NewRandomAccessFile(blob_file_path, file_options_, &file,
+                                        nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<RandomAccessFileReader> reader(new RandomAccessFileReader(
+      std::move(file), blob_file_path, nullptr /* env */, io_tracer_,
+      nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
+      nullptr /* rate_limiter */, ioptions->listeners));
+
+  assert(blob_index.offset() >= user_key.size() + sizeof(uint32_t));
+  const uint64_t record_offset =
+      blob_index.offset() - user_key.size() - sizeof(uint32_t);
+  const uint64_t record_size =
+      sizeof(uint32_t) + user_key.size() + blob_index.size();
+
+  std::string buf;
+  AlignedBuf aligned_buf;
+
+  Slice blob_record;
+
+  if (reader->use_direct_io()) {
+    s = reader->Read(IOOptions(), record_offset,
+                     static_cast<size_t>(record_size), &blob_record, nullptr,
+                     &aligned_buf);
+  } else {
+    buf.reserve(static_cast<size_t>(record_size));
+    s = reader->Read(IOOptions(), record_offset,
+                     static_cast<size_t>(record_size), &blob_record, &buf[0],
+                     nullptr);
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (blob_record.size() != record_size) {
+    return Status::Corruption("Failed to retrieve blob from blob index.");
+  }
+
+  Slice crc_slice(blob_record.data(), sizeof(uint32_t));
+  Slice blob_value(blob_record.data() + sizeof(uint32_t) + user_key.size(),
+                   static_cast<size_t>(blob_index.size()));
+
+  uint32_t crc_exp = 0;
+  if (!GetFixed32(&crc_slice, &crc_exp)) {
+    return Status::Corruption("Unable to decode checksum.");
+  }
+
+  uint32_t crc = crc32c::Value(blob_record.data() + sizeof(uint32_t),
+                               blob_record.size() - sizeof(uint32_t));
+  crc = crc32c::Mask(crc);
+  if (crc != crc_exp) {
+    return Status::Corruption("Corruption. Blob CRC mismatch");
+  }
+
+  get_context->SaveValue(blob_value, kMaxSequenceNumber);
+
+  return Status::OK();
+}
+
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
@@ -1872,6 +1972,15 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        if (is_blob_index) {
+          if (value) {
+            *status = GetBlob(read_options, user_key, *value, &get_context);
+            if (!status->ok()) {
+              return;
+            }
+          }
+        }
+
         if (fp.GetHitFileLevel() == 0) {
           RecordTick(db_statistics_, GET_HIT_L0);
         } else if (fp.GetHitFileLevel() == 1) {
