@@ -1186,8 +1186,8 @@ class DBImpl : public DB {
   // skipped.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      bool read_only = false, bool error_if_log_file_exist = false,
-      bool error_if_data_exists_in_logs = false,
+      bool read_only = false, bool error_if_wal_file_exists = false,
+      bool error_if_data_exists_in_wals = false,
       uint64_t* recovered_seq = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
