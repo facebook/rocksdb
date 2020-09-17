@@ -98,7 +98,10 @@ struct BackupableDBOptions {
   // ShareFilesNaming for details on how table files names are made
   // unique between databases.
   //
-  // Default: false
+  // Using 'true' is fundamentally safer, and performance improvements vs.
+  // original design should leave almost no reason to use the 'false' setting.
+  //
+  // Default (only for historical reasons): false
   bool share_files_with_checksum;
 
   // Up to this many background threads will copy files for CreateNewBackup()
