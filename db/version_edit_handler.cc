@@ -24,8 +24,8 @@ VersionEditHandler::VersionEditHandler(
       version_set_(version_set),
       track_missing_files_(track_missing_files),
       no_error_if_table_files_missing_(no_error_if_table_files_missing),
-      initialized_(false),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      initialized_(false) {
   assert(version_set_ != nullptr);
 }
 
@@ -513,8 +513,7 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_table_files_missing=*/true, io_tracer),
-      io_tracer_(io_tracer) {}
+                         /*no_error_if_table_files_missing=*/true, io_tracer) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {

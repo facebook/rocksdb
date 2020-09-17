@@ -102,13 +102,13 @@ class VersionEditHandler {
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files_;
   bool no_error_if_table_files_missing_;
+  std::shared_ptr<IOTracer> io_tracer_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& edit);
 
   bool initialized_;
-  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
@@ -133,7 +133,6 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
  private:
   std::unordered_map<uint32_t, Version*> versions_;
-  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
