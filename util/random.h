@@ -168,6 +168,12 @@ class Random64 {
   uint64_t Skewed(int max_log) {
     return Uniform(uint64_t(1) << Uniform(max_log + 1));
   }
+
+  // Functions to make Random64 compatible with C++ API
+  typedef uint64_t result_type;
+  static uint64_t min() { return std::mt19937_64::min(); }
+  static uint64_t max() { return std::mt19937_64::max(); }
+  uint64_t operator()() { return generator_(); }
 };
 
 // A seeded replacement for removed std::random_shuffle

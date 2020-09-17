@@ -260,6 +260,24 @@ DEFINE_int32(value_size_min, 100, "Min size of random value");
 
 DEFINE_int32(value_size_max, 102400, "Max size of random value");
 
+DEFINE_string(
+    key_distribution_type, "default",
+    "Key distribution type: default, rng, fixed, uniform, normal, exp\n"
+    "\tdefault: use default settings for the benchmark\n"
+    "\trng: use random number generator directly\n"
+    "\tothers: use specified distribution\n");
+
+DEFINE_string(
+    key_distribution_params, "",
+    "Comma-separated list of key distribution parameters. Their number and "
+    "purpose depend on the distribution selected by key_distribution_type.\n"
+    "\tdefault: no parameters\n"
+    "\trng: no parameters\n"
+    "\tfixed: value\n"
+    "\tuniform: min,max\n"
+    "\tnormal: mean,stddev\n"
+    "\texp: exponent\n");
+
 DEFINE_int32(seek_nexts, 0,
              "How many times to call Next() after Seek() in "
              "fillseekseq, seekrandom, seekrandomwhilewriting and "
@@ -1506,10 +1524,14 @@ class ReportFileOpEnv : public EnvWrapper {
 enum DistributionType : unsigned char {
   kFixed = 0,
   kUniform,
-  kNormal
+  kNormal,
+  kExp,
+  kRng,
+  kDefault
 };
 
 static enum DistributionType FLAGS_value_size_distribution_type_e = kFixed;
+static enum DistributionType FLAGS_key_distribution_type_e = kDefault;
 
 static enum DistributionType StringToDistributionType(const char* ctype) {
   assert(ctype);
@@ -1520,87 +1542,168 @@ static enum DistributionType StringToDistributionType(const char* ctype) {
     return kUniform;
   else if (!strcasecmp(ctype, "normal"))
     return kNormal;
+  else if (!strcasecmp(ctype, "exp"))
+    return kExp;
+  else if (!strcasecmp(ctype, "rng"))
+    return kRng;
+  else if (!strcasecmp(ctype, "default"))
+    return kDefault;
 
   fprintf(stdout, "Cannot parse distribution type '%s'\n", ctype);
   return kFixed;  // default value
 }
 
+template <class Generator>
 class BaseDistribution {
  public:
-  BaseDistribution(unsigned int _min, unsigned int _max)
-      : min_value_size_(_min), max_value_size_(_max) {}
+  BaseDistribution(Generator* _gen, uint64_t _min, uint64_t _max)
+      : gen_(_gen), min_(_min), max_(_max) {}
   virtual ~BaseDistribution() {}
 
-  unsigned int Generate() {
+  uint64_t Generate() {
     auto val = Get();
     if (NeedTruncate()) {
-      val = std::max(min_value_size_, val);
-      val = std::min(max_value_size_, val);
+      val = std::max(min_, val);
+      val = std::min(max_, val);
     }
     return val;
   }
+
  private:
-  virtual unsigned int Get() = 0;
+  virtual uint64_t Get() = 0;
   virtual bool NeedTruncate() {
     return true;
   }
-  unsigned int min_value_size_;
-  unsigned int max_value_size_;
+
+ protected:
+  Generator* gen_;
+  uint64_t min_;
+  uint64_t max_;
 };
 
-class FixedDistribution : public BaseDistribution
-{
+template <class Generator>
+class RngDistribution : public BaseDistribution<Generator> {
  public:
-  FixedDistribution(unsigned int size) :
-    BaseDistribution(size, size),
-    size_(size) {}
+  RngDistribution(Generator* _gen, uint64_t _min, uint64_t _max)
+      : BaseDistribution<Generator>(_gen, _min, _max) {}
+
  private:
-  virtual unsigned int Get() override {
-    return size_;
+  virtual uint64_t Get() override { return (*(this->gen_))(); }
+  virtual bool NeedTruncate() override { return false; }
+};
+
+template <class Generator>
+class FixedDistribution : public BaseDistribution<Generator> {
+ public:
+  FixedDistribution(std::vector<std::string> _params = {})
+      : BaseDistribution<Generator>(nullptr, 0, 0) {
+    if (_params.size() > 0) {
+      value_ = std::stod(_params[0]);
+    } else {
+      value_ = 0;
+    }
   }
+
+  FixedDistribution(uint64_t _value)
+      : BaseDistribution<Generator>(nullptr, 0, 0), value_(_value) {}
+
+ private:
+  virtual uint64_t Get() override { return value_; }
   virtual bool NeedTruncate() override {
     return false;
   }
-  unsigned int size_;
+  int64_t value_;
 };
 
-class NormalDistribution
-    : public BaseDistribution, public std::normal_distribution<double> {
+template <class Generator>
+class NormalDistribution : public BaseDistribution<Generator> {
  public:
-  NormalDistribution(unsigned int _min, unsigned int _max)
-      : BaseDistribution(_min, _max),
-        // 99.7% values within the range [min, max].
-        std::normal_distribution<double>(
-            (double)(_min + _max) / 2.0 /*mean*/,
-            (double)(_max - _min) / 6.0 /*stddev*/),
-        gen_(rd_()) {}
+  NormalDistribution(Generator* _gen, uint64_t _min, uint64_t _max,
+                     std::vector<std::string> _params = {})
+      : BaseDistribution<Generator>(_gen, _min, _max) {
+    // Default: 99.7% values within the range [min, max].
+    double mean;
+    if (_params.size() > 0) {
+      mean = std::stod(_params[0]);
+    } else {
+      mean = (_min + _max) / 2.0;
+    }
+    double stddev;
+    if (_params.size() > 1) {
+      stddev = std::stod(_params[1]);
+    } else {
+      stddev = (_max - _min) / 6.0;
+    }
+    dist_ = std::normal_distribution<double>(mean, stddev);
+  }
 
  private:
-  virtual unsigned int Get() override {
-    return static_cast<unsigned int>((*this)(gen_));
+  virtual uint64_t Get() override {
+    return static_cast<uint64_t>(dist_(*(this->gen_)));
   }
-  std::random_device rd_;
-  std::mt19937 gen_;
+
+  std::normal_distribution<double> dist_;
 };
 
-class UniformDistribution
-    : public BaseDistribution,
-      public std::uniform_int_distribution<unsigned int> {
+template <class Generator>
+class UniformDistribution : public BaseDistribution<Generator> {
  public:
-  UniformDistribution(unsigned int _min, unsigned int _max)
-      : BaseDistribution(_min, _max),
-        std::uniform_int_distribution<unsigned int>(_min, _max),
-        gen_(rd_()) {}
+  UniformDistribution(Generator* _gen, uint64_t _min, uint64_t _max,
+                      std::vector<std::string> _params = {})
+      : BaseDistribution<Generator>(_gen, _min, _max) {
+    // If parameters are specified, they override min and max
+    if (_params.size() > 0) {
+      this->min_ = std::stod(_params[0]);
+    }
+    if (_params.size() > 1) {
+      this->max_ = std::stod(_params[1]);
+    }
+    dist_ = std::uniform_int_distribution<uint64_t>(this->min_, this->max_);
+  }
 
  private:
-  virtual unsigned int Get() override {
-    return (*this)(gen_);
-  }
+  virtual uint64_t Get() override { return dist_(*(this->gen_)); }
   virtual bool NeedTruncate() override {
     return false;
   }
-  std::random_device rd_;
-  std::mt19937 gen_;
+
+  std::uniform_int_distribution<uint64_t> dist_;
+};
+
+template <class Generator>
+class ExpDistribution : public BaseDistribution<Generator> {
+ public:
+  ExpDistribution(Generator* _gen, uint64_t _min, uint64_t _max,
+                  std::vector<std::string> _params = {})
+      : BaseDistribution<Generator>(_gen, _min, _max) {
+    if (_params.size() > 0) {
+      exp_ = std::stod(_params[0]);
+    } else {
+      exp_ = 0;
+    }
+  }
+
+  ExpDistribution(Generator* _gen, uint64_t _min, uint64_t _max, double _exp)
+      : BaseDistribution<Generator>(_gen, _min, _max), exp_(_exp) {}
+
+ private:
+  virtual uint64_t Get() override {
+    uint64_t rand_int = (*(this->gen_))();
+    const uint64_t kBigInt = static_cast<uint64_t>(1U) << 62;
+    long double order = -static_cast<long double>(rand_int % kBigInt) /
+                        static_cast<long double>(kBigInt) * exp_;
+    long double exp_ran = std::exp(order);
+    uint64_t rand_num =
+        static_cast<int64_t>(exp_ran * static_cast<long double>(this->max_));
+    // Map to a different number to avoid locality.
+    const uint64_t kBigPrime = 0x5bd1e995;
+    // Overflow is like %(2^64). Will have little impact of results.
+    int64_t key_rand =
+        static_cast<int64_t>((rand_num * kBigPrime) % this->max_);
+    return key_rand;
+  }
+
+  double exp_;
 };
 
 // Helper for quickly generating random data.
@@ -1608,24 +1711,25 @@ class RandomGenerator {
  private:
   std::string data_;
   unsigned int pos_;
-  std::unique_ptr<BaseDistribution> dist_;
+  std::unique_ptr<BaseDistribution<std::mt19937>> dist_;
+  std::random_device rd_;
+  std::mt19937 gen_;
 
  public:
-
-  RandomGenerator() {
+  RandomGenerator() : gen_(rd_()) {
     auto max_value_size = FLAGS_value_size_max;
     switch (FLAGS_value_size_distribution_type_e) {
       case kUniform:
-        dist_.reset(new UniformDistribution(FLAGS_value_size_min,
-                                            FLAGS_value_size_max));
+        dist_.reset(new UniformDistribution<std::mt19937>(
+            &gen_, FLAGS_value_size_min, FLAGS_value_size_max));
         break;
       case kNormal:
-        dist_.reset(new NormalDistribution(FLAGS_value_size_min,
-                                           FLAGS_value_size_max));
+        dist_.reset(new NormalDistribution<std::mt19937>(
+            &gen_, FLAGS_value_size_min, FLAGS_value_size_max));
         break;
       case kFixed:
       default:
-        dist_.reset(new FixedDistribution(value_size));
+        dist_.reset(new FixedDistribution<std::mt19937>(value_size));
         max_value_size = value_size;
     }
     // We use a limited amount of data over and over again and ensure
@@ -1652,9 +1756,55 @@ class RandomGenerator {
   }
 
   Slice Generate() {
-    auto len = dist_->Generate();
+    auto len = static_cast<unsigned int>(dist_->Generate());
     return Generate(len);
   }
+};
+
+template <class Generator>
+class RandomKeyGenerator {
+ private:
+  std::unique_ptr<BaseDistribution<Generator>> dist_;
+
+ public:
+  explicit RandomKeyGenerator(
+      Generator* gen,
+      DistributionType dist_type = FLAGS_key_distribution_type_e,
+      std::string dist_params = FLAGS_key_distribution_params, uint64_t min = 0,
+      uint64_t max = FLAGS_num) {
+    std::vector<std::string> params;
+    std::stringstream param_stream(dist_params);
+    std::string param;
+    while (std::getline(param_stream, param, ',')) {
+      params.push_back(param);
+    }
+
+    switch (dist_type) {
+      case kUniform:
+        dist_.reset(new UniformDistribution<Generator>(gen, min, max, params));
+        break;
+      case kNormal:
+        dist_.reset(new NormalDistribution<Generator>(gen, min, max, params));
+        break;
+      case kExp:
+        if (params.size() > 0) {
+          dist_.reset(new ExpDistribution<Generator>(gen, min, max, params));
+        } else {
+          dist_.reset(new ExpDistribution<Generator>(
+              gen, min, max, FLAGS_read_random_exp_range));
+        }
+        break;
+      case kFixed:
+        dist_.reset(new FixedDistribution<Generator>(params));
+        break;
+      case kRng:
+      case kDefault:
+        dist_.reset(new RngDistribution<Generator>(
+            gen, min, max));  // use the generator without any distribution
+    }
+  }
+
+  uint64_t Generate() { return dist_->Generate(); }
 };
 
 static void AppendWithSpace(std::string* str, Slice msg) {
@@ -4385,7 +4535,12 @@ class Benchmark {
    public:
     KeyGenerator(Random64* rand, WriteMode mode, uint64_t num,
                  uint64_t /*num_per_set*/ = 64 * 1024)
-        : rand_(rand), mode_(mode), num_(num), next_(0) {
+        : rand_(rand),
+          mode_(mode),
+          num_(num),
+          next_(0),
+          keygen_(rand_, FLAGS_key_distribution_type_e,
+                  FLAGS_key_distribution_params, 0, num_) {
       if (mode_ == UNIQUE_RANDOM) {
         // NOTE: if memory consumption of this approach becomes a concern,
         // we can either break it into pieces and only random shuffle a section
@@ -4405,7 +4560,7 @@ class Benchmark {
         case SEQUENTIAL:
           return next_++;
         case RANDOM:
-          return rand_->Next() % num_;
+          return keygen_.Generate() % num_;
         case UNIQUE_RANDOM:
           assert(next_ < num_);
           return values_[next_++];
@@ -4419,6 +4574,7 @@ class Benchmark {
     WriteMode mode_;
     const uint64_t num_;
     uint64_t next_;
+    RandomKeyGenerator<Random64> keygen_;
     std::vector<uint64_t> values_;
   };
 
@@ -5097,6 +5253,7 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
     DB* db = SelectDBWithCfh(thread)->db;
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
 
     int64_t pot = 1;
     while (pot < FLAGS_num) {
@@ -5106,7 +5263,7 @@ class Benchmark {
     Duration duration(FLAGS_duration, reads_);
     do {
       for (int i = 0; i < 100; ++i) {
-        int64_t key_rand = thread->rand.Next() & (pot - 1);
+        int64_t key_rand = keygen.Generate() & (pot - 1);
         GenerateKeyFromInt(key_rand, FLAGS_num, &key);
         ++read;
         std::string ts_ret;
@@ -5150,27 +5307,6 @@ class Benchmark {
     }
   }
 
-  int64_t GetRandomKey(Random64* rand) {
-    uint64_t rand_int = rand->Next();
-    int64_t key_rand;
-    if (read_random_exp_range_ == 0) {
-      key_rand = rand_int % FLAGS_num;
-    } else {
-      const uint64_t kBigInt = static_cast<uint64_t>(1U) << 62;
-      long double order = -static_cast<long double>(rand_int % kBigInt) /
-                          static_cast<long double>(kBigInt) *
-                          read_random_exp_range_;
-      long double exp_ran = std::exp(order);
-      uint64_t rand_num =
-          static_cast<int64_t>(exp_ran * static_cast<long double>(FLAGS_num));
-      // Map to a different number to avoid locality.
-      const uint64_t kBigPrime = 0x5bd1e995;
-      // Overflow is like %(2^64). Will have little impact of results.
-      key_rand = static_cast<int64_t>((rand_num * kBigPrime) % FLAGS_num);
-    }
-    return key_rand;
-  }
-
   void ReadRandom(ThreadState* thread) {
     int64_t read = 0;
     int64_t found = 0;
@@ -5187,6 +5323,13 @@ class Benchmark {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
 
+    DistributionType key_distribution_type = FLAGS_key_distribution_type_e;
+    if (FLAGS_key_distribution_type_e == kDefault &&
+        FLAGS_read_random_exp_range != 0) {
+      key_distribution_type = kExp;
+    }
+    RandomKeyGenerator<Random64> keygen(&thread->rand, key_distribution_type);
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
@@ -5196,7 +5339,7 @@ class Benchmark {
       if (entries_per_batch_ > 1 && FLAGS_multiread_stride) {
         if (++num_keys == entries_per_batch_) {
           num_keys = 0;
-          key_rand = GetRandomKey(&thread->rand);
+          key_rand = keygen.Generate() % FLAGS_num;
           if ((key_rand + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
               FLAGS_num) {
             key_rand = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
@@ -5205,7 +5348,7 @@ class Benchmark {
           key_rand += FLAGS_multiread_stride;
         }
       } else {
-        key_rand = GetRandomKey(&thread->rand);
+        key_rand = keygen.Generate() % FLAGS_num;
       }
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
@@ -5274,6 +5417,13 @@ class Benchmark {
       keys.push_back(AllocateKey(&key_guards.back()));
     }
 
+    DistributionType key_distribution_type = FLAGS_key_distribution_type_e;
+    if (FLAGS_key_distribution_type_e == kDefault &&
+        FLAGS_read_random_exp_range != 0) {
+      key_distribution_type = kExp;
+    }
+    RandomKeyGenerator<Random64> keygen(&thread->rand, key_distribution_type);
+
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
@@ -5283,7 +5433,7 @@ class Benchmark {
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       if (FLAGS_multiread_stride) {
-        int64_t key = GetRandomKey(&thread->rand);
+        int64_t key = keygen.Generate() % FLAGS_num;
         if ((key + (entries_per_batch_ - 1) * FLAGS_multiread_stride) >=
             static_cast<int64_t>(FLAGS_num)) {
           key = FLAGS_num - entries_per_batch_ * FLAGS_multiread_stride;
@@ -5294,7 +5444,8 @@ class Benchmark {
         }
       } else {
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
-          GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
+          GenerateKeyFromInt(keygen.Generate() % FLAGS_num, FLAGS_num,
+                             &keys[i]);
         }
       }
       Slice ts;
@@ -5370,12 +5521,20 @@ class Benchmark {
       ranges.emplace_back(lkeys.back(), rkeys.back());
       sizes.push_back(0);
     }
+
+    DistributionType key_distribution_type = FLAGS_key_distribution_type_e;
+    if (FLAGS_key_distribution_type_e == kDefault &&
+        FLAGS_read_random_exp_range != 0) {
+      key_distribution_type = kExp;
+    }
+    RandomKeyGenerator<Random64> keygen(&thread->rand, key_distribution_type);
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       for (size_t i = 0; i < batch_size; ++i) {
-        int64_t lkey = GetRandomKey(&thread->rand);
-        int64_t rkey = GetRandomKey(&thread->rand);
+        int64_t lkey = keygen.Generate() % FLAGS_num;
+        int64_t rkey = keygen.Generate() % FLAGS_num;
         if (lkey > rkey) {
           std::swap(lkey, rkey);
         }
@@ -5667,11 +5826,18 @@ class Benchmark {
       use_random_modeling = true;
     }
 
+    DistributionType key_distribution_type = FLAGS_key_distribution_type_e;
+    if (FLAGS_key_distribution_type_e == kDefault &&
+        FLAGS_read_random_exp_range != 0) {
+      key_distribution_type = kExp;
+    }
+    RandomKeyGenerator<Random64> keygen(&thread->rand, key_distribution_type);
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       int64_t ini_rand, rand_v, key_rand, key_seed;
-      ini_rand = GetRandomKey(&thread->rand);
+      ini_rand = keygen.Generate() % FLAGS_num;
       rand_v = ini_rand % FLAGS_num;
       double u = static_cast<double>(rand_v) / FLAGS_num;
 
@@ -5879,9 +6045,10 @@ class Benchmark {
     Slice lower_bound = AllocateKey(&lower_bound_key_guard);
 
     Duration duration(FLAGS_duration, reads_);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     char value_buffer[256];
     while (!duration.Done(1)) {
-      int64_t seek_pos = thread->rand.Next() % FLAGS_num;
+      int64_t seek_pos = keygen.Generate() % FLAGS_num;
       GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
                                 &key);
       if (FLAGS_max_scan_distance != 0) {
@@ -5988,6 +6155,7 @@ class Benchmark {
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     std::unique_ptr<char[]> ts_guard;
     Slice ts;
     if (user_timestamp_size_ > 0) {
@@ -5998,7 +6166,7 @@ class Benchmark {
       DB* db = SelectDB(thread);
       batch.Clear();
       for (int64_t j = 0; j < entries_per_batch_; ++j) {
-        const int64_t k = seq ? i + j : (thread->rand.Next() % FLAGS_num);
+        const int64_t k = seq ? i + j : (keygen.Generate() % FLAGS_num);
         GenerateKeyFromInt(k, FLAGS_num, &key);
         batch.Delete(key);
       }
@@ -6048,6 +6216,7 @@ class Benchmark {
   void BGWriter(ThreadState* thread, enum OperationType write_merge) {
     // Special thread that keeps writing until other threads are done.
     RandomGenerator gen;
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     int64_t bytes = 0;
 
     std::unique_ptr<RateLimiter> write_rate_limiter;
@@ -6092,7 +6261,7 @@ class Benchmark {
         }
       }
 
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      GenerateKeyFromInt(keygen.Generate() % FLAGS_num, FLAGS_num, &key);
       Status s;
 
       Slice val = gen.Generate();
@@ -6295,6 +6464,7 @@ class Benchmark {
   void RandomWithVerify(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     std::string value;
     int64_t found = 0;
     int get_weight = 0;
@@ -6316,8 +6486,8 @@ class Benchmark {
         delete_weight = FLAGS_deletepercent;
         put_weight = 100 - get_weight - delete_weight;
       }
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_numdistinct,
-          FLAGS_numdistinct, &key);
+      GenerateKeyFromInt(keygen.Generate() % FLAGS_numdistinct,
+                         FLAGS_numdistinct, &key);
       if (get_weight > 0) {
         // do all the gets first
         Status s = GetMany(db, options, key, &value);
@@ -6376,6 +6546,7 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
 
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
@@ -6385,7 +6556,7 @@ class Benchmark {
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      GenerateKeyFromInt(keygen.Generate() % FLAGS_num, FLAGS_num, &key);
       if (get_weight == 0 && put_weight == 0) {
         // one batch completed, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -6447,6 +6618,7 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
@@ -6454,7 +6626,7 @@ class Benchmark {
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      GenerateKeyFromInt(keygen.Generate() % FLAGS_num, FLAGS_num, &key);
       Slice ts;
       if (user_timestamp_size_ > 0) {
         // Read with newest timestamp because we are doing rmw.
@@ -6513,6 +6685,7 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
@@ -6520,7 +6693,7 @@ class Benchmark {
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      GenerateKeyFromInt(keygen.Generate() % FLAGS_num, FLAGS_num, &key);
       Slice ts;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
@@ -6576,6 +6749,7 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     std::unique_ptr<char[]> ts_guard;
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
@@ -6584,7 +6758,7 @@ class Benchmark {
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      GenerateKeyFromInt(keygen.Generate() % FLAGS_num, FLAGS_num, &key);
       Slice ts;
       if (user_timestamp_size_ > 0) {
         ts = mock_app_clock_->Allocate(ts_guard.get());
@@ -6649,11 +6823,12 @@ class Benchmark {
     int64_t bytes = 0;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
-      int64_t key_rand = thread->rand.Next() % merge_keys_;
+      int64_t key_rand = keygen.Generate() % merge_keys_;
       GenerateKeyFromInt(key_rand, merge_keys_, &key);
 
       Status s;
@@ -6701,11 +6876,12 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
     // the number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % merge_keys_, merge_keys_, &key);
+      GenerateKeyFromInt(keygen.Generate() % merge_keys_, merge_keys_, &key);
 
       bool do_merge = int(thread->rand.Next() % 100) < FLAGS_mergereadpercent;
 
@@ -7012,11 +7188,23 @@ class Benchmark {
     db->GetSnapshot();
 
     std::default_random_engine generator;
-    std::normal_distribution<double> distribution(FLAGS_numdistinct / 2.0,
-                                                  FLAGS_stddev);
+    // If the user didn't specify a key distribution, default to normal
+    DistributionType key_distribution_type = FLAGS_key_distribution_type_e;
+    if (FLAGS_key_distribution_type_e == kDefault) {
+      key_distribution_type = kNormal;
+    }
+    std::string key_distribution_params = FLAGS_key_distribution_params;
+    if (FLAGS_key_distribution_type_e == kDefault &&
+        FLAGS_key_distribution_params.empty()) {
+      key_distribution_params = std::to_string(FLAGS_numdistinct / 2.0) + "," +
+                                std::to_string(FLAGS_stddev);
+    }
+    RandomKeyGenerator<std::default_random_engine> keygen(
+        &generator, key_distribution_type, key_distribution_params);
+
     Duration duration(FLAGS_duration, FLAGS_num);
     while (!duration.Done(1)) {
-      int64_t rnd_id = static_cast<int64_t>(distribution(generator));
+      int64_t rnd_id = keygen.Generate();
       int64_t key_id = std::max(std::min(FLAGS_numdistinct - 1, rnd_id),
                                 static_cast<int64_t>(0));
       GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
@@ -7068,6 +7256,7 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    RandomKeyGenerator<Random64> keygen(&thread->rand);
 
     char value_buffer[256];
     while (true) {
@@ -7084,7 +7273,7 @@ class Benchmark {
       }
       // Pick a Iterator to use
 
-      int64_t key_id = thread->rand.Next() % FLAGS_key_id_range;
+      int64_t key_id = keygen.Generate() % FLAGS_key_id_range;
       GenerateKeyFromInt(key_id, FLAGS_num, &key);
       // Reset last 8 bytes to 0
       char* start = const_cast<char*>(key.data());
@@ -7428,6 +7617,9 @@ int db_bench_tool(int argc, char** argv) {
 
   FLAGS_value_size_distribution_type_e =
     StringToDistributionType(FLAGS_value_size_distribution_type.c_str());
+
+  FLAGS_key_distribution_type_e =
+      StringToDistributionType(FLAGS_key_distribution_type.c_str());
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
