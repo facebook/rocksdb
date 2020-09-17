@@ -20,7 +20,7 @@ struct IOTraceRecord;
 // dumps the human readable records in output_file_.
 class IOTraceRecordParser {
  public:
-  IOTraceRecordParser(const std::string& input_file);
+  explicit IOTraceRecordParser(const std::string& input_file);
 
   // ReadIOTraceRecords reads the binary trace file records one by one and
   // invoke PrintHumanReadableIOTraceRecord to dump the records in output_file_.
