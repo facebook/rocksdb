@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 6.12.4 (2020-09-18)
 ### Public API Change
 * Reworked `BackupableDBOptions::share_files_with_checksum_naming` (new in 6.12) with some minor improvements and to better support those who were extracting files sizes from backup file names.
 
