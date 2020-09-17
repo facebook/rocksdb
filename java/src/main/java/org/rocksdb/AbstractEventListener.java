@@ -183,6 +183,20 @@ public abstract class AbstractEventListener extends RocksCallbackObject
     // no-op
   }
 
+  /**
+   * Called from JNI, proxy for
+   *     {@link #onCompactionCompleted(RocksDB, CompactionJobInfo)}.
+   *
+   * @param dbHandle native handle of the database
+   * @param compactionJobInfo the flush job info
+   */
+  private void onCompactionCompletedProxy(final long dbHandle,
+                                      final CompactionJobInfo compactionJobInfo) {
+    final RocksDB db = new RocksDB(dbHandle);
+    db.disOwnNativeHandle();  // we don't own this!
+    onCompactionCompleted(db, compactionJobInfo);
+  }
+
   @Override
   public void onTableFileCreated(
       final TableFileCreationInfo tableFileCreationInfo) {
@@ -210,6 +224,20 @@ public abstract class AbstractEventListener extends RocksCallbackObject
   public void onExternalFileIngested(final RocksDB db,
       final ExternalFileIngestionInfo externalFileIngestionInfo) {
     // no-op
+  }
+
+  /**
+   * Called from JNI, proxy for
+   *     {@link #onExternalFileIngested(RocksDB, ExternalFileIngestionInfo)}.
+   *
+   * @param dbHandle native handle of the database
+   * @param externalFileIngestionInfo the flush job info
+   */
+  private void onExternalFileIngestedProxy(final long dbHandle,
+                                          final ExternalFileIngestionInfo externalFileIngestionInfo) {
+    final RocksDB db = new RocksDB(dbHandle);
+    db.disOwnNativeHandle();  // we don't own this!
+    onExternalFileIngested(db, externalFileIngestionInfo);
   }
 
   @Override

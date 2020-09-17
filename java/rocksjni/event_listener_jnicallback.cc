@@ -20,18 +20,81 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
       EnabledEventCallback::ON_FLUSH_COMPLETED,
       env,
       AbstractEventListenerJni::getOnFlushCompletedProxyMethodId);
+
   InitCallbackMethodId(m_on_flush_begin_proxy_mid,
       EnabledEventCallback::ON_FLUSH_BEGIN,
       env,
       AbstractEventListenerJni::getOnFlushBeginProxyMethodId);
+
   InitCallbackMethodId(m_on_table_file_deleted_mid,
       EnabledEventCallback::ON_TABLE_FILE_DELETED,
       env,
       AbstractEventListenerJni::getOnTableFileDeletedMethodId);
+
   InitCallbackMethodId(m_on_compaction_begin_proxy_mid,
       EnabledEventCallback::ON_COMPACTION_BEGIN,
       env,
       AbstractEventListenerJni::getOnCompactionBeginProxyMethodId);
+
+  InitCallbackMethodId(m_on_compaction_completed_proxy_mid,
+      EnabledEventCallback::ON_COMPACTION_COMPLETED,
+      env,
+      AbstractEventListenerJni::getOnCompactionCompletedProxyMethodId);
+
+  InitCallbackMethodId(m_on_table_file_created_mid,
+      EnabledEventCallback::ON_TABLE_FILE_CREATED,
+      env,
+      AbstractEventListenerJni::getOnTableFileCreatedMethodId);
+
+  InitCallbackMethodId(m_on_table_file_creation_started_mid,
+      EnabledEventCallback::ON_TABLE_FILE_CREATION_STARTED,
+      env,
+      AbstractEventListenerJni::getOnTableFileCreationStartedMethodId);
+
+  InitCallbackMethodId(m_on_mem_table_sealed_mid,
+      EnabledEventCallback::ON_MEMTABLE_SEALED,
+      env,
+      AbstractEventListenerJni::getOnMemTableSealedMethodId);
+
+  InitCallbackMethodId(m_on_column_family_handle_deletion_started_mid,
+      EnabledEventCallback::ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED,
+      env,
+      AbstractEventListenerJni::getOnColumnFamilyHandleDeletionStartedMethodId);
+
+  InitCallbackMethodId(m_on_external_file_ingested_mid,
+      EnabledEventCallback::ON_EXTERNAL_FILE_INGESTED,
+      env,
+      AbstractEventListenerJni::getOnExternalFileIngestedProxyMethodId);
+
+  InitCallbackMethodId(m_on_background_error_mid,
+      EnabledEventCallback::ON_BACKGROUND_ERROR,
+      env,
+      AbstractEventListenerJni::getOnBackgroundErrorMethodId);
+
+  InitCallbackMethodId(m_on_stall_conditions_changed_mid,
+      EnabledEventCallback::ON_STALL_CONDITIONS_CHANGED,
+      env,
+      AbstractEventListenerJni::getOnStallConditionsChangedMethodId);
+
+  InitCallbackMethodId(m_on_file_read_finish_mid,
+      EnabledEventCallback::ON_FILE_READ_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileReadFinishMethodId);
+
+  InitCallbackMethodId(m_on_file_write_finish_mid,
+      EnabledEventCallback::ON_FILE_WRITE_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileWriteFinishMethodId);
+
+  InitCallbackMethodId(m_on_error_recovery_begin_mid,
+      EnabledEventCallback::ON_ERROR_RECOVERY_BEGIN,
+      env,
+      AbstractEventListenerJni::getOnErrorRecoveryBeginMethodId);
+
+  InitCallbackMethodId(m_on_error_recovery_completed_mid,
+      EnabledEventCallback::ON_ERROR_RECOVERY_COMPLETED,
+      env,
+      AbstractEventListenerJni::getOnErrorRecoveryCompletedMethodId);
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {
@@ -70,22 +133,10 @@ void EventListenerJniCallback::OnFlushBegin(DB* db,
 }
 
 void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& info) {
-  if (m_on_table_file_deleted_mid == nullptr) {
-    return;
-  }
-
-  jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = getJniEnv(&attached_thread);
-  assert(env != nullptr);
-
-  jobject jdeletion_info =
-      TableFileDeletionInfoJni::fromCppTableFileDeletionInfo(env, &info);
-  if (jdeletion_info == nullptr) {
-    // exception thrown from fromCppFlushJobInfo
-    env->ExceptionDescribe();  // print out exception to stderr
-    releaseJniEnv(attached_thread);
-    return;
-  }
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jdeletion_info = SetupCallbackInvocation<FlushJobInfo>(env, attached_thread,
+      m_on_table_file_deleted_mid, info, TableFileDeletionInfoJni::fromCppTableFileDeletionInfo);
 
   env->CallVoidMethod(m_jcallback_obj,
       m_on_table_file_deleted_mid,
@@ -94,8 +145,34 @@ void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& i
   CleanEnv(env, attached_thread, { &jdeletion_info });
 }
 
-void EventListenerJniCallback::OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
-void EventListenerJniCallback::OnCompactionCompleted(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
+void EventListenerJniCallback::OnCompactionBegin(DB* db, const CompactionJobInfo& ci) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jcompaction_job_info = SetupCallbackInvocation<CompactionJobInfo>(env, attached_thread,
+      m_on_compaction_begin_proxy_mid, ci, CompactionJobInfoJni::fromCppCompactionJobInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_compaction_begin_proxy_mid,
+      reinterpret_cast<jlong>(db),
+      jcompaction_job_info);
+
+  CleanEnv(env, attached_thread, { &jcompaction_job_info });
+}
+
+void EventListenerJniCallback::OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jcompaction_job_info = SetupCallbackInvocation<CompactionJobInfo>(env, attached_thread,
+      m_on_compaction_completed_proxy_mid, ci, CompactionJobInfoJni::fromCppCompactionJobInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_compaction_completed_proxy_mid,
+      reinterpret_cast<jlong>(db),
+      jcompaction_job_info);
+
+  CleanEnv(env, attached_thread, { &jcompaction_job_info });
+}
+
 void EventListenerJniCallback::OnTableFileCreated(const TableFileCreationInfo& /*info*/) {}
 void EventListenerJniCallback::OnTableFileCreationStarted(const TableFileCreationBriefInfo& /*info*/) {}
 void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& /*info*/) {}

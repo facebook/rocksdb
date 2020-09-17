@@ -33,11 +33,10 @@ enum EnabledEventCallback {
   ON_STALL_CONDITIONS_CHANGED = 0xB,
   ON_FILE_READ_FINISH = 0xC,
   ON_FILE_WRITE_FINISH = 0xD,
-  SHOULD_BE_NOTIFIED_ON_FILE_IO = 0xE,
-  ON_ERROR_RECOVERY_BEGIN = 0xF,
-  ON_ERROR_RECOVERY_COMPLETED = 0x10,
+  ON_ERROR_RECOVERY_BEGIN = 0xE,
+  ON_ERROR_RECOVERY_COMPLETED = 0xF,
 
-  NUM_ENABLED_EVENT_CALLBACK = 0x11,
+  NUM_ENABLED_EVENT_CALLBACK = 0x10,
 };
 
 class EventListenerJniCallback : public JniCallback, public EventListener {
@@ -83,6 +82,17 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jmethodID m_on_table_file_deleted_mid;
   jmethodID m_on_compaction_begin_proxy_mid;
   jmethodID m_on_compaction_completed_proxy_mid;
+  jmethodID m_on_table_file_created_mid;
+  jmethodID m_on_table_file_creation_started_mid;
+  jmethodID m_on_mem_table_sealed_mid;
+  jmethodID m_on_column_family_handle_deletion_started_mid;
+  jmethodID m_on_external_file_ingested_mid;
+  jmethodID m_on_background_error_mid;
+  jmethodID m_on_stall_conditions_changed_mid;
+  jmethodID m_on_file_read_finish_mid;
+  jmethodID m_on_file_write_finish_mid;
+  jmethodID m_on_error_recovery_begin_mid;
+  jmethodID m_on_error_recovery_completed_mid;
 };
 
 }  //namespace rocksdb
