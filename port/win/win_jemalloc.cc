@@ -46,6 +46,8 @@ void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT { je_free(p); }
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
+#if (JEMALLOC_VERSION_MAJOR < 5)
+
 void* operator new(size_t size) {
   void* p = je_malloc(size);
   if (!p) {
@@ -73,3 +75,5 @@ void operator delete[](void* p) {
     je_free(p);
   }
 }
+
+#endif  // (JEMALLOC_VERSION_MAJOR < 5)
