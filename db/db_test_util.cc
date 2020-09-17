@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 
 #include "db/forward_iterator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
@@ -53,10 +54,6 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
-#ifndef ROCKSDB_LITE
-ROT13BlockCipher rot13Cipher_(16);
-#endif  // ROCKSDB_LITE
-
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
@@ -76,8 +73,11 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
-    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env,
-                                     new CTREncryptionProvider(rot13Cipher_));
+    std::shared_ptr<EncryptionProvider> provider;
+    Status s = EncryptionProvider::CreateFromString(
+        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
+        &provider);
+    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
