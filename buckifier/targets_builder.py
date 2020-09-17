@@ -27,9 +27,9 @@ def pretty_list(lst, indent=8):
 class TARGETSBuilder(object):
     def __init__(self, path):
         self.path = path
-        self.targets_file = open(path, 'w')
+        self.targets_file = open(path, 'wb')
         header = targets_cfg.rocksdb_target_header_template
-        self.targets_file.write(header)
+        self.targets_file.write(header.encode("utf-8"))
         self.total_lib = 0
         self.total_bin = 0
         self.total_test = 0
@@ -52,7 +52,7 @@ class TARGETSBuilder(object):
             headers_attr_prefix=headers_attr_prefix,
             headers=headers,
             deps=pretty_list(deps),
-            extra_external_deps=extra_external_deps))
+            extra_external_deps=extra_external_deps).encode("utf-8"))
         self.total_lib = self.total_lib + 1
 
     def add_rocksdb_library(self, name, srcs, headers=None):
@@ -66,18 +66,18 @@ class TARGETSBuilder(object):
             name=name,
             srcs=pretty_list(srcs),
             headers_attr_prefix=headers_attr_prefix,
-            headers=headers))
+            headers=headers).encode("utf-8"))
         self.total_lib = self.total_lib + 1
 
     def add_binary(self, name, srcs, deps=None):
-        self.targets_file.write(targets_cfg.binary_template % (
-            name,
-            pretty_list(srcs),
-            pretty_list(deps)))
+        self.targets_file.write(targets_cfg.binary_template.format(
+            name=name,
+            srcs=pretty_list(srcs),
+            deps=pretty_list(deps)).encode("utf-8"))
         self.total_bin = self.total_bin + 1
 
     def add_c_test(self):
-        self.targets_file.write("""
+        self.targets_file.write(b"""
 if not is_opt_mode:
     cpp_binary(
         name = "c_test_bin",
@@ -119,5 +119,5 @@ if not is_opt_mode:
         self.total_test = self.total_test + 1
 
     def flush_tests(self):
-        self.targets_file.write(targets_cfg.unittests_template % self.tests_cfg)
+        self.targets_file.write(targets_cfg.unittests_template.format(tests=self.tests_cfg).encode("utf-8"))
         self.tests_cfg = ""

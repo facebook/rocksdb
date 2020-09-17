@@ -129,6 +129,12 @@ LIB_SOURCES =                                                   \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
   port/port_posix.cc                                            \
+  port/win/env_default.cc                                       \
+  port/win/env_win.cc                                           \
+  port/win/io_win.cc                                            \
+  port/win/port_win.cc                                          \
+  port/win/win_logger.cc                                        \
+  port/win/win_thread.cc                                        \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
   table/block_based/binary_search_index_reader.cc               \
