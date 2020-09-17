@@ -1236,11 +1236,22 @@ Status StressTest::TestBackupRestore(
       backup_opts.share_files_with_checksum = true;
       if (thread->rand.OneIn(2)) {
         // old
-        backup_opts.share_files_with_checksum_naming = kChecksumAndFileSize;
+        backup_opts.share_files_with_checksum_naming =
+            BackupableDBOptions::kLegacyCrc32cAndFileSize;
       } else {
         // new
         backup_opts.share_files_with_checksum_naming =
-            kOptionalChecksumAndDbSessionId;
+            BackupableDBOptions::kUseDbSessionId;
+      }
+      if (thread->rand.OneIn(2)) {
+        backup_opts.share_files_with_checksum_naming =
+            backup_opts.share_files_with_checksum_naming |
+            BackupableDBOptions::kFlagIncludeFileSize;
+      }
+      if (thread->rand.OneIn(2)) {
+        backup_opts.share_files_with_checksum_naming =
+            backup_opts.share_files_with_checksum_naming |
+            BackupableDBOptions::kFlagMatchInterimNaming;
       }
     }
   }

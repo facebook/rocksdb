@@ -38,6 +38,15 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+const auto kLegacyCrc32cAndFileSize =
+    BackupableDBOptions::kLegacyCrc32cAndFileSize;
+const auto kUseDbSessionId = BackupableDBOptions::kUseDbSessionId;
+const auto kFlagIncludeFileSize = BackupableDBOptions::kFlagIncludeFileSize;
+const auto kFlagMatchInterimNaming =
+    BackupableDBOptions::kFlagMatchInterimNaming;
+const auto kNamingDefault =
+    kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming;
 
 class DummyFileChecksumGen : public FileChecksumGenerator {
  public:
@@ -892,6 +901,45 @@ class BackupableDBTest : public testing::Test {
     return WriteStringToFile(test_db_env_.get(), file_contents, fname);
   }
 
+  void AssertDirectoryFilesMatchRegex(const std::string& dir,
+                                      const std::regex& pattern,
+                                      int minimum_count) {
+    std::vector<FileAttributes> children;
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+    int found_count = 0;
+    for (const auto& child : children) {
+      if (child.name == "." || child.name == "..") {
+        continue;
+      }
+      const std::string match("match");
+      ASSERT_EQ(match, std::regex_replace(child.name, pattern, match));
+      ++found_count;
+    }
+    ASSERT_GE(found_count, minimum_count);
+  }
+
+  void AssertDirectoryFilesSizeIndicators(const std::string& dir,
+                                          int minimum_count) {
+    std::vector<FileAttributes> children;
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+    int found_count = 0;
+    for (const auto& child : children) {
+      if (child.name == "." || child.name == "..") {
+        continue;
+      }
+      auto last_underscore = child.name.find_last_of('_');
+      auto last_dot = child.name.find_last_of('.');
+      ASSERT_NE(child.name, child.name.substr(0, last_underscore));
+      ASSERT_NE(child.name, child.name.substr(0, last_dot));
+      ASSERT_LT(last_underscore, last_dot);
+      std::string s = child.name.substr(last_underscore + 1,
+                                        last_dot - (last_underscore + 1));
+      ASSERT_EQ(s, ToString(child.size_bytes));
+      ++found_count;
+    }
+    ASSERT_GE(found_count, minimum_count);
+  }
+
   // files
   std::string dbname_;
   std::string backupdir_;
@@ -1711,7 +1759,8 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
 
 TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
   const int keys_iteration = 50000;
-  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
   // When share_files_with_checksum is on, we calculate checksums of table
   // files before and after copying. So we can test whether a corruption has
   // happened during the file is copied to backup directory.
@@ -1845,6 +1894,7 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
     CloseDBAndBackupEngine();
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
+    /* FIXME(peterd): reinstate with option for checksum in file names
     if (sopt == kShareWithChecksum) {
       // Ensure we actually got DB manifest checksums by inspecting
       // shared_checksum file names for hex checksum component
@@ -1860,6 +1910,7 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
         EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
       }
     }
+    */
     AssertBackupConsistency(0, 0, keys_iteration);
   }
 }
@@ -2071,42 +2122,146 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   }
 }
 
-//  Verify backup and restore with share_files_with_checksum on and
-//  share_files_with_checksum_naming = kOptionalChecksumAndDbSessionId
+// Verify backup and restore with various naming options, check names
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
-  // Use session id in the name of SST files
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kOptionalChecksumAndDbSessionId);
+              kNamingDefault);
+
   const int keys_iteration = 5000;
-  int i = 0;
 
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
-  FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
+  FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
-  AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
-                          keys_iteration * (i + 2));
 
-  // Both checksum and session id in the name of SST files
-  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
-  OpenDBAndBackupEngine(false, false, kShareWithChecksum);
-  FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(i % 2)));
+  static const std::map<ShareFilesNaming, std::string> option_to_expected = {
+      {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      // kFlagIncludeFileSize redundant here
+      {kLegacyCrc32cAndFileSize | kFlagIncludeFileSize,
+       "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      {kUseDbSessionId, "[0-9]+_s[0-9A-Z]{20}[.]sst"},
+      {kUseDbSessionId | kFlagIncludeFileSize,
+       "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
+  };
+
+  for (const auto& pair : option_to_expected) {
+    // kFlagMatchInterimNaming must not matter on new SST files
+    for (const auto option :
+         {pair.first, pair.first | kFlagMatchInterimNaming}) {
+      CloseAndReopenDB();
+      backupable_options_->share_files_with_checksum_naming = option;
+      OpenBackupEngine(true /*destroy_old_data*/);
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      CloseDBAndBackupEngine();
+      AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+      AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                     std::regex(pair.second),
+                                     1 /* minimum_count */);
+      if (std::string::npos != pair.second.find("_[0-9]+[.]sst")) {
+        AssertDirectoryFilesSizeIndicators(backupdir_ + "/shared_checksum",
+                                           1 /* minimum_count */);
+      }
+    }
+  }
+}
+
+// Mimic SST file generated by early internal-only 6.12 release
+// and test various naming options. This test can be removed when
+// the kFlagMatchInterimNaming feature is removed.
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsInterimNaming) {
+  const int keys_iteration = 5000;
+
+  // Essentially, reinstate old implementaiton of generating a DB
+  // session id. This is how we distinguish "interim" SST files from
+  // newer ones: from the form of the db session id string.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SetDbSessionId", [&](void* sid_void_star) {
+        std::string* sid = static_cast<std::string*>(sid_void_star);
+        *sid = test_db_env_->GenerateUniqueId();
+        if (!sid->empty() && sid->back() == '\n') {
+          sid->pop_back();
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
-  AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
-                          keys_iteration * (i + 2));
+
+  static const std::map<ShareFilesNaming, std::string> option_to_expected = {
+      {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      // kFlagMatchInterimNaming ignored here
+      {kLegacyCrc32cAndFileSize | kFlagMatchInterimNaming,
+       "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      {kUseDbSessionId, "[0-9]+_s[0-9a-fA-F-]+[.]sst"},
+      {kUseDbSessionId | kFlagIncludeFileSize,
+       "[0-9]+_s[0-9a-fA-F-]+_[0-9]+[.]sst"},
+      {kUseDbSessionId | kFlagMatchInterimNaming, "[0-9]+_[0-9a-fA-F-]+[.]sst"},
+      {kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming,
+       "[0-9]+_[0-9a-fA-F-]+[.]sst"},
+  };
+
+  for (const auto& pair : option_to_expected) {
+    CloseAndReopenDB();
+    backupable_options_->share_files_with_checksum_naming = pair.first;
+    OpenBackupEngine(true /*destroy_old_data*/);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                   std::regex(pair.second),
+                                   1 /* minimum_count */);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Mimic SST file generated by pre-6.12 releases and verify that
+// old names are always used regardless of naming option.
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsOldFileNaming) {
+  const int keys_iteration = 5000;
+
+  // Pre-6.12 release did not include db id and db session id properties.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
+        auto props = static_cast<TableProperties*>(props_vs);
+        props->db_id = "";
+        props->db_session_id = "";
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseDBAndBackupEngine();
+
+  // Old names should always be used on old files
+  const std::regex expected("[0-9]+_[0-9]+_[0-9]+[.]sst");
+
+  for (ShareFilesNaming option : {kNamingDefault, kUseDbSessionId}) {
+    CloseAndReopenDB();
+    backupable_options_->share_files_with_checksum_naming = option;
+    OpenBackupEngine(true /*destroy_old_data*/);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", expected,
+                                   1 /* minimum_count */);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // Verify backup and restore with share_files_with_checksum off and then
 // transition this option to on and share_files_with_checksum_naming to be
-// kOptionalChecksumAndDbSessionId
+// based on kUseDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   const int keys_iteration = 5000;
-  // We may set share_files_with_checksum_naming to kChecksumAndFileSize
+  // We may set share_files_with_checksum_naming to kLegacyCrc32cAndFileSize
   // here but even if we don't, it should have no effect when
   // share_files_with_checksum is false
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kOptionalChecksumAndDbSessionId);
+              kNamingDefault);
   // set share_files_with_checksum to false
   OpenDBAndBackupEngine(true, false, kShareNoChecksum);
   int j = 3;
@@ -2124,7 +2279,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   // set share_files_with_checksum to true and do some more backups
   // and use session id in the name of SST file backup
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kOptionalChecksumAndDbSessionId);
+              kNamingDefault);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
@@ -2144,9 +2299,9 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 
   // For an extra challenge, make sure that GarbageCollect / DeleteBackup
   // is OK even if we open without share_table_files but with
-  // share_files_with_checksum_naming being kOptionalChecksumAndDbSessionId
+  // share_files_with_checksum_naming based on kUseDbSessionId
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
-              kOptionalChecksumAndDbSessionId);
+              kNamingDefault);
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(1);
   backup_engine_->GarbageCollect();
@@ -2158,7 +2313,8 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
   // Use checksum and file size for backup table file names and open without
   // share_table_files
   // Again, make sure that GarbageCollect / DeleteBackup is OK
-  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(2);
   backup_engine_->GarbageCollect();
@@ -2172,9 +2328,10 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
 }
 
 // Verify backup and restore with share_files_with_checksum on and transition
-// from kChecksumAndFileSize to kOptionalChecksumAndDbSessionId
+// from kLegacyCrc32cAndFileSize to kUseDbSessionId
 TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
-  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
   const int keys_iteration = 5000;
   // set share_files_with_checksum to true
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
@@ -2190,8 +2347,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
                             keys_iteration * (j + 1));
   }
 
-  backupable_options_->share_files_with_checksum_naming =
-      kOptionalChecksumAndDbSessionId;
+  backupable_options_->share_files_with_checksum_naming = kUseDbSessionId;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false,
                         kShareWithChecksum);
   FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
@@ -2222,7 +2378,8 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
   // Use checksum and file size for backup table file names and open without
   // share_table_files
   // Again, make sure that GarbageCollect / DeleteBackup is OK
-  backupable_options_->share_files_with_checksum_naming = kChecksumAndFileSize;
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
   OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
   backup_engine_->DeleteBackup(2);
   backup_engine_->GarbageCollect();
