@@ -7949,7 +7949,7 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
         jclazz, "onErrorRecoveryBegin",
-        "(Lorg/rocksdb/BackgroundErrorReason;Lorg/rocksdb/Status;)V");
+        "(Lorg/rocksdb/BackgroundErrorReason;Lorg/rocksdb/Status;)Z");
     assert(mid != nullptr);
     return mid;
   }
@@ -8009,9 +8009,11 @@ class FlushJobInfoJni : public JavaClass {
     }
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
+    jstring cf_name = JniUtil::toJavaString(env, &flush_job_info->cf_name);
+    jstring file_path = JniUtil::toJavaString(env, &flush_job_info->file_path);
     // TODO(TP): add TableProperties
     return env->NewObject(jclazz, ctor, static_cast<jlong>(flush_job_info->cf_id),
-        JniUtil::toJavaString(env, &flush_job_info->cf_name), JniUtil::toJavaString(env, &flush_job_info->file_path),
+        cf_name, file_path,
         static_cast<jlong>(flush_job_info->thread_id), static_cast<jint>(flush_job_info->job_id),
         static_cast<jboolean>(flush_job_info->triggered_writes_slowdown), static_cast<jboolean>(flush_job_info->triggered_writes_stop),
         static_cast<jlong>(flush_job_info->smallest_seqno), static_cast<jlong>(flush_job_info->largest_seqno),
@@ -8048,8 +8050,9 @@ class TableFileDeletionInfoJni : public JavaClass {
     }
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
+    jstring db_name = JniUtil::toJavaString(env, &file_del_info->db_name);
     // TODO(TP): add Status
-    return env->NewObject(jclazz, ctor, JniUtil::toJavaString(env, &file_del_info->db_name),
+    return env->NewObject(jclazz, ctor, db_name,
         JniUtil::toJavaString(env, &file_del_info->file_path), static_cast<jint>(file_del_info->job_id),
         nullptr);
   }
@@ -8082,6 +8085,33 @@ class CompactionJobInfoJni : public JavaClass {
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
     return env->GetMethodID(clazz, "<init>",
                    "(J)V");
+  }
+};
+
+class TableFileCreationInfoJni : public JavaClass {
+ public:
+  static jobject fromCppTableFileCreationInfo(JNIEnv* env,
+      const ROCKSDB_NAMESPACE::TableFileCreationInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring db_name = JniUtil::toJavaString(env, &info->db_name);
+    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
+    jstring file_path = JniUtil::toJavaString(env, &info->file_path);
+    // TODO(TP): add TableProperties and Status
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(info->file_size), nullptr,
+        nullptr, db_name, cf_name, file_path, static_cast<jint>(info->job_id),
+        static_cast<jbyte>(info->reason));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableFileCreationInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(JLorg/rocksdb/TableProperties;Lorg/rocksdb/Status;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IB)V");
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

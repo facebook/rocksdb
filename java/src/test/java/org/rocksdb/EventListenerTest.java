@@ -55,7 +55,6 @@ public class EventListenerTest {
     flushDb(onFlushCompletedListener, wasCbCalled);
   }
 
-  @Ignore("Not implemented")
   @Test
   public void onFlushBegin() throws RocksDBException {
     // Callback is synchronous, but we need mutable container to update boolean value in other method
@@ -105,5 +104,67 @@ public class EventListenerTest {
       }
     };
     deleteTableFile(onTableFileDeletedListener, wasCbCalled);
+  }
+
+  void compactRange(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+    try (final Options opt = new Options()
+        .setCreateIfMissing(true)
+        .setListeners(el);
+         final RocksDB db =
+             RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      assertThat(db).isNotNull();
+      byte[] value = new byte[24];
+      rand.nextBytes(value);
+      db.put("testKey".getBytes(), value);
+      db.compactRange();
+      assertTrue(wasCbCalled.get());
+    }
+  }
+
+  @Test
+  public void onCompactionBegin() throws RocksDBException {
+    // Callback is synchronous, but we need mutable container to update boolean value in other method
+    final AtomicBoolean wasCbCalled = new AtomicBoolean();
+    AbstractEventListener onCompactionBeginListener = new AbstractEventListener() {
+      @Override
+      public void onCompactionBegin(final RocksDB db,
+                                    final CompactionJobInfo compactionJobInfo) {
+        // TODO(TP): add more asserts ?
+        assertEquals(CompactionReason.kManualCompaction, compactionJobInfo.compactionReason());
+        wasCbCalled.set(true);
+      }
+    };
+    compactRange(onCompactionBeginListener, wasCbCalled);
+  }
+
+  @Test
+  public void onCompactionCompleted() throws RocksDBException {
+    // Callback is synchronous, but we need mutable container to update boolean value in other method
+    final AtomicBoolean wasCbCalled = new AtomicBoolean();
+    AbstractEventListener onCompactionCompletedListener = new AbstractEventListener() {
+      @Override
+      public void onCompactionCompleted(final RocksDB db,
+                                    final CompactionJobInfo compactionJobInfo) {
+        // TODO(TP): add more asserts ?
+        assertEquals(CompactionReason.kManualCompaction, compactionJobInfo.compactionReason());
+        wasCbCalled.set(true);
+      }
+    };
+    compactRange(onCompactionCompletedListener, wasCbCalled);
+  }
+
+  @Test
+  public void onTableFileCreated() throws RocksDBException {
+    // Callback is synchronous, but we need mutable container to update boolean value in other method
+    final AtomicBoolean wasCbCalled = new AtomicBoolean();
+    AbstractEventListener onTableFileCreatedListener = new AbstractEventListener() {
+      @Override
+      public void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo) {
+        // TODO(TP): add more asserts ?
+        assertEquals(TableFileCreationReason.FLUSH, tableFileCreationInfo.getReason());
+        wasCbCalled.set(true);
+      }
+    };
+    flushDb(onTableFileCreatedListener, wasCbCalled);
   }
 }

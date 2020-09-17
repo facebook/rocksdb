@@ -25,7 +25,7 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
    */
   protected TableFileCreationInfo(final long fileSize,
       final TableProperties tableProperties, final Status status,
-      final String dbName, final byte[] columnFamilyName, final String filePath,
+      final String dbName, final String columnFamilyName, final String filePath,
       final int jobId, final byte tableFileCreationReasonValue) {
     super(dbName, columnFamilyName, filePath, jobId,
         tableFileCreationReasonValue);

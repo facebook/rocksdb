@@ -135,7 +135,7 @@ void EventListenerJniCallback::OnFlushBegin(DB* db,
 void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& info) {
   JNIEnv *env;
   jboolean attached_thread;
-  jobject jdeletion_info = SetupCallbackInvocation<FlushJobInfo>(env, attached_thread,
+  jobject jdeletion_info = SetupCallbackInvocation<TableFileDeletionInfo>(env, attached_thread,
       m_on_table_file_deleted_mid, info, TableFileDeletionInfoJni::fromCppTableFileDeletionInfo);
 
   env->CallVoidMethod(m_jcallback_obj,
@@ -173,7 +173,19 @@ void EventListenerJniCallback::OnCompactionCompleted(DB* db, const CompactionJob
   CleanEnv(env, attached_thread, { &jcompaction_job_info });
 }
 
-void EventListenerJniCallback::OnTableFileCreated(const TableFileCreationInfo& /*info*/) {}
+void EventListenerJniCallback::OnTableFileCreated(const TableFileCreationInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jfile_creation_info = SetupCallbackInvocation<TableFileCreationInfo>(env, attached_thread,
+      m_on_table_file_created_mid, info, TableFileCreationInfoJni::fromCppTableFileCreationInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_table_file_created_mid,
+      jfile_creation_info);
+
+  CleanEnv(env, attached_thread, { &jfile_creation_info });
+}
+
 void EventListenerJniCallback::OnTableFileCreationStarted(const TableFileCreationBriefInfo& /*info*/) {}
 void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& /*info*/) {}
 void EventListenerJniCallback::OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* /*handle*/) {}

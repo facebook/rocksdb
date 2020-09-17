@@ -7,7 +7,7 @@ package org.rocksdb;
 
 public class TableFileCreationBriefInfo {
   private final String dbName;
-  private final byte[] columnFamilyName;
+  private final String columnFamilyName;
   private final String filePath;
   private final int jobId;
   private final TableFileCreationReason reason;
@@ -15,7 +15,7 @@ public class TableFileCreationBriefInfo {
   /**
    * Access is private as this will only be constructed from
    * C++ via JNI, either directly of via
-   * {@link TableFileCreationInfo#TableFileCreationInfo(long, TableProperties, Status, String, byte[], String, int, byte)}.
+   * {@link TableFileCreationInfo#TableFileCreationInfo(long, TableProperties, Status, String, String, String, int, byte)}.
    *
    * @param dbName the database name
    * @param columnFamilyName the column family name
@@ -24,7 +24,7 @@ public class TableFileCreationBriefInfo {
    * @param tableFileCreationReasonValue the reason for creation of the table file
    */
   protected TableFileCreationBriefInfo(final String dbName,
-      final byte[] columnFamilyName, final String filePath, final int jobId,
+      final String columnFamilyName, final String filePath, final int jobId,
       final byte tableFileCreationReasonValue) {
     this.dbName = dbName;
     this.columnFamilyName = columnFamilyName;
@@ -48,7 +48,7 @@ public class TableFileCreationBriefInfo {
    *
    * @return the name of the column family.
    */
-  public byte[] getColumnFamilyName() {
+  public String getColumnFamilyName() {
     return columnFamilyName;
   }
 
