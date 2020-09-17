@@ -16,29 +16,22 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
         : JniCallback(env, jevent_listener),
         m_enabled_event_callbacks(enabled_event_callbacks) {
 
-  if (enabled_event_callbacks.count(
-      EnabledEventCallback::ON_FLUSH_COMPLETED) == 1) {
-    m_on_flush_completed_proxy_mid =
-        AbstractEventListenerJni::getOnFlushCompletedProxyMethodId(env);
-    if(m_on_flush_completed_proxy_mid == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return;
-    }
-  } else {
-    m_on_flush_completed_proxy_mid = nullptr;
-  }
-
-  if (enabled_event_callbacks.count(
-      EnabledEventCallback::ON_TABLE_FILE_DELETED) == 1) {
-    m_on_table_file_deleted_mid =
-        AbstractEventListenerJni::getOnTableFileDeletedMethodId(env);
-    if(m_on_table_file_deleted_mid == nullptr) {
-      // exception thrown: NoSuchMethodException or OutOfMemoryError
-      return;
-    }
-  } else {
-    m_on_table_file_deleted_mid = nullptr;
-  }
+  InitCallbackMethodId(m_on_flush_completed_proxy_mid,
+      EnabledEventCallback::ON_FLUSH_COMPLETED,
+      env,
+      AbstractEventListenerJni::getOnFlushCompletedProxyMethodId);
+  InitCallbackMethodId(m_on_flush_begin_proxy_mid,
+      EnabledEventCallback::ON_FLUSH_BEGIN,
+      env,
+      AbstractEventListenerJni::getOnFlushBeginProxyMethodId);
+  InitCallbackMethodId(m_on_table_file_deleted_mid,
+      EnabledEventCallback::ON_TABLE_FILE_DELETED,
+      env,
+      AbstractEventListenerJni::getOnTableFileDeletedMethodId);
+  InitCallbackMethodId(m_on_compaction_begin_proxy_mid,
+      EnabledEventCallback::ON_COMPACTION_BEGIN,
+      env,
+      AbstractEventListenerJni::getOnCompactionBeginProxyMethodId);
 }
 
 EventListenerJniCallback::~EventListenerJniCallback() {
@@ -47,39 +40,34 @@ EventListenerJniCallback::~EventListenerJniCallback() {
 
 void EventListenerJniCallback::OnFlushCompleted(DB* db,
     const FlushJobInfo& flush_job_info) {
-  if (m_on_flush_completed_proxy_mid == nullptr) {
-    return;
-  }
 
-  jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = getJniEnv(&attached_thread);
-  assert(env != nullptr);
-
-  jobject jflush_job_info =
-      FlushJobInfoJni::fromCppFlushJobInfo(env, &flush_job_info);
-  if (jflush_job_info == nullptr) {
-    // exception thrown from fromCppFlushJobInfo
-    env->ExceptionDescribe();  // print out exception to stderr
-    releaseJniEnv(attached_thread);
-    return;
-  }
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jflush_job_info = SetupCallbackInvocation<FlushJobInfo>(env, attached_thread,
+      m_on_flush_completed_proxy_mid, flush_job_info, FlushJobInfoJni::fromCppFlushJobInfo);
 
   env->CallVoidMethod(m_jcallback_obj,
       m_on_flush_completed_proxy_mid,
       reinterpret_cast<jlong>(db),
       jflush_job_info);
 
-  env->DeleteLocalRef(jflush_job_info);
-
-  if(env->ExceptionCheck()) {
-    // exception thrown from CallVoidMethod
-    env->ExceptionDescribe();  // print out exception to stderr
-  }
-
-  releaseJniEnv(attached_thread);
+  CleanEnv(env, attached_thread, { &jflush_job_info });
 }
 
-void EventListenerJniCallback::OnFlushBegin(DB* /*db*/, const FlushJobInfo& /*flush_job_info*/) {}
+void EventListenerJniCallback::OnFlushBegin(DB* db,
+    const FlushJobInfo& flush_job_info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jflush_job_info = SetupCallbackInvocation<FlushJobInfo>(env, attached_thread,
+      m_on_flush_begin_proxy_mid, flush_job_info, FlushJobInfoJni::fromCppFlushJobInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_flush_begin_proxy_mid,
+      reinterpret_cast<jlong>(db),
+      jflush_job_info);
+
+  CleanEnv(env, attached_thread, { &jflush_job_info });
+}
 
 void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& info) {
   if (m_on_table_file_deleted_mid == nullptr) {
@@ -88,9 +76,7 @@ void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& i
 
   jboolean attached_thread = JNI_FALSE;
   JNIEnv* env = getJniEnv(&attached_thread);
-  if (env == nullptr) {
-    return;
-  }
+  assert(env != nullptr);
 
   jobject jdeletion_info =
       TableFileDeletionInfoJni::fromCppTableFileDeletionInfo(env, &info);
@@ -105,14 +91,7 @@ void EventListenerJniCallback::OnTableFileDeleted(const TableFileDeletionInfo& i
       m_on_table_file_deleted_mid,
       jdeletion_info);
 
-  env->DeleteLocalRef(jdeletion_info);
-
-  if(env->ExceptionCheck()) {
-    // exception thrown from CallVoidMethod
-    env->ExceptionDescribe();  // print out exception to stderr
-  }
-
-  releaseJniEnv(attached_thread);
+  CleanEnv(env, attached_thread, { &jdeletion_info });
 }
 
 void EventListenerJniCallback::OnCompactionBegin(DB* /*db*/, const CompactionJobInfo& /*ci*/) {}
@@ -129,4 +108,52 @@ void EventListenerJniCallback::OnFileWriteFinish(const FileOperationInfo& /* inf
 bool EventListenerJniCallback::ShouldBeNotifiedOnFileIO() { return false; }
 void EventListenerJniCallback::OnErrorRecoveryBegin(BackgroundErrorReason /* reason */, Status /* bg_error */, bool* /* auto_recovery */) {}
 void EventListenerJniCallback::OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+
+void EventListenerJniCallback::InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
+    JNIEnv *env,
+    jmethodID (*get_id)(JNIEnv *env)) {
+  if (m_enabled_event_callbacks.count(eec) == 1) {
+    mid = get_id(env);
+  } else {
+    mid = nullptr;
+  }
+}
+
+template <class T>
+jobject EventListenerJniCallback::SetupCallbackInvocation(JNIEnv*& env, jboolean& attached_thread,
+      const jmethodID& mid,
+      const T& cpp_obj,
+      jobject (*convert)(JNIEnv *env, const T* cpp_obj)) {
+  if (mid == nullptr) {
+    return nullptr;
+  }
+
+  attached_thread = JNI_FALSE;
+  env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jobject jflush_job_info = convert(env, &cpp_obj);
+  if (jflush_job_info == nullptr) {
+    // exception thrown from fromCppFlushJobInfo
+    env->ExceptionDescribe();  // print out exception to stderr
+    releaseJniEnv(attached_thread);
+  }
+
+  return jflush_job_info;
+}
+
+void EventListenerJniCallback::CleanEnv(JNIEnv *env,
+    jboolean attached_thread, std::initializer_list<jobject*> refs) {
+
+  for (auto* ref : refs) {
+    env->DeleteLocalRef(*ref);
+  }
+
+  if(env->ExceptionCheck()) {
+    // exception thrown from CallVoidMethod
+    env->ExceptionDescribe();  // print out exception to stderr
+  }
+
+  releaseJniEnv(attached_thread);
+}
 }  // namespace rocksdb

@@ -68,9 +68,21 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   virtual void OnErrorRecoveryCompleted(Status old_bg_error);
 
  private:
+  void InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
+      JNIEnv *env,
+      jmethodID (*get_id)(JNIEnv *env));
+  template <class T> jobject SetupCallbackInvocation(JNIEnv*& env, jboolean& attached_thread,
+      const jmethodID& mid, const T& cpp_obj,
+      jobject (*convert)(JNIEnv *env, const T* cpp_obj));
+  void CleanEnv(JNIEnv *env,
+      jboolean attached_thread, std::initializer_list<jobject*> refs);
+
   const std::set<EnabledEventCallback> m_enabled_event_callbacks;
   jmethodID m_on_flush_completed_proxy_mid;
+  jmethodID m_on_flush_begin_proxy_mid;
   jmethodID m_on_table_file_deleted_mid;
+  jmethodID m_on_compaction_begin_proxy_mid;
+  jmethodID m_on_compaction_completed_proxy_mid;
 };
 
 }  //namespace rocksdb

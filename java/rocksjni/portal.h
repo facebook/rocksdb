@@ -7704,16 +7704,11 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
    *
    * @param env A pointer to the Java environment
    *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   * @return The Java Method ID
    */
   static jmethodID getOnFlushCompletedProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
+    assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
         jclazz, "onFlushCompletedProxy",
         "(JLorg/rocksdb/FlushJobInfo;)V");
@@ -7721,16 +7716,53 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
     return mid;
   }
 
+  /**
+   * Get the Java Method: AbstractEventListener#onFlushBeginProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFlushBeginProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onFlushBeginProxy",
+        "(JLorg/rocksdb/FlushJobInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onFlushCompletedProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
   static jmethodID getOnTableFileDeletedMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
+    assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
         jclazz, "onTableFileDeleted",
         "(Lorg/rocksdb/TableFileDeletionInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onCompactionBeginProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnCompactionBeginProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onCompactionBeginProxy",
+        "(JLorg/rocksdb/CompactionJobInfo;)V");
     assert(mid != nullptr);
     return mid;
   }

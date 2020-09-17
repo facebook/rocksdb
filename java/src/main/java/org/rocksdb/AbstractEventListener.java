@@ -120,7 +120,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
 
   /**
    * Called from JNI, proxy for
-   *     {@link #onFlushCompleted(RocksDB ,FlushJobInfo)}.
+   *     {@link #onFlushCompleted(RocksDB, FlushJobInfo)}.
    *
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
@@ -139,7 +139,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
 
   /**
    * Called from JNI, proxy for
-   *     {@link #onFlushBegin(RocksDB ,FlushJobInfo)}.
+   *     {@link #onFlushBegin(RocksDB, FlushJobInfo)}.
    *
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
@@ -161,6 +161,20 @@ public abstract class AbstractEventListener extends RocksCallbackObject
   public void onCompactionBegin(final RocksDB db,
       final CompactionJobInfo compactionJobInfo) {
     // no-op
+  }
+
+  /**
+   * Called from JNI, proxy for
+   *     {@link #onCompactionBegin(RocksDB, CompactionJobInfo)}.
+   *
+   * @param dbHandle native handle of the database
+   * @param compactionJobInfo the flush job info
+   */
+  private void onCompactionBeginProxy(final long dbHandle,
+                                 final CompactionJobInfo compactionJobInfo) {
+    final RocksDB db = new RocksDB(dbHandle);
+    db.disOwnNativeHandle();  // we don't own this!
+    onCompactionBegin(db, compactionJobInfo);
   }
 
   @Override
