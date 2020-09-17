@@ -1348,12 +1348,14 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   if (to_level != level) {
     if (to_level > level) {
       if (level == 0) {
+        refitting_level_ = false;
         return Status::NotSupported(
             "Cannot change from level 0 to other levels.");
       }
       // Check levels are empty for a trivial move
       for (int l = level + 1; l <= to_level; l++) {
         if (vstorage->NumLevelFiles(l) > 0) {
+          refitting_level_ = false;
           return Status::NotSupported(
               "Levels between source and target are not empty for a move.");
         }
@@ -1363,6 +1365,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       // Check levels are empty for a trivial move
       for (int l = to_level; l < level; l++) {
         if (vstorage->NumLevelFiles(l) > 0) {
+          refitting_level_ = false;
           return Status::NotSupported(
               "Levels between source and target are not empty for a move.");
         }
