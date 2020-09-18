@@ -24,8 +24,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// The default DB file checksum function name.
+constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 // The default BackupEngine file checksum function name.
-constexpr char kDefaultBackupFileChecksumFuncName[] = "crc32c";
+constexpr char kBackupFileChecksumFuncName[] = "crc32c";
 
 struct BackupableDBOptions {
   // Where to keep the backup files. Has to be different than dbname_
@@ -194,33 +196,6 @@ struct BackupableDBOptions {
   // and share_table_files are true.
   ShareFilesNaming share_files_with_checksum_naming;
 
-  // Option for custom checksum functions.
-  // When this option is nullptr, BackupEngine will use its default crc32c as
-  // the checksum function.
-  //
-  // When it is not nullptr, BackupEngine will try to find in the factory the
-  // checksum function that DB used to calculate the file checksums. If such a
-  // function is found, BackupEngine will use it to create, verify, or restore
-  // backups, in addition to the default crc32c checksum function. If such a
-  // function is not found, BackupEngine will return Status::InvalidArgument().
-  // Therefore, this option comes into effect only if DB has a custom checksum
-  // factory and this option is set to the same factory.
-  //
-  //
-  // Note: If share_files_with_checksum and share_table_files are true,
-  // the <checksum> appeared in the table filenames will be the custom checksum
-  // value if db session ids are available (namely, table file naming options
-  // is kOptionalChecksumAndDbSessionId and the db session ids obtained from
-  // the table files are nonempty).
-  //
-  // Note: We do not require the same setting to this option for backup
-  // restoration or verification as was set during backup creation but we
-  // strongly recommend setting it to the same as the DB file checksum function
-  // for all BackupEngine interactions when practical.
-  //
-  // Default: nullptr
-  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
-
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
@@ -233,9 +208,7 @@ struct BackupableDBOptions {
       int _max_valid_backups_to_open = INT_MAX,
       ShareFilesNaming _share_files_with_checksum_naming =
           static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize |
-                                        kFlagMatchInterimNaming),
-      std::shared_ptr<FileChecksumGenFactory> _file_checksum_gen_factory =
-          nullptr)
+                                        kFlagMatchInterimNaming))
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -249,8 +222,7 @@ struct BackupableDBOptions {
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
-        share_files_with_checksum_naming(_share_files_with_checksum_naming),
-        file_checksum_gen_factory(_file_checksum_gen_factory) {
+        share_files_with_checksum_naming(_share_files_with_checksum_naming) {
     assert(share_table_files || !share_files_with_checksum);
     assert((share_files_with_checksum_naming & kMaskNoNamingFlags) != 0);
   }
@@ -407,18 +379,16 @@ class BackupEngineReadOnly {
   }
 
   // If verify_with_checksum is true, this function
-  // inspects the default crc32c checksums and file sizes of backup files to
-  // see if they match our expectation. This function further inspects the
-  // custom checksums if BackupableDBOptions::file_checksum_gen_factory is
-  // the same as DBOptions::file_checksum_gen_factory.
+  // inspects the current checksums and file sizes of backup files to see if
+  // they match our expectation.
   //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
   // expectation. It does not check file checksum.
   //
   // If this BackupEngine created the backup, it compares the files' current
-  // sizes (and current checksums) against the number of bytes written to
-  // them (and the checksums calculated) during creation.
+  // sizes (and current checksum) against the number of bytes written to
+  // them (and the checksum calculated) during creation.
   // Otherwise, it compares the files' current sizes (and checksums) against
   // their sizes (and checksums) when the BackupEngine was opened.
   //
@@ -538,9 +508,7 @@ class BackupEngine {
 
   // If verify_with_checksum is true, this function
   // inspects the current checksums and file sizes of backup files to see if
-  // they match our expectation. It further inspects the custom checksums
-  // if BackupableDBOptions::file_checksum_gen_factory is the same as
-  // DBOptions::file_checksum_gen_factory.
+  // they match our expectation.
   //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
