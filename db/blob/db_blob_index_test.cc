@@ -73,6 +73,9 @@ class DBBlobIndexTest : public DBTestBase {
     if (s.IsNotFound()) {
       return "NOT_FOUND";
     }
+    if (s.IsCorruption()) {
+      return "CORRUPTION";
+    }
     if (s.IsNotSupported()) {
       return "NOT_SUPPORTED";
     }
@@ -171,8 +174,13 @@ TEST_F(DBBlobIndexTest, Get) {
     ASSERT_EQ("value", GetImpl("key", &is_blob_index));
     ASSERT_FALSE(is_blob_index);
     // Verify blob index
-    ASSERT_TRUE(Get("blob_key", &value).IsNotSupported());
-    ASSERT_EQ("NOT_SUPPORTED", GetImpl("blob_key"));
+    if (tier <= kImmutableMemtables) {
+      ASSERT_TRUE(Get("blob_key", &value).IsNotSupported());
+      ASSERT_EQ("NOT_SUPPORTED", GetImpl("blob_key"));
+    } else {
+      ASSERT_TRUE(Get("blob_key", &value).IsCorruption());
+      ASSERT_EQ("CORRUPTION", GetImpl("blob_key"));
+    }
     ASSERT_EQ("blob_index", GetImpl("blob_key", &is_blob_index));
     ASSERT_TRUE(is_blob_index);
   }
@@ -206,7 +214,11 @@ TEST_F(DBBlobIndexTest, Updated) {
       ASSERT_EQ("blob_index", GetBlobIndex("key" + ToString(i), snapshot));
     }
     ASSERT_EQ("new_value", Get("key1"));
-    ASSERT_EQ("NOT_SUPPORTED", GetImpl("key2"));
+    if (tier <= kImmutableMemtables) {
+      ASSERT_EQ("NOT_SUPPORTED", GetImpl("key2"));
+    } else {
+      ASSERT_EQ("CORRUPTION", GetImpl("key2"));
+    }
     ASSERT_EQ("NOT_FOUND", Get("key3"));
     ASSERT_EQ("NOT_FOUND", Get("key4"));
     ASSERT_EQ("a,b,c", GetImpl("key5"));
