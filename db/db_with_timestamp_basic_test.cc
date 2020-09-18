@@ -1095,8 +1095,9 @@ TEST_F(DataVisibilityTest, MultiGetWithoutSnapshot) {
   });
 
   ReadOptions read_opts;
-  Slice read_ts = Timestamp(kTestDataSize, 0);
-  read_opts.timestamp = &read_ts;
+  std::string read_ts = Timestamp(kTestDataSize, 0);
+  Slice read_ts_slice = read_ts;
+  read_opts.timestamp = &read_ts_slice;
   auto keys = GetKeys();
   std::vector<std::string> values;
   auto ss = db_->MultiGet(read_opts, keys, &values);
@@ -1145,8 +1146,9 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   VerifyDefaultCF(snap2);
 
   ReadOptions read_opts;
-  Slice read_ts = Timestamp(kTestDataSize, 0);
-  read_opts.timestamp = &read_ts;
+  std::string read_ts = Timestamp(kTestDataSize, 0);
+  Slice read_ts_slice = read_ts;
+  read_opts.timestamp = &read_ts_slice;
   read_opts.snapshot = snap1;
   auto keys = GetKeys();
   auto keys2 = GetKeys();
