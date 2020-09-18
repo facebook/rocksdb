@@ -662,6 +662,18 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxWriteBatchGroupSizeBytes(long maxWriteBatchGroupSizeBytes) {
+    setMaxWriteBatchGroupSizeBytes(nativeHandle_, maxWriteBatchGroupSizeBytes);
+    return this;
+  }
+
+  @Override
+  public long maxWriteBatchGroupSizeBytes() {
+    assert (isOwningHandle());
+    return maxWriteBatchGroupSizeBytes(nativeHandle_);
+  }
+
+  @Override
   public Options setWalSizeLimitMB(final long sizeLimitMB) {
     assert(isOwningHandle());
     setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
@@ -1064,6 +1076,18 @@ public class Options extends RocksObject
   public boolean skipStatsUpdateOnDbOpen() {
     assert(isOwningHandle());
     return skipStatsUpdateOnDbOpen(nativeHandle_);
+  }
+
+  @Override
+  public Options setSkipCheckingSstFileSizesOnDbOpen(boolean skipCheckingSstFileSizesOnDbOpen) {
+    setSkipCheckingSstFileSizesOnDbOpen(nativeHandle_, skipCheckingSstFileSizesOnDbOpen);
+    return this;
+  }
+
+  @Override
+  public boolean skipCheckingSstFileSizesOnDbOpen() {
+    assert (isOwningHandle());
+    return skipCheckingSstFileSizesOnDbOpen(nativeHandle_);
   }
 
   @Override
@@ -1861,6 +1885,90 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setAvoidUnnecessaryBlockingIO(boolean avoidUnnecessaryBlockingIO) {
+    setAvoidUnnecessaryBlockingIO(nativeHandle_, avoidUnnecessaryBlockingIO);
+    return this;
+  }
+
+  @Override
+  public boolean avoidUnnecessaryBlockingIO() {
+    assert (isOwningHandle());
+    return avoidUnnecessaryBlockingIO(nativeHandle_);
+  }
+
+  @Override
+  public Options setPersistStatsToDisk(boolean persistStatsToDisk) {
+    setPersistStatsToDisk(nativeHandle_, persistStatsToDisk);
+    return this;
+  }
+
+  @Override
+  public boolean persistStatsToDisk() {
+    assert (isOwningHandle());
+    return persistStatsToDisk(nativeHandle_);
+  }
+
+  @Override
+  public Options setWriteDbidToManifest(boolean writeDbidToManifest) {
+    setWriteDbidToManifest(nativeHandle_, writeDbidToManifest);
+    return this;
+  }
+
+  @Override
+  public boolean writeDbidToManifest() {
+    assert (isOwningHandle());
+    return writeDbidToManifest(nativeHandle_);
+  }
+
+  @Override
+  public Options setLogReadaheadSize(long logReadaheadSize) {
+    setLogReadaheadSize(nativeHandle_, logReadaheadSize);
+    return this;
+  }
+
+  @Override
+  public long logReadaheadSize() {
+    assert (isOwningHandle());
+    return logReadaheadSize(nativeHandle_);
+  }
+
+  @Override
+  public Options setBestEffortsRecovery(boolean bestEffortsRecovery) {
+    setBestEffortsRecovery(nativeHandle_, bestEffortsRecovery);
+    return this;
+  }
+
+  @Override
+  public boolean bestEffortsRecovery() {
+    assert (isOwningHandle());
+    return bestEffortsRecovery(nativeHandle_);
+  }
+
+  @Override
+  public Options setMaxBgErrorResumeCount(int maxBgerrorResumeCount) {
+    setMaxBgErrorResumeCount(nativeHandle_, maxBgerrorResumeCount);
+    return this;
+  }
+
+  @Override
+  public int maxBgerrorResumeCount() {
+    assert (isOwningHandle());
+    return maxBgerrorResumeCount(nativeHandle_);
+  }
+
+  @Override
+  public Options setBgerrorResumeRetryInterval(long bgerrorResumeRetryInterval) {
+    setBgerrorResumeRetryInterval(nativeHandle_, bgerrorResumeRetryInterval);
+    return this;
+  }
+
+  @Override
+  public long bgerrorResumeRetryInterval() {
+    assert (isOwningHandle());
+    return bgerrorResumeRetryInterval(nativeHandle_);
+  }
+
+  @Override
   public Options setSstPartitionerFactory(SstPartitionerFactory sstPartitionerFactory) {
     setSstPartitionerFactory(nativeHandle_, sstPartitionerFactory.nativeHandle_);
     this.sstPartitionerFactory_ = sstPartitionerFactory;
@@ -1974,6 +2082,9 @@ public class Options extends RocksObject
   private native long walTtlSeconds(long handle);
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
   private native long walSizeLimitMB(long handle);
+  private static native void setMaxWriteBatchGroupSizeBytes(
+      final long handle, final long maxWriteBatchGroupSizeBytes);
+  private static native long maxWriteBatchGroupSizeBytes(final long handle);
   private native void setManifestPreallocationSize(
       long handle, long size) throws IllegalArgumentException;
   private native long manifestPreallocationSize(long handle);
@@ -2066,6 +2177,9 @@ public class Options extends RocksObject
   private native void setSkipStatsUpdateOnDbOpen(final long handle,
       final boolean skipStatsUpdateOnDbOpen);
   private native boolean skipStatsUpdateOnDbOpen(final long handle);
+  private static native void setSkipCheckingSstFileSizesOnDbOpen(
+      final long handle, final boolean skipChecking);
+  private static native boolean skipCheckingSstFileSizesOnDbOpen(final long handle);
   private native void setWalRecoveryMode(final long handle,
       final byte walRecoveryMode);
   private native byte walRecoveryMode(final long handle);
@@ -2266,6 +2380,26 @@ public class Options extends RocksObject
   private native void setSstPartitionerFactory(long nativeHandle_, long newFactoryHandle);
   private static native void setCompactionThreadLimiter(
       final long nativeHandle_, final long newLimiterHandle);
+  private static native void setAvoidUnnecessaryBlockingIO(
+      final long handle, final boolean avoidBlockingIO);
+  private static native boolean avoidUnnecessaryBlockingIO(final long handle);
+  private static native void setPersistStatsToDisk(
+      final long handle, final boolean persistStatsToDisk);
+  private static native boolean persistStatsToDisk(final long handle);
+  private static native void setWriteDbidToManifest(
+      final long handle, final boolean writeDbidToManifest);
+  private static native boolean writeDbidToManifest(final long handle);
+  private static native void setLogReadaheadSize(final long handle, final long logReadaheadSize);
+  private static native long logReadaheadSize(final long handle);
+  private static native void setBestEffortsRecovery(
+      final long handle, final boolean bestEffortsRecovery);
+  private static native boolean bestEffortsRecovery(final long handle);
+  private static native void setMaxBgErrorResumeCount(
+      final long handle, final int maxBgerrorRecumeCount);
+  private static native int maxBgerrorResumeCount(final long handle);
+  private static native void setBgerrorResumeRetryInterval(
+      final long handle, final long bgerrorResumeRetryInterval);
+  private static native long bgerrorResumeRetryInterval(final long handle);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

@@ -1342,13 +1342,98 @@ public class OptionsTest {
   }
 
   @Test
-  public void cfPaths() throws IOException {
+  public void cfPaths() {
     try (final Options options = new Options()) {
       final List<DbPath> paths = Arrays.asList(
           new DbPath(Paths.get("test1"), 2 << 25), new DbPath(Paths.get("/test2/path"), 2 << 25));
       assertThat(options.cfPaths()).isEqualTo(Collections.emptyList());
       assertThat(options.setCfPaths(paths)).isEqualTo(options);
       assertThat(options.cfPaths()).isEqualTo(paths);
+    }
+  }
+
+  @Test
+  public void avoidUnnecessaryBlockingIO() {
+    try (final Options options = new Options()) {
+      assertThat(options.avoidUnnecessaryBlockingIO()).isEqualTo(false);
+      assertThat(options.setAvoidUnnecessaryBlockingIO(true)).isEqualTo(options);
+      assertThat(options.avoidUnnecessaryBlockingIO()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void persistStatsToDisk() {
+    try (final Options options = new Options()) {
+      assertThat(options.persistStatsToDisk()).isEqualTo(false);
+      assertThat(options.setPersistStatsToDisk(true)).isEqualTo(options);
+      assertThat(options.persistStatsToDisk()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void writeDbidToManifest() {
+    try (final Options options = new Options()) {
+      assertThat(options.writeDbidToManifest()).isEqualTo(false);
+      assertThat(options.setWriteDbidToManifest(true)).isEqualTo(options);
+      assertThat(options.writeDbidToManifest()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void logReadaheadSize() {
+    try (final Options options = new Options()) {
+      assertThat(options.logReadaheadSize()).isEqualTo(0);
+      final int size = 1024 * 1024 * 100;
+      assertThat(options.setLogReadaheadSize(size)).isEqualTo(options);
+      assertThat(options.logReadaheadSize()).isEqualTo(size);
+    }
+  }
+
+  @Test
+  public void bestEffortsRecovery() {
+    try (final Options options = new Options()) {
+      assertThat(options.bestEffortsRecovery()).isEqualTo(false);
+      assertThat(options.setBestEffortsRecovery(true)).isEqualTo(options);
+      assertThat(options.bestEffortsRecovery()).isEqualTo(true);
+    }
+  }
+
+  @Test
+  public void maxBgerrorResumeCount() {
+    try (final Options options = new Options()) {
+      final int INT_MAX = 2147483647;
+      assertThat(options.maxBgerrorResumeCount()).isEqualTo(INT_MAX);
+      assertThat(options.setMaxBgErrorResumeCount(-1)).isEqualTo(options);
+      assertThat(options.maxBgerrorResumeCount()).isEqualTo(-1);
+    }
+  }
+
+  @Test
+  public void bgerrorResumeRetryInterval() {
+    try (final Options options = new Options()) {
+      assertThat(options.bgerrorResumeRetryInterval()).isEqualTo(1000000);
+      final long newRetryInterval = 24 * 3600 * 1000000L;
+      assertThat(options.setBgerrorResumeRetryInterval(newRetryInterval)).isEqualTo(options);
+      assertThat(options.bgerrorResumeRetryInterval()).isEqualTo(newRetryInterval);
+    }
+  }
+
+  @Test
+  public void maxWriteBatchGroupSizeBytes() {
+    try (final Options options = new Options()) {
+      assertThat(options.maxWriteBatchGroupSizeBytes()).isEqualTo(1024 * 1024);
+      final long size = 1024 * 1024 * 1024 * 10L;
+      assertThat(options.setMaxWriteBatchGroupSizeBytes(size)).isEqualTo(options);
+      assertThat(options.maxWriteBatchGroupSizeBytes()).isEqualTo(size);
+    }
+  }
+
+  @Test
+  public void skipCheckingSstFileSizesOnDbOpen() {
+    try (final Options options = new Options()) {
+      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(false);
+      assertThat(options.setSkipCheckingSstFileSizesOnDbOpen(true)).isEqualTo(options);
+      assertThat(options.skipCheckingSstFileSizesOnDbOpen()).isEqualTo(true);
     }
   }
 }
