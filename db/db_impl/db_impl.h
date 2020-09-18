@@ -1379,7 +1379,7 @@ class DBImpl : public DB {
   // Required: DB mutex held
   Status PersistentStatsProcessFormatVersion();
 
-  Status ResumeImpl();
+  Status ResumeImpl(DBRecoverContext context);
 
   void MaybeIgnoreError(Status* s) const;
 
