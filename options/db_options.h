@@ -90,6 +90,7 @@ struct ImmutableDBOptions {
   bool best_efforts_recovery;
   int max_bgerror_resume_count;
   uint64_t bgerror_resume_retry_interval;
+  std::set<ChecksumHandoffFileType> checksum_handoff_file_types;
 };
 
 struct MutableDBOptions {

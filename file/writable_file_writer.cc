@@ -17,6 +17,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "test_util/sync_point.h"
+#include "util/crc32c.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
@@ -435,6 +436,12 @@ void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
   if (checksum_generator_ != nullptr) {
     checksum_generator_->Update(data.data(), data.size());
   }
+}
+
+void WritableFileWriter::DataChecksumCalculation(const char* data, size_t size,
+                                                 std::string* checksum) {
+  uint32_t v_crc32c = crc32c::Extend(0, data, size);
+  PutFixed32(checksum, EndianSwapValue(v_crc32c));
 }
 
 // This flushes the accumulated data in the buffer. We pad data with zeros if

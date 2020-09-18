@@ -729,6 +729,13 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
+  // Append data with verification information
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
+                          IODebugContext* dbg,
+                          const DataVerificationInfo& /* verification_info */) {
+    return Append(data, options, dbg);
+  }
+
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
   // not backed by OS buffers and hence has to always start from the start of
@@ -753,6 +760,13 @@ class FSWritableFile {
                                     uint64_t /* offset */,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported();
+  }
+  // PositionedAppend data with verification information.
+  virtual IOStatus PositionedAppend(
+      const Slice& /* data */, uint64_t /* offset */,
+      const IOOptions& /*options*/, IODebugContext* /*dbg*/,
+      const DataVerificationInfo& /* verification_info */) {
     return IOStatus::NotSupported();
   }
 
@@ -883,6 +897,9 @@ class FSWritableFile {
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
   }
+
+  // Get data checksum method name
+  virtual std::string GetDataChecksumFuncName() { return ""; }
 
   // If you're adding methods here, remember to add them to
   // WritableFileWrapper too.
@@ -1286,10 +1303,22 @@ class FSWritableFileWrapper : public FSWritableFile {
                   IODebugContext* dbg) override {
     return target_->Append(data, options, dbg);
   }
+  IOStatus Append(const Slice& data, const IOOptions& options,
+                  IODebugContext* dbg,
+                  const DataVerificationInfo& verification_info) override {
+    return target_->Append(data, options, dbg, verification_info);
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
+  }
+  IOStatus PositionedAppend(
+      const Slice& data, uint64_t offset, const IOOptions& options,
+      IODebugContext* dbg,
+      const DataVerificationInfo& verification_info) override {
+    return target_->PositionedAppend(data, offset, options, dbg,
+                                     verification_info);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {
@@ -1357,6 +1386,10 @@ class FSWritableFileWrapper : public FSWritableFile {
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
                     IODebugContext* dbg) override {
     return target_->Allocate(offset, len, options, dbg);
+  }
+
+  std::string GetDataChecksumFuncName() override {
+    return target_->GetDataChecksumFuncName();
   }
 
  private:

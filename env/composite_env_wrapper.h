@@ -115,10 +115,24 @@ class CompositeWritableFileWrapper : public WritableFile {
     IODebugContext dbg;
     return target_->Append(data, io_opts, &dbg);
   }
+  Status Append(const Slice& data,
+                const DataVerificationInfo& verification_info) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return target_->Append(data, io_opts, &dbg, verification_info);
+  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     IOOptions io_opts;
     IODebugContext dbg;
     return target_->PositionedAppend(data, offset, io_opts, &dbg);
+  }
+  Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& verification_info) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return target_->PositionedAppend(data, offset, io_opts, &dbg,
+                                     verification_info);
   }
   Status Truncate(uint64_t size) override {
     IOOptions io_opts;
@@ -200,6 +214,10 @@ class CompositeWritableFileWrapper : public WritableFile {
     IOOptions io_opts;
     IODebugContext dbg;
     return target_->Allocate(offset, len, io_opts, &dbg);
+  }
+
+  std::string GetDataChecksumFuncName() override {
+    return target_->GetDataChecksumFuncName();
   }
 
   std::unique_ptr<FSWritableFile>* target() { return &target_; }
@@ -727,10 +745,22 @@ class LegacyWritableFileWrapper : public FSWritableFile {
                   IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Append(data));
   }
+  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/,
+                  const DataVerificationInfo& verification_info) override {
+    return status_to_io_status(target_->Append(data, verification_info));
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->PositionedAppend(data, offset));
+  }
+  IOStatus PositionedAppend(
+      const Slice& data, uint64_t offset, const IOOptions& /*options*/,
+      IODebugContext* /*dbg*/,
+      const DataVerificationInfo& verification_info) override {
+    return status_to_io_status(
+        target_->PositionedAppend(data, offset, verification_info));
   }
   IOStatus Truncate(uint64_t size, const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
@@ -804,6 +834,10 @@ class LegacyWritableFileWrapper : public FSWritableFile {
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Allocate(offset, len));
+  }
+
+  std::string GetDataChecksumFuncName() override {
+    return target_->GetDataChecksumFuncName();
   }
 
   WritableFile* target() { return target_.get(); }

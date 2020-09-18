@@ -164,6 +164,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_bgerror_resume_count;
   options.bgerror_resume_retry_interval =
       immutable_db_options.bgerror_resume_retry_interval;
+  options.checksum_handoff_file_types =
+      immutable_db_options.checksum_handoff_file_types;
   return options;
 }
 
