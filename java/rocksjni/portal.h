@@ -440,6 +440,10 @@ class StatusJni
     return jstatus;
   }
 
+  static jobject construct(JNIEnv* env, const Status* status) {
+    return construct(env, *status);
+  }
+
   // Returns the equivalent org.rocksdb.Status.Code for the provided
   // C++ ROCKSDB_NAMESPACE::Status::Code enum
   static jbyte toJavaStatusCode(const ROCKSDB_NAMESPACE::Status::Code& code) {
@@ -7890,12 +7894,12 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
    *
    * @return The Java Method ID
    */
-  static jmethodID getOnBackgroundErrorMethodId(JNIEnv* env) {
+  static jmethodID getOnBackgroundErrorProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "onBackgroundError",
-        "(Lorg/rocksdb/BackgroundErrorReason;Lorg/rocksdb/Status;)V");
+        jclazz, "onBackgroundErrorProxy",
+        "(BLorg/rocksdb/Status;)V");
     assert(mid != nullptr);
     return mid;
   }

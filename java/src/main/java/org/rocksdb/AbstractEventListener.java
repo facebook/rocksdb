@@ -247,6 +247,18 @@ public abstract class AbstractEventListener extends RocksCallbackObject
     // no-op
   }
 
+  /**
+   * Called from JNI, proxy for
+   *     {@link #onBackgroundError(BackgroundErrorReason, Status)}.
+   *
+   * @param reasonByte byte value representing error reason
+   * @param backgroundError status with error code
+   */
+  private void onBackgroundErrorProxy(final byte reasonByte,
+                                      final Status backgroundError) {
+    onBackgroundError(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
+  }
+
   @Override
   public void onStallConditionsChanged(final WriteStallInfo writeStallInfo) {
     // no-op

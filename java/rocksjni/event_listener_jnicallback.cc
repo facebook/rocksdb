@@ -66,10 +66,10 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
       env,
       AbstractEventListenerJni::getOnExternalFileIngestedProxyMethodId);
 
-  InitCallbackMethodId(m_on_background_error_mid,
+  InitCallbackMethodId(m_on_background_error_proxy_mid,
       EnabledEventCallback::ON_BACKGROUND_ERROR,
       env,
-      AbstractEventListenerJni::getOnBackgroundErrorMethodId);
+      AbstractEventListenerJni::getOnBackgroundErrorProxyMethodId);
 
   InitCallbackMethodId(m_on_stall_conditions_changed_mid,
       EnabledEventCallback::ON_STALL_CONDITIONS_CHANGED,
@@ -229,8 +229,20 @@ void EventListenerJniCallback::OnExternalFileIngested(DB* db, const ExternalFile
   CleanEnv(env, attached_thread, { &jingestion_info });
 }
 
-// TODO
-void EventListenerJniCallback::OnBackgroundError(BackgroundErrorReason /* reason */, Status* /* bg_error */) {}
+void EventListenerJniCallback::OnBackgroundError(BackgroundErrorReason reason, Status* bg_error) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jstatus = SetupCallbackInvocation<Status>(env, attached_thread,
+      m_on_background_error_proxy_mid, *bg_error, StatusJni::construct);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_background_error_proxy_mid,
+      static_cast<jbyte>(reason),
+      jstatus);
+
+  CleanEnv(env, attached_thread, { &jstatus });
+}
+
 void EventListenerJniCallback::OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 void EventListenerJniCallback::OnFileReadFinish(const FileOperationInfo& /* info */) {}
 void EventListenerJniCallback::OnFileWriteFinish(const FileOperationInfo& /* info */) {}
