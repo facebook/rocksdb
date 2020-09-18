@@ -61,7 +61,7 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
       env,
       AbstractEventListenerJni::getOnColumnFamilyHandleDeletionStartedMethodId);
 
-  InitCallbackMethodId(m_on_external_file_ingested_mid,
+  InitCallbackMethodId(m_on_external_file_ingested_proxy_mid,
       EnabledEventCallback::ON_EXTERNAL_FILE_INGESTED,
       env,
       AbstractEventListenerJni::getOnExternalFileIngestedProxyMethodId);
@@ -186,10 +186,50 @@ void EventListenerJniCallback::OnTableFileCreated(const TableFileCreationInfo& i
   CleanEnv(env, attached_thread, { &jfile_creation_info });
 }
 
-void EventListenerJniCallback::OnTableFileCreationStarted(const TableFileCreationBriefInfo& /*info*/) {}
+void EventListenerJniCallback::OnTableFileCreationStarted(const TableFileCreationBriefInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jcreation_brief_info = SetupCallbackInvocation<TableFileCreationBriefInfo>(env, attached_thread,
+      m_on_table_file_creation_started_mid, info, TableFileCreationBriefInfoJni::fromCppTableFileCreationBriefInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_table_file_creation_started_mid,
+      jcreation_brief_info);
+
+  CleanEnv(env, attached_thread, { &jcreation_brief_info });
+}
+
+// TODO
 void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& /*info*/) {}
-void EventListenerJniCallback::OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* /*handle*/) {}
-void EventListenerJniCallback::OnExternalFileIngested(DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) {}
+
+void EventListenerJniCallback::OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jcf_handle = SetupCallbackInvocation<ColumnFamilyHandle>(env, attached_thread,
+      m_on_column_family_handle_deletion_started_mid, *handle, ColumnFamilyHandleJni::fromCppColumnFamilyHandle);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_column_family_handle_deletion_started_mid,
+      jcf_handle);
+
+  CleanEnv(env, attached_thread, { &jcf_handle });
+}
+
+void EventListenerJniCallback::OnExternalFileIngested(DB* db, const ExternalFileIngestionInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jingestion_info = SetupCallbackInvocation<ExternalFileIngestionInfo>(env, attached_thread,
+      m_on_external_file_ingested_proxy_mid, info, ExternalFileIngestionInfoJni::fromCppExternalFileIngestionInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_external_file_ingested_proxy_mid,
+      reinterpret_cast<jlong>(db),
+      jingestion_info);
+
+  CleanEnv(env, attached_thread, { &jingestion_info });
+}
+
+// TODO
 void EventListenerJniCallback::OnBackgroundError(BackgroundErrorReason /* reason */, Status* /* bg_error */) {}
 void EventListenerJniCallback::OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 void EventListenerJniCallback::OnFileReadFinish(const FileOperationInfo& /* info */) {}

@@ -25,6 +25,16 @@ public class ColumnFamilyHandle extends RocksObject {
   }
 
   /**
+   * Constructor called only from JNI.
+   *
+   * @param nativeHandle native handle to the column family.
+   */
+  private ColumnFamilyHandle(final long nativeHandle) {
+    super(nativeHandle);
+    rocksDB_ = null;
+  }
+
+  /**
    * Gets the name of the Column Family.
    *
    * @return The name of the Column Family.

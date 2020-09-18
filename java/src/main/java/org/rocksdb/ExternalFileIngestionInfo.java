@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public class ExternalFileIngestionInfo {
-  private final byte[] columnFamilyName;
+  private final String columnFamilyName;
   private final String externalFilePath;
   private final String internalFilePath;
   private final long globalSeqno;
@@ -17,7 +17,7 @@ public class ExternalFileIngestionInfo {
    * C++ via JNI.
    */
   private ExternalFileIngestionInfo(
-      final byte[] columnFamilyName, final String externalFilePath,
+      final String columnFamilyName, final String externalFilePath,
       final String internalFilePath, final long globalSeqno,
       final TableProperties tableProperties) {
     this.columnFamilyName = columnFamilyName;
@@ -32,7 +32,7 @@ public class ExternalFileIngestionInfo {
    *
    * @return the name of the column family.
    */
-  public byte[] getColumnFamilyName() {
+  public String getColumnFamilyName() {
     return columnFamilyName;
   }
 

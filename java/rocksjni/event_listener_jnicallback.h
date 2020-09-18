@@ -86,7 +86,7 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jmethodID m_on_table_file_creation_started_mid;
   jmethodID m_on_mem_table_sealed_mid;
   jmethodID m_on_column_family_handle_deletion_started_mid;
-  jmethodID m_on_external_file_ingested_mid;
+  jmethodID m_on_external_file_ingested_proxy_mid;
   jmethodID m_on_background_error_mid;
   jmethodID m_on_stall_conditions_changed_mid;
   jmethodID m_on_file_read_finish_mid;

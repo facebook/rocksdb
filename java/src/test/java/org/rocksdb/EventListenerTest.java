@@ -1,12 +1,15 @@
 package org.rocksdb;
 
 import org.junit.ClassRule;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,7 +49,7 @@ public class EventListenerTest {
       @Override
       public void onFlushCompleted(final RocksDB rocksDb,
                                    final FlushJobInfo flushJobInfo) {
-        // TODO(TP): add more asserts ?
+        // TODO(TP): add more asserts
         assertNotNull(flushJobInfo.getColumnFamilyName());
         assertEquals(FlushReason.MANUAL_FLUSH, flushJobInfo.getFlushReason());
         wasCbCalled.set(true);
@@ -63,7 +66,7 @@ public class EventListenerTest {
       @Override
       public void onFlushBegin(final RocksDB rocksDb,
                                final FlushJobInfo flushJobInfo) {
-        // TODO(TP): add more asserts ?
+        // TODO(TP): add more asserts
         assertNotNull(flushJobInfo.getColumnFamilyName());
         assertEquals(FlushReason.MANUAL_FLUSH, flushJobInfo.getFlushReason());
         wasCbCalled.set(true);
@@ -98,7 +101,7 @@ public class EventListenerTest {
     AbstractEventListener onTableFileDeletedListener = new AbstractEventListener() {
       @Override
       public void onTableFileDeleted(final TableFileDeletionInfo tableFileDeletionInfo) {
-        // TODO(TP): add more asserts ?
+        // TODO(TP): add more asserts
         assertNotNull(tableFileDeletionInfo.getDbName());
         wasCbCalled.set(true);
       }
@@ -129,7 +132,7 @@ public class EventListenerTest {
       @Override
       public void onCompactionBegin(final RocksDB db,
                                     final CompactionJobInfo compactionJobInfo) {
-        // TODO(TP): add more asserts ?
+        // TODO(TP): add more asserts
         assertEquals(CompactionReason.kManualCompaction, compactionJobInfo.compactionReason());
         wasCbCalled.set(true);
       }
@@ -144,8 +147,8 @@ public class EventListenerTest {
     AbstractEventListener onCompactionCompletedListener = new AbstractEventListener() {
       @Override
       public void onCompactionCompleted(final RocksDB db,
-                                    final CompactionJobInfo compactionJobInfo) {
-        // TODO(TP): add more asserts ?
+                                        final CompactionJobInfo compactionJobInfo) {
+        // TODO(TP): add more asserts
         assertEquals(CompactionReason.kManualCompaction, compactionJobInfo.compactionReason());
         wasCbCalled.set(true);
       }
@@ -160,11 +163,132 @@ public class EventListenerTest {
     AbstractEventListener onTableFileCreatedListener = new AbstractEventListener() {
       @Override
       public void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo) {
-        // TODO(TP): add more asserts ?
+        // TODO(TP): add more asserts
         assertEquals(TableFileCreationReason.FLUSH, tableFileCreationInfo.getReason());
         wasCbCalled.set(true);
       }
     };
     flushDb(onTableFileCreatedListener, wasCbCalled);
+  }
+
+  @Test
+  public void onTableFileCreationStarted() throws RocksDBException {
+    // Callback is synchronous, but we need mutable container to update boolean value in other method
+    final AtomicBoolean wasCbCalled = new AtomicBoolean();
+    AbstractEventListener onTableFileCreationStartedListener = new AbstractEventListener() {
+      @Override
+      public void onTableFileCreationStarted(final TableFileCreationBriefInfo tableFileCreationBriefInfo) {
+        // TODO(TP): add more asserts
+        assertEquals(TableFileCreationReason.FLUSH, tableFileCreationBriefInfo.getReason());
+        wasCbCalled.set(true);
+      }
+    };
+    flushDb(onTableFileCreationStartedListener, wasCbCalled);
+  }
+
+  @Test
+  public void onMemTableSealed() {
+    // TODO
+  }
+
+  void deleteColumnFamilyHandle(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+    try (final Options opt = new Options()
+        .setCreateIfMissing(true)
+        .setListeners(el);
+         final RocksDB db =
+             RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      assertThat(db).isNotNull();
+      byte[] value = new byte[24];
+      rand.nextBytes(value);
+      db.put("testKey".getBytes(), value);
+      ColumnFamilyHandle columnFamilyHandle = db.getDefaultColumnFamily();
+      columnFamilyHandle.close();
+      assertTrue(wasCbCalled.get());
+    }
+  }
+
+  @Test
+  public void onColumnFamilyHandleDeletionStarted() throws RocksDBException {
+    // Callback is synchronous, but we need mutable container to update boolean value in other method
+    final AtomicBoolean wasCbCalled = new AtomicBoolean();
+    AbstractEventListener onColumnFamilyHandleDeletionStartedListener = new AbstractEventListener() {
+      @Override
+      public void onColumnFamilyHandleDeletionStarted(final ColumnFamilyHandle columnFamilyHandle) {
+        // TODO(TP): add more asserts
+        assertNotNull(columnFamilyHandle);
+        wasCbCalled.set(true);
+      }
+    };
+    deleteColumnFamilyHandle(onColumnFamilyHandleDeletionStartedListener, wasCbCalled);
+  }
+
+  void ingestExternalFile(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+    try (final Options opt = new Options()
+        .setCreateIfMissing(true)
+        .setListeners(el);
+         final RocksDB db =
+             RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
+      assertThat(db).isNotNull();
+      String uuid = UUID.randomUUID().toString();
+      SstFileWriter sstFileWriter = new SstFileWriter(new EnvOptions(), opt);
+      Path externalFilePath = Paths.get(db.getName(), uuid);
+      sstFileWriter.open(externalFilePath.toString());
+      sstFileWriter.put("testKey".getBytes(), uuid.getBytes());
+      sstFileWriter.finish();
+      db.ingestExternalFile(Collections.singletonList(externalFilePath.toString()),
+          new IngestExternalFileOptions());
+      assertTrue(wasCbCalled.get());
+    }
+  }
+
+  @Test
+  public void onExternalFileIngested() throws RocksDBException, InterruptedException {
+    // Callback is synchronous, but we need mutable container to update boolean value in other method
+    final AtomicBoolean wasCbCalled = new AtomicBoolean();
+    AbstractEventListener onExternalFileIngestedListener = new AbstractEventListener() {
+      @Override
+      public void onExternalFileIngested(final RocksDB db,
+                                         final ExternalFileIngestionInfo externalFileIngestionInfo) {
+        // TODO(TP): add more asserts
+        assertNotNull(db);
+        wasCbCalled.set(true);
+      }
+    };
+    ingestExternalFile(onExternalFileIngestedListener, wasCbCalled);
+  }
+
+  @Test
+  public void onBackgroundError() {
+    // TODO
+  }
+
+  @Test
+  public void onStallConditionsChanged() {
+    // TODO
+  }
+
+  @Test
+  public void onFileReadFinish() {
+    // TODO
+  }
+
+  @Test
+  public void onFileWriteFinish() {
+    // TODO
+  }
+
+  @Test
+  public void shouldBeNotifiedOnFileIO() {
+    // TODO
+  }
+
+  @Test
+  public void onErrorRecoveryBegin() {
+    // TODO
+  }
+
+  @Test
+  public void onErrorRecoveryCompleted() {
+    // TODO
   }
 }

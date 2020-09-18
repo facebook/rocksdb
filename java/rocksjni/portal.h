@@ -3463,6 +3463,20 @@ class ColumnFamilyHandleJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
                                 ColumnFamilyHandleJni> {
  public:
+   static jobject fromCppColumnFamilyHandle(JNIEnv* env,
+       const ROCKSDB_NAMESPACE::ColumnFamilyHandle* info) {
+     jclass jclazz = getJClass(env);
+     assert(jclazz != nullptr);
+     static jmethodID ctor = getConstructorMethodId(env, jclazz);
+     assert(ctor != nullptr);
+     return env->NewObject(jclazz, ctor, reinterpret_cast<jlong>(info));
+   }
+
+   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+     return env->GetMethodID(clazz, "<init>",
+                    "(J)V");
+   }
+
   /**
    * Get the Java Class org.rocksdb.ColumnFamilyHandle
    *
@@ -8112,6 +8126,57 @@ class TableFileCreationInfoJni : public JavaClass {
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
     return env->GetMethodID(clazz, "<init>",
                    "(JLorg/rocksdb/TableProperties;Lorg/rocksdb/Status;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IB)V");
+  }
+};
+
+class TableFileCreationBriefInfoJni : public JavaClass {
+ public:
+  static jobject fromCppTableFileCreationBriefInfo(JNIEnv* env,
+      const ROCKSDB_NAMESPACE::TableFileCreationBriefInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring db_name = JniUtil::toJavaString(env, &info->db_name);
+    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
+    jstring file_path = JniUtil::toJavaString(env, &info->file_path);
+    return env->NewObject(jclazz, ctor, db_name, cf_name, file_path, static_cast<jint>(info->job_id),
+        static_cast<jbyte>(info->reason));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableFileCreationBriefInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IB)V");
+  }
+};
+
+class ExternalFileIngestionInfoJni : public JavaClass {
+ public:
+  static jobject fromCppExternalFileIngestionInfo(JNIEnv* env,
+      const ROCKSDB_NAMESPACE::ExternalFileIngestionInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
+    jstring external_file_path = JniUtil::toJavaString(env, &info->external_file_path);
+    jstring internal_file_path = JniUtil::toJavaString(env, &info->internal_file_path);
+    // TODO: add table properties
+    return env->NewObject(jclazz, ctor, cf_name, external_file_path, internal_file_path,
+        static_cast<jlong>(info->global_seqno), nullptr);
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/ExternalFileIngestionInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLorg/rocksdb/TableProperties;)V");
   }
 };
 }  // namespace ROCKSDB_NAMESPACE
