@@ -4,6 +4,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.rocksdb.test.TestableEventListener;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -290,5 +291,118 @@ public class EventListenerTest {
   @Test
   public void onErrorRecoveryCompleted() {
     // TODO
+  }
+
+  @Test
+  public void testAllCallbacksInvocation() {
+    final int CALLBACKS_COUNT = 17;
+    final AtomicBoolean[] wasCalled = new AtomicBoolean[CALLBACKS_COUNT];
+    for (int i = 0; i < CALLBACKS_COUNT; ++i) {
+      wasCalled[i] = new AtomicBoolean();
+    }
+    TestableEventListener listener = new TestableEventListener() {
+      @Override
+      public void onFlushCompleted(final RocksDB db,
+                                   final FlushJobInfo flushJobInfo) {
+        wasCalled[0].set(true);
+      }
+
+      @Override
+      public void onFlushBegin(final RocksDB db, final FlushJobInfo flushJobInfo) {
+        wasCalled[1].set(true);
+      }
+
+      @Override
+      public void onTableFileDeleted(
+          final TableFileDeletionInfo tableFileDeletionInfo) {
+        wasCalled[2].set(true);
+      }
+
+      @Override
+      public void onCompactionBegin(final RocksDB db,
+                                    final CompactionJobInfo compactionJobInfo) {
+        wasCalled[3].set(true);
+      }
+
+      @Override
+      public void onCompactionCompleted(final RocksDB db,
+                                        final CompactionJobInfo compactionJobInfo) {
+        wasCalled[4].set(true);
+      }
+
+      @Override
+      public void onTableFileCreated(
+          final TableFileCreationInfo tableFileCreationInfo) {
+        wasCalled[5].set(true);
+      }
+
+      @Override
+      public void onTableFileCreationStarted(
+          final TableFileCreationBriefInfo tableFileCreationBriefInfo) {
+        wasCalled[6].set(true);
+      }
+
+      @Override
+      public void onMemTableSealed(final MemTableInfo memTableInfo) {
+        wasCalled[7].set(true);
+      }
+
+      @Override
+      public void onColumnFamilyHandleDeletionStarted(
+          final ColumnFamilyHandle columnFamilyHandle) {
+        wasCalled[8].set(true);
+      }
+
+      @Override
+      public void onExternalFileIngested(final RocksDB db,
+                                         final ExternalFileIngestionInfo externalFileIngestionInfo) {
+        wasCalled[9].set(true);
+      }
+
+      @Override
+      public void onBackgroundError(
+          final BackgroundErrorReason backgroundErrorReason,
+          final Status backgroundError) {
+        wasCalled[10].set(true);
+      }
+
+      @Override
+      public void onStallConditionsChanged(final WriteStallInfo writeStallInfo) {
+        wasCalled[11].set(true);
+      }
+
+      @Override
+      public void onFileReadFinish(final FileOperationInfo fileOperationInfo) {
+        wasCalled[12].set(true);
+      }
+
+      @Override
+      public void onFileWriteFinish(final FileOperationInfo fileOperationInfo) {
+        wasCalled[13].set(true);
+      }
+
+      @Override
+      public boolean shouldBeNotifiedOnFileIO() {
+        wasCalled[14].set(true);
+        return false;
+      }
+
+      @Override
+      public boolean onErrorRecoveryBegin(
+          final BackgroundErrorReason backgroundErrorReason,
+          final Status backgroundError) {
+        wasCalled[15].set(true);
+        return true;
+      }
+
+      @Override
+      public void onErrorRecoveryCompleted(final Status oldBackgroundError) {
+        wasCalled[16].set(true);
+      }
+    };
+    listener.invokeAllCallbacks();
+    for (int i = 0; i < CALLBACKS_COUNT; ++i) {
+      assertTrue("Callback method " + i + " was not called", wasCalled[i].get());
+    }
   }
 }
