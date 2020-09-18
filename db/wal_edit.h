@@ -4,6 +4,8 @@
 // (found in the LICENSE.Apache file in the root directory).
 
 // WAL related classes used in VersionEdit and VersionSet.
+// Modifications to WalAddition and WalDeletion may need to update
+// VersionEdit and its related tests.
 
 #pragma once
 
@@ -28,7 +30,17 @@ class WalMetadata {
  public:
   WalMetadata() = default;
 
-  explicit WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
+  // Only a closed and synced WAL will have size.
+  explicit WalMetadata(uint64_t size_bytes)
+      : synced_(true), closed_(true), size_bytes_(size_bytes) {}
+
+  bool IsSynced() const { return synced_; }
+
+  void SetSynced() { synced_ = true; }
+
+  bool IsClosed() const { return closed_; }
+
+  void SetClosed() { closed_ = true; }
 
   bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
 
@@ -40,6 +52,12 @@ class WalMetadata {
   // The size of WAL is unknown, used when the WAL is not closed yet.
   constexpr static uint64_t kUnknownWalSize = 0;
 
+  // Whether the WAL and WAL dir are synced.
+  bool synced_ = false;
+
+  // Whether the WAL is closed.
+  bool closed_ = false;
+
   // Size of a closed WAL in bytes.
   uint64_t size_bytes_ = kUnknownWalSize;
 };
@@ -48,8 +66,12 @@ class WalMetadata {
 enum class WalAdditionTag : uint32_t {
   // Indicates that there are no more tags.
   kTerminate = 1,
+  // Whether the WAL and WAL dir are synced.
+  kSynced = 2,
+  // Whether the WAL is closed.
+  kClosed = 3,
   // Size in bytes.
-  kSize = 2,
+  kSize = 4,
   // Add tags in the future, such as checksum?
 };
 

@@ -14,6 +14,14 @@ namespace ROCKSDB_NAMESPACE {
 void WalAddition::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
 
+  if (metadata_.IsSynced()) {
+    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kSynced));
+  }
+
+  if (metadata_.IsClosed()) {
+    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kClosed));
+  }
+
   if (metadata_.HasSize()) {
     PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kSize));
     PutVarint64(dst, metadata_.GetSizeInBytes());
@@ -36,6 +44,14 @@ Status WalAddition::DecodeFrom(Slice* src) {
     }
     WalAdditionTag tag = static_cast<WalAdditionTag>(tag_value);
     switch (tag) {
+      case WalAdditionTag::kSynced: {
+        metadata_.SetSynced();
+        break;
+      }
+      case WalAdditionTag::kClosed: {
+        metadata_.SetClosed();
+        break;
+      }
       case WalAdditionTag::kSize: {
         uint64_t size = 0;
         if (!GetVarint64(src, &size)) {
@@ -57,13 +73,16 @@ Status WalAddition::DecodeFrom(Slice* src) {
 }
 
 JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal) {
-  jw << "LogNumber" << wal.GetLogNumber() << "SizeInBytes"
-     << wal.GetMetadata().GetSizeInBytes();
+  jw << "LogNumber" << wal.GetLogNumber() << "Synced"
+     << wal.GetMetadata().IsSynced() << "Closed" << wal.GetMetadata().IsClosed()
+     << "SizeInBytes" << wal.GetMetadata().GetSizeInBytes();
   return jw;
 }
 
 std::ostream& operator<<(std::ostream& os, const WalAddition& wal) {
   os << "log_number: " << wal.GetLogNumber()
+     << " synced: " << wal.GetMetadata().IsSynced()
+     << " closed: " << wal.GetMetadata().IsClosed()
      << " size_in_bytes: " << wal.GetMetadata().GetSizeInBytes();
   return os;
 }
@@ -113,7 +132,7 @@ Status WalSet::AddWal(const WalAddition& wal) {
       ss << "WAL " << wal.GetLogNumber() << " is not created before closing";
       return Status::Corruption("WalSet", ss.str());
     }
-    if (it->second.HasSize()) {
+    if (it->second.IsClosed()) {
       std::stringstream ss;
       ss << "WAL " << wal.GetLogNumber() << " is closed more than once";
       return Status::Corruption("WalSet", ss.str());
@@ -150,7 +169,7 @@ Status WalSet::DeleteWal(const WalDeletion& wal) {
     ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
     return Status::Corruption("WalSet", ss.str());
   }
-  if (!it->second.HasSize()) {
+  if (!it->second.IsClosed()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber() << " must be closed before deletion";
     return Status::Corruption("WalSet", ss.str());
