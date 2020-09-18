@@ -19,7 +19,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTestXactLogIterator : public DBTestBase {
  public:
-  DBTestXactLogIterator() : DBTestBase("/db_log_iter_test") {}
+  DBTestXactLogIterator()
+      : DBTestBase("/db_log_iter_test", /*env_do_fsync=*/true) {}
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
       const SequenceNumber seq) {

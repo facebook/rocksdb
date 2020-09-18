@@ -33,7 +33,8 @@ class ImportColumnFamilyJob {
         fs_(db_options_.fs, io_tracer),
         env_options_(env_options),
         import_options_(import_options),
-        metadata_(metadata) {}
+        metadata_(metadata),
+        io_tracer_(io_tracer) {}
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(uint64_t next_file_number, SuperVersion* sv);
@@ -68,6 +69,7 @@ class ImportColumnFamilyJob {
   VersionEdit edit_;
   const ImportColumnFamilyOptions& import_options_;
   std::vector<LiveFileMetaData> metadata_;
+  const std::shared_ptr<IOTracer> io_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

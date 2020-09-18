@@ -88,12 +88,16 @@ inline uint32_t fastrange32(uint32_t hash, uint32_t range) {
   return static_cast<uint32_t>(product >> 32);
 }
 
+#ifdef TEST_UINT128_COMPAT
+#undef HAVE_UINT128_EXTENSION
+#endif
+
 // An alternative to % for mapping a 64-bit hash value to an arbitrary range
 // that fits in size_t. See https://github.com/lemire/fastrange
 // We find size_t more convenient than uint64_t for the range, with side
 // benefit of better optimization on 32-bit platforms.
 inline size_t fastrange64(uint64_t hash, size_t range) {
-#if defined(HAVE_UINT128_EXTENSION)
+#ifdef HAVE_UINT128_EXTENSION
   // Can use compiler's 128-bit type. Trust it to do the right thing.
   __uint128_t wide = __uint128_t{range} * hash;
   return static_cast<size_t>(wide >> 64);

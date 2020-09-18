@@ -90,7 +90,8 @@ class ExternalSstFileIngestionJob {
         directories_(directories),
         event_logger_(event_logger),
         job_start_time_(env_->NowMicros()),
-        consumed_seqno_count_(0) {
+        consumed_seqno_count_(0),
+        io_tracer_(io_tracer) {
     assert(directories != nullptr);
   }
 
@@ -188,6 +189,7 @@ class ExternalSstFileIngestionJob {
   // Set in ExternalSstFileIngestionJob::Prepare(), if true and DB
   // file_checksum_gen_factory is set, DB will generate checksum each file.
   bool need_generate_file_checksum_{true};
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -110,9 +110,9 @@ class Repairer {
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, db_options_.table_cache_numshardbits)),
-        table_cache_(new TableCache(default_cf_iopts_, env_options_,
-                                    raw_table_cache_.get(),
-                                    /*block_cache_tracer=*/nullptr)),
+        table_cache_(new TableCache(
+            default_cf_iopts_, env_options_, raw_table_cache_.get(),
+            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
         vset_(dbname_, &immutable_db_options_, env_options_,
@@ -429,14 +429,15 @@ class Repairer {
       LegacyFileSystemWrapper fs(env_);
       IOStatus io_s;
       status = BuildTable(
-          dbname_, env_, &fs, *cfd->ioptions(),
+          dbname_, /* versions */ nullptr, env_, &fs, *cfd->ioptions(),
           *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_,
           iter.get(), std::move(range_del_iters), &meta,
-          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-          cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber,
-          snapshot_checker, kNoCompression, 0 /* sample_for_compression */,
-          CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, &io_s, nullptr /* event_logger */,
+          nullptr /* blob_file_additions */, cfd->internal_comparator(),
+          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
+          {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,
+          0 /* sample_for_compression */, CompressionOptions(), false,
+          nullptr /* internal_stats */, TableFileCreationReason::kRecovery,
+          &io_s, nullptr /*IOTracer*/, nullptr /* event_logger */,
           0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, 0 /* oldest_key_time */, write_hint,
           0 /* file_creation_time */, "DB Repairer" /* db_id */,

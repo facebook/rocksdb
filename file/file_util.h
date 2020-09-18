@@ -13,13 +13,15 @@
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "trace_replay/io_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
 extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
                          const std::string& destination, uint64_t size,
-                         bool use_fsync);
+                         bool use_fsync,
+                         const std::shared_ptr<IOTracer>& io_tracer = nullptr);
 
 extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
                            const std::string& contents, bool use_fsync);
@@ -35,7 +37,8 @@ extern IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory, std::string* file_checksum,
     std::string* file_checksum_func_name,
-    size_t verify_checksums_readahead_size, bool allow_mmap_reads);
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer);
 
 inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
                                          IOOptions& opts) {

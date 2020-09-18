@@ -183,7 +183,7 @@ class PersistentCacheTierTest : public testing::Test {
     ASSERT_EQ(stats_verify_hits_, max_keys);
     ASSERT_EQ(stats_verify_missed_, 0);
 
-    cache_->Close();
+    ASSERT_OK(cache_->Close());
     cache_.reset();
   }
 
@@ -194,7 +194,7 @@ class PersistentCacheTierTest : public testing::Test {
     ASSERT_LT(stats_verify_hits_, max_keys);
     ASSERT_GT(stats_verify_missed_, 0);
 
-    cache_->Close();
+    ASSERT_OK(cache_->Close());
     cache_.reset();
   }
 
@@ -206,7 +206,7 @@ class PersistentCacheTierTest : public testing::Test {
     ASSERT_GT(stats_verify_hits_, 0);
     ASSERT_GT(stats_verify_missed_, 0);
 
-    cache_->Close();
+    ASSERT_OK(cache_->Close());
     cache_.reset();
   }
 

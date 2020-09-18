@@ -360,9 +360,28 @@ CompactionFilter::BlobDecision BlobIndexCompactionFilterGC::PrepareBlobOutput(
 
   PinnableSlice blob;
   CompressionType compression_type = kNoCompression;
+  std::string compression_output;
   if (!ReadBlobFromOldFile(key, blob_index, &blob, false, &compression_type)) {
     gc_stats_.SetError();
     return BlobDecision::kIOError;
+  }
+
+  // If the compression_type is changed, re-compress it with the new compression
+  // type.
+  if (compression_type != blob_db_impl->bdb_options_.compression) {
+    if (compression_type != kNoCompression) {
+      const Status status =
+          blob_db_impl->DecompressSlice(blob, compression_type, &blob);
+      if (!status.ok()) {
+        gc_stats_.SetError();
+        return BlobDecision::kCorruption;
+      }
+    }
+    if (blob_db_impl->bdb_options_.compression != kNoCompression) {
+      blob_db_impl->GetCompressedSlice(blob, &compression_output);
+      blob = PinnableSlice(&compression_output);
+      blob.PinSelf();
+    }
   }
 
   uint64_t new_blob_file_number = 0;

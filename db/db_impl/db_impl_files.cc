@@ -447,7 +447,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // Close WALs before trying to delete them.
   for (const auto w : state.logs_to_free) {
     // TODO: maybe check the return value of Close.
-    w->Close();
+    auto s = w->Close();
+    s.PermitUncheckedError();
   }
 
   bool own_files = OwnTablesAndLogs();
@@ -566,7 +567,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     if (!own_files) {
       continue;
     }
-    Status file_deletion_status;
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
       SchedulePendingPurge(fname, dir_to_sync, type, number, state.job_id);

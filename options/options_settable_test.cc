@@ -9,6 +9,8 @@
 
 #include <cstring>
 
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "test_util/testharness.h"
@@ -424,6 +426,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
+  options->num_levels = 42;  // Initialize options for MutableCF
   options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
@@ -490,6 +493,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
       "sample_for_compression=0;"
+      "enable_blob_files=true;"
+      "min_blob_size=256;"
+      "blob_file_size=1000000;"
+      "blob_compression_type=kBZip2Compression;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

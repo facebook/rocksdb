@@ -28,8 +28,8 @@ DBImplSecondary::~DBImplSecondary() {}
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    bool /*readonly*/, bool /*error_if_log_file_exist*/,
-    bool /*error_if_data_exists_in_logs*/, uint64_t*) {
+    bool /*readonly*/, bool /*error_if_wal_file_exists*/,
+    bool /*error_if_data_exists_in_wals*/, uint64_t*) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -153,7 +153,8 @@ Status DBImplSecondary::MaybeInitLogReader(
         return status;
       }
       file_reader.reset(new SequentialFileReader(
-          std::move(file), fname, immutable_db_options_.log_readahead_size));
+          std::move(file), fname, immutable_db_options_.log_readahead_size,
+          io_tracer_));
     }
 
     // Create the log reader.
