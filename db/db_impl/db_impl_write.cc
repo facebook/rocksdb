@@ -1805,6 +1805,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   NotifyOnMemTableSealed(cfd, memtable_info);
   mutex_.Lock();
 #endif  // ROCKSDB_LITE
+  // It is possible that we got here without checking the value of i_os, but
+  // that is okay.  If we did, it most likely means that s was already an error.
+  // In any case, ignore any unchecked error for i_os here.
+  io_s.PermitUncheckedError();
   return s;
 }
 

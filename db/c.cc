@@ -504,13 +504,13 @@ rocksdb_t* rocksdb_open_with_ttl(
   return result;
 }
 
-rocksdb_t* rocksdb_open_for_read_only(
-    const rocksdb_options_t* options,
-    const char* name,
-    unsigned char error_if_log_file_exist,
-    char** errptr) {
+rocksdb_t* rocksdb_open_for_read_only(const rocksdb_options_t* options,
+                                      const char* name,
+                                      unsigned char error_if_wal_file_exists,
+                                      char** errptr) {
   DB* db;
-  if (SaveError(errptr, DB::OpenForReadOnly(options->rep, std::string(name), &db, error_if_log_file_exist))) {
+  if (SaveError(errptr, DB::OpenForReadOnly(options->rep, std::string(name),
+                                            &db, error_if_wal_file_exists))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
@@ -747,7 +747,7 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     int num_column_families, const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
-    unsigned char error_if_log_file_exist, char** errptr) {
+    unsigned char error_if_wal_file_exists, char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   for (int i = 0; i < num_column_families; i++) {
     column_families.push_back(ColumnFamilyDescriptor(
@@ -757,8 +757,10 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
 
   DB* db;
   std::vector<ColumnFamilyHandle*> handles;
-  if (SaveError(errptr, DB::OpenForReadOnly(DBOptions(db_options->rep),
-          std::string(name), column_families, &handles, &db, error_if_log_file_exist))) {
+  if (SaveError(errptr,
+                DB::OpenForReadOnly(DBOptions(db_options->rep),
+                                    std::string(name), column_families,
+                                    &handles, &db, error_if_wal_file_exists))) {
     return nullptr;
   }
 

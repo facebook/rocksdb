@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cstring>
+#include <regex>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -28,7 +29,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBasicTest : public DBTestBase {
  public:
-  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/true) {}
+  DBBasicTest() : DBTestBase("/db_basic_test", /*env_do_fsync=*/false) {}
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -61,6 +62,13 @@ TEST_F(DBBasicTest, UniqueSession) {
   ASSERT_NE(sid2, sid3);
 
   ASSERT_EQ(sid2, sid4);
+
+  // Expected compact format for session ids (see notes in implementation)
+  std::regex expected("[0-9A-Z]{20}");
+  const std::string match("match");
+  EXPECT_EQ(match, std::regex_replace(sid1, expected, match));
+  EXPECT_EQ(match, std::regex_replace(sid2, expected, match));
+  EXPECT_EQ(match, std::regex_replace(sid3, expected, match));
 
 #ifndef ROCKSDB_LITE
   Close();
@@ -2391,7 +2399,7 @@ class DBBasicTestMultiGet : public DBTestBase {
   DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,
                       bool uncompressed_cache, bool _compression_enabled,
                       bool _fill_cache, uint32_t compression_parallel_threads)
-      : DBTestBase(test_dir, /*env_do_fsync=*/true) {
+      : DBTestBase(test_dir, /*env_do_fsync=*/false) {
     compression_enabled_ = _compression_enabled;
     fill_cache_ = _fill_cache;
 
@@ -3250,12 +3258,9 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
     SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
-    if (options.table_factory &&
-        !strcmp(options.table_factory->Name(),
-                BlockBasedTableFactory::kName.c_str())) {
-      BlockBasedTableFactory* bbtf =
-          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
-      block_cache = bbtf->table_options().block_cache.get();
+    if (options.table_factory) {
+      block_cache = options.table_factory->GetOptions<Cache>(
+          TableFactory::kBlockCacheOpts());
     }
 
     Random rnd(301);
@@ -3336,12 +3341,9 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     SetTimeElapseOnlySleepOnReopen(&options);
     Reopen(options);
 
-    if (options.table_factory &&
-        !strcmp(options.table_factory->Name(),
-                BlockBasedTableFactory::kName.c_str())) {
-      BlockBasedTableFactory* bbtf =
-          static_cast<BlockBasedTableFactory*>(options.table_factory.get());
-      block_cache = bbtf->table_options().block_cache.get();
+    if (options.table_factory) {
+      block_cache = options.table_factory->GetOptions<Cache>(
+          TableFactory::kBlockCacheOpts());
     }
 
     Random rnd(301);

@@ -10,8 +10,6 @@
 #include <string>
 #include <stdint.h>
 
-#include "options/options_helper.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -156,10 +154,9 @@ class PlainTableFactory : public TableFactory {
   // page TLB and the page size if allocating from there. See comments of
   // Arena::AllocateAligned() for details.
   explicit PlainTableFactory(
-      const PlainTableOptions& _table_options = PlainTableOptions())
-      : table_options_(_table_options) {}
+      const PlainTableOptions& _table_options = PlainTableOptions());
 
-  const char* Name() const override { return kName.c_str(); }
+  const char* Name() const override { return kPlainTableName(); }
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions& ro,
                         const TableReaderOptions& table_reader_options,
@@ -171,27 +168,8 @@ class PlainTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
-  std::string GetPrintableTableOptions() const override;
-
-  const PlainTableOptions& table_options() const;
-
+  std::string GetPrintableOptions() const override;
   static const char kValueTypeSeqId0 = char(~0);
-
-  // Sanitizes the specified DB Options.
-  Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  void* GetOptions() override { return &table_options_; }
-
-  Status GetOptionString(const ConfigOptions& /*config_options*/,
-                         std::string* /*opt_string*/) const override {
-    return Status::OK();
-  }
-
-  static const std::string kName;
 
  private:
   PlainTableOptions table_options_;

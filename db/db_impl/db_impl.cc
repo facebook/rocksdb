@@ -302,7 +302,7 @@ Status DBImpl::Resume() {
 // 4. Schedule compactions if needed for all the CFs. This is needed as the
 //    flush in the prior step might have been a no-op for some CFs, which
 //    means a new super version wouldn't have been installed
-Status DBImpl::ResumeImpl() {
+Status DBImpl::ResumeImpl(DBRecoverContext context) {
   mutex_.AssertHeld();
   WaitForBackgroundWork();
 
@@ -364,7 +364,7 @@ Status DBImpl::ResumeImpl() {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      s = AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
+      s = AtomicFlushMemTables(cfds, flush_opts, context.flush_reason);
       mutex_.Lock();
     } else {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -373,7 +373,7 @@ Status DBImpl::ResumeImpl() {
         }
         cfd->Ref();
         mutex_.Unlock();
-        s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
+        s = FlushMemTable(cfd, flush_opts, context.flush_reason);
         mutex_.Lock();
         cfd->UnrefAndTryDelete();
         if (!s.ok()) {
@@ -466,7 +466,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
         if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
           cfd->Ref();
           mutex_.Unlock();
-          FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          Status s = FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
+          s.PermitUncheckedError();  //**TODO: What to do on error?
           mutex_.Lock();
           cfd->UnrefAndTryDelete();
         }
@@ -969,8 +970,8 @@ Status DBImpl::SetOptions(
       new_options = *cfd->GetLatestMutableCFOptions();
       // Append new version to recompute compaction score.
       VersionEdit dummy_edit;
-      versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
-                             directories_.GetDbDir());
+      s = versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
+                                 directories_.GetDbDir());
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
@@ -1020,7 +1021,7 @@ Status DBImpl::SetDBOptions(
 
   MutableDBOptions new_options;
   Status s;
-  Status persist_options_status;
+  Status persist_options_status = Status::OK();
   bool wal_changed = false;
   WriteContext write_context;
   {
@@ -1125,6 +1126,10 @@ Status DBImpl::SetDBOptions(
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
       write_thread_.ExitUnbatched(&w);
+    } else {
+      // To get here, we must have had invalid options and will not attempt to
+      // persist the options, which means the status is "OK/Uninitialized.
+      persist_options_status.PermitUncheckedError();
     }
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions(), inputs:");
@@ -2480,7 +2485,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
   Status s;
-  Status persist_options_status;
   *handle = nullptr;
 
   DBOptions db_options =
@@ -3690,13 +3694,29 @@ Status DBImpl::GetDbSessionId(std::string& session_id) const {
 }
 
 void DBImpl::SetDbSessionId() {
-  // GenerateUniqueId() generates an identifier
-  // that has a negligible probability of being duplicated
-  db_session_id_ = env_->GenerateUniqueId();
-  // Remove the extra '\n' at the end if there is one
-  if (!db_session_id_.empty() && db_session_id_.back() == '\n') {
-    db_session_id_.pop_back();
+  // GenerateUniqueId() generates an identifier that has a negligible
+  // probability of being duplicated, ~128 bits of entropy
+  std::string uuid = env_->GenerateUniqueId();
+
+  // Hash and reformat that down to a more compact format, 20 characters
+  // in base-36 ([0-9A-Z]), which is ~103 bits of entropy, which is enough
+  // to expect no collisions across a billion servers each opening DBs
+  // a million times (~2^50). Benefits vs. raw unique id:
+  // * Save ~ dozen bytes per SST file
+  // * Shorter shared backup file names (some platforms have low limits)
+  // * Visually distinct from DB id format
+  uint64_t a = NPHash64(uuid.data(), uuid.size(), 1234U);
+  uint64_t b = NPHash64(uuid.data(), uuid.size(), 5678U);
+  db_session_id_.resize(20);
+  static const char* const base36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  size_t i = 0;
+  for (; i < 10U; ++i, a /= 36U) {
+    db_session_id_[i] = base36[a % 36];
   }
+  for (; i < 20U; ++i, b /= 36U) {
+    db_session_id_[i] = base36[b % 36];
+  }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::SetDbSessionId", &db_session_id_);
 }
 
 // Default implementation -- returns not supported status

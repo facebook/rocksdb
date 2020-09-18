@@ -18,8 +18,8 @@
 #include "monitoring/persistent_stats_history.h"
 #include "monitoring/stats_dump_scheduler.h"
 #include "options/options_helper.h"
+#include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
@@ -185,12 +185,12 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 }
 
 namespace {
-Status SanitizeOptionsByTable(
+Status ValidateOptionsByTable(
     const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
   for (auto cf : column_families) {
-    s = cf.options.table_factory->SanitizeOptions(db_opts, cf.options);
+    s = ValidateOptions(db_opts, cf.options);
     if (!s.ok()) {
       return s;
     }
@@ -364,7 +364,7 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    bool error_if_log_file_exist, bool error_if_data_exists_in_logs,
+    bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
     uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
@@ -588,11 +588,11 @@ Status DBImpl::Recover(
     }
 
     if (logs.size() > 0) {
-      if (error_if_log_file_exist) {
+      if (error_if_wal_file_exists) {
         return Status::Corruption(
-            "The db was opened in readonly mode with error_if_log_file_exist"
-            "flag but a log file already exists");
-      } else if (error_if_data_exists_in_logs) {
+            "The db was opened in readonly mode with error_if_wal_file_exists"
+            "flag but a WAL file already exists");
+      } else if (error_if_data_exists_in_wals) {
         for (auto& log : logs) {
           std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
           uint64_t bytes;
@@ -600,8 +600,8 @@ Status DBImpl::Recover(
           if (s.ok()) {
             if (bytes > 0) {
               return Status::Corruption(
-                  "error_if_data_exists_in_logs is set but there are data "
-                  " in log files.");
+                  "error_if_data_exists_in_wals is set but there are data "
+                  " in WAL files.");
             }
           }
         }
@@ -1272,7 +1272,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                            MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
+
   FileMetaData meta;
+  std::vector<BlobFileAddition> blob_file_additions;
+
   std::unique_ptr<std::list<uint64_t>::iterator> pending_outputs_inserted_elem(
       new std::list<uint64_t>::iterator(
           CaptureCurrentFileNumberInPendingOutputs()));
@@ -1319,13 +1322,15 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
+
       IOStatus io_s;
       s = BuildTable(
-          dbname_, env_, fs_.get(), *cfd->ioptions(), mutable_cf_options,
-          file_options_for_compaction_, cfd->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
-          snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+          dbname_, versions_.get(), env_, fs_.get(), *cfd->ioptions(),
+          mutable_cf_options, file_options_for_compaction_, cfd->table_cache(),
+          iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
+          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
+          cfd->GetID(), cfd->GetName(), snapshot_seqs,
+          earliest_write_conflict_snapshot, snapshot_checker,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.sample_for_compression,
           mutable_cf_options.compression_opts, paranoid_file_checks,
@@ -1347,23 +1352,39 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
-  int level = 0;
-  if (s.ok() && meta.fd.GetFileSize() > 0) {
+  const bool has_output = meta.fd.GetFileSize() > 0;
+  assert(has_output || blob_file_additions.empty());
+
+  constexpr int level = 0;
+
+  if (s.ok() && has_output) {
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
                   meta.fd.smallest_seqno, meta.fd.largest_seqno,
                   meta.marked_for_compaction, meta.oldest_blob_file_number,
                   meta.oldest_ancester_time, meta.file_creation_time,
                   meta.file_checksum, meta.file_checksum_func_name);
+
+    edit->SetBlobFileAdditions(std::move(blob_file_additions));
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = env_->NowMicros() - start_micros;
-  stats.bytes_written = meta.fd.GetFileSize();
-  stats.num_output_files = 1;
+
+  if (has_output) {
+    stats.bytes_written = meta.fd.GetFileSize();
+
+    const auto& blobs = edit->GetBlobFileAdditions();
+    for (const auto& blob : blobs) {
+      stats.bytes_written += blob.GetTotalBlobBytes();
+    }
+
+    stats.num_output_files = static_cast<int>(blobs.size()) + 1;
+  }
+
   cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
   cfd->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                    meta.fd.GetFileSize());
+                                    stats.bytes_written);
   RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }
@@ -1451,7 +1472,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                     const bool seq_per_batch, const bool batch_per_txn) {
-  Status s = SanitizeOptionsByTable(db_options, column_families);
+  Status s = ValidateOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
   }

@@ -83,13 +83,16 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
-    if (partition_filters_ &&
-        static_cast<BlockBasedTableOptions*>(
-            options.table_factory->GetOptions())
-                ->index_type != BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      // In the current implementation partitioned filters depend on partitioned
-      // indexes
-      continue;
+    if (partition_filters_) {
+      auto* table_options =
+          options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (table_options != nullptr &&
+          table_options->index_type !=
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        // In the current implementation partitioned filters depend on
+        // partitioned indexes
+        continue;
+      }
     }
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);

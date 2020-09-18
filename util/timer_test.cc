@@ -188,8 +188,8 @@ TEST_F(TimerTest, AddAfterStartTest) {
 }
 
 TEST_F(TimerTest, CancelRunningTask) {
+  static constexpr char kTestFuncName[] = "test_func";
   const int kRepeatUs = 1 * kUsPerSec;
-  constexpr char kTestFuncName[] = "test_func";
   Timer timer(mock_env_.get());
   ASSERT_TRUE(timer.Start());
   int* value = new int;

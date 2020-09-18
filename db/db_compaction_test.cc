@@ -3266,8 +3266,13 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   Random rnd(301);
   std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin flushing files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTest::IntraL0Compaction:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3285,6 +3290,7 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   for (int i = 0; i < 10; ++i) {
     ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
     if (i == 5) {
+      TEST_SYNC_POINT("DBCompactionTest::IntraL0Compaction:L0ToL1Ready");
       ASSERT_OK(Put(Key(i + 1), value + value));
     } else {
       ASSERT_OK(Put(Key(i + 1), value));
@@ -3330,8 +3336,14 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
   Random rnd(301);
   std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin flushing files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTest::IntraL0CompactionDoesNotObsoleteDeletions:"
+        "L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3354,6 +3366,11 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
       ASSERT_OK(Put(Key(0), ""));
     } else {
       ASSERT_OK(Delete(Key(0)));
+    }
+    if (i == 5) {
+      TEST_SYNC_POINT(
+          "DBCompactionTest::IntraL0CompactionDoesNotObsoleteDeletions:"
+          "L0ToL1Ready");
     }
     ASSERT_OK(Put(Key(i + 1), value));
     ASSERT_OK(Flush());
@@ -5287,8 +5304,14 @@ TEST_P(DBCompactionTestWithParam,
   std::atomic<int> pick_intra_l0_count(0);
   std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin ingesting files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTestWithParam::FlushAfterIntraL0:1",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTestWithParam::"
+        "FlushAfterIntraL0CompactionCheckConsistencyFail:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FindIntraL0Compaction",
@@ -5316,6 +5339,9 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_OK(Put(Key(0), "a"));
 
   ASSERT_EQ(5, NumTableFilesAtLevel(0));
+  TEST_SYNC_POINT(
+      "DBCompactionTestWithParam::"
+      "FlushAfterIntraL0CompactionCheckConsistencyFail:L0ToL1Ready");
 
   // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
   for (int i = 5; i < 10; i++) {
@@ -5323,7 +5349,6 @@ TEST_P(DBCompactionTestWithParam,
     ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
-  TEST_SYNC_POINT("DBCompactionTestWithParam::FlushAfterIntraL0:1");
   // Put one key, to make biggest log sequence number in this memtable is bigger
   // than sst which would be ingested in next step.
   ASSERT_OK(Put(Key(2), "b"));
@@ -5365,8 +5390,14 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   std::atomic<int> pick_intra_l0_count(0);
+  // The L0->L1 must be picked before we begin ingesting files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTestWithParam::"
+        "IntraL0CompactionAfterFlushCheckConsistencyFail:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FindIntraL0Compaction",
@@ -5397,6 +5428,9 @@ TEST_P(DBCompactionTestWithParam,
   }
 
   ASSERT_EQ(6, NumTableFilesAtLevel(0));
+  TEST_SYNC_POINT(
+      "DBCompactionTestWithParam::"
+      "IntraL0CompactionAfterFlushCheckConsistencyFail:L0ToL1Ready");
   // ingest file to trigger IntraL0Compaction
   for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
@@ -5407,7 +5441,6 @@ TEST_P(DBCompactionTestWithParam,
   // Wake up flush job
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
-  TEST_SYNC_POINT("DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1");
   dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 

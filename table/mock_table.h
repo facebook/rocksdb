@@ -62,13 +62,7 @@ class MockTableFactory : public TableFactory {
   Status CreateMockTable(Env* env, const std::string& fname,
                          stl_wrappers::KVMap file_contents);
 
-  virtual Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  virtual std::string GetPrintableTableOptions() const override {
+  virtual std::string GetPrintableOptions() const override {
     return std::string();
   }
 

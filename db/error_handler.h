@@ -14,6 +14,17 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBImpl;
 
+// This structure is used to store the DB recovery context. The context is
+// the information that related to the recover actions. For example, it contains
+// FlushReason, which tells the flush job why this flush is called.
+struct DBRecoverContext {
+  FlushReason flush_reason;
+
+  DBRecoverContext() : flush_reason(FlushReason::kErrorRecovery) {}
+
+  DBRecoverContext(FlushReason reason) : flush_reason(reason) {}
+};
+
 class ErrorHandler {
   public:
    ErrorHandler(DBImpl* db, const ImmutableDBOptions& db_options,
@@ -28,7 +39,8 @@ class ErrorHandler {
          recovery_thread_(nullptr),
          db_mutex_(db_mutex),
          auto_recovery_(false),
-         recovery_in_prog_(false) {}
+         recovery_in_prog_(false),
+         soft_error_no_bg_work_(false) {}
    ~ErrorHandler() {
      bg_error_.PermitUncheckedError();
      recovery_error_.PermitUncheckedError();
@@ -59,8 +71,10 @@ class ErrorHandler {
     bool IsBGWorkStopped() {
       return !bg_error_.ok() &&
              (bg_error_.severity() >= Status::Severity::kHardError ||
-              !auto_recovery_);
+              !auto_recovery_ || soft_error_no_bg_work_);
     }
+
+    bool IsSoftErrorNoBGWork() { return soft_error_no_bg_work_; }
 
     bool IsRecoveryInProgress() { return recovery_in_prog_; }
 
@@ -89,6 +103,12 @@ class ErrorHandler {
     // A flag indicating whether automatic recovery from errors is enabled
     bool auto_recovery_;
     bool recovery_in_prog_;
+    // A flag to indicate that for the soft error, we should not allow any
+    // backrgound work execpt the work is from recovery.
+    bool soft_error_no_bg_work_;
+
+    // Used to store the context for recover, such as flush reason.
+    DBRecoverContext recover_context_;
 
     Status OverrideNoSpaceError(Status bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();
