@@ -302,7 +302,7 @@ Status DBImpl::Resume() {
 // 4. Schedule compactions if needed for all the CFs. This is needed as the
 //    flush in the prior step might have been a no-op for some CFs, which
 //    means a new super version wouldn't have been installed
-Status DBImpl::ResumeImpl() {
+Status DBImpl::ResumeImpl(DBRecoverContext context) {
   mutex_.AssertHeld();
   WaitForBackgroundWork();
 
@@ -364,7 +364,7 @@ Status DBImpl::ResumeImpl() {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      s = AtomicFlushMemTables(cfds, flush_opts, FlushReason::kErrorRecovery);
+      s = AtomicFlushMemTables(cfds, flush_opts, context.flush_reason);
       mutex_.Lock();
     } else {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -373,7 +373,7 @@ Status DBImpl::ResumeImpl() {
         }
         cfd->Ref();
         mutex_.Unlock();
-        s = FlushMemTable(cfd, flush_opts, FlushReason::kErrorRecovery);
+        s = FlushMemTable(cfd, flush_opts, context.flush_reason);
         mutex_.Lock();
         cfd->UnrefAndTryDelete();
         if (!s.ok()) {

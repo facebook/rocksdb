@@ -183,7 +183,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeError) {
+TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -244,6 +244,92 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeError) {
   Reopen(options);
   ASSERT_EQ("val3", Get(Key(3)));
 
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = true;
+  Put(Key(1), "val1", wo);
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  Put(Key(2), "val2", wo);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_EQ("val2", Get(Key(2)));
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_EQ("val2", Get(Key(2)));
+  Put(Key(3), "val3", wo);
+  ASSERT_EQ("val3", Get(Key(3)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  Put(Key(4), "val4", wo);
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeCloseTableFile",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  Put(Key(5), "val5", wo);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_EQ("val5", Get(Key(5)));
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ("val4", Get(Key(4)));
+  ASSERT_EQ("val5", Get(Key(5)));
+  Put(Key(6), "val6", wo);
+  ASSERT_EQ("val6", Get(Key(6)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val6", Get(Key(6)));
+
+  Put(Key(7), "val7", wo);
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeSyncTable",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  Put(Key(8), "val8", wo);
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_EQ("val8", Get(Key(8)));
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ("val7", Get(Key(7)));
+  ASSERT_EQ("val8", Get(Key(8)));
+  Put(Key(9), "val9", wo);
+  ASSERT_EQ("val9", Get(Key(9)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val9", Get(Key(9)));
   Destroy(options);
 }
 
@@ -1211,6 +1297,114 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
   }
   options.clear();
   delete def_env;
+}
+
+// When Put the KV-pair, the write option is set to disable WAL.
+// If retryable error happens in this condition, map the bg error
+// to soft error and trigger auto resume. During auto resume, SwitchMemtable
+// is disabled to avoid small SST tables. Write can still be applied before
+// the bg error is cleaned unless the memtable is full.
+TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
+  // Activate the FS before the first resume
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = true;
+  Put(Key(1), "val1", wo);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:LoopOut",
+        "FLushWritNoWALRetryableeErrorAutoRecover1:1"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  TEST_SYNC_POINT("FLushWritNoWALRetryableeErrorAutoRecover1:1");
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_EQ("val1", Get(Key(1)));
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  Put(Key(2), "val2", wo);
+  s = Flush();
+  // Since auto resume fails, the bg error is not cleand, flush will
+  // return the bg_error set before.
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  ASSERT_EQ("val2", Get(Key(2)));
+
+  // call auto resume
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+  Put(Key(3), "val3", wo);
+  s = Flush();
+  // After resume is successful, the flush should be ok.
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ("val3", Get(Key(3)));
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover2) {
+  // Activate the FS before the first resume
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = true;
+  Put(Key(1), "val1", wo);
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs->SetFilesystemActive(true);
+  ASSERT_EQ(listener->WaitForRecovery(5000000), true);
+  ASSERT_EQ("val1", Get(Key(1)));
+  Put(Key(2), "val2", wo);
+  s = Flush();
+  // Since auto resume is successful, the bg error is cleaned, flush will
+  // be successful.
+  ASSERT_OK(s);
+  ASSERT_EQ("val2", Get(Key(2)));
+  Destroy(options);
 }
 
 TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover1) {
