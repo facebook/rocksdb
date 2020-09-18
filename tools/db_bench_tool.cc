@@ -1479,7 +1479,11 @@ class ReportFileOpEnv : public EnvWrapper {
                                             std::memory_order_relaxed);
         return rv;
       }
-
+      Status AppendWithVerify(
+          const Slice& data,
+          const DataVerificationInfo& /* verification_info */) override {
+        return Append(data);
+      }
       Status Truncate(uint64_t size) override { return target_->Truncate(size); }
       Status Close() override { return target_->Close(); }
       Status Flush() override { return target_->Flush(); }

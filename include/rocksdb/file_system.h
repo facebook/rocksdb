@@ -730,9 +730,9 @@ class FSWritableFile {
                           IODebugContext* dbg) = 0;
 
   // Append data with verification information
-  virtual IOStatus Append(const Slice& data, const IOOptions& options,
-                          IODebugContext* dbg,
-                          const DataVerificationInfo& /* verification_info */) {
+  virtual IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& options, IODebugContext* dbg,
+      const DataVerificationInfo& /* verification_info */) {
     return Append(data, options, dbg);
   }
 
@@ -763,7 +763,7 @@ class FSWritableFile {
     return IOStatus::NotSupported();
   }
   // PositionedAppend data with verification information.
-  virtual IOStatus PositionedAppend(
+  virtual IOStatus PositionedAppendWithVerify(
       const Slice& /* data */, uint64_t /* offset */,
       const IOOptions& /*options*/, IODebugContext* /*dbg*/,
       const DataVerificationInfo& /* verification_info */) {
@@ -1303,22 +1303,22 @@ class FSWritableFileWrapper : public FSWritableFile {
                   IODebugContext* dbg) override {
     return target_->Append(data, options, dbg);
   }
-  IOStatus Append(const Slice& data, const IOOptions& options,
-                  IODebugContext* dbg,
-                  const DataVerificationInfo& verification_info) override {
-    return target_->Append(data, options, dbg, verification_info);
+  IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& options, IODebugContext* dbg,
+      const DataVerificationInfo& verification_info) override {
+    return target_->AppendWithVerify(data, options, dbg, verification_info);
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
   }
-  IOStatus PositionedAppend(
+  IOStatus PositionedAppendWithVerify(
       const Slice& data, uint64_t offset, const IOOptions& options,
       IODebugContext* dbg,
       const DataVerificationInfo& verification_info) override {
-    return target_->PositionedAppend(data, offset, options, dbg,
-                                     verification_info);
+    return target_->PositionedAppendWithVerify(data, offset, options, dbg,
+                                               verification_info);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {

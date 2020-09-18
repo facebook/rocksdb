@@ -271,6 +271,11 @@ class MockWritableFile : public WritableFile {
     }
     return Status::OK();
   }
+  Status AppendWithVerify(
+      const Slice& data,
+      const DataVerificationInfo& /* verification_info */) override {
+    return Append(data);
+  }
   Status Truncate(uint64_t size) override {
     file_->Truncate(static_cast<size_t>(size));
     return Status::OK();

@@ -1597,10 +1597,10 @@ Status CompactionJob::OpenCompactionOutputFile(
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
   bool data_verification = false;
-  if (db_options_.checksum_handoff_file_types.find(
-          ChecksumHandoffFileType::kSstFile) !=
-      db_options_.checksum_handoff_file_types.end()) {
-    data_verification = true;
+  for (auto& type : db_options_.checksum_handoff_file_types) {
+    if (type == ChecksumHandoffFileType::kSstFile) {
+      data_verification = true;
+    }
   }
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, env_, io_tracer_,

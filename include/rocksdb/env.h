@@ -778,8 +778,8 @@ class WritableFile {
   virtual Status Append(const Slice& data) = 0;
 
   // Append data with verification information
-  virtual Status Append(const Slice& data,
-                        const DataVerificationInfo& /* verification_info */) {
+  virtual Status AppendWithVerify(
+      const Slice& data, const DataVerificationInfo& /* verification_info */) {
     return Append(data);
   }
 
@@ -810,7 +810,7 @@ class WritableFile {
   }
 
   // PositionedAppend data with verification information.
-  virtual Status PositionedAppend(
+  virtual Status PositionedAppendWithVerify(
       const Slice& /* data */, uint64_t /* offset */,
       const DataVerificationInfo& /* verification_info */) {
     return Status::NotSupported(
@@ -1522,17 +1522,18 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) {}
 
   Status Append(const Slice& data) override { return target_->Append(data); }
-  Status Append(const Slice& data,
-                const DataVerificationInfo& verification_info) override {
-    return target_->Append(data, verification_info);
+  Status AppendWithVerify(
+      const Slice& data,
+      const DataVerificationInfo& verification_info) override {
+    return target_->AppendWithVerify(data, verification_info);
   }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
   }
-  Status PositionedAppend(
+  Status PositionedAppendWithVerify(
       const Slice& data, uint64_t offset,
       const DataVerificationInfo& verification_info) override {
-    return target_->PositionedAppend(data, offset, verification_info);
+    return target_->PositionedAppendWithVerify(data, offset, verification_info);
   }
   Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }

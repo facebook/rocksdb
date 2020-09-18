@@ -3962,10 +3962,10 @@ Status VersionSet::ProcessManifestWrites(
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
         bool data_verification = false;
-        if (db_options_->checksum_handoff_file_types.find(
-                ChecksumHandoffFileType::kManifest) !=
-            db_options_->checksum_handoff_file_types.end()) {
-          data_verification = true;
+        for (auto& type : db_options_->checksum_handoff_file_types) {
+          if (type == ChecksumHandoffFileType::kManifest) {
+            data_verification = true;
+          }
         }
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,

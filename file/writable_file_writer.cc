@@ -408,7 +408,15 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       {
         auto prev_perf_level = GetPerfLevel();
         IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
-        s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
+        if (perform_data_verification_) {
+          std::string checksum;
+          DataChecksumCalculation(src, allowed, &checksum);
+          DataVerificationInfo v_info(checksum);
+          s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr,
+                                     v_info);
+        } else {
+          s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
+        }
         SetPerfLevel(prev_perf_level);
       }
 #ifndef ROCKSDB_LITE
@@ -494,8 +502,16 @@ IOStatus WritableFileWriter::WriteDirect() {
         start_ts = FileOperationInfo::StartNow();
       }
       // direct writes must be positional
-      s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
-                                           IOOptions(), nullptr);
+      if (perform_data_verification_) {
+        std::string checksum;
+        DataChecksumCalculation(src, size, &checksum);
+        DataVerificationInfo v_info(checksum);
+        s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
+                                             IOOptions(), nullptr, v_info);
+      } else {
+        s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
+                                             IOOptions(), nullptr);
+      }
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);

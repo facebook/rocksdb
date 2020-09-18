@@ -64,6 +64,11 @@ class TestFSWritableFile : public FSWritableFile {
   virtual ~TestFSWritableFile();
   virtual IOStatus Append(const Slice& data, const IOOptions&,
                           IODebugContext*) override;
+  virtual IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& options, IODebugContext* dbg,
+      const DataVerificationInfo& /* verification_info */) override {
+    return Append(data, options, dbg);
+  }
   virtual IOStatus Truncate(uint64_t size, const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->Truncate(size, options, dbg);
@@ -77,6 +82,12 @@ class TestFSWritableFile : public FSWritableFile {
                                     const IOOptions& options,
                                     IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
+  }
+  virtual IOStatus PositionedAppendWithVerify(
+      const Slice& data, uint64_t offset, const IOOptions& options,
+      IODebugContext* dbg,
+      const DataVerificationInfo& /* verification_info */) override {
+    return PositionedAppend(data, offset, options, dbg);
   }
   virtual size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();

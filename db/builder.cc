@@ -146,10 +146,10 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       bool data_verification = false;
-      if (ioptions.checksum_handoff_file_types.find(
-              ChecksumHandoffFileType::kSstFile) !=
-          ioptions.checksum_handoff_file_types.end()) {
-        data_verification = true;
+      for (auto& type : ioptions.checksum_handoff_file_types) {
+        if (type == ChecksumHandoffFileType::kSstFile) {
+          data_verification = true;
+        }
       }
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, env, io_tracer,

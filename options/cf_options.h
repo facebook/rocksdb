@@ -123,7 +123,7 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 
-  std::set<ChecksumHandoffFileType> checksum_handoff_file_types;
+  std::vector<ChecksumHandoffFileType> checksum_handoff_file_types;
 };
 
 struct MutableCFOptions {

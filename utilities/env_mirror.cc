@@ -107,11 +107,21 @@ class WritableFileMirror : public WritableFile {
     assert(as == bs);
     return as;
   }
+  Status AppendWithVerify(
+      const Slice& data,
+      const DataVerificationInfo& /* verification_info */) override {
+    return Append(data);
+  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status as = a_->PositionedAppend(data, offset);
     Status bs = b_->PositionedAppend(data, offset);
     assert(as == bs);
     return as;
+  }
+  Status PositionedAppendWithVerify(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& /* verification_info */) override {
+    return PositionedAppend(data, offset);
   }
   Status Truncate(uint64_t size) override {
     Status as = a_->Truncate(size);

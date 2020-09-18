@@ -290,10 +290,10 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     bool data_verification = false;
-    if (immutable_db_options_.checksum_handoff_file_types.find(
-            ChecksumHandoffFileType::kManifest) !=
-        immutable_db_options_.checksum_handoff_file_types.end()) {
-      data_verification = true;
+    for (auto& type : immutable_db_options_.checksum_handoff_file_types) {
+      if (type == ChecksumHandoffFileType::kManifest) {
+        data_verification = true;
+      }
     }
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, env_, io_tracer_,
@@ -1466,10 +1466,10 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
 
     const auto& listeners = immutable_db_options_.listeners;
     bool data_verification = false;
-    if (immutable_db_options_.checksum_handoff_file_types.find(
-            ChecksumHandoffFileType::kWAL) !=
-        immutable_db_options_.checksum_handoff_file_types.end()) {
-      data_verification = true;
+    for (auto& type : immutable_db_options_.checksum_handoff_file_types) {
+      if (type == ChecksumHandoffFileType::kWAL) {
+        data_verification = true;
+      }
     }
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(lfile), log_fname, opt_file_options, env_, io_tracer_,

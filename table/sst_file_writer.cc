@@ -255,10 +255,10 @@ Status SstFileWriter::Open(const std::string& file_path) {
       0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   bool data_verification = false;
-  if (r->ioptions.checksum_handoff_file_types.find(
-          ChecksumHandoffFileType::kSstFile) !=
-      r->ioptions.checksum_handoff_file_types.end()) {
-    data_verification = true;
+  for (auto& type : r->ioptions.checksum_handoff_file_types) {
+    if (type == ChecksumHandoffFileType::kSstFile) {
+      data_verification = true;
+    }
   }
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,

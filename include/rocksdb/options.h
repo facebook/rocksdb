@@ -1171,7 +1171,7 @@ struct DBOptions {
   // Use this if your DB want to enable checksum handoff for specific file
   // types writes. Make sure that the Env or File_system you use support the
   // checksum verification.
-  std::set<ChecksumHandoffFileType> checksum_handoff_file_types;
+  std::vector<ChecksumHandoffFileType> checksum_handoff_file_types;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

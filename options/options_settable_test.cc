@@ -224,7 +224,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
       {offsetof(struct DBOptions, checksum_handoff_file_types),
-       sizeof(std::set<ChecksumHandoffFileType>)},
+       sizeof(std::vector<ChecksumHandoffFileType>)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

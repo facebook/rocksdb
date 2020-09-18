@@ -225,6 +225,11 @@ class StringSink: public WritableFile {
     contents_.append(slice.data(), slice.size());
     return Status::OK();
   }
+  virtual Status AppendWithVerify(
+      const Slice& slice,
+      const DataVerificationInfo& /* verification_info */) override {
+    return Append(slice);
+  }
   void Drop(size_t bytes) {
     if (reader_contents_ != nullptr) {
       contents_.resize(contents_.size() - bytes);
@@ -308,6 +313,11 @@ class OverwritingStringSink : public WritableFile {
   virtual Status Append(const Slice& slice) override {
     contents_.append(slice.data(), slice.size());
     return Status::OK();
+  }
+  virtual Status AppendWithVerify(
+      const Slice& slice,
+      const DataVerificationInfo& /* verification_info */) override {
+    return Append(slice);
   }
   void Drop(size_t bytes) {
     contents_.resize(contents_.size() - bytes);
@@ -573,6 +583,11 @@ inline std::string EncodeInt(uint64_t x) {
       virtual Status Append(const Slice& slice) override {
         contents_->append(slice.data(), slice.size());
         return Status::OK();
+      }
+      virtual Status AppendWithVerify(
+          const Slice& slice,
+          const DataVerificationInfo& /* verification_info */) override {
+        return Append(slice);
       }
 
      private:

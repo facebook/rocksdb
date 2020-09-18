@@ -115,24 +115,25 @@ class CompositeWritableFileWrapper : public WritableFile {
     IODebugContext dbg;
     return target_->Append(data, io_opts, &dbg);
   }
-  Status Append(const Slice& data,
-                const DataVerificationInfo& verification_info) override {
+  Status AppendWithVerify(
+      const Slice& data,
+      const DataVerificationInfo& verification_info) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return target_->Append(data, io_opts, &dbg, verification_info);
+    return target_->AppendWithVerify(data, io_opts, &dbg, verification_info);
   }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     IOOptions io_opts;
     IODebugContext dbg;
     return target_->PositionedAppend(data, offset, io_opts, &dbg);
   }
-  Status PositionedAppend(
+  Status PositionedAppendWithVerify(
       const Slice& data, uint64_t offset,
       const DataVerificationInfo& verification_info) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return target_->PositionedAppend(data, offset, io_opts, &dbg,
-                                     verification_info);
+    return target_->PositionedAppendWithVerify(data, offset, io_opts, &dbg,
+                                               verification_info);
   }
   Status Truncate(uint64_t size) override {
     IOOptions io_opts;
@@ -745,22 +746,23 @@ class LegacyWritableFileWrapper : public FSWritableFile {
                   IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Append(data));
   }
-  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
-                  IODebugContext* /*dbg*/,
-                  const DataVerificationInfo& verification_info) override {
-    return status_to_io_status(target_->Append(data, verification_info));
+  IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& /*options*/, IODebugContext* /*dbg*/,
+      const DataVerificationInfo& verification_info) override {
+    return status_to_io_status(
+        target_->AppendWithVerify(data, verification_info));
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->PositionedAppend(data, offset));
   }
-  IOStatus PositionedAppend(
+  IOStatus PositionedAppendWithVerify(
       const Slice& data, uint64_t offset, const IOOptions& /*options*/,
       IODebugContext* /*dbg*/,
       const DataVerificationInfo& verification_info) override {
     return status_to_io_status(
-        target_->PositionedAppend(data, offset, verification_info));
+        target_->PositionedAppendWithVerify(data, offset, verification_info));
   }
   IOStatus Truncate(uint64_t size, const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
