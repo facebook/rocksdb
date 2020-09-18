@@ -1843,7 +1843,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
-  if (read_options.timestamp->size() > 0) {
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
     timestamp_read_callback.Refresh(consistent_seqnum);
     read_callback = &timestamp_read_callback;
   }
@@ -2146,7 +2146,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
-  if (read_options.timestamp->size() > 0) {
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
     timestamp_read_callback.Refresh(consistent_seqnum);
     read_callback = &timestamp_read_callback;
   }
@@ -2321,7 +2321,7 @@ void DBImpl::MultiGetWithCallback(
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
-  if (read_options.timestamp->size() > 0) {
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
     timestamp_read_callback.Refresh(consistent_seqnum);
     read_callback = &timestamp_read_callback;
   }

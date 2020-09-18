@@ -654,8 +654,9 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
 
   void VerifyDefaultCF(int ts, const Snapshot* snap = nullptr) {
     ReadOptions read_opts;
-    Slice read_ts = Timestamp(ts, 0);
-    read_opts.timestamp = &read_ts;
+    std::string read_ts = Timestamp(ts, 0);
+    Slice read_ts_slice = read_ts;
+    read_opts.timestamp = &read_ts_slice;
     read_opts.snapshot = snap;
 
     ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
