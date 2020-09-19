@@ -7956,18 +7956,34 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
   }
 
   /**
+   * Get the Java Method: AbstractEventListener#shouldBeNotifiedOnFileIO
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getShouldBeNotifiedOnFileIOMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "shouldBeNotifiedOnFileIO", "()Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
    * Get the Java Method: AbstractEventListener#onErrorRecoveryBegin
    *
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID
    */
-  static jmethodID getOnErrorRecoveryBeginMethodId(JNIEnv* env) {
+  static jmethodID getOnErrorRecoveryBeginProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "onErrorRecoveryBegin",
-        "(Lorg/rocksdb/BackgroundErrorReason;Lorg/rocksdb/Status;)Z");
+        jclazz, "onErrorRecoveryBeginProxy",
+        "(BLorg/rocksdb/Status;)Z");
     assert(mid != nullptr);
     return mid;
   }
@@ -7985,23 +8001,6 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
     static jmethodID mid = env->GetMethodID(
         jclazz, "onErrorRecoveryCompleted",
         "(Lorg/rocksdb/Status;)V");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: AbstractEventListener#shouldBeNotifiedOnFileIO
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID
-   */
-  static jmethodID getShouldBeNotifiedOnFileIOMethodId(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    assert(jclazz != nullptr);
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "shouldBeNotifiedOnFileIO",
-        "()Z");
     assert(mid != nullptr);
     return mid;
   }
@@ -8158,6 +8157,30 @@ class TableFileCreationBriefInfoJni : public JavaClass {
   }
 };
 
+class MemTableInfoJni : public JavaClass {
+ public:
+  static jobject fromCppMemTableInfo(JNIEnv* env,
+      const ROCKSDB_NAMESPACE::MemTableInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
+    return env->NewObject(jclazz, ctor, cf_name, static_cast<jlong>(info->first_seqno),
+        static_cast<jlong>(info->earliest_seqno), static_cast<jlong>(info->num_entries),
+        static_cast<jlong>(info->num_deletes));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/MemTableInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(Ljava/lang/String;JJJJ)V");
+  }
+};
+
 class ExternalFileIngestionInfoJni : public JavaClass {
  public:
   static jobject fromCppExternalFileIngestionInfo(JNIEnv* env,
@@ -8181,6 +8204,54 @@ class ExternalFileIngestionInfoJni : public JavaClass {
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
     return env->GetMethodID(clazz, "<init>",
                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JLorg/rocksdb/TableProperties;)V");
+  }
+};
+
+class WriteStallInfoJni : public JavaClass {
+ public:
+  static jobject fromCppWriteStallInfo(JNIEnv* env,
+      const ROCKSDB_NAMESPACE::WriteStallInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
+    return env->NewObject(jclazz, ctor, cf_name, static_cast<jbyte>(info->condition.cur),
+        static_cast<jbyte>(info->condition.prev));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/WriteStallInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(Ljava/lang/String;BB)V");
+  }
+};
+
+class FileOperationInfoJni : public JavaClass {
+ public:
+  static jobject fromCppFileOperationInfo(JNIEnv* env,
+      const ROCKSDB_NAMESPACE::FileOperationInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring path = JniUtil::toJavaString(env, &info->path);
+    // TODO: add status
+    return env->NewObject(jclazz, ctor, path, static_cast<jlong>(info->offset),
+        static_cast<jlong>(info->length), static_cast<jlong>(info->start_ts.time_since_epoch().count()),
+        static_cast<jlong>(info->duration.count()), nullptr);
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/FileOperationInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                   "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
 }  // namespace ROCKSDB_NAMESPACE

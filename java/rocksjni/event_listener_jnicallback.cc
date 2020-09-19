@@ -86,10 +86,15 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
       env,
       AbstractEventListenerJni::getOnFileWriteFinishMethodId);
 
-  InitCallbackMethodId(m_on_error_recovery_begin_mid,
+  InitCallbackMethodId(m_should_be_notified_on_file_io,
+      EnabledEventCallback::SHOULD_BE_NOTIFIED_ON_FILE_IO,
+      env,
+      AbstractEventListenerJni::getShouldBeNotifiedOnFileIOMethodId);
+
+  InitCallbackMethodId(m_on_error_recovery_begin_proxy_mid,
       EnabledEventCallback::ON_ERROR_RECOVERY_BEGIN,
       env,
-      AbstractEventListenerJni::getOnErrorRecoveryBeginMethodId);
+      AbstractEventListenerJni::getOnErrorRecoveryBeginProxyMethodId);
 
   InitCallbackMethodId(m_on_error_recovery_completed_mid,
       EnabledEventCallback::ON_ERROR_RECOVERY_COMPLETED,
@@ -199,8 +204,18 @@ void EventListenerJniCallback::OnTableFileCreationStarted(const TableFileCreatio
   CleanEnv(env, attached_thread, { &jcreation_brief_info });
 }
 
-// TODO
-void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& /*info*/) {}
+void EventListenerJniCallback::OnMemTableSealed(const MemTableInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jmem_table_info = SetupCallbackInvocation<MemTableInfo>(env, attached_thread,
+      m_on_mem_table_sealed_mid, info, MemTableInfoJni::fromCppMemTableInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_mem_table_sealed_mid,
+      jmem_table_info);
+
+  CleanEnv(env, attached_thread, { &jmem_table_info });
+}
 
 void EventListenerJniCallback::OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle) {
   JNIEnv *env;
@@ -243,12 +258,91 @@ void EventListenerJniCallback::OnBackgroundError(BackgroundErrorReason reason, S
   CleanEnv(env, attached_thread, { &jstatus });
 }
 
-void EventListenerJniCallback::OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
-void EventListenerJniCallback::OnFileReadFinish(const FileOperationInfo& /* info */) {}
-void EventListenerJniCallback::OnFileWriteFinish(const FileOperationInfo& /* info */) {}
-bool EventListenerJniCallback::ShouldBeNotifiedOnFileIO() { return false; }
-void EventListenerJniCallback::OnErrorRecoveryBegin(BackgroundErrorReason /* reason */, Status /* bg_error */, bool* /* auto_recovery */) {}
-void EventListenerJniCallback::OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+void EventListenerJniCallback::OnStallConditionsChanged(const WriteStallInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jwrite_stall_info = SetupCallbackInvocation<WriteStallInfo>(env, attached_thread,
+      m_on_stall_conditions_changed_mid, info, WriteStallInfoJni::fromCppWriteStallInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_stall_conditions_changed_mid,
+      jwrite_stall_info);
+
+  CleanEnv(env, attached_thread, { &jwrite_stall_info });
+}
+
+void EventListenerJniCallback::OnFileReadFinish(const FileOperationInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jop_info = SetupCallbackInvocation<FileOperationInfo>(env, attached_thread,
+      m_on_file_read_finish_mid, info, FileOperationInfoJni::fromCppFileOperationInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_file_read_finish_mid,
+      jop_info);
+
+  CleanEnv(env, attached_thread, { &jop_info });
+}
+
+void EventListenerJniCallback::OnFileWriteFinish(const FileOperationInfo& info) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jop_info = SetupCallbackInvocation<FileOperationInfo>(env, attached_thread,
+      m_on_file_write_finish_mid, info, FileOperationInfoJni::fromCppFileOperationInfo);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_file_write_finish_mid,
+      jop_info);
+
+  CleanEnv(env, attached_thread, { &jop_info });
+}
+
+bool EventListenerJniCallback::ShouldBeNotifiedOnFileIO() {
+  if (m_should_be_notified_on_file_io == nullptr) {
+    return false;
+  }
+
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv *env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
+
+  jboolean jshould_be_notified = env->CallBooleanMethod(m_jcallback_obj,
+      m_should_be_notified_on_file_io);
+
+  CleanEnv(env, attached_thread, { });
+
+  return static_cast<bool>(jshould_be_notified);
+}
+
+void EventListenerJniCallback::OnErrorRecoveryBegin(BackgroundErrorReason reason,
+    Status bg_error, bool* auto_recovery) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jbg_error = SetupCallbackInvocation<Status>(env, attached_thread,
+      m_on_error_recovery_begin_proxy_mid, bg_error, StatusJni::construct);
+
+  jboolean jauto_recovery = env->CallBooleanMethod(m_jcallback_obj,
+      m_on_error_recovery_begin_proxy_mid,
+      static_cast<jbyte>(reason),
+      jbg_error);
+
+  CleanEnv(env, attached_thread, { &jbg_error });
+
+  *auto_recovery = static_cast<bool>(jauto_recovery);
+}
+
+void EventListenerJniCallback::OnErrorRecoveryCompleted(Status old_bg_error) {
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jold_bg_error = SetupCallbackInvocation<Status>(env, attached_thread,
+      m_on_error_recovery_completed_mid, old_bg_error, StatusJni::construct);
+
+  env->CallVoidMethod(m_jcallback_obj,
+      m_on_error_recovery_completed_mid,
+      jold_bg_error);
+
+  CleanEnv(env, attached_thread, { &jold_bg_error });
+}
 
 void EventListenerJniCallback::InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
     JNIEnv *env,
@@ -273,14 +367,14 @@ jobject EventListenerJniCallback::SetupCallbackInvocation(JNIEnv*& env, jboolean
   env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
-  jobject jflush_job_info = convert(env, &cpp_obj);
-  if (jflush_job_info == nullptr) {
+  jobject jobj = convert(env, &cpp_obj);
+  if (jobj == nullptr) {
     // exception thrown from fromCppFlushJobInfo
     env->ExceptionDescribe();  // print out exception to stderr
     releaseJniEnv(attached_thread);
   }
 
-  return jflush_job_info;
+  return jobj;
 }
 
 void EventListenerJniCallback::CleanEnv(JNIEnv *env,

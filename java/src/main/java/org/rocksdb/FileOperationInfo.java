@@ -5,12 +5,15 @@
 
 package org.rocksdb;
 
+/**
+ * Java representation of FileOperationInfo struct from include/rocksdb/listener.h
+ */
 public class FileOperationInfo {
   private final String path;
   private final long offset;
   private final long length;
   private final long startTimestamp;
-  private final long finishTimestamp;
+  private final long duration;
   private final Status status;
 
   /**
@@ -18,13 +21,13 @@ public class FileOperationInfo {
    * C++ via JNI.
    */
   private FileOperationInfo(final String path, final long offset,
-      final long length, final long startTimestamp, final long finishTimestamp,
+      final long length, final long startTimestamp, final long duration,
       final Status status) {
     this.path = path;
     this.offset = offset;
     this.length = length;
     this.startTimestamp = startTimestamp;
-    this.finishTimestamp = finishTimestamp;
+    this.duration = duration;
     this.status = status;
   }
 
@@ -56,7 +59,7 @@ public class FileOperationInfo {
   }
 
   /**
-   * Get the start timestamp.
+   * Get the start timestamp (in nanoseconds).
    *
    * @return the start timestamp.
    */
@@ -65,12 +68,12 @@ public class FileOperationInfo {
   }
 
   /**
-   * Get the finish timestamp.
+   * Get the operation duration (in nanoseconds).
    *
-   * @return the finish timestamp.
+   * @return the operation duration.
    */
-  public long getFinishTimestamp() {
-    return finishTimestamp;
+  public long getDuration() {
+    return duration;
   }
 
   /**

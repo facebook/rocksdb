@@ -37,6 +37,7 @@ void  Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks
   el->OnFileTruncateFinish(op_info);
   el->OnFileCloseFinish(op_info);
   el->ShouldBeNotifiedOnFileIO();
-  el->OnErrorRecoveryBegin(BackgroundErrorReason::kFlush, status, nullptr);
+  bool auto_recovery;
+  el->OnErrorRecoveryBegin(BackgroundErrorReason::kFlush, status, &auto_recovery);
   el->OnErrorRecoveryCompleted(status);
 }

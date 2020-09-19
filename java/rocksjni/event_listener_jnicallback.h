@@ -33,10 +33,11 @@ enum EnabledEventCallback {
   ON_STALL_CONDITIONS_CHANGED = 0xB,
   ON_FILE_READ_FINISH = 0xC,
   ON_FILE_WRITE_FINISH = 0xD,
-  ON_ERROR_RECOVERY_BEGIN = 0xE,
-  ON_ERROR_RECOVERY_COMPLETED = 0xF,
+  SHOULD_BE_NOTIFIED_ON_FILE_IO = 0xE,
+  ON_ERROR_RECOVERY_BEGIN = 0xF,
+  ON_ERROR_RECOVERY_COMPLETED = 0x10,
 
-  NUM_ENABLED_EVENT_CALLBACK = 0x10,
+  NUM_ENABLED_EVENT_CALLBACK = 0x11,
 };
 
 class EventListenerJniCallback : public JniCallback, public EventListener {
@@ -67,13 +68,14 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   virtual void OnErrorRecoveryCompleted(Status old_bg_error);
 
  private:
-  void InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
+  inline void InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
       JNIEnv *env,
       jmethodID (*get_id)(JNIEnv *env));
-  template <class T> jobject SetupCallbackInvocation(JNIEnv*& env, jboolean& attached_thread,
+  template <class T>
+  inline jobject SetupCallbackInvocation(JNIEnv*& env, jboolean& attached_thread,
       const jmethodID& mid, const T& cpp_obj,
       jobject (*convert)(JNIEnv *env, const T* cpp_obj));
-  void CleanEnv(JNIEnv *env,
+  inline void CleanEnv(JNIEnv *env,
       jboolean attached_thread, std::initializer_list<jobject*> refs);
 
   const std::set<EnabledEventCallback> m_enabled_event_callbacks;
@@ -91,7 +93,8 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jmethodID m_on_stall_conditions_changed_mid;
   jmethodID m_on_file_read_finish_mid;
   jmethodID m_on_file_write_finish_mid;
-  jmethodID m_on_error_recovery_begin_mid;
+  jmethodID m_should_be_notified_on_file_io;
+  jmethodID m_on_error_recovery_begin_proxy_mid;
   jmethodID m_on_error_recovery_completed_mid;
 };
 

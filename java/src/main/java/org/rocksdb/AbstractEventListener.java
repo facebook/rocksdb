@@ -286,6 +286,18 @@ public abstract class AbstractEventListener extends RocksCallbackObject
     return true;
   }
 
+  /**
+   * Called from JNI, proxy for
+   *     {@link #onErrorRecoveryBegin(BackgroundErrorReason, Status)}.
+   *
+   * @param reasonByte byte value representing error reason
+   * @param backgroundError status with error code
+   */
+  private boolean onErrorRecoveryBeginProxy(final byte reasonByte,
+                                      final Status backgroundError) {
+    return onErrorRecoveryBegin(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
+  }
+
   @Override
   public void onErrorRecoveryCompleted(final Status oldBackgroundError) {
     // no-op

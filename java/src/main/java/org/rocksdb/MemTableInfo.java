@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public class MemTableInfo {
-  private final byte[] columnFamilyName;
+  private final String columnFamilyName;
   private final long firstSeqno;
   private final long earliestSeqno;
   private final long numEntries;
@@ -16,7 +16,7 @@ public class MemTableInfo {
    * Access is private as this will only be constructed from
    * C++ via JNI.
    */
-  private MemTableInfo(final byte[] columnFamilyName, final long firstSeqno,
+  private MemTableInfo(final String columnFamilyName, final long firstSeqno,
       final long earliestSeqno, final long numEntries, final long numDeletes) {
     this.columnFamilyName = columnFamilyName;
     this.firstSeqno = firstSeqno;
@@ -30,7 +30,7 @@ public class MemTableInfo {
    *
    * @return the name of the column family.
    */
-  public byte[] getColumnFamilyName() {
+  public String getColumnFamilyName() {
     return columnFamilyName;
   }
 

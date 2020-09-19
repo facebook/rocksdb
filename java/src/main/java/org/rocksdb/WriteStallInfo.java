@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 public class WriteStallInfo {
-  private final byte[] columnFamilyName;
+  private final String columnFamilyName;
   private final WriteStallCondition currentCondition;
   private final WriteStallCondition previousCondition;
 
@@ -14,7 +14,7 @@ public class WriteStallInfo {
    * Access is private as this will only be constructed from
    * C++ via JNI.
    */
-  private WriteStallInfo(final byte[] columnFamilyName,
+  private WriteStallInfo(final String columnFamilyName,
       final byte currentConditionValue,
       final byte previousConditionValue) {
     this.columnFamilyName = columnFamilyName;
@@ -28,7 +28,7 @@ public class WriteStallInfo {
    *
    * @return the name of the column family.
    */
-  public byte[] getColumnFamilyName() {
+  public String getColumnFamilyName() {
     return columnFamilyName;
   }
 
