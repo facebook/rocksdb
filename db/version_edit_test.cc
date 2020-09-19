@@ -453,7 +453,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   std::string expected_str = "VersionEdit {\n";
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
-    ss << "  WalAddition: log_number: " << kLogNumbers[i] << " synced: 1"
+    ss << "  WalAddition: log_number: " << kLogNumbers[i] << " synced: 0"
        << " size_in_bytes: " << kSizeInBytes[i] << "\n";
     expected_str += ss.str();
   }
@@ -464,7 +464,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
-       << "\"Synced\": 1, "
+       << "\"Synced\": 0, "
        << "\"SizeInBytes\": " << kSizeInBytes[i] << "}";
     if (i < n - 1) ss << ", ";
     expected_json += ss.str();
