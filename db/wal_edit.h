@@ -30,17 +30,13 @@ class WalMetadata {
  public:
   WalMetadata() = default;
 
-  // Only a closed and synced WAL will have size.
-  explicit WalMetadata(uint64_t size_bytes)
-      : synced_(true), closed_(true), size_bytes_(size_bytes) {}
+  explicit WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
+
+  bool IsClosed() const { return HasSize(); }
 
   bool IsSynced() const { return synced_; }
 
-  void SetSynced() { synced_ = true; }
-
-  bool IsClosed() const { return closed_; }
-
-  void SetClosed() { closed_ = true; }
+  void SetSynced(bool synced) { synced_ = synced; }
 
   bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
 
@@ -53,10 +49,7 @@ class WalMetadata {
   constexpr static uint64_t kUnknownWalSize = 0;
 
   // Whether the WAL and WAL dir are synced.
-  bool synced_ = false;
-
-  // Whether the WAL is closed.
-  bool closed_ = false;
+  bool synced_ = true;
 
   // Size of a closed WAL in bytes.
   uint64_t size_bytes_ = kUnknownWalSize;
@@ -66,12 +59,13 @@ class WalMetadata {
 enum class WalAdditionTag : uint32_t {
   // Indicates that there are no more tags.
   kTerminate = 1,
-  // Whether the WAL and WAL dir are synced.
-  kSynced = 2,
-  // Whether the WAL is closed.
-  kClosed = 3,
+  // Whether the WAL and WAL dir are not synced.
+  // Most of the time, the WAL should be synced,
+  // we only write unsynced status to MANIFEST to
+  // save space of MANIFEST for most of the time.
+  kUnsynced = 2,
   // Size in bytes.
-  kSize = 4,
+  kSize = 3,
   // Add tags in the future, such as checksum?
 };
 

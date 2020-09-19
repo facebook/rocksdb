@@ -14,12 +14,8 @@ namespace ROCKSDB_NAMESPACE {
 void WalAddition::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
 
-  if (metadata_.IsSynced()) {
-    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kSynced));
-  }
-
-  if (metadata_.IsClosed()) {
-    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kClosed));
+  if (!metadata_.IsSynced()) {
+    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kUnsynced));
   }
 
   if (metadata_.HasSize()) {
@@ -44,12 +40,8 @@ Status WalAddition::DecodeFrom(Slice* src) {
     }
     WalAdditionTag tag = static_cast<WalAdditionTag>(tag_value);
     switch (tag) {
-      case WalAdditionTag::kSynced: {
-        metadata_.SetSynced();
-        break;
-      }
-      case WalAdditionTag::kClosed: {
-        metadata_.SetClosed();
+      case WalAdditionTag::kUnsynced: {
+        metadata_.SetSynced(false);
         break;
       }
       case WalAdditionTag::kSize: {
@@ -74,15 +66,14 @@ Status WalAddition::DecodeFrom(Slice* src) {
 
 JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal) {
   jw << "LogNumber" << wal.GetLogNumber() << "Synced"
-     << wal.GetMetadata().IsSynced() << "Closed" << wal.GetMetadata().IsClosed()
-     << "SizeInBytes" << wal.GetMetadata().GetSizeInBytes();
+     << wal.GetMetadata().IsSynced() << "SizeInBytes"
+     << wal.GetMetadata().GetSizeInBytes();
   return jw;
 }
 
 std::ostream& operator<<(std::ostream& os, const WalAddition& wal) {
   os << "log_number: " << wal.GetLogNumber()
      << " synced: " << wal.GetMetadata().IsSynced()
-     << " closed: " << wal.GetMetadata().IsClosed()
      << " size_in_bytes: " << wal.GetMetadata().GetSizeInBytes();
   return os;
 }

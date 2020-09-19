@@ -318,13 +318,7 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
       meta.SetSizeInBytes(rand() % 1000);
     }
     bool is_synced = rand() % 2 == 0;
-    if (is_synced) {
-      meta.SetSynced();
-    }
-    bool is_closed = rand() % 2 == 0;
-    if (is_closed) {
-      meta.SetClosed();
-    }
+    meta.SetSynced(is_synced);
     edit.AddWal(log_number, meta);
   }
   TestEncodeDecode(edit);
@@ -458,7 +452,6 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "  WalAddition: log_number: " << kLogNumbers[i] << " synced: 1"
-       << " closed: 1"
        << " size_in_bytes: " << kSizeInBytes[i] << "\n";
     expected_str += ss.str();
   }
@@ -470,7 +463,6 @@ TEST_F(VersionEditTest, AddWalDebug) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
        << "\"Synced\": 1, "
-       << "\"Closed\": 1, "
        << "\"SizeInBytes\": " << kSizeInBytes[i] << "}";
     if (i < n - 1) ss << ", ";
     expected_json += ss.str();
