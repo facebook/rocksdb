@@ -318,7 +318,9 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
       meta.SetSizeInBytes(rand() % 1000);
     }
     bool is_synced = rand() % 2 == 0;
-    meta.SetSynced(is_synced);
+    if (is_synced) {
+      meta.SetSynced();
+    }
     edit.AddWal(log_number, meta);
   }
   TestEncodeDecode(edit);

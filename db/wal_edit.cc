@@ -14,8 +14,8 @@ namespace ROCKSDB_NAMESPACE {
 void WalAddition::EncodeTo(std::string* dst) const {
   PutVarint64(dst, number_);
 
-  if (!metadata_.IsSynced()) {
-    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kUnsynced));
+  if (metadata_.IsSynced()) {
+    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kSynced));
   }
 
   if (metadata_.HasSize()) {
@@ -40,8 +40,8 @@ Status WalAddition::DecodeFrom(Slice* src) {
     }
     WalAdditionTag tag = static_cast<WalAdditionTag>(tag_value);
     switch (tag) {
-      case WalAdditionTag::kUnsynced: {
-        metadata_.SetSynced(false);
+      case WalAdditionTag::kSynced: {
+        metadata_.SetSynced();
         break;
       }
       case WalAdditionTag::kSize: {
