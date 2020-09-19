@@ -30,8 +30,11 @@ class WalMetadata {
  public:
   WalMetadata() = default;
 
+  // A WAL's size is set after it's closed.
   explicit WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
 
+  // Since a WAL's size is only set after it's closed,
+  // IsClosed is equivalent to HasSize.
   bool IsClosed() const { return HasSize(); }
 
   bool IsSynced() const { return synced_; }
