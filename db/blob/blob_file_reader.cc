@@ -95,7 +95,8 @@ BlobFileReader::~BlobFileReader() = default;
 
 Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
                                const Slice& user_key, uint64_t offset,
-                               uint64_t size, GetContext* get_context) const {
+                               uint64_t value_size,
+                               GetContext* get_context) const {
   assert(get_context);
 
   const size_t key_size = user_key.size();
@@ -105,56 +106,74 @@ Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
   }
 
   const size_t adjustment =
-      BlobLogRecord::CalculateAdjustmentForBlobCRC(key_size);
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size);
   assert(offset >= adjustment);
   const uint64_t record_offset = offset - adjustment;
-  const uint64_t record_size = size + adjustment;
+  const uint64_t record_size = value_size + adjustment;
 
   std::string buf;
   AlignedBuf aligned_buf;
 
-  Slice blob_record;
+  Slice record_slice;
 
   assert(file_reader_);
 
-  Status s;
-
   if (file_reader_->use_direct_io()) {
-    s = file_reader_->Read(IOOptions(), record_offset,
-                           static_cast<size_t>(record_size), &blob_record,
-                           nullptr, &aligned_buf);
+    const Status s = file_reader_->Read(IOOptions(), record_offset,
+                                        static_cast<size_t>(record_size),
+                                        &record_slice, nullptr, &aligned_buf);
+    if (!s.ok()) {
+      return s;
+    }
   } else {
     buf.reserve(static_cast<size_t>(record_size));
-    s = file_reader_->Read(IOOptions(), record_offset,
-                           static_cast<size_t>(record_size), &blob_record,
-                           &buf[0], nullptr);
+    const Status s = file_reader_->Read(IOOptions(), record_offset,
+                                        static_cast<size_t>(record_size),
+                                        &record_slice, &buf[0], nullptr);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
-  if (!s.ok()) {
-    return s;
+  if (record_slice.size() != record_size) {
+    return Status::Corruption("Failed to retrieve blob record");
   }
 
-  if (blob_record.size() != record_size) {
-    return Status::Corruption("Failed to retrieve blob from blob index");
+  BlobLogRecord record;
+
+  Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
+
+  {
+    const Status s = record.DecodeHeaderFrom(header_slice);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
-  Slice crc_slice(blob_record.data(), sizeof(uint32_t));
-  Slice blob_value(blob_record.data() + sizeof(uint32_t) + user_key.size(),
-                   static_cast<size_t>(size));
-
-  uint32_t crc_exp = 0;
-  if (!GetFixed32(&crc_slice, &crc_exp)) {
-    return Status::Corruption("Unable to decode checksum");
+  if (record.key_size != key_size) {
+    return Status::Corruption("Key size mismatch when reading blob");
   }
 
-  uint32_t crc = crc32c::Value(blob_record.data() + sizeof(uint32_t),
-                               blob_record.size() - sizeof(uint32_t));
-  crc = crc32c::Mask(crc);
-  if (crc != crc_exp) {
-    return Status::Corruption("Blob CRC mismatch");
+  if (record.value_size != value_size) {
+    return Status::Corruption("Value size mismatch when reading blob");
   }
 
-  get_context->SaveValue(blob_value, kMaxSequenceNumber);
+  record.key =
+      Slice(record_slice.data() + BlobLogRecord::kHeaderSize, record.key_size);
+  if (record.key != user_key) {
+    return Status::Corruption("Key mismatch when reading blob");
+  }
+
+  record.value = Slice(record_slice.data() + adjustment, value_size);
+
+  {
+    const Status s = record.CheckBlobCRC();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  get_context->SaveValue(record.value, kMaxSequenceNumber);
 
   return Status::OK();
 }

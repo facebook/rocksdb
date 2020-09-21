@@ -34,7 +34,8 @@ class BlobFileReader {
   ~BlobFileReader();
 
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 uint64_t offset, uint64_t size, GetContext* get_context) const;
+                 uint64_t offset, uint64_t value_size,
+                 GetContext* get_context) const;
 
  private:
   explicit BlobFileReader(

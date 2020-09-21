@@ -95,10 +95,8 @@ Status BlobLogFooter::DecodeFrom(Slice src) {
   return Status::OK();
 }
 
-size_t BlobLogRecord::CalculateAdjustmentForBlobCRC(size_t key_size) {
-  constexpr size_t crc_size = sizeof(uint32_t);
-
-  return crc_size + key_size;
+size_t BlobLogRecord::CalculateAdjustmentForRecordHeader(size_t key_size) {
+  return kHeaderSize + key_size;
 }
 
 void BlobLogRecord::EncodeHeaderTo(std::string* dst) {
