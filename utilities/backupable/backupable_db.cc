@@ -2060,25 +2060,29 @@ Status BackupEngineImpl::BackupMeta::AddFile(
       return Status::Corruption("In memory metadata insertion error");
     }
   } else {
-    // Note: to save I/O, this check will pass trivially on already backed
-    // up files.
-    if (itr->second->checksum_hex != file_info->checksum_hex) {
-      std::string msg = "Checksum mismatch for existing backup file: ";
-      msg.append(file_info->filename);
-      msg.append(" Expected checksum is " + itr->second->checksum_hex +
-                 " while computed checksum is " + file_info->checksum_hex);
-      msg.append(
-          " If this DB file checks as not corrupt, try deleting old"
-          " backups or backing up to a different backup directory.");
-      return Status::Corruption(msg);
-    }
     // Compare sizes, because we scanned that off the filesystem on both
-    // ends. This is like a check in VerifyBackup
+    // ends. This is like a check in VerifyBackup.
     if (itr->second->size != file_info->size) {
       std::string msg = "Size mismatch for existing backup file: ";
       msg.append(file_info->filename);
       msg.append(" Size in backup is " + ToString(itr->second->size) +
                  " while size in DB is " + ToString(file_info->size));
+      msg.append(
+          " If this DB file checks as not corrupt, try deleting old"
+          " backups or backing up to a different backup directory.");
+      return Status::Corruption(msg);
+    }
+    // Note: to save I/O, this check will pass trivially on already backed
+    // up files that don't have the checksum in their name. And it should
+    // never fail for files that do have checksum in their name.
+    if (itr->second->checksum_hex != file_info->checksum_hex) {
+      // Should never reach here, but produce an appropriate corruption
+      // message in case we do in a release build.
+      assert(false);
+      std::string msg = "Checksum mismatch for existing backup file: ";
+      msg.append(file_info->filename);
+      msg.append(" Expected checksum is " + itr->second->checksum_hex +
+                 " while computed checksum is " + file_info->checksum_hex);
       msg.append(
           " If this DB file checks as not corrupt, try deleting old"
           " backups or backing up to a different backup directory.");
