@@ -93,7 +93,7 @@ BlobFileReader::BlobFileReader(
 
 BlobFileReader::~BlobFileReader() = default;
 
-Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
+Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
                                GetContext* get_context) const {
@@ -105,8 +105,14 @@ Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
     return Status::Corruption("Invalid blob offset");
   }
 
+  // Note: if verify_checksum is set, we read the entire blob record to be able
+  // to perform the verification; otherwise, we just read the blob itself. Since
+  // the offset in BlobIndex actually points to the blob value, we need to make
+  // an adjustment in the former case.
   const size_t adjustment =
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size);
+      read_options.verify_checksums
+          ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
+          : 0;
   assert(offset >= adjustment);
   const uint64_t record_offset = offset - adjustment;
   const uint64_t record_size = value_size + adjustment;
@@ -139,41 +145,46 @@ Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
     return Status::Corruption("Failed to retrieve blob record");
   }
 
-  BlobLogRecord record;
+  if (read_options.verify_checksums) {
+    BlobLogRecord record;
 
-  Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
+    Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
 
-  {
-    const Status s = record.DecodeHeaderFrom(header_slice);
-    if (!s.ok()) {
-      return s;
+    {
+      const Status s = record.DecodeHeaderFrom(header_slice);
+      if (!s.ok()) {
+        return s;
+      }
     }
-  }
 
-  if (record.key_size != key_size) {
-    return Status::Corruption("Key size mismatch when reading blob");
-  }
-
-  if (record.value_size != value_size) {
-    return Status::Corruption("Value size mismatch when reading blob");
-  }
-
-  record.key =
-      Slice(record_slice.data() + BlobLogRecord::kHeaderSize, record.key_size);
-  if (record.key != user_key) {
-    return Status::Corruption("Key mismatch when reading blob");
-  }
-
-  record.value = Slice(record_slice.data() + adjustment, value_size);
-
-  {
-    const Status s = record.CheckBlobCRC();
-    if (!s.ok()) {
-      return s;
+    if (record.key_size != key_size) {
+      return Status::Corruption("Key size mismatch when reading blob");
     }
-  }
 
-  get_context->SaveValue(record.value, kMaxSequenceNumber);
+    if (record.value_size != value_size) {
+      return Status::Corruption("Value size mismatch when reading blob");
+    }
+
+    record.key = Slice(record_slice.data() + BlobLogRecord::kHeaderSize,
+                       record.key_size);
+    if (record.key != user_key) {
+      return Status::Corruption("Key mismatch when reading blob");
+    }
+
+    record.value = Slice(record_slice.data() + adjustment, value_size);
+
+    {
+      const Status s = record.CheckBlobCRC();
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    get_context->SaveValue(record.value, kMaxSequenceNumber);
+  } else {
+    assert(!adjustment);
+    get_context->SaveValue(record_slice, kMaxSequenceNumber);
+  }
 
   return Status::OK();
 }
