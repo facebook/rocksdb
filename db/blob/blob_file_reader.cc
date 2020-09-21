@@ -6,12 +6,10 @@
 #include "db/blob/blob_file_reader.h"
 
 #include <cassert>
-#include <string>
 
 #include "db/blob/blob_log_format.h"
 #include "file/file_util.h"
 #include "file/filename.h"
-#include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
@@ -117,32 +115,17 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const uint64_t record_offset = offset - adjustment;
   const uint64_t record_size = value_size + adjustment;
 
+  Slice record_slice;
+
   std::string buf;
   AlignedBuf aligned_buf;
 
-  Slice record_slice;
-
-  assert(file_reader_);
-
-  if (file_reader_->use_direct_io()) {
-    const Status s = file_reader_->Read(IOOptions(), record_offset,
-                                        static_cast<size_t>(record_size),
-                                        &record_slice, nullptr, &aligned_buf);
+  {
+    const Status s = ReadBlobFromFile(record_offset, record_size, &record_slice,
+                                      &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
-  } else {
-    buf.reserve(static_cast<size_t>(record_size));
-    const Status s = file_reader_->Read(IOOptions(), record_offset,
-                                        static_cast<size_t>(record_size),
-                                        &record_slice, &buf[0], nullptr);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  if (record_slice.size() != record_size) {
-    return Status::Corruption("Failed to retrieve blob record");
   }
 
   if (read_options.verify_checksums) {
@@ -184,6 +167,42 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   } else {
     assert(!adjustment);
     get_context->SaveValue(record_slice, kMaxSequenceNumber);
+  }
+
+  return Status::OK();
+}
+
+Status BlobFileReader::ReadBlobFromFile(uint64_t record_offset,
+                                        size_t record_size, Slice* record_slice,
+                                        std::string* buf,
+                                        AlignedBuf* aligned_buf) const {
+  assert(record_slice);
+  assert(buf);
+  assert(aligned_buf);
+
+  assert(file_reader_);
+
+  Status s;
+
+  if (file_reader_->use_direct_io()) {
+    constexpr char* scratch = nullptr;
+
+    s = file_reader_->Read(IOOptions(), record_offset, record_size,
+                           record_slice, scratch, aligned_buf);
+  } else {
+    buf->reserve(record_size);
+    constexpr AlignedBuf* aligned_scratch = nullptr;
+
+    s = file_reader_->Read(IOOptions(), record_offset, record_size,
+                           record_slice, &(*buf)[0], aligned_scratch);
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (record_slice->size() != record_size) {
+    return Status::Corruption("Failed to retrieve blob record");
   }
 
   return Status::OK();

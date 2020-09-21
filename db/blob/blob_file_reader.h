@@ -7,7 +7,9 @@
 
 #include <cinttypes>
 #include <memory>
+#include <string>
 
+#include "file/random_access_file_reader.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -40,6 +42,10 @@ class BlobFileReader {
  private:
   explicit BlobFileReader(
       std::unique_ptr<RandomAccessFileReader>&& file_reader);
+
+  Status ReadBlobFromFile(uint64_t record_offset, size_t record_size,
+                          Slice* record_slice, std::string* buf,
+                          AlignedBuf* aligned_buf) const;
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
 };
