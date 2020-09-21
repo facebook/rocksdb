@@ -599,6 +599,8 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
   ASSERT_NE(shared.get(), nullptr);
   ASSERT_NE(unique.get(), nullptr);
   ASSERT_NE(pointer, nullptr);
+  delete pointer;
+  pointer = nullptr;
   ASSERT_OK(TestCustomizable::CreateFromString(ignore, "", &shared));
   ASSERT_OK(TestCustomizable::CreateFromString(ignore, "", &unique));
   ASSERT_OK(TestCustomizable::CreateFromString(ignore, "", &pointer));
@@ -609,6 +611,7 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
   ASSERT_NOK(TestCustomizable::CreateFromString(ignore, "option=bad", &unique));
   ASSERT_NOK(
       TestCustomizable::CreateFromString(ignore, "option=bad", &pointer));
+  ASSERT_EQ(pointer, nullptr);
 }
 
 #endif  // !ROCKSDB_LITE
