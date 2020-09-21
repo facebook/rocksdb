@@ -121,8 +121,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   AlignedBuf aligned_buf;
 
   {
-    const Status s = ReadBlobFromFile(record_offset, record_size, &record_slice,
-                                      &buf, &aligned_buf);
+    const Status s =
+        ReadBlobFromFile(record_offset, static_cast<size_t>(record_size),
+                         &record_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
