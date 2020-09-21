@@ -121,9 +121,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   AlignedBuf aligned_buf;
 
   {
-    const Status s =
-        ReadFromFile(record_offset, static_cast<size_t>(record_size),
-                     &record_slice, &buf, &aligned_buf);
+    const Status s = ReadFromFile(file_reader_.get(), record_offset,
+                                  static_cast<size_t>(record_size),
+                                  &record_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -143,28 +143,29 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   return Status::OK();
 }
 
-Status BlobFileReader::ReadFromFile(uint64_t read_offset, size_t read_size,
+Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
+                                    uint64_t read_offset, size_t read_size,
                                     Slice* slice, std::string* buf,
-                                    AlignedBuf* aligned_buf) const {
+                                    AlignedBuf* aligned_buf) {
   assert(slice);
   assert(buf);
   assert(aligned_buf);
 
-  assert(file_reader_);
+  assert(file_reader);
 
   Status s;
 
-  if (file_reader_->use_direct_io()) {
+  if (file_reader->use_direct_io()) {
     constexpr char* scratch = nullptr;
 
-    s = file_reader_->Read(IOOptions(), read_offset, read_size, slice, scratch,
-                           aligned_buf);
+    s = file_reader->Read(IOOptions(), read_offset, read_size, slice, scratch,
+                          aligned_buf);
   } else {
     buf->reserve(read_size);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
-    s = file_reader_->Read(IOOptions(), read_offset, read_size, slice,
-                           &(*buf)[0], aligned_scratch);
+    s = file_reader->Read(IOOptions(), read_offset, read_size, slice,
+                          &(*buf)[0], aligned_scratch);
   }
 
   if (!s.ok()) {

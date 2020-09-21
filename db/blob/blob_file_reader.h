@@ -43,8 +43,10 @@ class BlobFileReader {
   explicit BlobFileReader(
       std::unique_ptr<RandomAccessFileReader>&& file_reader);
 
-  Status ReadFromFile(uint64_t read_offset, size_t read_size, Slice* slice,
-                      std::string* buf, AlignedBuf* aligned_buf) const;
+  static Status ReadFromFile(RandomAccessFileReader* file_reader,
+                             uint64_t read_offset, size_t read_size,
+                             Slice* slice, std::string* buf,
+                             AlignedBuf* aligned_buf);
 
   Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
                     uint64_t key_size, uint64_t value_size) const;
