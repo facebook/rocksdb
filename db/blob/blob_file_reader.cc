@@ -97,7 +97,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                GetContext* get_context) const {
   assert(get_context);
 
-  const size_t key_size = user_key.size();
+  const uint64_t key_size = user_key.size();
 
   if (!IsValidBlobOffset(offset, key_size)) {
     return Status::Corruption("Invalid blob offset");
@@ -107,7 +107,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   // to perform the verification; otherwise, we just read the blob itself. Since
   // the offset in BlobIndex actually points to the blob value, we need to make
   // an adjustment in the former case.
-  const size_t adjustment =
+  const uint64_t adjustment =
       read_options.verify_checksums
           ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
           : 0;
