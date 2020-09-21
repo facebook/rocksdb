@@ -122,8 +122,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   {
     const Status s =
-        ReadBlobFromFile(record_offset, static_cast<size_t>(record_size),
-                         &record_slice, &buf, &aligned_buf);
+        ReadFromFile(record_offset, static_cast<size_t>(record_size),
+                     &record_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -143,11 +143,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   return Status::OK();
 }
 
-Status BlobFileReader::ReadBlobFromFile(uint64_t record_offset,
-                                        size_t record_size, Slice* record_slice,
-                                        std::string* buf,
-                                        AlignedBuf* aligned_buf) const {
-  assert(record_slice);
+Status BlobFileReader::ReadFromFile(uint64_t read_offset, size_t read_size,
+                                    Slice* slice, std::string* buf,
+                                    AlignedBuf* aligned_buf) const {
+  assert(slice);
   assert(buf);
   assert(aligned_buf);
 
@@ -158,22 +157,22 @@ Status BlobFileReader::ReadBlobFromFile(uint64_t record_offset,
   if (file_reader_->use_direct_io()) {
     constexpr char* scratch = nullptr;
 
-    s = file_reader_->Read(IOOptions(), record_offset, record_size,
-                           record_slice, scratch, aligned_buf);
+    s = file_reader_->Read(IOOptions(), read_offset, read_size, slice, scratch,
+                           aligned_buf);
   } else {
-    buf->reserve(record_size);
+    buf->reserve(read_size);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
-    s = file_reader_->Read(IOOptions(), record_offset, record_size,
-                           record_slice, &(*buf)[0], aligned_scratch);
+    s = file_reader_->Read(IOOptions(), read_offset, read_size, slice,
+                           &(*buf)[0], aligned_scratch);
   }
 
   if (!s.ok()) {
     return s;
   }
 
-  if (record_slice->size() != record_size) {
-    return Status::Corruption("Failed to retrieve blob record");
+  if (slice->size() != read_size) {
+    return Status::Corruption("Failed to read data from blob file");
   }
 
   return Status::OK();
