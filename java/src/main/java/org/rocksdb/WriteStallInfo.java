@@ -5,16 +5,18 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 public class WriteStallInfo {
   private final String columnFamilyName;
   private final WriteStallCondition currentCondition;
   private final WriteStallCondition previousCondition;
 
   /**
-   * Access is private as this will only be constructed from
-   * C++ via JNI.
+   * Access is package private as this will only be constructed from
+   * C++ via JNI and for testing.
    */
-  private WriteStallInfo(final String columnFamilyName,
+  WriteStallInfo(final String columnFamilyName,
       final byte currentConditionValue,
       final byte previousConditionValue) {
     this.columnFamilyName = columnFamilyName;
@@ -48,5 +50,30 @@ public class WriteStallInfo {
    */
   public WriteStallCondition getPreviousCondition() {
     return previousCondition;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    WriteStallInfo that = (WriteStallInfo) o;
+    return Objects.equals(columnFamilyName, that.columnFamilyName) &&
+        currentCondition == that.currentCondition &&
+        previousCondition == that.previousCondition;
+  }
+
+  @Override
+  public int hashCode() {
+
+    return Objects.hash(columnFamilyName, currentCondition, previousCondition);
+  }
+
+  @Override
+  public String toString() {
+    return "WriteStallInfo{" +
+        "columnFamilyName='" + columnFamilyName + '\'' +
+        ", currentCondition=" + currentCondition +
+        ", previousCondition=" + previousCondition +
+        '}';
   }
 }

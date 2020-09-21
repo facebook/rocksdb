@@ -8028,13 +8028,15 @@ class FlushJobInfoJni : public JavaClass {
     assert(ctor != nullptr);
     jstring cf_name = JniUtil::toJavaString(env, &flush_job_info->cf_name);
     jstring file_path = JniUtil::toJavaString(env, &flush_job_info->file_path);
-    // TODO(TP): add TableProperties
+    // TODO(TP): add exception checks here or to toJavaString()?
+    jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(env, flush_job_info->table_properties);
+    // TODO(TP): should we do a null check here? and what then? (can table properties be null under normal circumstances?)
     return env->NewObject(jclazz, ctor, static_cast<jlong>(flush_job_info->cf_id),
         cf_name, file_path,
         static_cast<jlong>(flush_job_info->thread_id), static_cast<jint>(flush_job_info->job_id),
         static_cast<jboolean>(flush_job_info->triggered_writes_slowdown), static_cast<jboolean>(flush_job_info->triggered_writes_stop),
         static_cast<jlong>(flush_job_info->smallest_seqno), static_cast<jlong>(flush_job_info->largest_seqno),
-        nullptr, static_cast<jbyte>(flush_job_info->flush_reason));
+        jtable_properties, static_cast<jbyte>(flush_job_info->flush_reason));
   }
 
   static jclass getJClass(JNIEnv* env) {
@@ -8068,10 +8070,10 @@ class TableFileDeletionInfoJni : public JavaClass {
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
     jstring db_name = JniUtil::toJavaString(env, &file_del_info->db_name);
-    // TODO(TP): add Status
+    jobject jstatus = StatusJni::construct(env, file_del_info->status);
     return env->NewObject(jclazz, ctor, db_name,
         JniUtil::toJavaString(env, &file_del_info->file_path), static_cast<jint>(file_del_info->job_id),
-        nullptr);
+        jstatus);
   }
 
   static jclass getJClass(JNIEnv* env) {
@@ -8116,9 +8118,10 @@ class TableFileCreationInfoJni : public JavaClass {
     jstring db_name = JniUtil::toJavaString(env, &info->db_name);
     jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
     jstring file_path = JniUtil::toJavaString(env, &info->file_path);
-    // TODO(TP): add TableProperties and Status
-    return env->NewObject(jclazz, ctor, static_cast<jlong>(info->file_size), nullptr,
-        nullptr, db_name, cf_name, file_path, static_cast<jint>(info->job_id),
+    jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
+    jobject jstatus = StatusJni::construct(env, info->status);
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(info->file_size), jtable_properties,
+        jstatus, db_name, cf_name, file_path, static_cast<jint>(info->job_id),
         static_cast<jbyte>(info->reason));
   }
 
@@ -8192,9 +8195,9 @@ class ExternalFileIngestionInfoJni : public JavaClass {
     jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
     jstring external_file_path = JniUtil::toJavaString(env, &info->external_file_path);
     jstring internal_file_path = JniUtil::toJavaString(env, &info->internal_file_path);
-    // TODO: add table properties
+    jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
     return env->NewObject(jclazz, ctor, cf_name, external_file_path, internal_file_path,
-        static_cast<jlong>(info->global_seqno), nullptr);
+        static_cast<jlong>(info->global_seqno), jtable_properties);
   }
 
   static jclass getJClass(JNIEnv* env) {
@@ -8239,10 +8242,10 @@ class FileOperationInfoJni : public JavaClass {
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
     jstring path = JniUtil::toJavaString(env, &info->path);
-    // TODO: add status
+    jobject jstatus = StatusJni::construct(env, info->status);
     return env->NewObject(jclazz, ctor, path, static_cast<jlong>(info->offset),
         static_cast<jlong>(info->length), static_cast<jlong>(info->start_ts.time_since_epoch().count()),
-        static_cast<jlong>(info->duration.count()), nullptr);
+        static_cast<jlong>(info->duration.count()), jstatus);
   }
 
   static jclass getJClass(JNIEnv* env) {

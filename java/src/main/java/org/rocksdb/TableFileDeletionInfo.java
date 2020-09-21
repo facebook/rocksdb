@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 public class TableFileDeletionInfo {
   private final String dbName;
   private final String filePath;
@@ -12,10 +14,10 @@ public class TableFileDeletionInfo {
   private final Status status;
 
   /**
-   * Access is private as this will only be constructed from
-   * C++ via JNI.
+   * Access is package private as this will only be constructed from
+   * C++ via JNI and for testing.
    */
-  private TableFileDeletionInfo(final String dbName, final  String filePath,
+  TableFileDeletionInfo(final String dbName, final  String filePath,
       final int jobId, final Status status) {
     this.dbName = dbName;
     this.filePath = filePath;
@@ -57,5 +59,32 @@ public class TableFileDeletionInfo {
    */
   public Status getStatus() {
     return status;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    TableFileDeletionInfo that = (TableFileDeletionInfo) o;
+    return jobId == that.jobId &&
+        Objects.equals(dbName, that.dbName) &&
+        Objects.equals(filePath, that.filePath) &&
+        Objects.equals(status, that.status);
+  }
+
+  @Override
+  public int hashCode() {
+
+    return Objects.hash(dbName, filePath, jobId, status);
+  }
+
+  @Override
+  public String toString() {
+    return "TableFileDeletionInfo{" +
+        "dbName='" + dbName + '\'' +
+        ", filePath='" + filePath + '\'' +
+        ", jobId=" + jobId +
+        ", status=" + status +
+        '}';
   }
 }

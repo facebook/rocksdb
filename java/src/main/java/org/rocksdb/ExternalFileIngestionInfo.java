@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 public class ExternalFileIngestionInfo {
   private final String columnFamilyName;
   private final String externalFilePath;
@@ -13,10 +15,10 @@ public class ExternalFileIngestionInfo {
   private final TableProperties tableProperties;
 
   /**
-   * Access is private as this will only be constructed from
-   * C++ via JNI.
+   * Access is package private as this will only be constructed from
+   * C++ via JNI and for testing.
    */
-  private ExternalFileIngestionInfo(
+  ExternalFileIngestionInfo(
       final String columnFamilyName, final String externalFilePath,
       final String internalFilePath, final long globalSeqno,
       final TableProperties tableProperties) {
@@ -70,5 +72,34 @@ public class ExternalFileIngestionInfo {
    */
   public TableProperties getTableProperties() {
     return tableProperties;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    ExternalFileIngestionInfo that = (ExternalFileIngestionInfo) o;
+    return globalSeqno == that.globalSeqno &&
+        Objects.equals(columnFamilyName, that.columnFamilyName) &&
+        Objects.equals(externalFilePath, that.externalFilePath) &&
+        Objects.equals(internalFilePath, that.internalFilePath) &&
+        Objects.equals(tableProperties, that.tableProperties);
+  }
+
+  @Override
+  public int hashCode() {
+
+    return Objects.hash(columnFamilyName, externalFilePath, internalFilePath, globalSeqno, tableProperties);
+  }
+
+  @Override
+  public String toString() {
+    return "ExternalFileIngestionInfo{" +
+        "columnFamilyName='" + columnFamilyName + '\'' +
+        ", externalFilePath='" + externalFilePath + '\'' +
+        ", internalFilePath='" + internalFilePath + '\'' +
+        ", globalSeqno=" + globalSeqno +
+        ", tableProperties=" + tableProperties +
+        '}';
   }
 }

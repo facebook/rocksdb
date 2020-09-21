@@ -29,9 +29,10 @@ public class ColumnFamilyHandle extends RocksObject {
    *
    * @param nativeHandle native handle to the column family.
    */
-  private ColumnFamilyHandle(final long nativeHandle) {
+  ColumnFamilyHandle(final long nativeHandle) {
     super(nativeHandle);
     rocksDB_ = null;
+    disOwnNativeHandle();
   }
 
   /**

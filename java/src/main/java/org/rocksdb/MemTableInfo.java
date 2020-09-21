@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 public class MemTableInfo {
   private final String columnFamilyName;
   private final long firstSeqno;
@@ -13,10 +15,10 @@ public class MemTableInfo {
   private final long numDeletes;
 
   /**
-   * Access is private as this will only be constructed from
-   * C++ via JNI.
+   * Access is package private as this will only be constructed from
+   * C++ via JNI and for testing.
    */
-  private MemTableInfo(final String columnFamilyName, final long firstSeqno,
+  MemTableInfo(final String columnFamilyName, final long firstSeqno,
       final long earliestSeqno, final long numEntries, final long numDeletes) {
     this.columnFamilyName = columnFamilyName;
     this.firstSeqno = firstSeqno;
@@ -72,5 +74,34 @@ public class MemTableInfo {
    */
   public long getNumDeletes() {
     return numDeletes;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    MemTableInfo that = (MemTableInfo) o;
+    return firstSeqno == that.firstSeqno &&
+        earliestSeqno == that.earliestSeqno &&
+        numEntries == that.numEntries &&
+        numDeletes == that.numDeletes &&
+        Objects.equals(columnFamilyName, that.columnFamilyName);
+  }
+
+  @Override
+  public int hashCode() {
+
+    return Objects.hash(columnFamilyName, firstSeqno, earliestSeqno, numEntries, numDeletes);
+  }
+
+  @Override
+  public String toString() {
+    return "MemTableInfo{" +
+        "columnFamilyName='" + columnFamilyName + '\'' +
+        ", firstSeqno=" + firstSeqno +
+        ", earliestSeqno=" + earliestSeqno +
+        ", numEntries=" + numEntries +
+        ", numDeletes=" + numDeletes +
+        '}';
   }
 }

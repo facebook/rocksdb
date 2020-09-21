@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 public class TableFileCreationInfo extends TableFileCreationBriefInfo {
   private final long fileSize;
   private final TableProperties tableProperties;
@@ -59,5 +61,30 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
    */
   public Status getStatus() {
     return status;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    TableFileCreationInfo that = (TableFileCreationInfo) o;
+    return fileSize == that.fileSize &&
+        Objects.equals(tableProperties, that.tableProperties) &&
+        Objects.equals(status, that.status);
+  }
+
+  @Override
+  public int hashCode() {
+
+    return Objects.hash(fileSize, tableProperties, status);
+  }
+
+  @Override
+  public String toString() {
+    return "TableFileCreationInfo{" +
+        "fileSize=" + fileSize +
+        ", tableProperties=" + tableProperties +
+        ", status=" + status +
+        '}';
   }
 }

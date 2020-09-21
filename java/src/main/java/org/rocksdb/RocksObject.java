@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * RocksObject is an implementation of {@link AbstractNativeReference} which
  * has an immutable and therefore thread-safe reference to the underlying

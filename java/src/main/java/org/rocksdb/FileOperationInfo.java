@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Objects;
+
 /**
  * Java representation of FileOperationInfo struct from include/rocksdb/listener.h
  */
@@ -20,7 +22,7 @@ public class FileOperationInfo {
    * Access is private as this will only be constructed from
    * C++ via JNI.
    */
-  private FileOperationInfo(final String path, final long offset,
+  FileOperationInfo(final String path, final long offset,
       final long length, final long startTimestamp, final long duration,
       final Status status) {
     this.path = path;
@@ -83,5 +85,36 @@ public class FileOperationInfo {
    */
   public Status getStatus() {
     return status;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    FileOperationInfo that = (FileOperationInfo) o;
+    return offset == that.offset &&
+        length == that.length &&
+        startTimestamp == that.startTimestamp &&
+        duration == that.duration &&
+        Objects.equals(path, that.path) &&
+        Objects.equals(status, that.status);
+  }
+
+  @Override
+  public int hashCode() {
+
+    return Objects.hash(path, offset, length, startTimestamp, duration, status);
+  }
+
+  @Override
+  public String toString() {
+    return "FileOperationInfo{" +
+        "path='" + path + '\'' +
+        ", offset=" + offset +
+        ", length=" + length +
+        ", startTimestamp=" + startTimestamp +
+        ", duration=" + duration +
+        ", status=" + status +
+        '}';
   }
 }
