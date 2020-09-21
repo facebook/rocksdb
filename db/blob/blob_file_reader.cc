@@ -98,14 +98,17 @@ Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
                                uint64_t size, GetContext* get_context) const {
   assert(get_context);
 
-  if (offset <
-      (BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + user_key.size())) {
+  const size_t key_size = user_key.size();
+
+  if (!IsValidBlobOffset(offset, key_size)) {
     return Status::Corruption("Invalid blob offset");
   }
 
-  assert(offset >= user_key.size() + sizeof(uint32_t));
-  const uint64_t record_offset = offset - user_key.size() - sizeof(uint32_t);
-  const uint64_t record_size = sizeof(uint32_t) + user_key.size() + size;
+  const size_t adjustment =
+      BlobLogRecord::CalculateAdjustmentForBlobCRC(key_size);
+  assert(offset >= adjustment);
+  const uint64_t record_offset = offset - adjustment;
+  const uint64_t record_size = size + adjustment;
 
   std::string buf;
   AlignedBuf aligned_buf;
