@@ -749,10 +749,26 @@ class FSWritableFile {
   //
   // PositionedAppend() requires aligned buffer to be passed in. The alignment
   // required is queried via GetRequiredBufferAlignment()
+
+  // Append data with verification information
+  virtual IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& options, IODebugContext* dbg,
+      const DataVerificationInfo& /* verification_info */) {
+    return Append(data, options, dbg);
+  }
+
   virtual IOStatus PositionedAppend(const Slice& /* data */,
                                     uint64_t /* offset */,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported();
+  }
+
+  // PositionedAppend data with verification information.
+  virtual IOStatus PositionedAppendWithVerify(
+      const Slice& /* data */, uint64_t /* offset */,
+      const IOOptions& /*options*/, IODebugContext* /*dbg*/,
+      const DataVerificationInfo& /* verification_info */) {
     return IOStatus::NotSupported();
   }
 
@@ -1286,10 +1302,22 @@ class FSWritableFileWrapper : public FSWritableFile {
                   IODebugContext* dbg) override {
     return target_->Append(data, options, dbg);
   }
+  IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& options, IODebugContext* dbg,
+      const DataVerificationInfo& verification_info) override {
+    return target_->AppendWithVerify(data, options, dbg, verification_info);
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
+  }
+  IOStatus PositionedAppendWithVerify(
+      const Slice& data, uint64_t offset, const IOOptions& options,
+      IODebugContext* dbg,
+      const DataVerificationInfo& verification_info) override {
+    return target_->PositionedAppendWithVerify(data, offset, options, dbg,
+                                               verification_info);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {
