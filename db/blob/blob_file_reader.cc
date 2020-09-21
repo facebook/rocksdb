@@ -130,45 +130,15 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   }
 
   if (read_options.verify_checksums) {
-    BlobLogRecord record;
-
-    Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
-
-    {
-      const Status s = record.DecodeHeaderFrom(header_slice);
-      if (!s.ok()) {
-        return s;
-      }
+    const Status s = VerifyBlob(record_slice, user_key, key_size, value_size);
+    if (!s.ok()) {
+      return s;
     }
-
-    if (record.key_size != key_size) {
-      return Status::Corruption("Key size mismatch when reading blob");
-    }
-
-    if (record.value_size != value_size) {
-      return Status::Corruption("Value size mismatch when reading blob");
-    }
-
-    record.key = Slice(record_slice.data() + BlobLogRecord::kHeaderSize,
-                       record.key_size);
-    if (record.key != user_key) {
-      return Status::Corruption("Key mismatch when reading blob");
-    }
-
-    record.value = Slice(record_slice.data() + adjustment, value_size);
-
-    {
-      const Status s = record.CheckBlobCRC();
-      if (!s.ok()) {
-        return s;
-      }
-    }
-
-    get_context->SaveValue(record.value, kMaxSequenceNumber);
-  } else {
-    assert(!adjustment);
-    get_context->SaveValue(record_slice, kMaxSequenceNumber);
   }
+
+  const Slice value_slice(record_slice.data() + adjustment, value_size);
+
+  get_context->SaveValue(value_slice, kMaxSequenceNumber);
 
   return Status::OK();
 }
@@ -204,6 +174,48 @@ Status BlobFileReader::ReadBlobFromFile(uint64_t record_offset,
 
   if (record_slice->size() != record_size) {
     return Status::Corruption("Failed to retrieve blob record");
+  }
+
+  return Status::OK();
+}
+
+Status BlobFileReader::VerifyBlob(const Slice& record_slice,
+                                  const Slice& user_key, uint64_t key_size,
+                                  uint64_t value_size) const {
+  assert(user_key.size() == key_size);
+
+  BlobLogRecord record;
+
+  const Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
+
+  {
+    const Status s = record.DecodeHeaderFrom(header_slice);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (record.key_size != key_size) {
+    return Status::Corruption("Key size mismatch when reading blob");
+  }
+
+  if (record.value_size != value_size) {
+    return Status::Corruption("Value size mismatch when reading blob");
+  }
+
+  record.key =
+      Slice(record_slice.data() + BlobLogRecord::kHeaderSize, record.key_size);
+  if (record.key != user_key) {
+    return Status::Corruption("Key mismatch when reading blob");
+  }
+
+  record.value = Slice(record.key.data() + key_size, value_size);
+
+  {
+    const Status s = record.CheckBlobCRC();
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   return Status::OK();
