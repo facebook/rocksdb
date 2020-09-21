@@ -135,7 +135,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
   }
 
   if (blob_record.size() != record_size) {
-    return Status::Corruption("Failed to retrieve blob from blob index.");
+    return Status::Corruption("Failed to retrieve blob from blob index");
   }
 
   Slice crc_slice(blob_record.data(), sizeof(uint32_t));
@@ -144,14 +144,14 @@ Status BlobFileReader::GetBlob(const ReadOptions& /* TODO read_options */,
 
   uint32_t crc_exp = 0;
   if (!GetFixed32(&crc_slice, &crc_exp)) {
-    return Status::Corruption("Unable to decode checksum.");
+    return Status::Corruption("Unable to decode checksum");
   }
 
   uint32_t crc = crc32c::Value(blob_record.data() + sizeof(uint32_t),
                                blob_record.size() - sizeof(uint32_t));
   crc = crc32c::Mask(crc);
   if (crc != crc_exp) {
-    return Status::Corruption("Corruption. Blob CRC mismatch");
+    return Status::Corruption("Blob CRC mismatch");
   }
 
   get_context->SaveValue(blob_value, kMaxSequenceNumber);
