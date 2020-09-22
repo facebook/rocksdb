@@ -22,7 +22,8 @@ namespace ROCKSDB_NAMESPACE {
 Status BlobFileReader::Create(
     const ReadOptions& read_options,
     const ImmutableCFOptions& immutable_cf_options,
-    const FileOptions& file_options, uint64_t blob_file_number,
+    const FileOptions& file_options, uint32_t column_family_id,
+    uint64_t blob_file_number,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -106,7 +107,9 @@ Status BlobFileReader::Create(
     return Status::Corruption("Unexpected TTL blob file");
   }
 
-  // column_family_id_ = header.column_family_id;
+  if (header.column_family_id != column_family_id) {
+    return Status::Corruption("Column family ID mismatch");
+  }
   // compression_ = header.compression;
 
   blob_file_reader->reset(new BlobFileReader(std::move(file_reader)));

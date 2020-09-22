@@ -27,7 +27,7 @@ class BlobFileReader {
   static Status Create(const ReadOptions& read_options,
                        const ImmutableCFOptions& immutable_cf_options,
                        const FileOptions& file_options,
-                       uint64_t blob_file_number,
+                       uint32_t column_family_id, uint64_t blob_file_number,
                        std::unique_ptr<BlobFileReader>* reader);
 
   BlobFileReader(const BlobFileReader&) = delete;
