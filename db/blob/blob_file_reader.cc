@@ -206,6 +206,7 @@ BlobFileReader::~BlobFileReader() = default;
 Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
+                               CompressionType compression_type,
                                GetContext* get_context) const {
   assert(get_context);
 
@@ -213,6 +214,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   if (!IsValidBlobOffset(offset, key_size)) {
     return Status::Corruption("Invalid blob offset");
+  }
+
+  if (compression_type != compression_type_) {
+    return Status::Corruption("Compression type mismatch when reading blob");
   }
 
   // Note: if verify_checksum is set, we read the entire blob record to be able
