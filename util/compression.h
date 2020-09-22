@@ -1449,4 +1449,50 @@ inline bool CompressData(const Slice& raw,
   return ret;
 }
 
+inline CacheAllocationPtr UncompressData(
+    const UncompressionInfo& uncompression_info, const char* data, size_t n,
+    int* decompress_size, uint32_t compress_format_version,
+    MemoryAllocator* allocator) {
+  switch (uncompression_info.type()) {
+    case kSnappyCompression: {
+      size_t uncompressed_length = 0;
+      if (!Snappy_GetUncompressedLength(data, n, &uncompressed_length)) {
+        return CacheAllocationPtr();
+      }
+
+      CacheAllocationPtr output = AllocateBlock(uncompressed_length, allocator);
+
+      if (!Snappy_Uncompress(data, n, output.get())) {
+        return CacheAllocationPtr();
+      }
+
+      *decompress_size = static_cast<int>(uncompressed_length);
+      return output;
+    }
+    case kZlibCompression:
+      return Zlib_Uncompress(uncompression_info, data, n, decompress_size,
+                             compress_format_version, allocator);
+    case kBZip2Compression:
+      return BZip2_Uncompress(data, n, decompress_size, compress_format_version,
+                              allocator);
+    case kLZ4Compression:
+      return LZ4_Uncompress(uncompression_info, data, n, decompress_size,
+                            compress_format_version, allocator);
+    case kLZ4HCCompression:
+      return LZ4_Uncompress(uncompression_info, data, n, decompress_size,
+                            compress_format_version, allocator);
+      break;
+    case kXpressCompression:
+      // XPRESS allocates memory internally, thus no support for custom
+      // allocator.
+      return CacheAllocationPtr(XPRESS_Uncompress(data, n, decompress_size));
+    case kZSTD:
+    case kZSTDNotFinalCompression:
+      return ZSTD_Uncompress(uncompression_info, data, n, decompress_size,
+                             allocator);
+    default:
+      return CacheAllocationPtr();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
