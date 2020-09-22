@@ -22,6 +22,7 @@ struct FileOptions;
 class Slice;
 class GetContext;
 class RandomAccessFileReader;
+struct IOOptions;
 
 class BlobFileReader {
  public:
@@ -45,8 +46,8 @@ class BlobFileReader {
                  CompressionType compression_type);
 
   static Status ReadFromFile(RandomAccessFileReader* file_reader,
-                             uint64_t read_offset, size_t read_size,
-                             Slice* slice, std::string* buf,
+                             const IOOptions& io_options, uint64_t read_offset,
+                             size_t read_size, Slice* slice, std::string* buf,
                              AlignedBuf* aligned_buf);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
