@@ -135,7 +135,7 @@ TEST(WalSet, DeleteNonClosedWal) {
 
 class WalSetTest : public DBTestBase {
  public:
-  WalSetTest() : DBTestBase("WalSetTest") {}
+  WalSetTest() : DBTestBase("WalSetTest", /* env_do_fsync */ true) {}
 
   void SetUp() override {
     test_dir_ = test::PerThreadDBPath("wal_set_test");
@@ -164,7 +164,9 @@ class WalSetTest : public DBTestBase {
     // Create WAL.
     ASSERT_OK(wals_.AddWal(WalAddition(number)));
     // Close WAL.
-    ASSERT_OK(wals_.AddWal(WalAddition(number, WalMetadata(size_bytes))));
+    WalMetadata wal(size_bytes);
+    wal.SetClosed();
+    ASSERT_OK(wals_.AddWal(WalAddition(number, wal)));
   }
 
   Status CheckWals() const { return wals_.CheckWals(env_, logs_on_disk_); }
@@ -216,15 +218,15 @@ TEST_F(WalSetTest, CheckMissingWals) {
       << s.ToString();
 }
 
-TEST_F(WalSetTest, CheckWalsWithWrongSize) {
+TEST_F(WalSetTest, CheckWalsWithShrinkedSize) {
   for (int number = 1; number < 10; number++) {
-    uint64_t size = rand() % 100;
+    uint64_t size = rand() % 100 + 1;
     AddWalToWalSet(number, size);
-    // logs with even number have wrong size.
+    // logs with even number have shrinked size.
     std::stringstream ss;
     ss << "log" << number;
     std::string fname = ss.str();
-    CreateWalOnDisk(number, fname, (number % 2) ? size : size + 1);
+    CreateWalOnDisk(number, fname, (number % 2) ? size : size - 1);
   }
 
   Status s = CheckWals();

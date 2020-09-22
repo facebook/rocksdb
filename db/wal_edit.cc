@@ -206,16 +206,16 @@ Status WalSet::CheckWals(
       break;
     }
 
-    if (wal_meta.HasSize()) {
+    if (wal_meta.HasSyncedSize()) {
       uint64_t log_file_size = 0;
       s = env->GetFileSize(logs_on_disk.at(log_number), &log_file_size);
       if (!s.ok()) {
         break;
       }
-      if (wal_meta.GetSizeInBytes() != log_file_size) {
+      if (log_file_size < wal_meta.GetSyncedSizeInBytes()) {
         std::stringstream ss;
         ss << "Size mismatch: WAL (log number: " << log_number
-           << ") in MANIFEST is " << wal_meta.GetSizeInBytes()
+           << ") in MANIFEST is " << wal_meta.GetSyncedSizeInBytes()
            << " bytes , but actually is " << log_file_size << " bytes on disk.";
         s = Status::Corruption(ss.str());
         break;
