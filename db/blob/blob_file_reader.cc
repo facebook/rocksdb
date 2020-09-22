@@ -156,6 +156,43 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
   return Status::OK();
 }
 
+Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
+                                    const IOOptions& io_options,
+                                    uint64_t read_offset, size_t read_size,
+                                    Slice* slice, std::string* buf,
+                                    AlignedBuf* aligned_buf) {
+  assert(slice);
+  assert(buf);
+  assert(aligned_buf);
+
+  assert(file_reader);
+
+  Status s;
+
+  if (file_reader->use_direct_io()) {
+    constexpr char* scratch = nullptr;
+
+    s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
+                          aligned_buf);
+  } else {
+    buf->reserve(read_size);
+    constexpr AlignedBuf* aligned_scratch = nullptr;
+
+    s = file_reader->Read(io_options, read_offset, read_size, slice, &(*buf)[0],
+                          aligned_scratch);
+  }
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (slice->size() != read_size) {
+    return Status::Corruption("Failed to read data from blob file");
+  }
+
+  return Status::OK();
+}
+
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader,
     CompressionType compression_type)
@@ -223,43 +260,6 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const Slice value_slice(record_slice.data() + adjustment, value_size);
 
   get_context->SaveValue(value_slice, kMaxSequenceNumber);
-
-  return Status::OK();
-}
-
-Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
-                                    const IOOptions& io_options,
-                                    uint64_t read_offset, size_t read_size,
-                                    Slice* slice, std::string* buf,
-                                    AlignedBuf* aligned_buf) {
-  assert(slice);
-  assert(buf);
-  assert(aligned_buf);
-
-  assert(file_reader);
-
-  Status s;
-
-  if (file_reader->use_direct_io()) {
-    constexpr char* scratch = nullptr;
-
-    s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
-                          aligned_buf);
-  } else {
-    buf->reserve(read_size);
-    constexpr AlignedBuf* aligned_scratch = nullptr;
-
-    s = file_reader->Read(io_options, read_offset, read_size, slice, &(*buf)[0],
-                          aligned_scratch);
-  }
-
-  if (!s.ok()) {
-    return s;
-  }
-
-  if (slice->size() != read_size) {
-    return Status::Corruption("Failed to read data from blob file");
-  }
 
   return Status::OK();
 }
