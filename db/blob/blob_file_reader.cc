@@ -50,7 +50,7 @@ Status BlobFileReader::Create(
 
   assert(file_reader);
 
-  CompressionType compression_type;
+  CompressionType compression_type = kNoCompression;
 
   {
     const Status s = ReadHeader(file_reader.get(), file_opts.io_options,
