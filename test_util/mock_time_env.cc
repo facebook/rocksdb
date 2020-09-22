@@ -13,9 +13,10 @@ namespace ROCKSDB_NAMESPACE {
 // for timedwait timeout. Ideally timedwait API should be moved to env.
 // details: PR #7101.
 void MockTimeEnv::InstallTimedWaitFixCallback() {
+#ifndef NDEBUG
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
-#if defined(OS_MACOSX) && !defined(NDEBUG)
+#ifdef OS_MACOSX
   // This is an alternate way (vs. SpecialEnv) of dealing with the fact
   // that on some platforms, pthread_cond_timedwait does not appear to
   // release the lock for other threads to operate if the deadline time
@@ -29,8 +30,9 @@ void MockTimeEnv::InstallTimedWaitFixCallback() {
           *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
         }
       });
-#endif  // OS_MACOSX && !NDEBUG
+#endif  // OS_MACOSX
   SyncPoint::GetInstance()->EnableProcessing();
+#endif  // !NDEBUG
 }
 
 }  // namespace ROCKSDB_NAMESPACE
