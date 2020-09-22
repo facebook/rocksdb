@@ -181,11 +181,6 @@ public class EventListenerTest {
     flushDb(onTableFileCreationStartedListener, wasCbCalled);
   }
 
-  @Test
-  public void onMemTableSealed() {
-    // TODO
-  }
-
   void deleteColumnFamilyHandle(final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
@@ -248,67 +243,6 @@ public class EventListenerTest {
       }
     };
     ingestExternalFile(onExternalFileIngestedListener, wasCbCalled);
-  }
-
-  @Test
-  public void onBackgroundError() {
-    // TODO ?
-  }
-
-  @Test
-  public void onStallConditionsChanged() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileReadFinish() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileWriteFinish() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileFlushFinish() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileSyncFinish() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileRangeSyncFinish() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileTruncateFinish() {
-    // TODO ?
-  }
-
-  @Test
-  public void onFileCloseFinish() {
-    // TODO ?
-  }
-
-
-  @Test
-  public void shouldBeNotifiedOnFileIO() {
-    // TODO ?
-  }
-
-  @Test
-  public void onErrorRecoveryBegin() {
-    // TODO ?
-  }
-
-  @Test
-  public void onErrorRecoveryCompleted() {
-    // TODO ?
   }
 
   @Test
