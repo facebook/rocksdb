@@ -1824,9 +1824,9 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   }
 
   assert(blob_file_reader);
-  const Status s =
-      blob_file_reader->GetBlob(read_options, user_key, blob_index.offset(),
-                                blob_index.size(), get_context);
+  const Status s = blob_file_reader->GetBlob(
+      read_options, user_key, blob_index.offset(), blob_index.size(),
+      blob_index.compression(), get_context);
 
   return s;
 }
