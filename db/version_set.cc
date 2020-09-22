@@ -1809,17 +1809,15 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     return Status::Corruption("Invalid blob file number");
   }
 
-  assert(cfd_);
-
-  const ImmutableCFOptions* const ioptions = cfd_->ioptions();
-  assert(ioptions);
-
   std::unique_ptr<BlobFileReader> blob_file_reader;
 
   {
+    assert(cfd_);
+    assert(cfd_->ioptions());
+
     const Status s = BlobFileReader::Create(
-        read_options, *ioptions, file_options_, cfd_->GetID(), blob_file_number,
-        &blob_file_reader);
+        read_options, *cfd_->ioptions(), file_options_, cfd_->GetID(),
+        blob_file_number, &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
