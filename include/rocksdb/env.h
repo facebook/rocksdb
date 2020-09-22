@@ -740,14 +740,6 @@ class RandomAccessFile {
   // RandomAccessFileWrapper too.
 };
 
-// A data structure brings the data verification information, which is
-// used togther with data being written to a file.
-struct DataVerificationInfo {
-  DataVerificationInfo(const std::string& checksum_) : checksum(checksum_) {}
-  // checksum of the data being written.
-  Slice checksum;
-};
-
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
@@ -777,12 +769,6 @@ class WritableFile {
   // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 
-  // Append data with verification information
-  virtual Status AppendWithVerify(
-      const Slice& data, const DataVerificationInfo& /* verification_info */) {
-    return Append(data);
-  }
-
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
   // not backed by OS buffers and hence has to always start from the start of
@@ -805,14 +791,6 @@ class WritableFile {
   // required is queried via GetRequiredBufferAlignment()
   virtual Status PositionedAppend(const Slice& /* data */,
                                   uint64_t /* offset */) {
-    return Status::NotSupported(
-        "WritableFile::PositionedAppend() not supported.");
-  }
-
-  // PositionedAppend data with verification information.
-  virtual Status PositionedAppendWithVerify(
-      const Slice& /* data */, uint64_t /* offset */,
-      const DataVerificationInfo& /* verification_info */) {
     return Status::NotSupported(
         "WritableFile::PositionedAppend() not supported.");
   }
@@ -1519,18 +1497,8 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) {}
 
   Status Append(const Slice& data) override { return target_->Append(data); }
-  Status AppendWithVerify(
-      const Slice& data,
-      const DataVerificationInfo& verification_info) override {
-    return target_->AppendWithVerify(data, verification_info);
-  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
-  }
-  Status PositionedAppendWithVerify(
-      const Slice& data, uint64_t offset,
-      const DataVerificationInfo& verification_info) override {
-    return target_->PositionedAppendWithVerify(data, offset, verification_info);
   }
   Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }

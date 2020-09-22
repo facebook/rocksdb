@@ -702,6 +702,13 @@ class FSRandomAccessFile {
   // RandomAccessFileWrapper too.
 };
 
+// A data structure brings the data verification information, which is
+// used togther with data being written to a file.
+struct DataVerificationInfo {
+  // checksum of the data being written.
+  Slice checksum;
+};
+
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
@@ -751,9 +758,11 @@ class FSWritableFile {
   // required is queried via GetRequiredBufferAlignment()
 
   // Append data with verification information
-  virtual IOStatus AppendWithVerify(
-      const Slice& data, const IOOptions& options, IODebugContext* dbg,
-      const DataVerificationInfo& /* verification_info */) {
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
+                          IODebugContext* dbg,
+                          const DataVerificationInfo& /* verification_info */) {
     return Append(data, options, dbg);
   }
 
@@ -765,7 +774,9 @@ class FSWritableFile {
   }
 
   // PositionedAppend data with verification information.
-  virtual IOStatus PositionedAppendWithVerify(
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus PositionedAppend(
       const Slice& /* data */, uint64_t /* offset */,
       const IOOptions& /*options*/, IODebugContext* /*dbg*/,
       const DataVerificationInfo& /* verification_info */) {
@@ -1302,22 +1313,22 @@ class FSWritableFileWrapper : public FSWritableFile {
                   IODebugContext* dbg) override {
     return target_->Append(data, options, dbg);
   }
-  IOStatus AppendWithVerify(
-      const Slice& data, const IOOptions& options, IODebugContext* dbg,
-      const DataVerificationInfo& verification_info) override {
-    return target_->AppendWithVerify(data, options, dbg, verification_info);
+  IOStatus Append(const Slice& data, const IOOptions& options,
+                  IODebugContext* dbg,
+                  const DataVerificationInfo& verification_info) override {
+    return target_->Append(data, options, dbg, verification_info);
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
   }
-  IOStatus PositionedAppendWithVerify(
+  IOStatus PositionedAppend(
       const Slice& data, uint64_t offset, const IOOptions& options,
       IODebugContext* dbg,
       const DataVerificationInfo& verification_info) override {
-    return target_->PositionedAppendWithVerify(data, offset, options, dbg,
-                                               verification_info);
+    return target_->PositionedAppend(data, offset, options, dbg,
+                                     verification_info);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {
