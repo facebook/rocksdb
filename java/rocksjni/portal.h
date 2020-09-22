@@ -7691,7 +7691,7 @@ class EnabledEventCallbackJni {
     std::set<EnabledEventCallback> enabled_event_callbacks;
     for (size_t i = 0; i < EnabledEventCallback::NUM_ENABLED_EVENT_CALLBACK;
          ++i) {
-      if (((1 << i) & jenabled_event_callback_values) > 0) {
+      if (((1ULL << i) & jenabled_event_callback_values) > 0) {
         enabled_event_callbacks.emplace(static_cast<EnabledEventCallback>(i));
       }
     }
