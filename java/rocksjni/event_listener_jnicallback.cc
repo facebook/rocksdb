@@ -86,6 +86,31 @@ EventListenerJniCallback::EventListenerJniCallback(JNIEnv* env,
       env,
       AbstractEventListenerJni::getOnFileWriteFinishMethodId);
 
+  InitCallbackMethodId(m_on_file_flush_finish_mid,
+      EnabledEventCallback::ON_FILE_FLUSH_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileFlushFinishMethodId);
+
+  InitCallbackMethodId(m_on_file_sync_finish_mid,
+      EnabledEventCallback::ON_FILE_SYNC_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileSyncFinishMethodId);
+
+  InitCallbackMethodId(m_on_file_range_sync_finish_mid,
+      EnabledEventCallback::ON_FILE_RANGE_SYNC_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileRangeSyncFinishMethodId);
+
+  InitCallbackMethodId(m_on_file_truncate_finish_mid,
+      EnabledEventCallback::ON_FILE_TRUNCATE_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileTruncateFinishMethodId);
+
+  InitCallbackMethodId(m_on_file_close_finish_mid,
+      EnabledEventCallback::ON_FILE_CLOSE_FINISH,
+      env,
+      AbstractEventListenerJni::getOnFileCloseFinishMethodId);
+
   InitCallbackMethodId(m_should_be_notified_on_file_io,
       EnabledEventCallback::SHOULD_BE_NOTIFIED_ON_FILE_IO,
       env,
@@ -343,41 +368,31 @@ void EventListenerJniCallback::OnStallConditionsChanged(const WriteStallInfo& in
 }
 
 void EventListenerJniCallback::OnFileReadFinish(const FileOperationInfo& info) {
-  if (m_on_file_read_finish_mid == nullptr) {
-    return;
-  }
-
-  JNIEnv *env;
-  jboolean attached_thread;
-  jobject jop_info = SetupCallbackInvocation<FileOperationInfo>(env, attached_thread,
-      info, FileOperationInfoJni::fromCppFileOperationInfo);
-
-  if (jop_info != nullptr) {
-    env->CallVoidMethod(m_jcallback_obj,
-        m_on_file_read_finish_mid,
-        jop_info);
-  }
-
-  CleanupCallbackInvocation(env, attached_thread, { &jop_info });
+  OnFileOperation(m_on_file_read_finish_mid, info);
 }
 
 void EventListenerJniCallback::OnFileWriteFinish(const FileOperationInfo& info) {
-  if (m_on_file_write_finish_mid == nullptr) {
-    return;
-  }
+  OnFileOperation(m_on_file_write_finish_mid, info);
+}
 
-  JNIEnv *env;
-  jboolean attached_thread;
-  jobject jop_info = SetupCallbackInvocation<FileOperationInfo>(env, attached_thread,
-      info, FileOperationInfoJni::fromCppFileOperationInfo);
+void EventListenerJniCallback::OnFileFlushFinish(const FileOperationInfo& info ) {
+  OnFileOperation(m_on_file_flush_finish_mid, info);
+}
 
-  if (jop_info != nullptr) {
-    env->CallVoidMethod(m_jcallback_obj,
-        m_on_file_write_finish_mid,
-        jop_info);
-  }
+void EventListenerJniCallback::OnFileSyncFinish(const FileOperationInfo& info) {
+  OnFileOperation(m_on_file_sync_finish_mid, info);
+}
 
-  CleanupCallbackInvocation(env, attached_thread, { &jop_info });
+void EventListenerJniCallback::OnFileRangeSyncFinish(const FileOperationInfo& info) {
+  OnFileOperation(m_on_file_range_sync_finish_mid, info);
+}
+
+void EventListenerJniCallback::OnFileTruncateFinish(const FileOperationInfo& info) {
+  OnFileOperation(m_on_file_truncate_finish_mid, info);
+}
+
+void EventListenerJniCallback::OnFileCloseFinish(const FileOperationInfo& info) {
+  OnFileOperation(m_on_file_close_finish_mid, info);
 }
 
 bool EventListenerJniCallback::ShouldBeNotifiedOnFileIO() {
@@ -474,5 +489,24 @@ void EventListenerJniCallback::CleanupCallbackInvocation(JNIEnv *env,
   }
 
   releaseJniEnv(attached_thread);
+}
+
+void EventListenerJniCallback::OnFileOperation(const jmethodID& mid, const FileOperationInfo& info) {
+  if (mid == nullptr) {
+    return;
+  }
+
+  JNIEnv *env;
+  jboolean attached_thread;
+  jobject jop_info = SetupCallbackInvocation<FileOperationInfo>(env, attached_thread,
+      info, FileOperationInfoJni::fromCppFileOperationInfo);
+
+  if (jop_info != nullptr) {
+    env->CallVoidMethod(m_jcallback_obj,
+        mid,
+        jop_info);
+  }
+
+  CleanupCallbackInvocation(env, attached_thread, { &jop_info });
 }
 }  // namespace rocksdb

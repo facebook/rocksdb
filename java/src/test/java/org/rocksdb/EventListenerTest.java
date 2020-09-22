@@ -6,10 +6,12 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.test.TestableEventListener;
 
-import javax.print.attribute.standard.Compression;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -303,20 +305,20 @@ public class EventListenerTest {
     final FlushJobInfo flushJobInfoTestData =
         new FlushJobInfo(TEST_INT_VAL, "testColumnFamily", "/file/path",
             TEST_LONG_VAL, TEST_INT_VAL, true, true,
-            TEST_LONG_VAL, TEST_LONG_VAL, tablePropertiesTestData, (byte)0x0a);
+            TEST_LONG_VAL, TEST_LONG_VAL, tablePropertiesTestData, (byte) 0x0a);
     final Status statusTestData = new Status(Status.Code.Incomplete, Status.SubCode.NoSpace, null);
     final TableFileDeletionInfo tableFileDeletionInfoTestData = new TableFileDeletionInfo("dbName", "/file/path",
         TEST_INT_VAL, statusTestData);
     final TableFileCreationInfo tableFileCreationInfoTestData = new TableFileCreationInfo(TEST_LONG_VAL,
         tablePropertiesTestData, statusTestData, "dbName", "columnFamilyName",
-        "/file/path", TEST_INT_VAL, (byte)0x03);
+        "/file/path", TEST_INT_VAL, (byte) 0x03);
     final TableFileCreationBriefInfo tableFileCreationBriefInfoTestData = new TableFileCreationBriefInfo("dbName", "columnFamilyName",
-        "/file/path", TEST_INT_VAL, (byte)0x03);
+        "/file/path", TEST_INT_VAL, (byte) 0x03);
     final MemTableInfo memTableInfoTestData = new MemTableInfo("columnFamilyName", TEST_LONG_VAL,
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL);
     final FileOperationInfo fileOperationInfoTestData = new FileOperationInfo("/file/path", TEST_LONG_VAL,
         TEST_LONG_VAL, 1_600_699_420_000_000_000L, 5_000_000_000L, statusTestData);
-    final WriteStallInfo writeStallInfoTestData = new WriteStallInfo("columnFamilyName", (byte)0x1, (byte)0x2);
+    final WriteStallInfo writeStallInfoTestData = new WriteStallInfo("columnFamilyName", (byte) 0x1, (byte) 0x2);
     final ExternalFileIngestionInfo externalFileIngestionInfoTestData = new ExternalFileIngestionInfo("columnFamilyName",
         "/external/file/path", "/internal/file/path", TEST_LONG_VAL, tablePropertiesTestData);
 
@@ -441,8 +443,38 @@ public class EventListenerTest {
       }
 
       @Override
-      public boolean shouldBeNotifiedOnFileIO() {
+      public void OnFileFlushFinish(final FileOperationInfo fileOperationInfo) {
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
         wasCalled[14].set(true);
+      }
+
+      @Override
+      public void OnFileSyncFinish(final FileOperationInfo fileOperationInfo) {
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
+        wasCalled[15].set(true);
+      }
+
+      @Override
+      public void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
+        wasCalled[16].set(true);
+      }
+
+      @Override
+      public void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
+        wasCalled[17].set(true);
+      }
+
+      @Override
+      public void OnFileCloseFinish(final FileOperationInfo fileOperationInfo) {
+        assertEquals(fileOperationInfoTestData, fileOperationInfo);
+        wasCalled[18].set(true);
+      }
+
+      @Override
+      public boolean shouldBeNotifiedOnFileIO() {
+        wasCalled[19].set(true);
         return false;
       }
 
@@ -452,14 +484,14 @@ public class EventListenerTest {
           final Status backgroundError) {
         assertEquals(BackgroundErrorReason.FLUSH, backgroundErrorReason);
         assertEquals(statusTestData, backgroundError);
-        wasCalled[15].set(true);
+        wasCalled[20].set(true);
         return true;
       }
 
       @Override
       public void onErrorRecoveryCompleted(final Status oldBackgroundError) {
         assertEquals(statusTestData, oldBackgroundError);
-        wasCalled[16].set(true);
+        wasCalled[21].set(true);
       }
     };
     listener.invokeAllCallbacks();
@@ -470,15 +502,49 @@ public class EventListenerTest {
 
   @Test
   public void testEnabledCallbacks() {
-    final AtomicBoolean wasOnCompactionCompletedCalled = new AtomicBoolean();
     final AtomicBoolean wasOnMemTableSealedCalled = new AtomicBoolean();
     final AtomicBoolean wasOnErrorRecoveryCompletedCalled = new AtomicBoolean();
     TestableEventListener listener = new TestableEventListener(AbstractEventListener.EnabledEventCallback.ON_MEMTABLE_SEALED,
         AbstractEventListener.EnabledEventCallback.ON_ERROR_RECOVERY_COMPLETED) {
       @Override
+      public void onFlushCompleted(final RocksDB db,
+                                   final FlushJobInfo flushJobInfo) {
+        fail("onFlushCompleted was not enabled");
+      }
+
+      @Override
+      public void onFlushBegin(final RocksDB db, final FlushJobInfo flushJobInfo) {
+        fail("onFlushBegin was not enabled");
+      }
+
+      @Override
+      public void onTableFileDeleted(
+          final TableFileDeletionInfo tableFileDeletionInfo) {
+        fail("onTableFileDeleted was not enabled");
+      }
+
+      @Override
+      public void onCompactionBegin(final RocksDB db,
+                                    final CompactionJobInfo compactionJobInfo) {
+        fail("onCompactionBegin was not enabled");
+      }
+
+      @Override
       public void onCompactionCompleted(final RocksDB db,
                                         final CompactionJobInfo compactionJobInfo) {
-        wasOnCompactionCompletedCalled.set(true);
+        fail("onCompactionCompleted was not enabled");
+      }
+
+      @Override
+      public void onTableFileCreated(
+          final TableFileCreationInfo tableFileCreationInfo) {
+        fail("onTableFileCreated was not enabled");
+      }
+
+      @Override
+      public void onTableFileCreationStarted(
+          final TableFileCreationBriefInfo tableFileCreationBriefInfo) {
+        fail("onTableFileCreationStarted was not enabled");
       }
 
       @Override
@@ -487,12 +553,84 @@ public class EventListenerTest {
       }
 
       @Override
+      public void onColumnFamilyHandleDeletionStarted(
+          final ColumnFamilyHandle columnFamilyHandle) {
+        fail("onColumnFamilyHandleDeletionStarted was not enabled");
+      }
+
+      @Override
+      public void onExternalFileIngested(final RocksDB db,
+                                         final ExternalFileIngestionInfo externalFileIngestionInfo) {
+        fail("onExternalFileIngested was not enabled");
+      }
+
+      @Override
+      public void onBackgroundError(
+          final BackgroundErrorReason backgroundErrorReason,
+          final Status backgroundError) {
+        fail("onBackgroundError was not enabled");
+      }
+
+      @Override
+      public void onStallConditionsChanged(final WriteStallInfo writeStallInfo) {
+        fail("onStallConditionsChanged was not enabled");
+      }
+
+      @Override
+      public void onFileReadFinish(final FileOperationInfo fileOperationInfo) {
+        fail("onFileReadFinish was not enabled");
+      }
+
+      @Override
+      public void onFileWriteFinish(final FileOperationInfo fileOperationInfo) {
+        fail("onFileWriteFinish was not enabled");
+      }
+
+      @Override
+      public void OnFileFlushFinish(final FileOperationInfo fileOperationInfo) {
+        fail("OnFileFlushFinish was not enabled");
+      }
+
+      @Override
+      public void OnFileSyncFinish(final FileOperationInfo fileOperationInfo) {
+        fail("OnFileSyncFinish was not enabled");
+      }
+
+      @Override
+      public void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
+        fail("OnFileRangeSyncFinish was not enabled");
+      }
+
+      @Override
+      public void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
+        fail("OnFileTruncateFinish was not enabled");
+      }
+
+      @Override
+      public void OnFileCloseFinish(final FileOperationInfo fileOperationInfo) {
+        fail("OnFileCloseFinish was not enabled");
+      }
+
+      @Override
+      public boolean shouldBeNotifiedOnFileIO() {
+        fail("shouldBeNotifiedOnFileIO was not enabled");
+        return false;
+      }
+
+      @Override
+      public boolean onErrorRecoveryBegin(
+          final BackgroundErrorReason backgroundErrorReason,
+          final Status backgroundError) {
+        fail("onErrorRecoveryBegin was not enabled");
+        return true;
+      }
+
+      @Override
       public void onErrorRecoveryCompleted(final Status oldBackgroundError) {
         wasOnErrorRecoveryCompletedCalled.set(true);
       }
     };
     listener.invokeAllCallbacks();
-    assertFalse(wasOnCompactionCompletedCalled.get());
     assertTrue(wasOnMemTableSealedCalled.get());
     assertTrue(wasOnErrorRecoveryCompletedCalled.get());
   }

@@ -217,6 +217,36 @@ public interface EventListener {
    */
    void onFileWriteFinish(final FileOperationInfo fileOperationInfo);
 
+  /**
+   * A callback function for RocksDB which will be called whenever a file flush
+   * operation finishes.
+   */
+  void OnFileFlushFinish(final FileOperationInfo fileOperationInfo);
+
+  /**
+   * A callback function for RocksDB which will be called whenever a file sync
+   * operation finishes.
+   */
+  void OnFileSyncFinish(final FileOperationInfo fileOperationInfo);
+
+  /**
+   * A callback function for RocksDB which will be called whenever a file
+   * rangeSync operation finishes.
+   */
+  void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo);
+
+  /**
+   * A callback function for RocksDB which will be called whenever a file
+   * truncate operation finishes.
+   */
+  void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo);
+
+  /**
+   * A callback function for RocksDB which will be called whenever a file close
+   * operation finishes.
+   */
+  void OnFileCloseFinish(final FileOperationInfo fileOperationInfo);
+
    /**
    * If true, the {@link #onFileReadFinish(FileOperationInfo)}
     * and {@link #onFileWriteFinish(FileOperationInfo)} will be called. If

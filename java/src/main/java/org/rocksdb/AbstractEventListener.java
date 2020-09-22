@@ -28,9 +28,14 @@ public abstract class AbstractEventListener extends RocksCallbackObject
     ON_STALL_CONDITIONS_CHANGED((byte)0xB),
     ON_FILE_READ_FINISH((byte)0xC),
     ON_FILE_WRITE_FINISH((byte)0xD),
-    SHOULD_BE_NOTIFIED_ON_FILE_IO((byte)0xE),
-    ON_ERROR_RECOVERY_BEGIN((byte)0xF),
-    ON_ERROR_RECOVERY_COMPLETED((byte)0x10);
+    ON_FILE_FLUSH_FINISH((byte)0xE),
+    ON_FILE_SYNC_FINISH((byte)0xF),
+    ON_FILE_RANGE_SYNC_FINISH((byte)0x10),
+    ON_FILE_TRUNCATE_FINISH((byte)0x11),
+    ON_FILE_CLOSE_FINISH((byte)0x12),
+    SHOULD_BE_NOTIFIED_ON_FILE_IO((byte)0x13),
+    ON_ERROR_RECOVERY_BEGIN((byte)0x14),
+    ON_ERROR_RECOVERY_COMPLETED((byte)0x15);
 
     private final byte value;
 
@@ -81,7 +86,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject
         ON_TABLE_FILE_CREATION_STARTED, ON_MEMTABLE_SEALED,
         ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED, ON_EXTERNAL_FILE_INGESTED,
         ON_BACKGROUND_ERROR, ON_STALL_CONDITIONS_CHANGED, ON_FILE_READ_FINISH,
-        ON_FILE_WRITE_FINISH, SHOULD_BE_NOTIFIED_ON_FILE_IO,
+        ON_FILE_WRITE_FINISH, ON_FILE_FLUSH_FINISH, ON_FILE_SYNC_FINISH,
+        ON_FILE_RANGE_SYNC_FINISH, ON_FILE_TRUNCATE_FINISH,
+        ON_FILE_CLOSE_FINISH, SHOULD_BE_NOTIFIED_ON_FILE_IO,
         ON_ERROR_RECOVERY_BEGIN, ON_ERROR_RECOVERY_COMPLETED);
   }
 
@@ -271,6 +278,31 @@ public abstract class AbstractEventListener extends RocksCallbackObject
 
   @Override
   public void onFileWriteFinish(final FileOperationInfo fileOperationInfo) {
+    // no-op
+  }
+
+  @Override
+  public void OnFileFlushFinish(final FileOperationInfo fileOperationInfo) {
+    // no-op
+  }
+
+  @Override
+  public void OnFileSyncFinish(final FileOperationInfo fileOperationInfo) {
+    // no-op
+  }
+
+  @Override
+  public void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
+    // no-op
+  }
+
+  @Override
+  public void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
+    // no-op
+  }
+
+  @Override
+  public void OnFileCloseFinish(final FileOperationInfo fileOperationInfo) {
     // no-op
   }
 
