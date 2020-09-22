@@ -415,6 +415,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
             return s;
           }}},
+        {"allow_data_in_errors",
+         {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -564,7 +568,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery),
       max_bgerror_resume_count(options.max_bgerror_resume_count),
-      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
+      allow_data_in_errors(options.allow_data_in_errors) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -720,6 +725,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "           Options.bgerror_resume_retry_interval: %" PRIu64,
                    bgerror_resume_retry_interval);
+  ROCKS_LOG_HEADER(log, "            Options.allow_data_in_errors: %d",
+                   allow_data_in_errors);
 }
 
 MutableDBOptions::MutableDBOptions()
