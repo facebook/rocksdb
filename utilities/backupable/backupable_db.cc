@@ -391,9 +391,10 @@ class BackupEngineImpl : public BackupEngine {
                           uint64_t size_limit = 0,
                           std::function<void()> progress_callback = []() {});
 
-  Status CalculateChecksum(const std::string& src, Env* src_env,
-                           const EnvOptions& src_env_options,
-                           uint64_t size_limit, std::string* checksum_hex);
+  Status ReadFileAndComputeChecksum(const std::string& src, Env* src_env,
+                                    const EnvOptions& src_env_options,
+                                    uint64_t size_limit,
+                                    std::string* checksum_hex);
 
   // Obtain db_id and db_session_id from the table properties of file_path
   Status GetFileDbIdentities(Env* src_env, const EnvOptions& src_env_options,
@@ -1463,8 +1464,8 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       std::string checksum_hex;
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
                      abs_path.c_str());
-      CalculateChecksum(abs_path, backup_env_, EnvOptions(), 0 /* size_limit */,
-                        &checksum_hex);
+      ReadFileAndComputeChecksum(abs_path, backup_env_, EnvOptions(),
+                                 0 /* size_limit */, &checksum_hex);
       if (file_info->checksum_hex != checksum_hex) {
         std::string checksum_info(
             "Expected checksum is " + file_info->checksum_hex +
@@ -1629,8 +1630,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     // since the session id should suffice to avoid file name collision in
     // the shared_checksum directory.
     if (!has_checksum && db_session_id.empty()) {
-      s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
-                            size_limit, &checksum_hex);
+      s = ReadFileAndComputeChecksum(src_dir + fname, db_env_, src_env_options,
+                                     size_limit, &checksum_hex);
       if (!s.ok()) {
         return s;
       }
@@ -1701,47 +1702,9 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     need_to_copy = false;
   } else if (shared && (same_path || file_exists)) {
     need_to_copy = false;
-    if (shared_checksum) {
-      if (backuped_file_infos_.find(dst_relative) ==
-              backuped_file_infos_.end() &&
-          !same_path) {
-        // file exists but not referenced
-        ROCKS_LOG_INFO(
-            options_.info_log,
-            "%s already present, but not referenced by any backup. We will "
-            "overwrite the file.",
-            fname.c_str());
-        need_to_copy = true;
-        backup_env_->DeleteFile(final_dest_path);
-      } else {
-        // file exists and referenced
-        if (!has_checksum) {
-          // FIXME(peterd): extra I/O
-          s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
-                                size_limit, &checksum_hex);
-          if (!s.ok()) {
-            return s;
-          }
-          has_checksum = true;
-        }
-        if (!db_session_id.empty()) {
-          ROCKS_LOG_INFO(options_.info_log,
-                         "%s already present, with checksum %s, size %" PRIu64
-                         " and DB session identity %s",
-                         fname.c_str(), checksum_hex.c_str(), size_bytes,
-                         db_session_id.c_str());
-        } else {
-          ROCKS_LOG_INFO(
-              options_.info_log,
-              "%s already present, with checksum %s and size %" PRIu64,
-              fname.c_str(), checksum_hex.c_str(), size_bytes);
-        }
-      }
-    } else if (backuped_file_infos_.find(dst_relative) ==
-                   backuped_file_infos_.end() &&
-               !same_path) {
-      // file already exists, but it's not referenced by any backup. overwrite
-      // the file
+    auto find_result = backuped_file_infos_.find(dst_relative);
+    if (find_result == backuped_file_infos_.end() && !same_path) {
+      // file exists but not referenced
       ROCKS_LOG_INFO(
           options_.info_log,
           "%s already present, but not referenced by any backup. We will "
@@ -1750,17 +1713,51 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       need_to_copy = true;
       backup_env_->DeleteFile(final_dest_path);
     } else {
-      // the file is present and referenced by a backup
-      ROCKS_LOG_INFO(options_.info_log,
-                     "%s already present, calculate checksum", fname.c_str());
+      // file exists and referenced
       if (!has_checksum) {
-        // FIXME(peterd): extra I/O
-        s = CalculateChecksum(src_dir + fname, db_env_, src_env_options,
-                              size_limit, &checksum_hex);
-        if (!s.ok()) {
-          return s;
+        if (!same_path) {
+          assert(find_result != backuped_file_infos_.end());
+          // Note: to save I/O on incremental backups, we copy prior known
+          // checksum of the file instead of reading entire file contents
+          // to recompute it.
+          checksum_hex = find_result->second->checksum_hex;
+          has_checksum = true;
+          // Regarding corruption detection, consider:
+          // (a) the DB file is corrupt (since previous backup) and the backup
+          // file is OK: we failed to detect, but the backup is safe. DB can
+          // be repaired/restored once its corruption is detected.
+          // (b) the backup file is corrupt (since previous backup) and the
+          // db file is OK: we failed to detect, but the backup is corrupt.
+          // CreateNewBackup should support fast incremental backups and
+          // there's no way to support that without reading all the files.
+          // We might add an option for extra checks on incremental backup,
+          // but until then, use VerifyBackups to check existing backup data.
+          // (c) file name collision with legitimately different content.
+          // This is almost inconceivable with a well-generated DB session
+          // ID, but even in that case, we double check the file sizes in
+          // BackupMeta::AddFile.
+        } else {
+          // same_path should not happen for a standard DB, so OK to
+          // read file contents to check for checksum mismatch between
+          // two files from same DB getting same name.
+          s = ReadFileAndComputeChecksum(src_dir + fname, db_env_,
+                                         src_env_options, size_limit,
+                                         &checksum_hex);
+          if (!s.ok()) {
+            return s;
+          }
         }
-        has_checksum = true;
+      }
+      if (!db_session_id.empty()) {
+        ROCKS_LOG_INFO(options_.info_log,
+                       "%s already present, with checksum %s, size %" PRIu64
+                       " and DB session identity %s",
+                       fname.c_str(), checksum_hex.c_str(), size_bytes,
+                       db_session_id.c_str());
+      } else {
+        ROCKS_LOG_INFO(options_.info_log,
+                       "%s already present, with checksum %s and size %" PRIu64,
+                       fname.c_str(), checksum_hex.c_str(), size_bytes);
       }
     }
   }
@@ -1797,10 +1794,9 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   return s;
 }
 
-Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
-                                           const EnvOptions& src_env_options,
-                                           uint64_t size_limit,
-                                           std::string* checksum_hex) {
+Status BackupEngineImpl::ReadFileAndComputeChecksum(
+    const std::string& src, Env* src_env, const EnvOptions& src_env_options,
+    uint64_t size_limit, std::string* checksum_hex) {
   if (checksum_hex == nullptr) {
     return Status::Aborted("Checksum pointer is null");
   }
@@ -2064,10 +2060,33 @@ Status BackupEngineImpl::BackupMeta::AddFile(
       return Status::Corruption("In memory metadata insertion error");
     }
   } else {
+    // Compare sizes, because we scanned that off the filesystem on both
+    // ends. This is like a check in VerifyBackup.
+    if (itr->second->size != file_info->size) {
+      std::string msg = "Size mismatch for existing backup file: ";
+      msg.append(file_info->filename);
+      msg.append(" Size in backup is " + ToString(itr->second->size) +
+                 " while size in DB is " + ToString(file_info->size));
+      msg.append(
+          " If this DB file checks as not corrupt, try deleting old"
+          " backups or backing up to a different backup directory.");
+      return Status::Corruption(msg);
+    }
+    // Note: to save I/O, this check will pass trivially on already backed
+    // up files that don't have the checksum in their name. And it should
+    // never fail for files that do have checksum in their name.
     if (itr->second->checksum_hex != file_info->checksum_hex) {
-      return Status::Corruption(
-          "Checksum mismatch for existing backup file. Delete old backups and "
-          "try again.");
+      // Should never reach here, but produce an appropriate corruption
+      // message in case we do in a release build.
+      assert(false);
+      std::string msg = "Checksum mismatch for existing backup file: ";
+      msg.append(file_info->filename);
+      msg.append(" Expected checksum is " + itr->second->checksum_hex +
+                 " while computed checksum is " + file_info->checksum_hex);
+      msg.append(
+          " If this DB file checks as not corrupt, try deleting old"
+          " backups or backing up to a different backup directory.");
+      return Status::Corruption(msg);
     }
     ++itr->second->refs;  // increase refcount if already present
   }

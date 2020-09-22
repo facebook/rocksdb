@@ -3135,17 +3135,17 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
     }
   } else {
     SuperVersion* sv = nullptr;
-    if (!is_locked) {
-      sv = GetAndRefSuperVersion(cfd);
-    } else {
-      sv = cfd->GetSuperVersion();
+    if (is_locked) {
+      mutex_.Unlock();
     }
+    sv = GetAndRefSuperVersion(cfd);
 
     bool ret = cfd->internal_stats()->GetIntPropertyOutOfMutex(
         property_info, sv->current, value);
 
-    if (!is_locked) {
-      ReturnAndCleanupSuperVersion(cfd, sv);
+    ReturnAndCleanupSuperVersion(cfd, sv);
+    if (is_locked) {
+      mutex_.Lock();
     }
 
     return ret;
@@ -3182,6 +3182,7 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
   }
 
   uint64_t sum = 0;
+  bool ret = true;
   {
     // Needs mutex to protect the list of column families.
     InstrumentedMutexLock l(&mutex_);
@@ -3190,15 +3191,21 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
       if (!cfd->initialized()) {
         continue;
       }
-      if (GetIntPropertyInternal(cfd, *property_info, true, &value)) {
+      cfd->Ref();
+      ret = GetIntPropertyInternal(cfd, *property_info, true, &value);
+      // GetIntPropertyInternal may release db mutex and re-acquire it.
+      mutex_.AssertHeld();
+      cfd->UnrefAndTryDelete();
+      if (ret) {
         sum += value;
       } else {
-        return false;
+        ret = false;
+        break;
       }
     }
   }
   *aggregated_value = sum;
-  return true;
+  return ret;
 }
 
 SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
