@@ -6,9 +6,9 @@
 package org.rocksdb;
 
 public enum WriteStallCondition {
-  NORMAL((byte)0x0),
-  DELAYED((byte)0x1),
-  STOPPED((byte)0x2);
+  NORMAL((byte) 0x0),
+  DELAYED((byte) 0x1),
+  STOPPED((byte) 0x2);
 
   private final byte value;
 
@@ -33,14 +33,13 @@ public enum WriteStallCondition {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static WriteStallCondition fromValue(final byte value) {
-    for (final WriteStallCondition writeStallCondition :
-        WriteStallCondition.values()) {
-      if(writeStallCondition.value == value) {
+    for (final WriteStallCondition writeStallCondition : WriteStallCondition.values()) {
+      if (writeStallCondition.value == value) {
         return writeStallCondition;
       }
     }
 
-    throw new IllegalArgumentException(
-        "Illegal value provided for WriteStallCondition: " + value);
+    throw new IllegalArgumentException("Illegal value provided for WriteStallCondition: " + value);
   }
-};
+}
+;

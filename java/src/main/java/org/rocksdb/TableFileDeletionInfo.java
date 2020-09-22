@@ -17,8 +17,8 @@ public class TableFileDeletionInfo {
    * Access is package private as this will only be constructed from
    * C++ via JNI and for testing.
    */
-  TableFileDeletionInfo(final String dbName, final  String filePath,
-      final int jobId, final Status status) {
+  TableFileDeletionInfo(
+      final String dbName, final String filePath, final int jobId, final Status status) {
     this.dbName = dbName;
     this.filePath = filePath;
     this.jobId = jobId;
@@ -63,28 +63,24 @@ public class TableFileDeletionInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     TableFileDeletionInfo that = (TableFileDeletionInfo) o;
-    return jobId == that.jobId &&
-        Objects.equals(dbName, that.dbName) &&
-        Objects.equals(filePath, that.filePath) &&
-        Objects.equals(status, that.status);
+    return jobId == that.jobId && Objects.equals(dbName, that.dbName)
+        && Objects.equals(filePath, that.filePath) && Objects.equals(status, that.status);
   }
 
   @Override
   public int hashCode() {
-
     return Objects.hash(dbName, filePath, jobId, status);
   }
 
   @Override
   public String toString() {
-    return "TableFileDeletionInfo{" +
-        "dbName='" + dbName + '\'' +
-        ", filePath='" + filePath + '\'' +
-        ", jobId=" + jobId +
-        ", status=" + status +
-        '}';
+    return "TableFileDeletionInfo{"
+        + "dbName='" + dbName + '\'' + ", filePath='" + filePath + '\'' + ", jobId=" + jobId
+        + ", status=" + status + '}';
   }
 }

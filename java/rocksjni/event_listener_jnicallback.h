@@ -10,6 +10,7 @@
 #define JAVA_ROCKSJNI_EVENT_LISTENER_JNICALLBACK_H_
 
 #include <jni.h>
+
 #include <memory>
 #include <set>
 
@@ -47,7 +48,8 @@ enum EnabledEventCallback {
 
 class EventListenerJniCallback : public JniCallback, public EventListener {
  public:
-  EventListenerJniCallback(JNIEnv* env, jobject jevent_listener,
+  EventListenerJniCallback(
+      JNIEnv* env, jobject jevent_listener,
       const std::set<EnabledEventCallback>& enabled_event_callbacks);
   virtual ~EventListenerJniCallback();
   virtual void OnFlushCompleted(DB* db, const FlushJobInfo& flush_job_info);
@@ -61,33 +63,34 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   virtual void OnMemTableSealed(const MemTableInfo& info);
   virtual void OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle);
   virtual void OnExternalFileIngested(DB* db,
-      const ExternalFileIngestionInfo& info);
+                                      const ExternalFileIngestionInfo& info);
   virtual void OnBackgroundError(BackgroundErrorReason reason,
-      Status* bg_error);
+                                 Status* bg_error);
   virtual void OnStallConditionsChanged(const WriteStallInfo& info);
   virtual void OnFileReadFinish(const FileOperationInfo& info);
   virtual void OnFileWriteFinish(const FileOperationInfo& info);
-  virtual void OnFileFlushFinish(const FileOperationInfo& info );
+  virtual void OnFileFlushFinish(const FileOperationInfo& info);
   virtual void OnFileSyncFinish(const FileOperationInfo& info);
   virtual void OnFileRangeSyncFinish(const FileOperationInfo& info);
   virtual void OnFileTruncateFinish(const FileOperationInfo& info);
   virtual void OnFileCloseFinish(const FileOperationInfo& info);
   virtual bool ShouldBeNotifiedOnFileIO();
   virtual void OnErrorRecoveryBegin(BackgroundErrorReason reason,
-      Status bg_error, bool* auto_recovery);
+                                    Status bg_error, bool* auto_recovery);
   virtual void OnErrorRecoveryCompleted(Status old_bg_error);
 
  private:
   inline void InitCallbackMethodId(jmethodID& mid, EnabledEventCallback eec,
-      JNIEnv *env,
-      jmethodID (*get_id)(JNIEnv *env));
+                                   JNIEnv* env,
+                                   jmethodID (*get_id)(JNIEnv* env));
   template <class T>
-  inline jobject SetupCallbackInvocation(JNIEnv*& env, jboolean& attached_thread,
-      const T& cpp_obj,
-      jobject (*convert)(JNIEnv *env, const T* cpp_obj));
-  inline void CleanupCallbackInvocation(JNIEnv *env,
-      jboolean attached_thread, std::initializer_list<jobject*> refs);
-  inline void OnFileOperation(const jmethodID& mid, const FileOperationInfo& info);
+  inline jobject SetupCallbackInvocation(
+      JNIEnv*& env, jboolean& attached_thread, const T& cpp_obj,
+      jobject (*convert)(JNIEnv* env, const T* cpp_obj));
+  inline void CleanupCallbackInvocation(JNIEnv* env, jboolean attached_thread,
+                                        std::initializer_list<jobject*> refs);
+  inline void OnFileOperation(const jmethodID& mid,
+                              const FileOperationInfo& info);
 
   const std::set<EnabledEventCallback> m_enabled_event_callbacks;
   jmethodID m_on_flush_completed_proxy_mid;
@@ -114,6 +117,6 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   jmethodID m_on_error_recovery_completed_mid;
 };
 
-}  //namespace rocksdb
+}  // namespace rocksdb
 
 #endif  // JAVA_ROCKSJNI_EVENT_LISTENER_JNICALLBACK_H_

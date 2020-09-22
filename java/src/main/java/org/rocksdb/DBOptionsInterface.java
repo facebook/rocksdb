@@ -1060,7 +1060,8 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * will be called when specific RocksDB event happens.
    *
    * Note: the RocksJava API currently only supports EventListeners implemented in Java.
-   * It could be extended in future to also support adding/removing EventListeners implemented in C++.
+   * It could be extended in future to also support adding/removing EventListeners implemented in
+   * C++.
    *
    * @param listeners the listeners who should be notified on various events.
    *
@@ -1073,11 +1074,12 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * will be called when specific RocksDB event happens.
    *
    * Note: the RocksJava API currently only supports EventListeners implemented in Java.
-   * It could be extended in future to also support adding/removing EventListeners implemented in C++.
+   * It could be extended in future to also support adding/removing EventListeners implemented in
+   * C++.
    *
    * @return the instance of the current object.
    */
-   List<AbstractEventListener> listeners();
+  List<AbstractEventListener> listeners();
 
   /**
    * If true, then the status of the threads involved in this DB will

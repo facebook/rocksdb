@@ -10,32 +10,30 @@ import static org.rocksdb.AbstractEventListener.EnabledEventCallback.*;
 /**
  * Base class for Event Listeners.
  */
-public abstract class AbstractEventListener extends RocksCallbackObject
-    implements EventListener {
-
+public abstract class AbstractEventListener extends RocksCallbackObject implements EventListener {
   public enum EnabledEventCallback {
-    ON_FLUSH_COMPLETED((byte)0x0),
-    ON_FLUSH_BEGIN((byte)0x1),
-    ON_TABLE_FILE_DELETED((byte)0x2),
-    ON_COMPACTION_BEGIN((byte)0x3),
-    ON_COMPACTION_COMPLETED((byte)0x4),
-    ON_TABLE_FILE_CREATED((byte)0x5),
-    ON_TABLE_FILE_CREATION_STARTED((byte)0x6),
-    ON_MEMTABLE_SEALED((byte)0x7),
-    ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED((byte)0x8),
-    ON_EXTERNAL_FILE_INGESTED((byte)0x9),
-    ON_BACKGROUND_ERROR((byte)0xA),
-    ON_STALL_CONDITIONS_CHANGED((byte)0xB),
-    ON_FILE_READ_FINISH((byte)0xC),
-    ON_FILE_WRITE_FINISH((byte)0xD),
-    ON_FILE_FLUSH_FINISH((byte)0xE),
-    ON_FILE_SYNC_FINISH((byte)0xF),
-    ON_FILE_RANGE_SYNC_FINISH((byte)0x10),
-    ON_FILE_TRUNCATE_FINISH((byte)0x11),
-    ON_FILE_CLOSE_FINISH((byte)0x12),
-    SHOULD_BE_NOTIFIED_ON_FILE_IO((byte)0x13),
-    ON_ERROR_RECOVERY_BEGIN((byte)0x14),
-    ON_ERROR_RECOVERY_COMPLETED((byte)0x15);
+    ON_FLUSH_COMPLETED((byte) 0x0),
+    ON_FLUSH_BEGIN((byte) 0x1),
+    ON_TABLE_FILE_DELETED((byte) 0x2),
+    ON_COMPACTION_BEGIN((byte) 0x3),
+    ON_COMPACTION_COMPLETED((byte) 0x4),
+    ON_TABLE_FILE_CREATED((byte) 0x5),
+    ON_TABLE_FILE_CREATION_STARTED((byte) 0x6),
+    ON_MEMTABLE_SEALED((byte) 0x7),
+    ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED((byte) 0x8),
+    ON_EXTERNAL_FILE_INGESTED((byte) 0x9),
+    ON_BACKGROUND_ERROR((byte) 0xA),
+    ON_STALL_CONDITIONS_CHANGED((byte) 0xB),
+    ON_FILE_READ_FINISH((byte) 0xC),
+    ON_FILE_WRITE_FINISH((byte) 0xD),
+    ON_FILE_FLUSH_FINISH((byte) 0xE),
+    ON_FILE_SYNC_FINISH((byte) 0xF),
+    ON_FILE_RANGE_SYNC_FINISH((byte) 0x10),
+    ON_FILE_TRUNCATE_FINISH((byte) 0x11),
+    ON_FILE_CLOSE_FINISH((byte) 0x12),
+    SHOULD_BE_NOTIFIED_ON_FILE_IO((byte) 0x13),
+    ON_ERROR_RECOVERY_BEGIN((byte) 0x14),
+    ON_ERROR_RECOVERY_COMPLETED((byte) 0x15);
 
     private final byte value;
 
@@ -60,9 +58,8 @@ public abstract class AbstractEventListener extends RocksCallbackObject
      * @throws IllegalArgumentException if the value is unknown.
      */
     static EnabledEventCallback fromValue(final byte value) {
-      for (final EnabledEventCallback enabledEventCallback
-          : EnabledEventCallback.values()) {
-        if(enabledEventCallback.value == value) {
+      for (final EnabledEventCallback enabledEventCallback : EnabledEventCallback.values()) {
+        if (enabledEventCallback.value == value) {
           return enabledEventCallback;
         }
       }
@@ -81,14 +78,12 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * {@link #AbstractEventListener(EnabledEventCallback...)} instead.
    */
   protected AbstractEventListener() {
-    this(ON_FLUSH_COMPLETED, ON_FLUSH_BEGIN, ON_TABLE_FILE_DELETED,
-        ON_COMPACTION_BEGIN, ON_COMPACTION_COMPLETED, ON_TABLE_FILE_CREATED,
-        ON_TABLE_FILE_CREATION_STARTED, ON_MEMTABLE_SEALED,
-        ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED, ON_EXTERNAL_FILE_INGESTED,
-        ON_BACKGROUND_ERROR, ON_STALL_CONDITIONS_CHANGED, ON_FILE_READ_FINISH,
-        ON_FILE_WRITE_FINISH, ON_FILE_FLUSH_FINISH, ON_FILE_SYNC_FINISH,
-        ON_FILE_RANGE_SYNC_FINISH, ON_FILE_TRUNCATE_FINISH,
-        ON_FILE_CLOSE_FINISH, SHOULD_BE_NOTIFIED_ON_FILE_IO,
+    this(ON_FLUSH_COMPLETED, ON_FLUSH_BEGIN, ON_TABLE_FILE_DELETED, ON_COMPACTION_BEGIN,
+        ON_COMPACTION_COMPLETED, ON_TABLE_FILE_CREATED, ON_TABLE_FILE_CREATION_STARTED,
+        ON_MEMTABLE_SEALED, ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED, ON_EXTERNAL_FILE_INGESTED,
+        ON_BACKGROUND_ERROR, ON_STALL_CONDITIONS_CHANGED, ON_FILE_READ_FINISH, ON_FILE_WRITE_FINISH,
+        ON_FILE_FLUSH_FINISH, ON_FILE_SYNC_FINISH, ON_FILE_RANGE_SYNC_FINISH,
+        ON_FILE_TRUNCATE_FINISH, ON_FILE_CLOSE_FINISH, SHOULD_BE_NOTIFIED_ON_FILE_IO,
         ON_ERROR_RECOVERY_BEGIN, ON_ERROR_RECOVERY_COMPLETED);
   }
 
@@ -98,8 +93,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    *
    * @param enabledEventCallbacks callbacks to enable in Java.
    */
-  protected AbstractEventListener(
-      final EnabledEventCallback... enabledEventCallbacks) {
+  protected AbstractEventListener(final EnabledEventCallback... enabledEventCallbacks) {
     super(packToLong(enabledEventCallbacks));
   }
 
@@ -110,8 +104,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    *
    * @return a long
    */
-  private static long packToLong(
-      final EnabledEventCallback... enabledEventCallbacks) {
+  private static long packToLong(final EnabledEventCallback... enabledEventCallbacks) {
     long l = 0;
     for (int i = 0; i < enabledEventCallbacks.length; i++) {
       l |= 1 << enabledEventCallbacks[i].getValue();
@@ -120,8 +113,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
   }
 
   @Override
-  public void onFlushCompleted(final RocksDB db,
-      final FlushJobInfo flushJobInfo) {
+  public void onFlushCompleted(final RocksDB db, final FlushJobInfo flushJobInfo) {
     // no-op
   }
 
@@ -132,10 +124,9 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
    */
-  private void onFlushCompletedProxy(final long dbHandle,
-      final FlushJobInfo flushJobInfo) {
+  private void onFlushCompletedProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle();  // we don't own this!
+    db.disOwnNativeHandle(); // we don't own this!
     onFlushCompleted(db, flushJobInfo);
   }
 
@@ -151,22 +142,19 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param dbHandle native handle of the database
    * @param flushJobInfo the flush job info
    */
-  private void onFlushBeginProxy(final long dbHandle,
-                                 final FlushJobInfo flushJobInfo) {
+  private void onFlushBeginProxy(final long dbHandle, final FlushJobInfo flushJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle();  // we don't own this!
+    db.disOwnNativeHandle(); // we don't own this!
     onFlushBegin(db, flushJobInfo);
   }
 
   @Override
-  public void onTableFileDeleted(
-      final TableFileDeletionInfo tableFileDeletionInfo) {
+  public void onTableFileDeleted(final TableFileDeletionInfo tableFileDeletionInfo) {
     // no-op
   }
 
   @Override
-  public void onCompactionBegin(final RocksDB db,
-      final CompactionJobInfo compactionJobInfo) {
+  public void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
     // no-op
   }
 
@@ -177,16 +165,15 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param dbHandle native handle of the database
    * @param compactionJobInfo the flush job info
    */
-  private void onCompactionBeginProxy(final long dbHandle,
-                                 final CompactionJobInfo compactionJobInfo) {
+  private void onCompactionBeginProxy(
+      final long dbHandle, final CompactionJobInfo compactionJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle();  // we don't own this!
+    db.disOwnNativeHandle(); // we don't own this!
     onCompactionBegin(db, compactionJobInfo);
   }
 
   @Override
-  public void onCompactionCompleted(final RocksDB db,
-      final CompactionJobInfo compactionJobInfo) {
+  public void onCompactionCompleted(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
     // no-op
   }
 
@@ -197,16 +184,15 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param dbHandle native handle of the database
    * @param compactionJobInfo the flush job info
    */
-  private void onCompactionCompletedProxy(final long dbHandle,
-                                      final CompactionJobInfo compactionJobInfo) {
+  private void onCompactionCompletedProxy(
+      final long dbHandle, final CompactionJobInfo compactionJobInfo) {
     final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle();  // we don't own this!
+    db.disOwnNativeHandle(); // we don't own this!
     onCompactionCompleted(db, compactionJobInfo);
   }
 
   @Override
-  public void onTableFileCreated(
-      final TableFileCreationInfo tableFileCreationInfo) {
+  public void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo) {
     // no-op
   }
 
@@ -222,14 +208,13 @@ public abstract class AbstractEventListener extends RocksCallbackObject
   }
 
   @Override
-  public void onColumnFamilyHandleDeletionStarted(
-      final ColumnFamilyHandle columnFamilyHandle) {
+  public void onColumnFamilyHandleDeletionStarted(final ColumnFamilyHandle columnFamilyHandle) {
     // no-op
   }
 
   @Override
-  public void onExternalFileIngested(final RocksDB db,
-      final ExternalFileIngestionInfo externalFileIngestionInfo) {
+  public void onExternalFileIngested(
+      final RocksDB db, final ExternalFileIngestionInfo externalFileIngestionInfo) {
     // no-op
   }
 
@@ -240,17 +225,16 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param dbHandle native handle of the database
    * @param externalFileIngestionInfo the flush job info
    */
-  private void onExternalFileIngestedProxy(final long dbHandle,
-                                          final ExternalFileIngestionInfo externalFileIngestionInfo) {
+  private void onExternalFileIngestedProxy(
+      final long dbHandle, final ExternalFileIngestionInfo externalFileIngestionInfo) {
     final RocksDB db = new RocksDB(dbHandle);
-    db.disOwnNativeHandle();  // we don't own this!
+    db.disOwnNativeHandle(); // we don't own this!
     onExternalFileIngested(db, externalFileIngestionInfo);
   }
 
   @Override
   public void onBackgroundError(
-      final BackgroundErrorReason backgroundErrorReason,
-      final Status backgroundError) {
+      final BackgroundErrorReason backgroundErrorReason, final Status backgroundError) {
     // no-op
   }
 
@@ -261,8 +245,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param reasonByte byte value representing error reason
    * @param backgroundError status with error code
    */
-  private void onBackgroundErrorProxy(final byte reasonByte,
-                                      final Status backgroundError) {
+  private void onBackgroundErrorProxy(final byte reasonByte, final Status backgroundError) {
     onBackgroundError(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
   }
 
@@ -313,8 +296,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
 
   @Override
   public boolean onErrorRecoveryBegin(
-      final BackgroundErrorReason backgroundErrorReason,
-      final Status backgroundError) {
+      final BackgroundErrorReason backgroundErrorReason, final Status backgroundError) {
     return true;
   }
 
@@ -325,8 +307,7 @@ public abstract class AbstractEventListener extends RocksCallbackObject
    * @param reasonByte byte value representing error reason
    * @param backgroundError status with error code
    */
-  private boolean onErrorRecoveryBeginProxy(final byte reasonByte,
-                                      final Status backgroundError) {
+  private boolean onErrorRecoveryBeginProxy(final byte reasonByte, final Status backgroundError) {
     return onErrorRecoveryBegin(BackgroundErrorReason.fromValue(reasonByte), backgroundError);
   }
 
@@ -348,7 +329,6 @@ public abstract class AbstractEventListener extends RocksCallbackObject
     disposeInternal(nativeHandle_);
   }
 
-  private native long createNewEventListener(
-      final long enabledEventCallbackValues);
+  private native long createNewEventListener(final long enabledEventCallbackValues);
   private native void disposeInternal(final long handle);
 }

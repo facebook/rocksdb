@@ -6,18 +6,18 @@
 package org.rocksdb;
 
 public enum FlushReason {
-    OTHERS((byte)0x00),
-    GET_LIVE_FILES((byte)0x01),
-    SHUTDOWN((byte)0x02),
-    EXTERNAL_FILE_INGESTION((byte)0x03),
-    MANUAL_COMPACTION((byte)0x04),
-    WRITE_BUFFER_MANAGER((byte)0x05),
-    WRITE_BUFFER_FULL((byte)0x06),
-    TEST((byte)0x07),
-    DELETE_FILES((byte)0x08),
-    AUTO_COMPACTION((byte)0x09),
-    MANUAL_FLUSH((byte)0x0a),
-    ERROR_RECOVERY((byte)0xb);
+  OTHERS((byte) 0x00),
+  GET_LIVE_FILES((byte) 0x01),
+  SHUTDOWN((byte) 0x02),
+  EXTERNAL_FILE_INGESTION((byte) 0x03),
+  MANUAL_COMPACTION((byte) 0x04),
+  WRITE_BUFFER_MANAGER((byte) 0x05),
+  WRITE_BUFFER_FULL((byte) 0x06),
+  TEST((byte) 0x07),
+  DELETE_FILES((byte) 0x08),
+  AUTO_COMPACTION((byte) 0x09),
+  MANUAL_FLUSH((byte) 0x0a),
+  ERROR_RECOVERY((byte) 0xb);
 
   private final byte value;
 
@@ -43,12 +43,11 @@ public enum FlushReason {
    */
   static FlushReason fromValue(final byte value) {
     for (final FlushReason flushReason : FlushReason.values()) {
-      if(flushReason.value == value) {
+      if (flushReason.value == value) {
         return flushReason;
       }
     }
 
-    throw new IllegalArgumentException(
-        "Illegal value provided for FlushReason: " + value);
+    throw new IllegalArgumentException("Illegal value provided for FlushReason: " + value);
   }
 }

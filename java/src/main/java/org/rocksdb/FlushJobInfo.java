@@ -15,7 +15,7 @@ public class FlushJobInfo {
   private final int jobId;
   private final boolean triggeredWritesSlowdown;
   private final boolean triggeredWritesStop;
-  private final long  smallestSeqno;
+  private final long smallestSeqno;
   private final long largestSeqno;
   private final TableProperties tableProperties;
   private final FlushReason flushReason;
@@ -24,10 +24,9 @@ public class FlushJobInfo {
    * Access is package private as this will only be constructed from
    * C++ via JNI and for testing.
    */
-  FlushJobInfo(final long columnFamilyId, final String columnFamilyName,
-      final String filePath, final long threadId, final int jobId,
-      final boolean triggeredWritesSlowdown, final boolean triggeredWritesStop,
-      final long smallestSeqno, final long largestSeqno,
+  FlushJobInfo(final long columnFamilyId, final String columnFamilyName, final String filePath,
+      final long threadId, final int jobId, final boolean triggeredWritesSlowdown,
+      final boolean triggeredWritesStop, final long smallestSeqno, final long largestSeqno,
       final TableProperties tableProperties, final byte flushReasonValue) {
     this.columnFamilyId = columnFamilyId;
     this.columnFamilyName = columnFamilyName;
@@ -153,41 +152,35 @@ public class FlushJobInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     FlushJobInfo that = (FlushJobInfo) o;
-    return columnFamilyId == that.columnFamilyId &&
-        threadId == that.threadId &&
-        jobId == that.jobId &&
-        triggeredWritesSlowdown == that.triggeredWritesSlowdown &&
-        triggeredWritesStop == that.triggeredWritesStop &&
-        smallestSeqno == that.smallestSeqno &&
-        largestSeqno == that.largestSeqno &&
-        Objects.equals(columnFamilyName, that.columnFamilyName) &&
-        Objects.equals(filePath, that.filePath) &&
-        Objects.equals(tableProperties, that.tableProperties) &&
-        flushReason == that.flushReason;
+    return columnFamilyId == that.columnFamilyId && threadId == that.threadId && jobId == that.jobId
+        && triggeredWritesSlowdown == that.triggeredWritesSlowdown
+        && triggeredWritesStop == that.triggeredWritesStop && smallestSeqno == that.smallestSeqno
+        && largestSeqno == that.largestSeqno
+        && Objects.equals(columnFamilyName, that.columnFamilyName)
+        && Objects.equals(filePath, that.filePath)
+        && Objects.equals(tableProperties, that.tableProperties) && flushReason == that.flushReason;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(columnFamilyId, columnFamilyName, filePath, threadId, jobId, triggeredWritesSlowdown, triggeredWritesStop, smallestSeqno, largestSeqno, tableProperties, flushReason);
+    return Objects.hash(columnFamilyId, columnFamilyName, filePath, threadId, jobId,
+        triggeredWritesSlowdown, triggeredWritesStop, smallestSeqno, largestSeqno, tableProperties,
+        flushReason);
   }
 
   @Override
   public String toString() {
-    return "FlushJobInfo{" +
-        "columnFamilyId=" + columnFamilyId +
-        ", columnFamilyName='" + columnFamilyName + '\'' +
-        ", filePath='" + filePath + '\'' +
-        ", threadId=" + threadId +
-        ", jobId=" + jobId +
-        ", triggeredWritesSlowdown=" + triggeredWritesSlowdown +
-        ", triggeredWritesStop=" + triggeredWritesStop +
-        ", smallestSeqno=" + smallestSeqno +
-        ", largestSeqno=" + largestSeqno +
-        ", tableProperties=" + tableProperties +
-        ", flushReason=" + flushReason +
-        '}';
+    return "FlushJobInfo{"
+        + "columnFamilyId=" + columnFamilyId + ", columnFamilyName='" + columnFamilyName + '\''
+        + ", filePath='" + filePath + '\'' + ", threadId=" + threadId + ", jobId=" + jobId
+        + ", triggeredWritesSlowdown=" + triggeredWritesSlowdown
+        + ", triggeredWritesStop=" + triggeredWritesStop + ", smallestSeqno=" + smallestSeqno
+        + ", largestSeqno=" + largestSeqno + ", tableProperties=" + tableProperties
+        + ", flushReason=" + flushReason + '}';
   }
 }

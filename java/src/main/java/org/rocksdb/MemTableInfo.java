@@ -18,8 +18,8 @@ public class MemTableInfo {
    * Access is package private as this will only be constructed from
    * C++ via JNI and for testing.
    */
-  MemTableInfo(final String columnFamilyName, final long firstSeqno,
-      final long earliestSeqno, final long numEntries, final long numDeletes) {
+  MemTableInfo(final String columnFamilyName, final long firstSeqno, final long earliestSeqno,
+      final long numEntries, final long numDeletes) {
     this.columnFamilyName = columnFamilyName;
     this.firstSeqno = firstSeqno;
     this.earliestSeqno = earliestSeqno;
@@ -78,30 +78,26 @@ public class MemTableInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     MemTableInfo that = (MemTableInfo) o;
-    return firstSeqno == that.firstSeqno &&
-        earliestSeqno == that.earliestSeqno &&
-        numEntries == that.numEntries &&
-        numDeletes == that.numDeletes &&
-        Objects.equals(columnFamilyName, that.columnFamilyName);
+    return firstSeqno == that.firstSeqno && earliestSeqno == that.earliestSeqno
+        && numEntries == that.numEntries && numDeletes == that.numDeletes
+        && Objects.equals(columnFamilyName, that.columnFamilyName);
   }
 
   @Override
   public int hashCode() {
-
     return Objects.hash(columnFamilyName, firstSeqno, earliestSeqno, numEntries, numDeletes);
   }
 
   @Override
   public String toString() {
-    return "MemTableInfo{" +
-        "columnFamilyName='" + columnFamilyName + '\'' +
-        ", firstSeqno=" + firstSeqno +
-        ", earliestSeqno=" + earliestSeqno +
-        ", numEntries=" + numEntries +
-        ", numDeletes=" + numDeletes +
-        '}';
+    return "MemTableInfo{"
+        + "columnFamilyName='" + columnFamilyName + '\'' + ", firstSeqno=" + firstSeqno
+        + ", earliestSeqno=" + earliestSeqno + ", numEntries=" + numEntries
+        + ", numDeletes=" + numDeletes + '}';
   }
 }

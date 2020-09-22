@@ -1,8 +1,8 @@
 #include <climits>
 #include <utility>
 
-#include "rocksdb/listener.h"
 #include "include/org_rocksdb_test_TestableEventListener.h"
+#include "rocksdb/listener.h"
 
 using namespace ROCKSDB_NAMESPACE;
 
@@ -38,9 +38,9 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.property_collectors_names = "propertyCollectorsNames";
   table_properties.compression_name = "compressionName";
   table_properties.compression_options = "compressionOptions";
-  table_properties.user_collected_properties = { { "key", "value" } };
-  table_properties.readable_properties = { { "key", "value" } };
-  table_properties.properties_offsets = { { "key", LLONG_MAX } };
+  table_properties.user_collected_properties = {{"key", "value"}};
+  table_properties.readable_properties = {{"key", "value"}};
+  table_properties.properties_offsets = {{"key", LLONG_MAX}};
   return table_properties;
 }
 
@@ -49,9 +49,11 @@ static TableProperties newTablePropertiesForTest() {
  * Method:    invokeAllCallbacks
  * Signature: (J)V
  */
-void  Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks
-  (JNIEnv *, jclass, jlong jhandle) {
-  const auto& el = *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(jhandle);
+void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
+    JNIEnv *, jclass, jlong jhandle) {
+  const auto &el =
+      *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener> *>(
+          jhandle);
 
   TableProperties table_properties = newTablePropertiesForTest();
 
@@ -91,12 +93,13 @@ void  Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks
   compaction_job_info.job_id = INT_MAX;
   compaction_job_info.base_input_level = INT_MAX;
   compaction_job_info.output_level = INT_MAX;
-  compaction_job_info.input_files = { "inputFile.sst" };
+  compaction_job_info.input_files = {"inputFile.sst"};
   compaction_job_info.input_file_infos = {};
-  compaction_job_info.output_files = { "outputFile.sst" };
+  compaction_job_info.output_files = {"outputFile.sst"};
   compaction_job_info.output_file_infos = {};
-  compaction_job_info.table_properties = { { "tableProperties",
-      std::shared_ptr<TableProperties>(&table_properties, [](TableProperties *) {}) } };
+  compaction_job_info.table_properties = {
+      {"tableProperties", std::shared_ptr<TableProperties>(
+                              &table_properties, [](TableProperties *) {})}};
   compaction_job_info.compaction_reason = CompactionReason::kFlush;
   compaction_job_info.compression = CompressionType::kSnappyCompression;
 
@@ -138,7 +141,6 @@ void  Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks
   el->OnMemTableSealed(mem_table_info);
   el->OnColumnFamilyHandleDeletionStarted(nullptr);
 
-
   ExternalFileIngestionInfo file_ingestion_info;
   file_ingestion_info.cf_name = "columnFamilyName";
   file_ingestion_info.external_file_path = "/external/file/path";
@@ -155,10 +157,18 @@ void  Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks
   write_stall_info.condition.prev = WriteStallCondition::kStopped;
   el->OnStallConditionsChanged(write_stall_info);
 
-  FileOperationInfo op_info = FileOperationInfo(FileOperationType::kRead, "/file/path",
-      std::make_pair(std::chrono::time_point<std::chrono::system_clock, std::chrono::nanoseconds>(std::chrono::nanoseconds(1600699420000000000ll)),
-      std::chrono::time_point<std::chrono::steady_clock, std::chrono::nanoseconds>(std::chrono::nanoseconds(1600699420000000000ll))),
-      std::chrono::time_point<std::chrono::steady_clock, std::chrono::nanoseconds>(std::chrono::nanoseconds(1600699425000000000ll)), status);
+  FileOperationInfo op_info = FileOperationInfo(
+      FileOperationType::kRead, "/file/path",
+      std::make_pair(std::chrono::time_point<std::chrono::system_clock,
+                                             std::chrono::nanoseconds>(
+                         std::chrono::nanoseconds(1600699420000000000ll)),
+                     std::chrono::time_point<std::chrono::steady_clock,
+                                             std::chrono::nanoseconds>(
+                         std::chrono::nanoseconds(1600699420000000000ll))),
+      std::chrono::time_point<std::chrono::steady_clock,
+                              std::chrono::nanoseconds>(
+          std::chrono::nanoseconds(1600699425000000000ll)),
+      status);
   op_info.offset = LLONG_MAX;
   op_info.length = LLONG_MAX;
   op_info.status = status;
@@ -173,6 +183,7 @@ void  Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks
   el->ShouldBeNotifiedOnFileIO();
 
   bool auto_recovery;
-  el->OnErrorRecoveryBegin(BackgroundErrorReason::kFlush, status, &auto_recovery);
+  el->OnErrorRecoveryBegin(BackgroundErrorReason::kFlush, status,
+                           &auto_recovery);
   el->OnErrorRecoveryCompleted(status);
 }

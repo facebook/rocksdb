@@ -6,10 +6,10 @@
 package org.rocksdb;
 
 public enum BackgroundErrorReason {
-  FLUSH((byte)0x0),
-  COMPACTION((byte)0x1),
-  WRITE_CALLBACK((byte)0x2),
-  MEMTABLE((byte)0x3);
+  FLUSH((byte) 0x0),
+  COMPACTION((byte) 0x1),
+  WRITE_CALLBACK((byte) 0x2),
+  MEMTABLE((byte) 0x3);
 
   private final byte value;
 
@@ -34,9 +34,8 @@ public enum BackgroundErrorReason {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static BackgroundErrorReason fromValue(final byte value) {
-    for (final BackgroundErrorReason backgroundErrorReason :
-        BackgroundErrorReason.values()) {
-      if(backgroundErrorReason.value == value) {
+    for (final BackgroundErrorReason backgroundErrorReason : BackgroundErrorReason.values()) {
+      if (backgroundErrorReason.value == value) {
         return backgroundErrorReason;
       }
     }

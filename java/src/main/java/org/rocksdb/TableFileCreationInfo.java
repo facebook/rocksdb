@@ -25,12 +25,10 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
    * @param jobId the job identifier
    * @param tableFileCreationReasonValue the reason for creation of the table file
    */
-  protected TableFileCreationInfo(final long fileSize,
-      final TableProperties tableProperties, final Status status,
-      final String dbName, final String columnFamilyName, final String filePath,
-      final int jobId, final byte tableFileCreationReasonValue) {
-    super(dbName, columnFamilyName, filePath, jobId,
-        tableFileCreationReasonValue);
+  protected TableFileCreationInfo(final long fileSize, final TableProperties tableProperties,
+      final Status status, final String dbName, final String columnFamilyName,
+      final String filePath, final int jobId, final byte tableFileCreationReasonValue) {
+    super(dbName, columnFamilyName, filePath, jobId, tableFileCreationReasonValue);
     this.fileSize = fileSize;
     this.tableProperties = tableProperties;
     this.status = status;
@@ -65,26 +63,24 @@ public class TableFileCreationInfo extends TableFileCreationBriefInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     TableFileCreationInfo that = (TableFileCreationInfo) o;
-    return fileSize == that.fileSize &&
-        Objects.equals(tableProperties, that.tableProperties) &&
-        Objects.equals(status, that.status);
+    return fileSize == that.fileSize && Objects.equals(tableProperties, that.tableProperties)
+        && Objects.equals(status, that.status);
   }
 
   @Override
   public int hashCode() {
-
     return Objects.hash(fileSize, tableProperties, status);
   }
 
   @Override
   public String toString() {
-    return "TableFileCreationInfo{" +
-        "fileSize=" + fileSize +
-        ", tableProperties=" + tableProperties +
-        ", status=" + status +
-        '}';
+    return "TableFileCreationInfo{"
+        + "fileSize=" + fileSize + ", tableProperties=" + tableProperties + ", status=" + status
+        + '}';
   }
 }

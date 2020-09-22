@@ -17,7 +17,8 @@ public class TableFileCreationBriefInfo {
   /**
    * Access is private as this will only be constructed from
    * C++ via JNI, either directly of via
-   * {@link TableFileCreationInfo#TableFileCreationInfo(long, TableProperties, Status, String, String, String, int, byte)}.
+   * {@link TableFileCreationInfo#TableFileCreationInfo(long, TableProperties, Status, String,
+   * String, String, int, byte)}.
    *
    * @param dbName the database name
    * @param columnFamilyName the column family name
@@ -25,15 +26,13 @@ public class TableFileCreationBriefInfo {
    * @param jobId the job identifier
    * @param tableFileCreationReasonValue the reason for creation of the table file
    */
-  protected TableFileCreationBriefInfo(final String dbName,
-      final String columnFamilyName, final String filePath, final int jobId,
-      final byte tableFileCreationReasonValue) {
+  protected TableFileCreationBriefInfo(final String dbName, final String columnFamilyName,
+      final String filePath, final int jobId, final byte tableFileCreationReasonValue) {
     this.dbName = dbName;
     this.columnFamilyName = columnFamilyName;
     this.filePath = filePath;
     this.jobId = jobId;
-    this.reason =
-        TableFileCreationReason.fromValue(tableFileCreationReasonValue);
+    this.reason = TableFileCreationReason.fromValue(tableFileCreationReasonValue);
   }
 
   /**
@@ -84,30 +83,25 @@ public class TableFileCreationBriefInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     TableFileCreationBriefInfo that = (TableFileCreationBriefInfo) o;
-    return jobId == that.jobId &&
-        Objects.equals(dbName, that.dbName) &&
-        Objects.equals(columnFamilyName, that.columnFamilyName) &&
-        Objects.equals(filePath, that.filePath) &&
-        reason == that.reason;
+    return jobId == that.jobId && Objects.equals(dbName, that.dbName)
+        && Objects.equals(columnFamilyName, that.columnFamilyName)
+        && Objects.equals(filePath, that.filePath) && reason == that.reason;
   }
 
   @Override
   public int hashCode() {
-
     return Objects.hash(dbName, columnFamilyName, filePath, jobId, reason);
   }
 
   @Override
   public String toString() {
-    return "TableFileCreationBriefInfo{" +
-        "dbName='" + dbName + '\'' +
-        ", columnFamilyName='" + columnFamilyName + '\'' +
-        ", filePath='" + filePath + '\'' +
-        ", jobId=" + jobId +
-        ", reason=" + reason +
-        '}';
+    return "TableFileCreationBriefInfo{"
+        + "dbName='" + dbName + '\'' + ", columnFamilyName='" + columnFamilyName + '\''
+        + ", filePath='" + filePath + '\'' + ", jobId=" + jobId + ", reason=" + reason + '}';
   }
 }

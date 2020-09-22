@@ -13,7 +13,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
@@ -1443,19 +1442,20 @@ public class OptionsTest {
     final AtomicBoolean wasCalled1 = new AtomicBoolean();
     final AtomicBoolean wasCalled2 = new AtomicBoolean();
     try (final Options options = new Options();
-         final AbstractEventListener el1 = new AbstractEventListener() {
-           @Override
-           public void onTableFileDeleted(
-               final TableFileDeletionInfo tableFileDeletionInfo) {
-             wasCalled1.set(true);
-           }
-         };
-         final AbstractEventListener el2 = new AbstractEventListener() {
-           @Override
-           public void onMemTableSealed(final MemTableInfo memTableInfo) {
-             wasCalled2.set(true);
-           }
-         }) {
+         final AbstractEventListener el1 =
+             new AbstractEventListener() {
+               @Override
+               public void onTableFileDeleted(final TableFileDeletionInfo tableFileDeletionInfo) {
+                 wasCalled1.set(true);
+               }
+             };
+         final AbstractEventListener el2 =
+             new AbstractEventListener() {
+               @Override
+               public void onMemTableSealed(final MemTableInfo memTableInfo) {
+                 wasCalled2.set(true);
+               }
+             }) {
       assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
       List<AbstractEventListener> listeners = options.listeners();
       assertEquals(el1, listeners.get(0));

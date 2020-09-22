@@ -972,15 +972,14 @@ public class Options extends RocksObject
 
   @Override
   public Options setListeners(final List<AbstractEventListener> listeners) {
-    assert(isOwningHandle());
-    setEventListeners(nativeHandle_,
-        RocksCallbackObject.toNativeHandleList(listeners));
+    assert (isOwningHandle());
+    setEventListeners(nativeHandle_, RocksCallbackObject.toNativeHandleList(listeners));
     return this;
   }
 
   @Override
   public List<AbstractEventListener> listeners() {
-    assert(isOwningHandle());
+    assert (isOwningHandle());
     return Arrays.asList(eventListeners(nativeHandle_));
   }
 
@@ -2165,8 +2164,8 @@ public class Options extends RocksObject
       final long handle, final boolean strictBytesPerSync);
   private native boolean strictBytesPerSync(
       final long handle);
-  private static native void setEventListeners(final long handle,
-      final long[] eventListenerHandles);
+  private static native void setEventListeners(
+      final long handle, final long[] eventListenerHandles);
   private static native AbstractEventListener[] eventListeners(final long handle);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);

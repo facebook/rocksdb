@@ -18,8 +18,7 @@ public class ExternalFileIngestionInfo {
    * Access is package private as this will only be constructed from
    * C++ via JNI and for testing.
    */
-  ExternalFileIngestionInfo(
-      final String columnFamilyName, final String externalFilePath,
+  ExternalFileIngestionInfo(final String columnFamilyName, final String externalFilePath,
       final String internalFilePath, final long globalSeqno,
       final TableProperties tableProperties) {
     this.columnFamilyName = columnFamilyName;
@@ -76,30 +75,29 @@ public class ExternalFileIngestionInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     ExternalFileIngestionInfo that = (ExternalFileIngestionInfo) o;
-    return globalSeqno == that.globalSeqno &&
-        Objects.equals(columnFamilyName, that.columnFamilyName) &&
-        Objects.equals(externalFilePath, that.externalFilePath) &&
-        Objects.equals(internalFilePath, that.internalFilePath) &&
-        Objects.equals(tableProperties, that.tableProperties);
+    return globalSeqno == that.globalSeqno
+        && Objects.equals(columnFamilyName, that.columnFamilyName)
+        && Objects.equals(externalFilePath, that.externalFilePath)
+        && Objects.equals(internalFilePath, that.internalFilePath)
+        && Objects.equals(tableProperties, that.tableProperties);
   }
 
   @Override
   public int hashCode() {
-
-    return Objects.hash(columnFamilyName, externalFilePath, internalFilePath, globalSeqno, tableProperties);
+    return Objects.hash(
+        columnFamilyName, externalFilePath, internalFilePath, globalSeqno, tableProperties);
   }
 
   @Override
   public String toString() {
-    return "ExternalFileIngestionInfo{" +
-        "columnFamilyName='" + columnFamilyName + '\'' +
-        ", externalFilePath='" + externalFilePath + '\'' +
-        ", internalFilePath='" + internalFilePath + '\'' +
-        ", globalSeqno=" + globalSeqno +
-        ", tableProperties=" + tableProperties +
-        '}';
+    return "ExternalFileIngestionInfo{"
+        + "columnFamilyName='" + columnFamilyName + '\'' + ", externalFilePath='" + externalFilePath
+        + '\'' + ", internalFilePath='" + internalFilePath + '\'' + ", globalSeqno=" + globalSeqno
+        + ", tableProperties=" + tableProperties + '}';
   }
 }

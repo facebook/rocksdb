@@ -6,10 +6,10 @@
 package org.rocksdb;
 
 public enum TableFileCreationReason {
-    FLUSH((byte)0x00),
-    COMPACTION((byte)0x01),
-    RECOVERY((byte)0x02),
-    MISC((byte)0x03);
+  FLUSH((byte) 0x00),
+  COMPACTION((byte) 0x01),
+  RECOVERY((byte) 0x02),
+  MISC((byte) 0x03);
 
   private final byte value;
 
@@ -34,9 +34,8 @@ public enum TableFileCreationReason {
    * @throws IllegalArgumentException if the value is unknown.
    */
   static TableFileCreationReason fromValue(final byte value) {
-    for (final TableFileCreationReason tableFileCreationReason :
-        TableFileCreationReason.values()) {
-      if(tableFileCreationReason.value == value) {
+    for (final TableFileCreationReason tableFileCreationReason : TableFileCreationReason.values()) {
+      if (tableFileCreationReason.value == value) {
         return tableFileCreationReason;
       }
     }

@@ -7,6 +7,7 @@
 // rocksdb::EventListener.
 
 #include <jni.h>
+
 #include <memory>
 
 #include "include/org_rocksdb_AbstractEventListener.h"
@@ -22,11 +23,11 @@ jlong Java_org_rocksdb_AbstractEventListener_createNewEventListener(
     JNIEnv* env, jobject jobj, jlong jenabled_event_callback_values) {
   auto enabled_event_callbacks =
       ROCKSDB_NAMESPACE::EnabledEventCallbackJni::toCppEnabledEventCallbacks(
-        jenabled_event_callback_values);
+          jenabled_event_callback_values);
   auto* sptr_event_listener =
       new std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>(
-         new ROCKSDB_NAMESPACE::EventListenerJniCallback(
-               env, jobj, enabled_event_callbacks));
+          new ROCKSDB_NAMESPACE::EventListenerJniCallback(
+              env, jobj, enabled_event_callbacks));
   return reinterpret_cast<jlong>(sptr_event_listener);
 }
 
@@ -35,7 +36,8 @@ jlong Java_org_rocksdb_AbstractEventListener_createNewEventListener(
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_AbstractEventListener_disposeInternal
-  (JNIEnv *, jobject, jlong jhandle) {
-  delete reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(jhandle);
+void Java_org_rocksdb_AbstractEventListener_disposeInternal(JNIEnv*, jobject,
+                                                            jlong jhandle) {
+  delete reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(
+      jhandle);
 }

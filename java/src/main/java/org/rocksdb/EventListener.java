@@ -16,15 +16,15 @@ import java.util.List;
  * Note that callback functions should not run for an extended period of
  * time before the function returns, otherwise RocksDB may be blocked.
  * For example, it is not suggested to do
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)}
- * (as it may run for a long while) or issue many of
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * CompactionJobInfo)} (as it may run for a long while) or issue many of
  * {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])}
  * (as Put may be blocked in certain cases) in the same thread in the
  * EventListener callback.
  *
  * However, doing
- * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int, CompactionJobInfo)}
- * and {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])} in
+ * {@link RocksDB#compactFiles(CompactionOptions, ColumnFamilyHandle, List, int, int,
+ * CompactionJobInfo)} and {@link RocksDB#put(ColumnFamilyHandle, WriteOptions, byte[], byte[])} in
  * another thread is considered safe.
  *
  * [Threading] All EventListener callback will be called using the
@@ -38,7 +38,6 @@ import java.util.List;
  * in a complex way.
  */
 public interface EventListener {
-
   /**
    * callback function to RocksDB which will be called whenever a
    * registered RocksDB flushes a file.
@@ -89,8 +88,7 @@ public interface EventListener {
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
    */
-  void onCompactionBegin(final RocksDB db,
-      final CompactionJobInfo compactionJobInfo);
+  void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever
@@ -107,8 +105,7 @@ public interface EventListener {
    *     which is released after this function is returned, and must be copied
    *     if it is needed outside of this function.
    */
-  void onCompactionCompleted(final RocksDB db,
-      final CompactionJobInfo compactionJobInfo);
+  void onCompactionCompleted(final RocksDB db, final CompactionJobInfo compactionJobInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever
@@ -127,7 +124,7 @@ public interface EventListener {
    * outside this function call, they should make copies from these
    * returned value.
    */
-   void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo);
+  void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo);
 
   /**
    * A callback function for RocksDB which will be called before
@@ -138,8 +135,7 @@ public interface EventListener {
    * outside this function call, they should make copies from these
    * returned value.
    */
-   void onTableFileCreationStarted(
-      final TableFileCreationBriefInfo tableFileCreationBriefInfo);
+  void onTableFileCreationStarted(final TableFileCreationBriefInfo tableFileCreationBriefInfo);
 
   /**
    * A callback function for RocksDB which will be called before
@@ -153,7 +149,7 @@ public interface EventListener {
    * outside this function call, they should make copies from these
    * returned value.
    */
-   void onMemTableSealed(final MemTableInfo memTableInfo);
+  void onMemTableSealed(final MemTableInfo memTableInfo);
 
   /**
    * A callback function for RocksDB which will be called before
@@ -165,8 +161,7 @@ public interface EventListener {
    * @param columnFamilyHandle is a pointer to the column family handle to be
    *     deleted which will become a dangling pointer after the deletion.
    */
-   void onColumnFamilyHandleDeletionStarted(
-      final ColumnFamilyHandle columnFamilyHandle);
+  void onColumnFamilyHandleDeletionStarted(final ColumnFamilyHandle columnFamilyHandle);
 
   /**
    * A callback function for RocksDB which will be called after an external
@@ -176,10 +171,10 @@ public interface EventListener {
    * IngestExternalFile(), if this function is blocked, IngestExternalFile()
    * will be blocked from finishing.
    */
-   void onExternalFileIngested(final RocksDB db,
-      final ExternalFileIngestionInfo externalFileIngestionInfo);
+  void onExternalFileIngested(
+      final RocksDB db, final ExternalFileIngestionInfo externalFileIngestionInfo);
 
-   /**
+  /**
    * A callback function for RocksDB which will be called before setting the
    * background error status to a non-OK value. The new background error status
    * is provided in `bg_error` and can be modified by the callback. E.g., a
@@ -192,8 +187,8 @@ public interface EventListener {
    * and user writes. So, it is extremely important not to perform heavy
    * computations or blocking calls in this function.
    */
-   void onBackgroundError(final BackgroundErrorReason backgroundErrorReason,
-      final Status backgroundError);
+  void onBackgroundError(
+      final BackgroundErrorReason backgroundErrorReason, final Status backgroundError);
 
   /**
    * A callback function for RocksDB which will be called whenever a change
@@ -203,19 +198,19 @@ public interface EventListener {
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
    */
-   void onStallConditionsChanged(final WriteStallInfo writeStallInfo);
+  void onStallConditionsChanged(final WriteStallInfo writeStallInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file read
    * operation finishes.
    */
-   void onFileReadFinish(final FileOperationInfo fileOperationInfo);
+  void onFileReadFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file write
    * operation finishes.
    */
-   void onFileWriteFinish(final FileOperationInfo fileOperationInfo);
+  void onFileWriteFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file flush
@@ -247,14 +242,14 @@ public interface EventListener {
    */
   void OnFileCloseFinish(final FileOperationInfo fileOperationInfo);
 
-   /**
+  /**
    * If true, the {@link #onFileReadFinish(FileOperationInfo)}
-    * and {@link #onFileWriteFinish(FileOperationInfo)} will be called. If
+   * and {@link #onFileWriteFinish(FileOperationInfo)} will be called. If
    * false, then they won't be called.
-    *
-    * Default: false
-    */
-   boolean shouldBeNotifiedOnFileIO();
+   *
+   * Default: false
+   */
+  boolean shouldBeNotifiedOnFileIO();
 
   /**
    * A callback function for RocksDB which will be called just before
@@ -264,9 +259,8 @@ public interface EventListener {
    * have to be transitioned out of read-only mode by calling
    * {@link RocksDB#resume()}.
    */
-   boolean onErrorRecoveryBegin(
-       final BackgroundErrorReason backgroundErrorReason,
-       final Status backgroundError);
+  boolean onErrorRecoveryBegin(
+      final BackgroundErrorReason backgroundErrorReason, final Status backgroundError);
 
   /**
    * A callback function for RocksDB which will be called once the database
@@ -274,5 +268,5 @@ public interface EventListener {
    * means normal writes to the database can be issued and the user can
    * initiate any further recovery actions needed
    */
-   void onErrorRecoveryCompleted(final Status oldBackgroundError);
+  void onErrorRecoveryCompleted(final Status oldBackgroundError);
 }

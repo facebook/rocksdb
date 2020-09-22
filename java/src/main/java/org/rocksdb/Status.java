@@ -140,12 +140,12 @@ public class Status {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     Status status = (Status) o;
-    return code == status.code &&
-        subCode == status.subCode &&
-        Objects.equals(state, status.state);
+    return code == status.code && subCode == status.subCode && Objects.equals(state, status.state);
   }
 
   @Override

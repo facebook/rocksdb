@@ -22,9 +22,8 @@ public class FileOperationInfo {
    * Access is private as this will only be constructed from
    * C++ via JNI.
    */
-  FileOperationInfo(final String path, final long offset,
-      final long length, final long startTimestamp, final long duration,
-      final Status status) {
+  FileOperationInfo(final String path, final long offset, final long length,
+      final long startTimestamp, final long duration, final Status status) {
     this.path = path;
     this.offset = offset;
     this.length = length;
@@ -89,32 +88,25 @@ public class FileOperationInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     FileOperationInfo that = (FileOperationInfo) o;
-    return offset == that.offset &&
-        length == that.length &&
-        startTimestamp == that.startTimestamp &&
-        duration == that.duration &&
-        Objects.equals(path, that.path) &&
-        Objects.equals(status, that.status);
+    return offset == that.offset && length == that.length && startTimestamp == that.startTimestamp
+        && duration == that.duration && Objects.equals(path, that.path)
+        && Objects.equals(status, that.status);
   }
 
   @Override
   public int hashCode() {
-
     return Objects.hash(path, offset, length, startTimestamp, duration, status);
   }
 
   @Override
   public String toString() {
-    return "FileOperationInfo{" +
-        "path='" + path + '\'' +
-        ", offset=" + offset +
-        ", length=" + length +
-        ", startTimestamp=" + startTimestamp +
-        ", duration=" + duration +
-        ", status=" + status +
-        '}';
+    return "FileOperationInfo{"
+        + "path='" + path + '\'' + ", offset=" + offset + ", length=" + length + ", startTimestamp="
+        + startTimestamp + ", duration=" + duration + ", status=" + status + '}';
   }
 }

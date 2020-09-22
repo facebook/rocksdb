@@ -16,14 +16,12 @@ public class WriteStallInfo {
    * Access is package private as this will only be constructed from
    * C++ via JNI and for testing.
    */
-  WriteStallInfo(final String columnFamilyName,
-      final byte currentConditionValue,
+  WriteStallInfo(final String columnFamilyName, final byte currentConditionValue,
       final byte previousConditionValue) {
     this.columnFamilyName = columnFamilyName;
     this.currentCondition = WriteStallCondition.fromValue(currentConditionValue);
     this.previousCondition = WriteStallCondition.fromValue(previousConditionValue);
   }
-
 
   /**
    * Get the name of the column family.
@@ -54,26 +52,24 @@ public class WriteStallInfo {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     WriteStallInfo that = (WriteStallInfo) o;
-    return Objects.equals(columnFamilyName, that.columnFamilyName) &&
-        currentCondition == that.currentCondition &&
-        previousCondition == that.previousCondition;
+    return Objects.equals(columnFamilyName, that.columnFamilyName)
+        && currentCondition == that.currentCondition && previousCondition == that.previousCondition;
   }
 
   @Override
   public int hashCode() {
-
     return Objects.hash(columnFamilyName, currentCondition, previousCondition);
   }
 
   @Override
   public String toString() {
-    return "WriteStallInfo{" +
-        "columnFamilyName='" + columnFamilyName + '\'' +
-        ", currentCondition=" + currentCondition +
-        ", previousCondition=" + previousCondition +
-        '}';
+    return "WriteStallInfo{"
+        + "columnFamilyName='" + columnFamilyName + '\'' + ", currentCondition=" + currentCondition
+        + ", previousCondition=" + previousCondition + '}';
   }
 }
