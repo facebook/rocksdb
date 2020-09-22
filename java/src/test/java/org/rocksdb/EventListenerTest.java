@@ -35,7 +35,7 @@ public class EventListenerTest {
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
-      byte[] value = new byte[24];
+      final byte[] value = new byte[24];
       rand.nextBytes(value);
       db.put("testKey".getBytes(), value);
       db.flush(new FlushOptions());
@@ -82,7 +82,7 @@ public class EventListenerTest {
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
-      byte[] value = new byte[24];
+      final byte[] value = new byte[24];
       rand.nextBytes(value);
       db.put("testKey".getBytes(), value);
       RocksDB.LiveFiles liveFiles = db.getLiveFiles();
@@ -108,14 +108,14 @@ public class EventListenerTest {
     deleteTableFile(onTableFileDeletedListener, wasCbCalled);
   }
 
-  void compactRange(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+  void compactRange(final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
         .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
-      byte[] value = new byte[24];
+      final byte[] value = new byte[24];
       rand.nextBytes(value);
       db.put("testKey".getBytes(), value);
       db.compactRange();
@@ -186,14 +186,14 @@ public class EventListenerTest {
     // TODO
   }
 
-  void deleteColumnFamilyHandle(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+  void deleteColumnFamilyHandle(final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
         .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
-      byte[] value = new byte[24];
+      final byte[] value = new byte[24];
       rand.nextBytes(value);
       db.put("testKey".getBytes(), value);
       ColumnFamilyHandle columnFamilyHandle = db.getDefaultColumnFamily();
@@ -216,7 +216,7 @@ public class EventListenerTest {
     deleteColumnFamilyHandle(onColumnFamilyHandleDeletionStartedListener, wasCbCalled);
   }
 
-  void ingestExternalFile(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+  void ingestExternalFile(final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
         .setListeners(Collections.singletonList(el));
@@ -269,6 +269,32 @@ public class EventListenerTest {
   public void onFileWriteFinish() {
     // TODO ?
   }
+
+  @Test
+  public void onFileFlushFinish() {
+    // TODO ?
+  }
+
+  @Test
+  public void onFileSyncFinish() {
+    // TODO ?
+  }
+
+  @Test
+  public void onFileRangeSyncFinish() {
+    // TODO ?
+  }
+
+  @Test
+  public void onFileTruncateFinish() {
+    // TODO ?
+  }
+
+  @Test
+  public void onFileCloseFinish() {
+    // TODO ?
+  }
+
 
   @Test
   public void shouldBeNotifiedOnFileIO() {
@@ -504,7 +530,7 @@ public class EventListenerTest {
   public void testEnabledCallbacks() {
     final AtomicBoolean wasOnMemTableSealedCalled = new AtomicBoolean();
     final AtomicBoolean wasOnErrorRecoveryCompletedCalled = new AtomicBoolean();
-    TestableEventListener listener = new TestableEventListener(AbstractEventListener.EnabledEventCallback.ON_MEMTABLE_SEALED,
+    final TestableEventListener listener = new TestableEventListener(AbstractEventListener.EnabledEventCallback.ON_MEMTABLE_SEALED,
         AbstractEventListener.EnabledEventCallback.ON_ERROR_RECOVERY_COMPLETED) {
       @Override
       public void onFlushCompleted(final RocksDB db,
