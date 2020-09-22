@@ -624,7 +624,7 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
           db_->Put(write_opts, test_data_[index].key, test_data_[index].value));
       const Snapshot* snap = db_->GetSnapshot();
       test_data_[index].seq_num = snap->GetSequenceNumber();
-      if (index != 0) {
+      if (index > 0) {
         ASSERT_GT(test_data_[index].seq_num, test_data_[index - 1].seq_num);
       }
       db_->ReleaseSnapshot(snap);
@@ -634,7 +634,9 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
     }
   }
 
-  void AssertVisibility(int ts, SequenceNumber seq, Status statuses[]) {
+  void AssertVisibility(int ts, SequenceNumber seq,
+                        std::vector<Status> statuses) {
+    ASSERT_EQ(kTestDataSize, statuses.size());
     for (int i = 0; i < kTestDataSize; i++) {
       if (test_data_[i].seq_num <= seq && test_data_[i].ts <= ts) {
         ASSERT_OK(statuses[i]);
@@ -669,41 +671,41 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
     auto keys = GetKeys();
     std::vector<std::string> values;
     auto s1 = db_->MultiGet(read_opts, cfs, keys, &values);
-    AssertVisibility(ts, seq, s1.data());
+    AssertVisibility(ts, seq, s1);
 
     auto s2 = db_->MultiGet(read_opts, keys, &values);
-    AssertVisibility(ts, seq, s2.data());
+    AssertVisibility(ts, seq, s2);
 
     std::vector<std::string> timestamps;
     auto s3 = db_->MultiGet(read_opts, cfs, keys, &values, &timestamps);
-    AssertVisibility(ts, seq, s3.data());
+    AssertVisibility(ts, seq, s3);
 
     auto s4 = db_->MultiGet(read_opts, keys, &values, &timestamps);
-    AssertVisibility(ts, seq, s4.data());
+    AssertVisibility(ts, seq, s4);
 
-    PinnableSlice values_ps5[kTestDataSize];
-    Status s5[kTestDataSize];
-    db_->MultiGet(read_opts, cfh, kTestDataSize, keys.data(), &values_ps5[0],
-                  &s5[0]);
+    std::vector<PinnableSlice> values_ps5(kTestDataSize);
+    std::vector<Status> s5(kTestDataSize);
+    db_->MultiGet(read_opts, cfh, kTestDataSize, keys.data(), values_ps5.data(),
+                  s5.data());
     AssertVisibility(ts, seq, s5);
 
-    PinnableSlice values_ps6[kTestDataSize];
-    Status s6[kTestDataSize];
-    std::string timestamps_array[kTestDataSize];
-    db_->MultiGet(read_opts, cfh, kTestDataSize, keys.data(), &values_ps6[0],
-                  &timestamps_array[0], &s6[0]);
+    std::vector<PinnableSlice> values_ps6(kTestDataSize);
+    std::vector<Status> s6(kTestDataSize);
+    std::vector<std::string> timestamps_array(kTestDataSize);
+    db_->MultiGet(read_opts, cfh, kTestDataSize, keys.data(), values_ps6.data(),
+                  timestamps_array.data(), s6.data());
     AssertVisibility(ts, seq, s6);
 
-    PinnableSlice values_ps7[kTestDataSize];
-    Status s7[kTestDataSize];
+    std::vector<PinnableSlice> values_ps7(kTestDataSize);
+    std::vector<Status> s7(kTestDataSize);
     db_->MultiGet(read_opts, kTestDataSize, cfs.data(), keys.data(),
-                  &values_ps7[0], &s7[0]);
+                  values_ps7.data(), s7.data());
     AssertVisibility(ts, seq, s7);
 
-    PinnableSlice values_ps8[kTestDataSize];
-    Status s8[kTestDataSize];
+    std::vector<PinnableSlice> values_ps8(kTestDataSize);
+    std::vector<Status> s8(kTestDataSize);
     db_->MultiGet(read_opts, kTestDataSize, cfs.data(), keys.data(),
-                  &values_ps8[0], &timestamps_array[0], &s8[0]);
+                  values_ps8.data(), timestamps_array.data(), s8.data());
     AssertVisibility(ts, seq, s8);
   }
 
@@ -1061,6 +1063,8 @@ TEST_F(DataVisibilityTest, MultiGetWithTimestamp) {
   db_->ReleaseSnapshot(snap0);
   db_->ReleaseSnapshot(snap1);
   db_->ReleaseSnapshot(snap2);
+
+  Close();
 }
 
 // Application specifies timestamp but not snapshot.
@@ -1117,10 +1121,8 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
 
-  ColumnFamilyHandle* second_cf;
-  ColumnFamilyOptions cf_opts;
-  cf_opts.comparator = &test_cmp;
-  ASSERT_OK(db_->CreateColumnFamily(cf_opts, "second", &second_cf));
+  CreateAndReopenWithCF({"second"}, options);
+  ColumnFamilyHandle* second_cf = handles_[1];
 
   const Snapshot* snap0 = db_->GetSnapshot();
   PutTestData(0);
@@ -1172,7 +1174,7 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   db_->ReleaseSnapshot(snap0);
   db_->ReleaseSnapshot(snap1);
   db_->ReleaseSnapshot(snap2);
-  delete second_cf;
+  Close();
 }
 
 class DBBasicTestWithTimestampCompressionSettings
