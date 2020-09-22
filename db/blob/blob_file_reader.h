@@ -50,6 +50,11 @@ class BlobFileReader {
                          uint64_t blob_file_number,
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 
+  static Status ReadHeader(RandomAccessFileReader* file_reader,
+                           const IOOptions& io_options,
+                           uint32_t column_family_id,
+                           CompressionType* compression_type);
+
   static Status ReadFromFile(RandomAccessFileReader* file_reader,
                              const IOOptions& io_options, uint64_t read_offset,
                              size_t read_size, Slice* slice, std::string* buf,

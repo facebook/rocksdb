@@ -50,43 +50,18 @@ Status BlobFileReader::Create(
 
   assert(file_reader);
 
-  Slice header_slice;
-  std::string buf;
-  AlignedBuf aligned_buf;
+  CompressionType compression_type;
 
   {
-    constexpr uint64_t read_offset = 0;
-    constexpr size_t read_size = BlobLogHeader::kSize;
-
-    const Status s =
-        ReadFromFile(file_reader.get(), file_opts.io_options, read_offset,
-                     read_size, &header_slice, &buf, &aligned_buf);
+    const Status s = ReadHeader(file_reader.get(), file_opts.io_options,
+                                column_family_id, &compression_type);
     if (!s.ok()) {
       return s;
     }
-  }
-
-  BlobLogHeader header;
-
-  {
-    const Status s = header.DecodeFrom(header_slice);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  constexpr ExpirationRange no_expiration_range;
-
-  if (header.has_ttl || header.expiration_range != no_expiration_range) {
-    return Status::Corruption("Unexpected TTL blob file");
-  }
-
-  if (header.column_family_id != column_family_id) {
-    return Status::Corruption("Column family ID mismatch");
   }
 
   blob_file_reader->reset(
-      new BlobFileReader(std::move(file_reader), header.compression));
+      new BlobFileReader(std::move(file_reader), compression_type));
 
   return Status::OK();
 }
@@ -131,6 +106,52 @@ Status BlobFileReader::OpenFile(
       std::shared_ptr<IOTracer>(io_tracer), immutable_cf_options.statistics,
       BLOB_DB_BLOB_FILE_READ_MICROS, file_read_hist,
       immutable_cf_options.rate_limiter, immutable_cf_options.listeners));
+
+  return Status::OK();
+}
+
+Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
+                                  const IOOptions& io_options,
+                                  uint32_t column_family_id,
+                                  CompressionType* compression_type) {
+  assert(file_reader);
+  assert(compression_type);
+
+  Slice header_slice;
+  std::string buf;
+  AlignedBuf aligned_buf;
+
+  {
+    constexpr uint64_t read_offset = 0;
+    constexpr size_t read_size = BlobLogHeader::kSize;
+
+    const Status s = ReadFromFile(file_reader, io_options, read_offset,
+                                  read_size, &header_slice, &buf, &aligned_buf);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  BlobLogHeader header;
+
+  {
+    const Status s = header.DecodeFrom(header_slice);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  constexpr ExpirationRange no_expiration_range;
+
+  if (header.has_ttl || header.expiration_range != no_expiration_range) {
+    return Status::Corruption("Unexpected TTL blob file");
+  }
+
+  if (header.column_family_id != column_family_id) {
+    return Status::Corruption("Column family ID mismatch");
+  }
+
+  *compression_type = header.compression;
 
   return Status::OK();
 }
