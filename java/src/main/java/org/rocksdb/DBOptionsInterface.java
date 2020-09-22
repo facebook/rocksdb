@@ -1059,6 +1059,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * Sets the {@link EventListener}s whose callback functions
    * will be called when specific RocksDB event happens.
    *
+   * Note: the RocksJava API currently only supports EventListeners implemented in Java.
+   * It could be extended in future to also support adding/removing EventListeners implemented in C++.
+   *
    * @param listeners the listeners who should be notified on various events.
    *
    * @return the instance of the current object.
@@ -1068,6 +1071,9 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   /**
    * Sets the {@link EventListener}s whose callback functions
    * will be called when specific RocksDB event happens.
+   *
+   * Note: the RocksJava API currently only supports EventListeners implemented in Java.
+   * It could be extended in future to also support adding/removing EventListeners implemented in C++.
    *
    * @return the instance of the current object.
    */

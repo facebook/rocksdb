@@ -1767,6 +1767,8 @@ jboolean Java_org_rocksdb_Options_strictBytesPerSync(
   return static_cast<jboolean>(opt->strict_bytes_per_sync);
 }
 
+// Note: the RocksJava API currently only supports EventListeners implemented in Java.
+// It could be extended in future to also support adding/removing EventListeners implemented in C++.
 static void rocksdb_set_event_listeners_helper(JNIEnv *env, jlongArray jlistener_array,
     std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>& listener_sptr_vec) {
   jlong* ptr_jlistener_array = env->GetLongArrayElements(jlistener_array, nullptr);
@@ -1794,6 +1796,8 @@ void Java_org_rocksdb_Options_setEventListeners
   rocksdb_set_event_listeners_helper(env, jlistener_array, opt->listeners);
 }
 
+// Note: the RocksJava API currently only supports EventListeners implemented in Java.
+// It could be extended in future to also support adding/removing EventListeners implemented in C++.
 static jobjectArray rocksdb_get_event_listeners_helper(JNIEnv *env,
     const std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>& listener_sptr_vec) {
   jsize sz = static_cast<jsize>(listener_sptr_vec.size());
