@@ -266,6 +266,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
     stream << vstorage->NumLevelFiles(level);
   }
   stream.EndArray();
+
+  const auto& blob_files = vstorage->GetBlobFiles();
+  if (!blob_files.empty()) {
+    stream << "blob_file_head" << blob_files.begin()->first;
+    stream << "blob_file_tail" << blob_files.rbegin()->first;
+  }
+
   stream << "immutable_memtables" << cfd_->imm()->NumNotFlushed();
 
   if (measure_io_stats_) {
@@ -300,6 +307,9 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_micros = db_options_.env->NowMicros();
   const uint64_t start_cpu_micros = db_options_.env->NowCPUNanos() / 1000;
   Status s;
+
+  std::vector<BlobFileAddition> blob_file_additions;
+
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
     db_mutex_->Unlock();
@@ -388,9 +398,10 @@ Status FlushJob::WriteLevel0Table() {
 
       IOStatus io_s;
       s = BuildTable(
-          dbname_, db_options_.env, db_options_.fs.get(), *cfd_->ioptions(),
-          mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta_, cfd_->internal_comparator(),
+          dbname_, versions_, db_options_.env, db_options_.fs.get(),
+          *cfd_->ioptions(), mutable_cf_options_, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
@@ -425,7 +436,10 @@ Status FlushJob::WriteLevel0Table() {
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
-  if (s.ok() && meta_.fd.GetFileSize() > 0) {
+  const bool has_output = meta_.fd.GetFileSize() > 0;
+  assert(has_output || blob_file_additions.empty());
+
+  if (s.ok() && has_output) {
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
@@ -437,6 +451,8 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.marked_for_compaction, meta_.oldest_blob_file_number,
                    meta_.oldest_ancester_time, meta_.file_creation_time,
                    meta_.file_checksum, meta_.file_checksum_func_name);
+
+    edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }
 #ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.
@@ -447,11 +463,22 @@ Status FlushJob::WriteLevel0Table() {
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.cpu_micros = db_options_.env->NowCPUNanos() / 1000 - start_cpu_micros;
-  stats.bytes_written = meta_.fd.GetFileSize();
+
+  if (has_output) {
+    stats.bytes_written = meta_.fd.GetFileSize();
+
+    const auto& blobs = edit_->GetBlobFileAdditions();
+    for (const auto& blob : blobs) {
+      stats.bytes_written += blob.GetTotalBlobBytes();
+    }
+
+    stats.num_output_files = static_cast<int>(blobs.size()) + 1;
+  }
+
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                     meta_.fd.GetFileSize());
+                                     stats.bytes_written);
   RecordFlushIOStats();
   return s;
 }

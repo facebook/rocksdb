@@ -5,8 +5,19 @@
 
 package org.rocksdb;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
+  /**
+   * The function recovers options to a previous version. Only 4.6 or later
+   * versions are supported.
+   *
+   * @return the instance of the current object.
+   */
+  T oldDefaults(int majorVersion, int minorVersion);
+
   /**
    * Use this if your DB is very small (like under 1GB) and you don't want to
    * spend lots of memory for memtables.
@@ -14,6 +25,16 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * @return the instance of the current object.
    */
   T optimizeForSmallDb();
+
+  /**
+   * Some functions that make it easier to optimize RocksDB
+   * Use this if your DB is very small (like under 1GB) and you don't want to
+   * spend lots of memory for memtables.
+   * An optional cache object is passed in to be used as the block cache
+   *
+   * @return the instance of the current object.
+   */
+  T optimizeForSmallDb(Cache cache);
 
   /**
    * Use this if you don't need to keep the data sorted, i.e. you'll never use
@@ -370,6 +391,30 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * @return the name of the currently used table factory.
    */
   String tableFactoryName();
+
+  /**
+   * A list of paths where SST files for this column family
+   * can be put into, with its target size. Similar to db_paths,
+   * newer data is placed into paths specified earlier in the
+   * vector while older data gradually moves to paths specified
+   * later in the vector.
+   * Note that, if a path is supplied to multiple column
+   * families, it would have files and total size from all
+   * the column families combined. User should provision for the
+   * total size(from all the column families) in such cases.
+   *
+   * If left empty, db_paths will be used.
+   * Default: empty
+   *
+   * @param paths collection of paths for SST files.
+   * @return the reference of the current options.
+   */
+  T setCfPaths(final Collection<DbPath> paths);
+
+  /**
+   * @return collection of paths for SST files.
+   */
+  List<DbPath> cfPaths();
 
   /**
    * Compression algorithm that will be used for the bottommost level that

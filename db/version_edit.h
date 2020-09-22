@@ -414,10 +414,18 @@ class VersionEdit {
         std::move(checksum_method), std::move(checksum_value));
   }
 
+  void AddBlobFile(BlobFileAddition blob_file_addition) {
+    blob_file_additions_.emplace_back(std::move(blob_file_addition));
+  }
+
   // Retrieve all the blob files added.
   using BlobFileAdditions = std::vector<BlobFileAddition>;
   const BlobFileAdditions& GetBlobFileAdditions() const {
     return blob_file_additions_;
+  }
+
+  void SetBlobFileAdditions(BlobFileAdditions blob_file_additions) {
+    blob_file_additions_ = std::move(blob_file_additions);
   }
 
   // Add garbage for an existing blob file.  Note: intentionally broken English
@@ -429,10 +437,18 @@ class VersionEdit {
                                      garbage_blob_bytes);
   }
 
+  void AddBlobFileGarbage(BlobFileGarbage blob_file_garbage) {
+    blob_file_garbages_.emplace_back(std::move(blob_file_garbage));
+  }
+
   // Retrieve all the blob file garbage added.
   using BlobFileGarbages = std::vector<BlobFileGarbage>;
   const BlobFileGarbages& GetBlobFileGarbages() const {
     return blob_file_garbages_;
+  }
+
+  void SetBlobFileGarbages(BlobFileGarbages blob_file_garbages) {
+    blob_file_garbages_ = std::move(blob_file_garbages);
   }
 
   // Add a WAL (either just created or closed).
