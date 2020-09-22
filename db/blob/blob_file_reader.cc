@@ -28,54 +28,27 @@ Status BlobFileReader::Create(
   assert(blob_file_reader);
   assert(!*blob_file_reader);
 
-  Env* const env = immutable_cf_options.env;
-  assert(env);
-
   FileOptions file_opts(file_options);
 
   {
-    const Status s =
-        PrepareIOFromReadOptions(read_options, env, file_opts.io_options);
+    const Status s = PrepareIOFromReadOptions(
+        read_options, immutable_cf_options.env, file_opts.io_options);
     if (!s.ok()) {
       return s;
     }
   }
 
-  FileSystem* const fs = immutable_cf_options.fs;
-  assert(fs);
-
-  const auto& cf_paths = immutable_cf_options.cf_paths;
-  assert(!cf_paths.empty());
-
-  const std::string blob_file_path =
-      BlobFileName(cf_paths.front().path, blob_file_number);
-  std::unique_ptr<FSRandomAccessFile> file;
-  constexpr IODebugContext* dbg = nullptr;
+  std::unique_ptr<RandomAccessFileReader> file_reader;
 
   {
-    const Status s =
-        fs->NewRandomAccessFile(blob_file_path, file_opts, &file, dbg);
+    const Status s = OpenFile(immutable_cf_options, file_opts, blob_file_number,
+                              &file_reader);
     if (!s.ok()) {
       return s;
     }
   }
 
-  assert(file);
-
-  if (immutable_cf_options.advise_random_on_open) {
-    file->Hint(FSRandomAccessFile::kRandom);
-  }
-
-  // TODO
-  constexpr IOTracer* io_tracer = nullptr;
-  constexpr HistogramImpl* file_read_hist = nullptr;
-
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(
-          std::move(file), blob_file_path, env,
-          std::shared_ptr<IOTracer>(io_tracer), immutable_cf_options.statistics,
-          BLOB_DB_BLOB_FILE_READ_MICROS, file_read_hist,
-          immutable_cf_options.rate_limiter, immutable_cf_options.listeners));
+  assert(file_reader);
 
   Slice header_slice;
   std::string buf;
@@ -114,6 +87,50 @@ Status BlobFileReader::Create(
 
   blob_file_reader->reset(
       new BlobFileReader(std::move(file_reader), header.compression));
+
+  return Status::OK();
+}
+
+Status BlobFileReader::OpenFile(
+    const ImmutableCFOptions& immutable_cf_options,
+    const FileOptions& file_opts, uint64_t blob_file_number,
+    std::unique_ptr<RandomAccessFileReader>* file_reader) {
+  assert(file_reader);
+
+  FileSystem* const fs = immutable_cf_options.fs;
+  assert(fs);
+
+  const auto& cf_paths = immutable_cf_options.cf_paths;
+  assert(!cf_paths.empty());
+
+  const std::string blob_file_path =
+      BlobFileName(cf_paths.front().path, blob_file_number);
+  std::unique_ptr<FSRandomAccessFile> file;
+  constexpr IODebugContext* dbg = nullptr;
+
+  {
+    const Status s =
+        fs->NewRandomAccessFile(blob_file_path, file_opts, &file, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  assert(file);
+
+  if (immutable_cf_options.advise_random_on_open) {
+    file->Hint(FSRandomAccessFile::kRandom);
+  }
+
+  // TODO
+  constexpr IOTracer* io_tracer = nullptr;
+  constexpr HistogramImpl* file_read_hist = nullptr;
+
+  file_reader->reset(new RandomAccessFileReader(
+      std::move(file), blob_file_path, immutable_cf_options.env,
+      std::shared_ptr<IOTracer>(io_tracer), immutable_cf_options.statistics,
+      BLOB_DB_BLOB_FILE_READ_MICROS, file_read_hist,
+      immutable_cf_options.rate_limiter, immutable_cf_options.listeners));
 
   return Status::OK();
 }
