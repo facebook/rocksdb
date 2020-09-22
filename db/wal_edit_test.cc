@@ -24,7 +24,9 @@ TEST(WalSet, AddDeleteReset) {
 
   // Close WAL 1 - 5.
   for (WalNumber log_number = 1; log_number <= 5; log_number++) {
-    wals.AddWal(WalAddition(log_number, WalMetadata(100)));
+    WalMetadata wal(100);
+    wal.SetClosed();
+    wals.AddWal(WalAddition(log_number, wal));
   }
   ASSERT_EQ(wals.GetWals().size(), 10);
 
@@ -49,20 +51,23 @@ TEST(WalSet, Overwrite) {
   constexpr uint64_t kBytes = 200;
   WalSet wals;
   wals.AddWal(WalAddition(kNumber));
-  ASSERT_FALSE(wals.GetWals().at(kNumber).HasSize());
+  ASSERT_FALSE(wals.GetWals().at(kNumber).HasSyncedSize());
   wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes)));
-  ASSERT_TRUE(wals.GetWals().at(kNumber).HasSize());
-  ASSERT_EQ(wals.GetWals().at(kNumber).GetSizeInBytes(), kBytes);
+  ASSERT_TRUE(wals.GetWals().at(kNumber).HasSyncedSize());
+  ASSERT_EQ(wals.GetWals().at(kNumber).GetSyncedSizeInBytes(), kBytes);
 }
 
-TEST(WalSet, CreateTwice) {
+TEST(WalSet, SmallerSyncedSize) {
   constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 100;
   WalSet wals;
-  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
-  Status s = wals.AddWal(WalAddition(kNumber));
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
+  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(0)));
   ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 100 is created more than once") !=
-              std::string::npos);
+  ASSERT_TRUE(
+      s.ToString().find(
+          "WAL 100 must not have smaller synced size than previous one") !=
+      std::string::npos);
 }
 
 TEST(WalSet, CloseTwice) {
@@ -70,8 +75,10 @@ TEST(WalSet, CloseTwice) {
   constexpr uint64_t kBytes = 200;
   WalSet wals;
   ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
-  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
-  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes)));
+  WalMetadata wal(kBytes);
+  wal.SetClosed();
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, wal)));
+  Status s = wals.AddWal(WalAddition(kNumber, wal));
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 100 is closed more than once") !=
               std::string::npos);
@@ -81,7 +88,9 @@ TEST(WalSet, CloseBeforeCreate) {
   constexpr WalNumber kNumber = 100;
   constexpr uint64_t kBytes = 200;
   WalSet wals;
-  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes)));
+  WalMetadata wal(kBytes);
+  wal.SetClosed();
+  Status s = wals.AddWal(WalAddition(kNumber, wal));
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 100 is not created before closing") !=
               std::string::npos);
@@ -92,11 +101,15 @@ TEST(WalSet, CreateAfterClose) {
   constexpr uint64_t kBytes = 200;
   WalSet wals;
   ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
-  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
+  WalMetadata wal(kBytes);
+  wal.SetClosed();
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, wal)));
   Status s = wals.AddWal(WalAddition(kNumber));
   ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 100 is created more than once") !=
-              std::string::npos);
+  ASSERT_TRUE(
+      s.ToString().find(
+          "WAL 100 must not have smaller synced size than previous one") !=
+      std::string::npos);
 }
 
 TEST(WalSet, DeleteNonExistingWal) {
