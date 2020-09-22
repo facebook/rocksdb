@@ -64,6 +64,10 @@ class BlobFileReader {
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
                            uint64_t key_size, uint64_t value_size);
 
+  static Status UncompressBlobIfNeeded(const Slice& value_slice,
+                                       CompressionType compression_type,
+                                       GetContext* get_context);
+
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   CompressionType compression_type_;
 };

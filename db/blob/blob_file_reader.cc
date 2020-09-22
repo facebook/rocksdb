@@ -15,6 +15,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "table/get_context.h"
+#include "util/compression.h"
 #include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -264,7 +265,13 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   const Slice value_slice(record_slice.data() + adjustment, value_size);
 
-  get_context->SaveValue(value_slice, kMaxSequenceNumber);
+  {
+    const Status s =
+        UncompressBlobIfNeeded(value_slice, compression_type, get_context);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 
   return Status::OK();
 }
@@ -307,6 +314,38 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
       return s;
     }
   }
+
+  return Status::OK();
+}
+
+Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
+                                              CompressionType compression_type,
+                                              GetContext* get_context) {
+  assert(get_context);
+
+  if (compression_type == kNoCompression) {
+    get_context->SaveValue(value_slice, kMaxSequenceNumber);
+
+    return Status::OK();
+  }
+
+  UncompressionContext context(compression_type);
+  UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                         compression_type);
+
+  int uncompressed_size = 0;
+  constexpr uint32_t compression_format_version = 2;
+  constexpr MemoryAllocator* allocator = nullptr;
+
+  CacheAllocationPtr output =
+      UncompressData(info, value_slice.data(), value_slice.size(),
+                     &uncompressed_size, compression_format_version, allocator);
+  if (!output) {
+    return Status::Corruption("Unable to decompress blob");
+  }
+
+  get_context->SaveValue(Slice(output.get(), uncompressed_size),
+                         kMaxSequenceNumber);
 
   return Status::OK();
 }
