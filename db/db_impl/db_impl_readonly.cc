@@ -151,7 +151,7 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
 }  // namespace
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                           DB** dbptr, bool /*error_if_log_file_exist*/) {
+                           DB** dbptr, bool /*error_if_wal_file_exists*/) {
   // If dbname does not exist in the file system, should not do anything
   Status s = OpenForReadOnlyCheckExistence(options, dbname);
   if (!s.ok()) {
@@ -188,7 +188,7 @@ Status DB::OpenForReadOnly(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-    bool error_if_log_file_exist) {
+    bool error_if_wal_file_exists) {
   // If dbname does not exist in the file system, should not do anything
   Status s = OpenForReadOnlyCheckExistence(db_options, dbname);
   if (!s.ok()) {
@@ -197,14 +197,14 @@ Status DB::OpenForReadOnly(
 
   return DBImplReadOnly::OpenForReadOnlyWithoutCheck(
       db_options, dbname, column_families, handles, dbptr,
-      error_if_log_file_exist);
+      error_if_wal_file_exists);
 }
 
 Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-    bool error_if_log_file_exist) {
+    bool error_if_wal_file_exists) {
   *dbptr = nullptr;
   handles->clear();
 
@@ -212,7 +212,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
-                           error_if_log_file_exist);
+                           error_if_wal_file_exists);
   if (s.ok()) {
     // set column family handles
     for (auto cf : column_families) {
@@ -253,7 +253,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
 
 Status DB::OpenForReadOnly(const Options& /*options*/,
                            const std::string& /*dbname*/, DB** /*dbptr*/,
-                           bool /*error_if_log_file_exist*/) {
+                           bool /*error_if_wal_file_exists*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 
@@ -261,7 +261,7 @@ Status DB::OpenForReadOnly(
     const DBOptions& /*db_options*/, const std::string& /*dbname*/,
     const std::vector<ColumnFamilyDescriptor>& /*column_families*/,
     std::vector<ColumnFamilyHandle*>* /*handles*/, DB** /*dbptr*/,
-    bool /*error_if_log_file_exist*/) {
+    bool /*error_if_wal_file_exists*/) {
   return Status::NotSupported("Not supported in ROCKSDB_LITE.");
 }
 #endif  // !ROCKSDB_LITE

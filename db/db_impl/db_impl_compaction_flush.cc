@@ -125,7 +125,12 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, io_s);
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      if (total_log_size_ > 0) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
     }
@@ -179,6 +184,10 @@ Status DBImpl::FlushMemTableToOutputFile(
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
     io_s = SyncClosedLogs(job_context);
     s = io_s;
+    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
+        !io_s.IsColumnFamilyDropped()) {
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+    }
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
@@ -236,10 +245,14 @@ Status DBImpl::FlushMemTableToOutputFile(
       // CURRENT file. With current code, it's just difficult to tell. So just
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
-      auto err_reason = versions_->io_status().ok()
-                            ? BackgroundErrorReason::kFlush
-                            : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason);
+      if (!versions_->io_status().ok()) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+      } else if (total_log_size_ > 0) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
     } else {
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
@@ -632,10 +645,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // CURRENT file. With current code, it's just difficult to tell. So just
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
-      auto err_reason = versions_->io_status().ok()
-                            ? BackgroundErrorReason::kFlush
-                            : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason);
+      if (!versions_->io_status().ok()) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+      } else if (total_log_size_ > 0) {
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
     } else {
       Status new_bg_error = s;
       error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
@@ -1637,6 +1654,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return s;
     }
   }
+
   FlushRequest flush_req;
   {
     WriteContext context;
@@ -1653,7 +1671,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WaitForPendingWrites();
 
     if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
-      s = SwitchMemtable(cfd, &context);
+      if (flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
+        s = SwitchMemtable(cfd, &context);
+      } else {
+        assert(cfd->imm()->NumNotFlushed() > 0);
+      }
     }
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
@@ -1661,7 +1683,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         flush_req.emplace_back(cfd, flush_memtable_id);
       }
-      if (immutable_db_options_.persist_stats_to_disk) {
+      if (immutable_db_options_.persist_stats_to_disk &&
+          flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
         ColumnFamilyData* cfd_stats =
             versions_->GetColumnFamilySet()->GetColumnFamily(
                 kPersistentStatsColumnFamilyName);
@@ -1690,7 +1713,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
     }
-
     if (s.ok() && !flush_req.empty()) {
       for (auto& elem : flush_req) {
         ColumnFamilyData* loop_cfd = elem.first;
@@ -1726,8 +1748,10 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       cfds.push_back(iter.first);
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              (flush_reason == FlushReason::kErrorRecovery));
+    s = WaitForFlushMemTables(
+        cfds, flush_memtable_ids,
+        (flush_reason == FlushReason::kErrorRecovery ||
+         flush_reason == FlushReason::kErrorRecoveryRetryFlush));
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -1785,7 +1809,8 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
     for (auto cfd : cfds) {
-      if (cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) {
+      if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
+          flush_reason == FlushReason::kErrorRecoveryRetryFlush) {
         continue;
       }
       cfd->Ref();
@@ -1828,8 +1853,10 @@ Status DBImpl::AtomicFlushMemTables(
     for (auto& iter : flush_req) {
       flush_memtable_ids.push_back(&(iter.second));
     }
-    s = WaitForFlushMemTables(cfds, flush_memtable_ids,
-                              (flush_reason == FlushReason::kErrorRecovery));
+    s = WaitForFlushMemTables(
+        cfds, flush_memtable_ids,
+        (flush_reason == FlushReason::kErrorRecovery ||
+         flush_reason == FlushReason::kErrorRecoveryRetryFlush));
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* cfd : cfds) {
       cfd->UnrefAndTryDelete();
@@ -1939,6 +1966,13 @@ Status DBImpl::WaitForFlushMemTables(
     if (!error_handler_.GetRecoveryError().ok()) {
       break;
     }
+    // If BGWorkStopped, which indicate that there is a BG error and
+    // 1) soft error but requires no BG work, 2) no in auto_recovery_
+    if (!resuming_from_bg_err && error_handler_.IsBGWorkStopped() &&
+        error_handler_.GetBGError().severity() < Status::Severity::kHardError) {
+      return error_handler_.GetBGError();
+    }
+
     // Number of column families that have been dropped.
     int num_dropped = 0;
     // Number of column families that have finished flush.
