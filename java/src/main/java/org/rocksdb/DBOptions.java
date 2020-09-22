@@ -885,7 +885,7 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public DBOptions setListeners(final AbstractEventListener... listeners) {
+  public DBOptions setListeners(final List<AbstractEventListener> listeners) {
     assert(isOwningHandle());
     setEventListeners(nativeHandle_,
         RocksCallbackObject.toNativeHandleList(listeners));
@@ -893,9 +893,9 @@ public class DBOptions extends RocksObject
   }
 
   @Override
-  public AbstractEventListener[] listeners() {
+  public List<AbstractEventListener> listeners() {
     assert(isOwningHandle());
-    return eventListeners(nativeHandle_);
+    return Arrays.asList(eventListeners(nativeHandle_));
   }
 
   @Override

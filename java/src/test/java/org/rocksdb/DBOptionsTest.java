@@ -918,19 +918,18 @@ public class DBOptionsTest {
              wasCalled2.set(true);
            }
          }) {
-      assertThat(options.setListeners(el1, el2)).isEqualTo(options);
-      AbstractEventListener[] listeners = options.listeners();
-      assertEquals(el1, listeners[0]);
-      assertEquals(el2, listeners[1]);
-      options.setListeners();
-      listeners[0].onTableFileDeleted(null);
+      assertThat(options.setListeners(Arrays.asList(el1, el2))).isEqualTo(options);
+      List<AbstractEventListener> listeners = options.listeners();
+      assertEquals(el1, listeners.get(0));
+      assertEquals(el2, listeners.get(1));
+      options.setListeners(Collections.<AbstractEventListener>emptyList());
+      listeners.get(0).onTableFileDeleted(null);
       assertTrue(wasCalled1.get());
-      listeners[1].onMemTableSealed(null);
+      listeners.get(1).onMemTableSealed(null);
       assertTrue(wasCalled2.get());
-      AbstractEventListener[] listeners2 = options.listeners();
+      List<AbstractEventListener> listeners2 = options.listeners();
       assertNotNull(listeners2);
-      assertEquals(0, listeners2.length);
-
+      assertEquals(0, listeners2.size());
     }
   }
 }

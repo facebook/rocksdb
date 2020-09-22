@@ -26,10 +26,10 @@ public class EventListenerTest {
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
 
-  void flushDb(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
+  void flushDb(final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
-        .setListeners(el);
+        .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
@@ -49,7 +49,6 @@ public class EventListenerTest {
       @Override
       public void onFlushCompleted(final RocksDB rocksDb,
                                    final FlushJobInfo flushJobInfo) {
-        // TODO(TP): add more asserts
         assertNotNull(flushJobInfo.getColumnFamilyName());
         assertEquals(FlushReason.MANUAL_FLUSH, flushJobInfo.getFlushReason());
         wasCbCalled.set(true);
@@ -66,7 +65,6 @@ public class EventListenerTest {
       @Override
       public void onFlushBegin(final RocksDB rocksDb,
                                final FlushJobInfo flushJobInfo) {
-        // TODO(TP): add more asserts
         assertNotNull(flushJobInfo.getColumnFamilyName());
         assertEquals(FlushReason.MANUAL_FLUSH, flushJobInfo.getFlushReason());
         wasCbCalled.set(true);
@@ -75,10 +73,10 @@ public class EventListenerTest {
     flushDb(onFlushBeginListener, wasCbCalled);
   }
 
-  void deleteTableFile(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException, InterruptedException {
+  void deleteTableFile(final AbstractEventListener el, final AtomicBoolean wasCbCalled) throws RocksDBException, InterruptedException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
-        .setListeners(el);
+        .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
@@ -101,7 +99,6 @@ public class EventListenerTest {
     AbstractEventListener onTableFileDeletedListener = new AbstractEventListener() {
       @Override
       public void onTableFileDeleted(final TableFileDeletionInfo tableFileDeletionInfo) {
-        // TODO(TP): add more asserts
         assertNotNull(tableFileDeletionInfo.getDbName());
         wasCbCalled.set(true);
       }
@@ -112,7 +109,7 @@ public class EventListenerTest {
   void compactRange(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
-        .setListeners(el);
+        .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
@@ -132,7 +129,6 @@ public class EventListenerTest {
       @Override
       public void onCompactionBegin(final RocksDB db,
                                     final CompactionJobInfo compactionJobInfo) {
-        // TODO(TP): add more asserts
         assertEquals(CompactionReason.kManualCompaction, compactionJobInfo.compactionReason());
         wasCbCalled.set(true);
       }
@@ -148,7 +144,6 @@ public class EventListenerTest {
       @Override
       public void onCompactionCompleted(final RocksDB db,
                                         final CompactionJobInfo compactionJobInfo) {
-        // TODO(TP): add more asserts
         assertEquals(CompactionReason.kManualCompaction, compactionJobInfo.compactionReason());
         wasCbCalled.set(true);
       }
@@ -163,7 +158,6 @@ public class EventListenerTest {
     AbstractEventListener onTableFileCreatedListener = new AbstractEventListener() {
       @Override
       public void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo) {
-        // TODO(TP): add more asserts
         assertEquals(TableFileCreationReason.FLUSH, tableFileCreationInfo.getReason());
         wasCbCalled.set(true);
       }
@@ -178,7 +172,6 @@ public class EventListenerTest {
     AbstractEventListener onTableFileCreationStartedListener = new AbstractEventListener() {
       @Override
       public void onTableFileCreationStarted(final TableFileCreationBriefInfo tableFileCreationBriefInfo) {
-        // TODO(TP): add more asserts
         assertEquals(TableFileCreationReason.FLUSH, tableFileCreationBriefInfo.getReason());
         wasCbCalled.set(true);
       }
@@ -194,7 +187,7 @@ public class EventListenerTest {
   void deleteColumnFamilyHandle(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
-        .setListeners(el);
+        .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
@@ -214,7 +207,6 @@ public class EventListenerTest {
     AbstractEventListener onColumnFamilyHandleDeletionStartedListener = new AbstractEventListener() {
       @Override
       public void onColumnFamilyHandleDeletionStarted(final ColumnFamilyHandle columnFamilyHandle) {
-        // TODO(TP): add more asserts
         assertNotNull(columnFamilyHandle);
         wasCbCalled.set(true);
       }
@@ -225,7 +217,7 @@ public class EventListenerTest {
   void ingestExternalFile(AbstractEventListener el, AtomicBoolean wasCbCalled) throws RocksDBException {
     try (final Options opt = new Options()
         .setCreateIfMissing(true)
-        .setListeners(el);
+        .setListeners(Collections.singletonList(el));
          final RocksDB db =
              RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
@@ -249,7 +241,6 @@ public class EventListenerTest {
       @Override
       public void onExternalFileIngested(final RocksDB db,
                                          final ExternalFileIngestionInfo externalFileIngestionInfo) {
-        // TODO(TP): add more asserts
         assertNotNull(db);
         wasCbCalled.set(true);
       }
@@ -475,5 +466,34 @@ public class EventListenerTest {
     for (int i = 0; i < CALLBACKS_COUNT; ++i) {
       assertTrue("Callback method " + i + " was not called", wasCalled[i].get());
     }
+  }
+
+  @Test
+  public void testEnabledCallbacks() {
+    final AtomicBoolean wasOnCompactionCompletedCalled = new AtomicBoolean();
+    final AtomicBoolean wasOnMemTableSealedCalled = new AtomicBoolean();
+    final AtomicBoolean wasOnErrorRecoveryCompletedCalled = new AtomicBoolean();
+    TestableEventListener listener = new TestableEventListener(AbstractEventListener.EnabledEventCallback.ON_MEMTABLE_SEALED,
+        AbstractEventListener.EnabledEventCallback.ON_ERROR_RECOVERY_COMPLETED) {
+      @Override
+      public void onCompactionCompleted(final RocksDB db,
+                                        final CompactionJobInfo compactionJobInfo) {
+        wasOnCompactionCompletedCalled.set(true);
+      }
+
+      @Override
+      public void onMemTableSealed(final MemTableInfo memTableInfo) {
+        wasOnMemTableSealedCalled.set(true);
+      }
+
+      @Override
+      public void onErrorRecoveryCompleted(final Status oldBackgroundError) {
+        wasOnErrorRecoveryCompletedCalled.set(true);
+      }
+    };
+    listener.invokeAllCallbacks();
+    assertFalse(wasOnCompactionCompletedCalled.get());
+    assertTrue(wasOnMemTableSealedCalled.get());
+    assertTrue(wasOnErrorRecoveryCompletedCalled.get());
   }
 }

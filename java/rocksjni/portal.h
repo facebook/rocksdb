@@ -7752,7 +7752,7 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#onFlushCompletedProxy
+   * Get the Java Method: AbstractEventListener#onTableFileDeleted
    *
    * @param env A pointer to the Java environment
    *
@@ -7972,7 +7972,7 @@ class AbstractEventListenerJni : public RocksDBNativeClass<
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#onErrorRecoveryBegin
+   * Get the Java Method: AbstractEventListener#onErrorRecoveryBeginProxy
    *
    * @param env A pointer to the Java environment
    *
@@ -8026,13 +8026,23 @@ class FlushJobInfoJni : public JavaClass {
     }
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring cf_name = JniUtil::toJavaString(env, &flush_job_info->cf_name);
-    jstring file_path = JniUtil::toJavaString(env, &flush_job_info->file_path);
-    // TODO(TP): add exception checks here or to toJavaString()?
+    jstring jcf_name = JniUtil::toJavaString(env, &flush_job_info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jfile_path = JniUtil::toJavaString(env, &flush_job_info->file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jfile_path);
+      return nullptr;
+    }
     jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(env, flush_job_info->table_properties);
-    // TODO(TP): should we do a null check here? and what then? (can table properties be null under normal circumstances?)
+    if (jtable_properties == nullptr) {
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jfile_path);
+      return nullptr;
+    }
     return env->NewObject(jclazz, ctor, static_cast<jlong>(flush_job_info->cf_id),
-        cf_name, file_path,
+        jcf_name, jfile_path,
         static_cast<jlong>(flush_job_info->thread_id), static_cast<jint>(flush_job_info->job_id),
         static_cast<jboolean>(flush_job_info->triggered_writes_slowdown), static_cast<jboolean>(flush_job_info->triggered_writes_stop),
         static_cast<jlong>(flush_job_info->smallest_seqno), static_cast<jlong>(flush_job_info->largest_seqno),
@@ -8069,9 +8079,16 @@ class TableFileDeletionInfoJni : public JavaClass {
     }
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring db_name = JniUtil::toJavaString(env, &file_del_info->db_name);
+    jstring jdb_name = JniUtil::toJavaString(env, &file_del_info->db_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
     jobject jstatus = StatusJni::construct(env, file_del_info->status);
-    return env->NewObject(jclazz, ctor, db_name,
+    if (jstatus == nullptr) {
+    env->DeleteLocalRef(jdb_name);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jdb_name,
         JniUtil::toJavaString(env, &file_del_info->file_path), static_cast<jint>(file_del_info->job_id),
         jstatus);
   }
@@ -8115,13 +8132,36 @@ class TableFileCreationInfoJni : public JavaClass {
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring db_name = JniUtil::toJavaString(env, &info->db_name);
-    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
-    jstring file_path = JniUtil::toJavaString(env, &info->file_path);
+    jstring jdb_name = JniUtil::toJavaString(env, &info->db_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      return nullptr;
+    }
+    jstring jfile_path = JniUtil::toJavaString(env, &info->file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
     jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
+    if (jtable_properties == nullptr) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
     jobject jstatus = StatusJni::construct(env, info->status);
+    if (jstatus == nullptr) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jtable_properties);
+      return nullptr;
+    }
     return env->NewObject(jclazz, ctor, static_cast<jlong>(info->file_size), jtable_properties,
-        jstatus, db_name, cf_name, file_path, static_cast<jint>(info->job_id),
+        jstatus, jdb_name, jcf_name, jfile_path, static_cast<jint>(info->job_id),
         static_cast<jbyte>(info->reason));
   }
 
@@ -8143,10 +8183,22 @@ class TableFileCreationBriefInfoJni : public JavaClass {
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring db_name = JniUtil::toJavaString(env, &info->db_name);
-    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
-    jstring file_path = JniUtil::toJavaString(env, &info->file_path);
-    return env->NewObject(jclazz, ctor, db_name, cf_name, file_path, static_cast<jint>(info->job_id),
+    jstring jdb_name = JniUtil::toJavaString(env, &info->db_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      return nullptr;
+    }
+    jstring jfile_path = JniUtil::toJavaString(env, &info->file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jdb_name, jcf_name, jfile_path, static_cast<jint>(info->job_id),
         static_cast<jbyte>(info->reason));
   }
 
@@ -8168,8 +8220,11 @@ class MemTableInfoJni : public JavaClass {
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
-    return env->NewObject(jclazz, ctor, cf_name, static_cast<jlong>(info->first_seqno),
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jcf_name, static_cast<jlong>(info->first_seqno),
         static_cast<jlong>(info->earliest_seqno), static_cast<jlong>(info->num_entries),
         static_cast<jlong>(info->num_deletes));
   }
@@ -8192,11 +8247,29 @@ class ExternalFileIngestionInfoJni : public JavaClass {
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
-    jstring external_file_path = JniUtil::toJavaString(env, &info->external_file_path);
-    jstring internal_file_path = JniUtil::toJavaString(env, &info->internal_file_path);
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jexternal_file_path = JniUtil::toJavaString(env, &info->external_file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    jstring jinternal_file_path = JniUtil::toJavaString(env, &info->internal_file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jexternal_file_path);
+      return nullptr;
+    }
     jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
-    return env->NewObject(jclazz, ctor, cf_name, external_file_path, internal_file_path,
+    if (jtable_properties == nullptr) {
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jexternal_file_path);
+      env->DeleteLocalRef(jinternal_file_path);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jcf_name, jexternal_file_path, jinternal_file_path,
         static_cast<jlong>(info->global_seqno), jtable_properties);
   }
 
@@ -8218,8 +8291,11 @@ class WriteStallInfoJni : public JavaClass {
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring cf_name = JniUtil::toJavaString(env, &info->cf_name);
-    return env->NewObject(jclazz, ctor, cf_name, static_cast<jbyte>(info->condition.cur),
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jcf_name, static_cast<jbyte>(info->condition.cur),
         static_cast<jbyte>(info->condition.prev));
   }
 
@@ -8241,9 +8317,16 @@ class FileOperationInfoJni : public JavaClass {
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    jstring path = JniUtil::toJavaString(env, &info->path);
+    jstring jpath = JniUtil::toJavaString(env, &info->path);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
     jobject jstatus = StatusJni::construct(env, info->status);
-    return env->NewObject(jclazz, ctor, path, static_cast<jlong>(info->offset),
+    if (jstatus == nullptr) {
+      env->DeleteLocalRef(jpath);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jpath, static_cast<jlong>(info->offset),
         static_cast<jlong>(info->length), static_cast<jlong>(info->start_ts.time_since_epoch().count()),
         static_cast<jlong>(info->duration.count()), jstatus);
   }

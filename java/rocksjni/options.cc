@@ -1769,20 +1769,18 @@ jboolean Java_org_rocksdb_Options_strictBytesPerSync(
 
 static void rocksdb_set_event_listeners_helper(JNIEnv *env, jlongArray jlistener_array,
     std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>>& listener_sptr_vec) {
-  std::vector<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>> listeners_vec;
   jlong* ptr_jlistener_array = env->GetLongArrayElements(jlistener_array, nullptr);
   if (ptr_jlistener_array == nullptr) {
     // exception thrown: OutOfMemoryError
     return;
   }
   const jsize array_size = env->GetArrayLength(jlistener_array);
+  listener_sptr_vec.clear();
   for (jsize i = 0; i < array_size; ++i) {
     const auto& listener_sptr =
         *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::EventListener>*>(ptr_jlistener_array[i]);
-    listeners_vec.push_back(listener_sptr);
+    listener_sptr_vec.push_back(listener_sptr);
   }
-
-  listener_sptr_vec = std::move(listeners_vec);
 }
 
 /*

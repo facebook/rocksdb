@@ -971,7 +971,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setListeners(final AbstractEventListener... listeners) {
+  public Options setListeners(final List<AbstractEventListener> listeners) {
     assert(isOwningHandle());
     setEventListeners(nativeHandle_,
         RocksCallbackObject.toNativeHandleList(listeners));
@@ -979,9 +979,9 @@ public class Options extends RocksObject
   }
 
   @Override
-  public AbstractEventListener[] listeners() {
+  public List<AbstractEventListener> listeners() {
     assert(isOwningHandle());
-    return eventListeners(nativeHandle_);
+    return Arrays.asList(eventListeners(nativeHandle_));
   }
 
   @Override

@@ -62,6 +62,11 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
   virtual void OnStallConditionsChanged(const WriteStallInfo& info);
   virtual void OnFileReadFinish(const FileOperationInfo& info);
   virtual void OnFileWriteFinish(const FileOperationInfo& info);
+  virtual void OnFileFlushFinish(const FileOperationInfo& info );
+  virtual void OnFileSyncFinish(const FileOperationInfo& info);
+  virtual void OnFileRangeSyncFinish(const FileOperationInfo& info);
+  virtual void OnFileTruncateFinish(const FileOperationInfo& info);
+  virtual void OnFileCloseFinish(const FileOperationInfo& info);
   virtual bool ShouldBeNotifiedOnFileIO();
   virtual void OnErrorRecoveryBegin(BackgroundErrorReason reason,
       Status bg_error, bool* auto_recovery);
@@ -73,9 +78,9 @@ class EventListenerJniCallback : public JniCallback, public EventListener {
       jmethodID (*get_id)(JNIEnv *env));
   template <class T>
   inline jobject SetupCallbackInvocation(JNIEnv*& env, jboolean& attached_thread,
-      const jmethodID& mid, const T& cpp_obj,
+      const T& cpp_obj,
       jobject (*convert)(JNIEnv *env, const T* cpp_obj));
-  inline void CleanEnv(JNIEnv *env,
+  inline void CleanupCallbackInvocation(JNIEnv *env,
       jboolean attached_thread, std::initializer_list<jobject*> refs);
 
   const std::set<EnabledEventCallback> m_enabled_event_callbacks;
