@@ -634,6 +634,12 @@ ifdef ASSERT_STATUS_CHECKED
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
+		compaction_iterator_test \
+		compaction_job_test \
+		compaction_job_stats_test \
+	        io_tracer_test \
+		merge_helper_test \
+		memtable_list_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test

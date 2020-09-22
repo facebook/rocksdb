@@ -192,8 +192,9 @@ class CompactionJobTest : public testing::Test {
                  kUnknownFileChecksum, kUnknownFileChecksumFuncName);
 
     mutex_.Lock();
-    versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                           mutable_cf_options_, &edit, &mutex_);
+    EXPECT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
     mutex_.Unlock();
   }
 
@@ -283,6 +284,8 @@ class CompactionJobTest : public testing::Test {
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+
+    ASSERT_OK(s);
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;

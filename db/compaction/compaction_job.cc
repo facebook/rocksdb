@@ -338,6 +338,7 @@ CompactionJob::CompactionJob(
 CompactionJob::~CompactionJob() {
   assert(compact_ == nullptr);
   ThreadStatusUtil::ResetThreadStatus();
+  io_status_.PermitUncheckedError();
 }
 
 void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
@@ -1024,6 +1025,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
     }
+    // Status is checked in while loop.
+    status.PermitUncheckedError();
   }
 
   sub_compact->compaction_job_stats.num_input_deletion_records =
@@ -1640,6 +1643,7 @@ void CompactionJob::CleanupCompaction() {
         TableCache::Evict(table_cache_.get(), out.meta.fd.GetNumber());
       }
     }
+    sub_compact.io_status.PermitUncheckedError();
   }
   delete compact_;
   compact_ = nullptr;
