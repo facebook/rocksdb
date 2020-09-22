@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "logging/event_logger.h"
+#include "port/port_posix.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -30,42 +31,39 @@ class WalMetadata {
  public:
   WalMetadata() = default;
 
-  // A WAL's size is set after it's closed.
-  explicit WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
+  explicit WalMetadata(uint64_t synced_size_bytes)
+      : synced_size_bytes_(synced_size_bytes) {}
 
-  // Since a WAL's size is only set after it's closed,
-  // IsClosed is equivalent to HasSize.
-  bool IsClosed() const { return HasSize(); }
+  bool IsClosed() const { return closed_; }
 
-  bool IsSynced() const { return synced_; }
+  void SetClosed() { closed_ = true; }
 
-  void SetSynced() { synced_ = true; }
+  bool HasSyncedSize() const { return synced_size_bytes_ != kUnknownWalSize; }
 
-  bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
+  void SetSyncedSizeInBytes(uint64_t bytes) { synced_size_bytes_ = bytes; }
 
-  void SetSizeInBytes(uint64_t bytes) { size_bytes_ = bytes; }
-
-  uint64_t GetSizeInBytes() const { return size_bytes_; }
+  uint64_t GetSyncedSizeInBytes() const { return synced_size_bytes_; }
 
  private:
-  // The size of WAL is unknown, used when the WAL is not closed yet.
-  constexpr static uint64_t kUnknownWalSize = 0;
+  // The size of WAL is unknown, used when the WAL is not synced yet or is
+  // empty.
+  constexpr static uint64_t kUnknownWalSize = port::kMaxUint64;
 
-  // Whether the WAL and WAL dir are synced.
-  bool synced_ = false;
+  // Size of the most recently synced WAL in bytes.
+  uint64_t synced_size_bytes_ = kUnknownWalSize;
 
-  // Size of a closed WAL in bytes.
-  uint64_t size_bytes_ = kUnknownWalSize;
+  // Whether the WAL is closed.
+  bool closed_ = false;
 };
 
 // These tags are persisted to MANIFEST, so it's part of the user API.
 enum class WalAdditionTag : uint32_t {
   // Indicates that there are no more tags.
   kTerminate = 1,
-  // Whether the WAL and WAL dir are synced.
-  kSynced = 2,
-  // Size in bytes.
-  kSize = 3,
+  // Synced Size in bytes.
+  kSyncedSize = 2,
+  // Whether the WAL is closed.
+  kClosed = 3,
   // Add tags in the future, such as checksum?
 };
 
@@ -133,15 +131,15 @@ using WalDeletions = std::vector<WalDeletion>;
 class WalSet {
  public:
   // Add WAL(s).
-  // If the WAL has size, it means the WAL is closed,
-  // then there must be an existing WAL without size that is added
-  // when creating the WAL, otherwise, return Status::Corruption.
+  // If the WAL is closed,
+  // then there must be an existing unclosed WAL,
+  // otherwise, return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status AddWal(const WalAddition& wal);
   Status AddWals(const WalAdditions& wals);
 
   // Delete WAL(s).
-  // The WAL to be deleted must exist, otherwise,
+  // The WAL to be deleted must exist and be closed, otherwise,
   // return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status DeleteWal(const WalDeletion& wal);
