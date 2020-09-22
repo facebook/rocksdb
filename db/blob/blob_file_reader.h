@@ -10,6 +10,7 @@
 #include <string>
 
 #include "file/random_access_file_reader.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -40,8 +41,8 @@ class BlobFileReader {
                  GetContext* get_context) const;
 
  private:
-  explicit BlobFileReader(
-      std::unique_ptr<RandomAccessFileReader>&& file_reader);
+  BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
+                 CompressionType compression_type);
 
   static Status ReadFromFile(RandomAccessFileReader* file_reader,
                              uint64_t read_offset, size_t read_size,
@@ -52,6 +53,7 @@ class BlobFileReader {
                            uint64_t key_size, uint64_t value_size);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
+  CompressionType compression_type_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -110,16 +110,18 @@ Status BlobFileReader::Create(
   if (header.column_family_id != column_family_id) {
     return Status::Corruption("Column family ID mismatch");
   }
-  // compression_ = header.compression;
 
-  blob_file_reader->reset(new BlobFileReader(std::move(file_reader)));
+  blob_file_reader->reset(
+      new BlobFileReader(std::move(file_reader), header.compression));
 
   return Status::OK();
 }
 
 BlobFileReader::BlobFileReader(
-    std::unique_ptr<RandomAccessFileReader>&& file_reader)
-    : file_reader_(std::move(file_reader)) {
+    std::unique_ptr<RandomAccessFileReader>&& file_reader,
+    CompressionType compression_type)
+    : file_reader_(std::move(file_reader)),
+      compression_type_(compression_type) {
   assert(file_reader_);
 }
 
