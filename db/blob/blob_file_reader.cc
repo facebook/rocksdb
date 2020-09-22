@@ -76,7 +76,38 @@ Status BlobFileReader::Create(
           BLOB_DB_BLOB_FILE_READ_MICROS, file_read_hist,
           immutable_cf_options.rate_limiter, immutable_cf_options.listeners));
 
-  // TODO: read header and retrieve compression etc.
+  Slice header_slice;
+  std::string buf;
+  AlignedBuf aligned_buf;
+
+  {
+    constexpr uint64_t read_offset = 0;
+    constexpr size_t read_size = BlobLogHeader::kSize;
+
+    const Status s = ReadFromFile(file_reader.get(), read_offset, read_size,
+                                  &header_slice, &buf, &aligned_buf);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  BlobLogHeader header;
+
+  {
+    const Status s = header.DecodeFrom(header_slice);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  constexpr ExpirationRange no_expiration_range;
+
+  if (header.has_ttl || header.expiration_range != no_expiration_range) {
+    return Status::Corruption("Unexpected TTL blob file");
+  }
+
+  // column_family_id_ = header.column_family_id;
+  // compression_ = header.compression;
 
   blob_file_reader->reset(new BlobFileReader(std::move(file_reader)));
 
@@ -116,7 +147,6 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const uint64_t record_size = value_size + adjustment;
 
   Slice record_slice;
-
   std::string buf;
   AlignedBuf aligned_buf;
 
