@@ -211,7 +211,7 @@ Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
 
 Status BlobFileReader::VerifyBlob(const Slice& record_slice,
                                   const Slice& user_key, uint64_t key_size,
-                                  uint64_t value_size) const {
+                                  uint64_t value_size) {
   assert(user_key.size() == key_size);
 
   BlobLogRecord record;
