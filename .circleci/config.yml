@@ -47,6 +47,20 @@ jobs:
       - run: make V=1 -j32 release | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
 
+  build-linux-release-rtti:
+    machine:
+      image: ubuntu-1604:201903-01
+    resource_class: large
+    steps:
+      - checkout # check out the code in the project directory
+      - run: make clean
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench | .circleci/cat_ignore_eagain
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
+      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+      - run: make clean
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench | .circleci/cat_ignore_eagain
+      - run: ./db_stress --version # ensure with gflags
+
   build-linux-lite:
     machine:
       image: ubuntu-1604:201903-01
@@ -300,6 +314,9 @@ workflows:
   build-linux-release:
     jobs:
       - build-linux-release
+  build-linux-release-rtti:
+    jobs:
+      - build-linux-release-rtti
   build-linux-lite-release:
     jobs:
       - build-linux-lite-release
