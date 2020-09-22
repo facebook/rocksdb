@@ -47,7 +47,8 @@ public interface EventListener {
    * returns. Otherwise, RocksDB may be blocked.
    *
    * @param db the database
-   * @param flushJobInfo the flush job info
+   * @param flushJobInfo the flush job info, contains data copied from
+   *     respective native structure.
    */
   void onFlushCompleted(final RocksDB db, final FlushJobInfo flushJobInfo);
 
@@ -58,6 +59,10 @@ public interface EventListener {
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
+   *
+   * @param db the database
+   * @param flushJobInfo the flush job info, contains data copied from
+   *     respective native structure.
    */
   void onFlushBegin(final RocksDB db, final FlushJobInfo flushJobInfo);
 
@@ -76,6 +81,9 @@ public interface EventListener {
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from the
    * returned value.
+   *
+   * @param tableFileDeletionInfo the table file deletion info,
+   *     contains data copied from respective native structure.
    */
   void onTableFileDeleted(final TableFileDeletionInfo tableFileDeletionInfo);
 
@@ -87,6 +95,12 @@ public interface EventListener {
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
+   *
+   * @param db a pointer to the rocksdb instance which just compacted
+   *     a file.
+   * @param compactionJobInfo a reference to a native CompactionJobInfo struct,
+   *     which is released after this function is returned, and must be copied
+   *     if it is needed outside of this function.
    */
   void onCompactionBegin(final RocksDB db, final CompactionJobInfo compactionJobInfo);
 
@@ -100,7 +114,7 @@ public interface EventListener {
    * returns. Otherwise, RocksDB may be blocked.
    *
    * @param db a pointer to the rocksdb instance which just compacted
-   *   a file.
+   *     a file.
    * @param compactionJobInfo a reference to a native CompactionJobInfo struct,
    *     which is released after this function is returned, and must be copied
    *     if it is needed outside of this function.
@@ -123,6 +137,9 @@ public interface EventListener {
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from these
    * returned value.
+   *
+   * @param tableFileCreationInfo the table file creation info,
+   *     contains data copied from respective native structure.
    */
   void onTableFileCreated(final TableFileCreationInfo tableFileCreationInfo);
 
@@ -134,6 +151,9 @@ public interface EventListener {
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from these
    * returned value.
+   *
+   * @param tableFileCreationBriefInfo the table file creation brief info,
+   *     contains data copied from respective native structure.
    */
   void onTableFileCreationStarted(final TableFileCreationBriefInfo tableFileCreationBriefInfo);
 
@@ -148,6 +168,9 @@ public interface EventListener {
    * Note that if applications would like to use the passed reference
    * outside this function call, they should make copies from these
    * returned value.
+   *
+   * @param memTableInfo the mem table info, contains data
+   *     copied from respective native structure.
    */
   void onMemTableSealed(final MemTableInfo memTableInfo);
 
@@ -158,6 +181,7 @@ public interface EventListener {
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns.  Otherwise, RocksDB may be blocked.
+   *
    * @param columnFamilyHandle is a pointer to the column family handle to be
    *     deleted which will become a dangling pointer after the deletion.
    */
@@ -170,6 +194,10 @@ public interface EventListener {
    * Note that the this function will run on the same thread as
    * IngestExternalFile(), if this function is blocked, IngestExternalFile()
    * will be blocked from finishing.
+   *
+   * @param db the database
+   * @param externalFileIngestionInfo the external file ingestion info,
+   *     contains data copied from respective native structure.
    */
   void onExternalFileIngested(
       final RocksDB db, final ExternalFileIngestionInfo externalFileIngestionInfo);
@@ -186,6 +214,9 @@ public interface EventListener {
    * Note that this function can run on the same threads as flush, compaction,
    * and user writes. So, it is extremely important not to perform heavy
    * computations or blocking calls in this function.
+   *
+   * @param backgroundErrorReason background error reason code
+   * @param backgroundError background error codes
    */
   void onBackgroundError(
       final BackgroundErrorReason backgroundErrorReason, final Status backgroundError);
@@ -197,48 +228,72 @@ public interface EventListener {
    * Note that the this function must be implemented in a way such that
    * it should not run for an extended period of time before the function
    * returns. Otherwise, RocksDB may be blocked.
+   *
+   * @param writeStallInfo write stall info,
+   *     contains data copied from respective native structure.
    */
   void onStallConditionsChanged(final WriteStallInfo writeStallInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file read
    * operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void onFileReadFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file write
    * operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void onFileWriteFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file flush
    * operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void OnFileFlushFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file sync
    * operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void OnFileSyncFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file
    * rangeSync operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file
    * truncate operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file close
    * operation finishes.
+   *
+   * @param fileOperationInfo file operation info,
+   *     contains data copied from respective native structure.
    */
   void OnFileCloseFinish(final FileOperationInfo fileOperationInfo);
 
@@ -257,7 +312,10 @@ public interface EventListener {
    * errors, such as NoSpace(). The callback can suppress the automatic
    * recovery by setting returning false. The database will then
    * have to be transitioned out of read-only mode by calling
-   * {@link RocksDB#resume()}.
+   * RocksDB#resume().
+   *
+   * @param backgroundErrorReason background error reason code
+   * @param backgroundError background error codes
    */
   boolean onErrorRecoveryBegin(
       final BackgroundErrorReason backgroundErrorReason, final Status backgroundError);
@@ -267,6 +325,8 @@ public interface EventListener {
    * is recovered from read-only mode after an error. When this is called, it
    * means normal writes to the database can be issued and the user can
    * initiate any further recovery actions needed
+   *
+   * @param oldBackgroundError old background error codes
    */
   void onErrorRecoveryCompleted(final Status oldBackgroundError);
 }
