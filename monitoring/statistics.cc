@@ -329,11 +329,17 @@ uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
 }
 
 void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
-  assert(tickerType < TICKER_ENUM_MAX);
-  per_core_stats_.Access()->tickers_[tickerType].fetch_add(
-      count, std::memory_order_relaxed);
-  if (stats_ && tickerType < TICKER_ENUM_MAX) {
-    stats_->recordTick(tickerType, count);
+  if (get_stats_level() <= StatsLevel::kExceptTickers) {
+    return;
+  }
+  if (tickerType < TICKER_ENUM_MAX) {
+    per_core_stats_.Access()->tickers_[tickerType].fetch_add(
+        count, std::memory_order_relaxed);
+    if (stats_) {
+      stats_->recordTick(tickerType, count);
+    }
+  } else {
+    assert(false);
   }
 }
 

@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#ifndef ROCKSDB_LITE
 
 #include "db/blob/blob_log_writer.h"
 
@@ -30,6 +29,8 @@ BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
       use_fsync_(use_fs),
       last_elem_type_(kEtNone) {}
 
+BlobLogWriter::~BlobLogWriter() = default;
+
 Status BlobLogWriter::Sync() {
   TEST_SYNC_POINT("BlobLogWriter::Sync");
 
@@ -56,7 +57,9 @@ Status BlobLogWriter::WriteHeader(BlobLogHeader& header) {
   return s;
 }
 
-Status BlobLogWriter::AppendFooter(BlobLogFooter& footer) {
+Status BlobLogWriter::AppendFooter(BlobLogFooter& footer,
+                                   std::string* checksum_method,
+                                   std::string* checksum_value) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
@@ -66,10 +69,34 @@ Status BlobLogWriter::AppendFooter(BlobLogFooter& footer) {
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
+
     s = Sync();
+
     if (s.ok()) {
       s = dest_->Close();
+
+      if (s.ok()) {
+        assert(!!checksum_method == !!checksum_value);
+
+        if (checksum_method) {
+          assert(checksum_method->empty());
+
+          std::string method = dest_->GetFileChecksumFuncName();
+          if (method != kUnknownFileChecksumFuncName) {
+            *checksum_method = std::move(method);
+          }
+        }
+        if (checksum_value) {
+          assert(checksum_value->empty());
+
+          std::string value = dest_->GetFileChecksum();
+          if (value != kUnknownFileChecksum) {
+            *checksum_value = std::move(value);
+          }
+        }
+      }
     }
+
     dest_.reset();
   }
 
@@ -139,4 +166,3 @@ Status BlobLogWriter::EmitPhysicalRecord(const std::string& headerbuf,
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

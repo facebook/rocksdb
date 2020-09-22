@@ -96,8 +96,12 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.file_creation_time > 0) {
     Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
   }
-  Add(TablePropertiesNames::kDbId, props.db_id);
-  Add(TablePropertiesNames::kDbSessionId, props.db_session_id);
+  if (!props.db_id.empty()) {
+    Add(TablePropertiesNames::kDbId, props.db_id);
+  }
+  if (!props.db_session_id.empty()) {
+    Add(TablePropertiesNames::kDbSessionId, props.db_session_id);
+  }
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);

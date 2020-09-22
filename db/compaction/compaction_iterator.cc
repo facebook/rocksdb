@@ -3,9 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "db/compaction/compaction_iterator.h"
+
 #include <cinttypes>
 
-#include "db/compaction/compaction_iterator.h"
+#include "db/blob/blob_file_builder.h"
 #include "db/snapshot_checker.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -36,16 +38,18 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
-    CompactionRangeDelAggregator* range_del_agg, const Compaction* compaction,
+    CompactionRangeDelAggregator* range_del_agg,
+    BlobFileBuilder* blob_file_builder, const Compaction* compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    const std::atomic<bool>* manual_compaction_paused,
+    const std::atomic<int>* manual_compaction_paused,
     const std::shared_ptr<Logger> info_log)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
+          blob_file_builder,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
@@ -58,11 +62,12 @@ CompactionIterator::CompactionIterator(
     const SnapshotChecker* snapshot_checker, Env* env,
     bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
+    BlobFileBuilder* blob_file_builder,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
-    const std::atomic<bool>* manual_compaction_paused,
+    const std::atomic<int>* manual_compaction_paused,
     const std::shared_ptr<Logger> info_log)
     : input_(input),
       cmp_(cmp),
@@ -74,6 +79,7 @@ CompactionIterator::CompactionIterator(
       report_detailed_time_(report_detailed_time),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
+      blob_file_builder_(blob_file_builder),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
@@ -86,8 +92,10 @@ CompactionIterator::CompactionIterator(
       info_log_(info_log) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
-  bottommost_level_ =
-      compaction_ == nullptr ? false : compaction_->bottommost_level();
+  bottommost_level_ = compaction_ == nullptr
+                          ? false
+                          : compaction_->bottommost_level() &&
+                                !compaction_->allow_ingest_behind();
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
@@ -142,8 +150,7 @@ void CompactionIterator::Next() {
     if (merge_out_iter_.Valid()) {
       key_ = merge_out_iter_.key();
       value_ = merge_out_iter_.value();
-      bool valid_key __attribute__((__unused__));
-      valid_key =  ParseInternalKey(key_, &ikey_);
+      bool valid_key = ParseInternalKey(key_, &ikey_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(valid_key);
@@ -350,8 +357,7 @@ void CompactionIterator::NextFromInput() {
     // If there are no snapshots, then this kv affect visibility at tip.
     // Otherwise, search though all existing snapshots to find the earliest
     // snapshot that is affected by this kv.
-    SequenceNumber last_sequence __attribute__((__unused__));
-    last_sequence = current_user_key_sequence_;
+    SequenceNumber last_sequence = current_user_key_sequence_;
     current_user_key_sequence_ = ikey_.sequence;
     SequenceNumber last_snapshot = current_user_key_snapshot_;
     SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
@@ -563,11 +569,14 @@ void CompactionIterator::NextFromInput() {
       // Handle the case where we have a delete key at the bottom most level
       // We can skip outputting the key iff there are no subsequent puts for this
       // key
+      assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
+                                 ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
       input_->Next();
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
-      while (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+      while (!IsPausingManualCompaction() && !IsShuttingDown() &&
+             input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
              cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
@@ -604,8 +613,7 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        bool valid_key __attribute__((__unused__));
-        valid_key = ParseInternalKey(key_, &ikey_);
+        bool valid_key = ParseInternalKey(key_, &ikey_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(valid_key);
@@ -659,20 +667,37 @@ void CompactionIterator::NextFromInput() {
 
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
-    if (compaction_filter_ && ikey_.type == kTypeBlobIndex) {
-      const auto blob_decision = compaction_filter_->PrepareBlobOutput(
-          user_key(), value_, &compaction_filter_value_);
+    if (ikey_.type == kTypeValue) {
+      if (blob_file_builder_) {
+        blob_index_.clear();
+        const Status s =
+            blob_file_builder_->Add(user_key(), value_, &blob_index_);
 
-      if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
-        status_ = Status::Corruption(
-            "Corrupted blob reference encountered during GC");
-        valid_ = false;
-      } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
-        status_ = Status::IOError("Could not relocate blob during GC");
-        valid_ = false;
-      } else if (blob_decision ==
-                 CompactionFilter::BlobDecision::kChangeValue) {
-        value_ = compaction_filter_value_;
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+        } else if (!blob_index_.empty()) {
+          value_ = blob_index_;
+          ikey_.type = kTypeBlobIndex;
+          current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+        }
+      }
+    } else if (ikey_.type == kTypeBlobIndex) {
+      if (compaction_filter_) {
+        const auto blob_decision = compaction_filter_->PrepareBlobOutput(
+            user_key(), value_, &compaction_filter_value_);
+
+        if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
+          status_ = Status::Corruption(
+              "Corrupted blob reference encountered during GC");
+          valid_ = false;
+        } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
+          status_ = Status::IOError("Could not relocate blob during GC");
+          valid_ = false;
+        } else if (blob_decision ==
+                   CompactionFilter::BlobDecision::kChangeValue) {
+          value_ = compaction_filter_value_;
+        }
       }
     }
 

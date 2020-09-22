@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size,
-                  bool use_fsync) {
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   const FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
@@ -44,7 +44,8 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
         return io_s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
+    src_reader.reset(
+        new SequentialFileReader(std::move(srcfile), source, io_tracer));
     dest_writer.reset(
         new WritableFileWriter(std::move(destfile), destination, soptions));
   }
@@ -127,7 +128,8 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
                                  std::string* file_checksum,
                                  std::string* file_checksum_func_name,
                                  size_t verify_checksums_readahead_size,
-                                 bool allow_mmap_reads) {
+                                 bool allow_mmap_reads,
+                                 std::shared_ptr<IOTracer>& io_tracer) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -150,7 +152,8 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
     if (!io_s.ok()) {
       return io_s;
     }
-    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path));
+    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
+                                            nullptr /*Env*/, io_tracer));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on

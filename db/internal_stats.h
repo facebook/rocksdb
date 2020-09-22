@@ -392,6 +392,8 @@ class InternalStats {
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value);
 
+  const uint64_t* TEST_GetCFStatsValue() const { return cf_stats_value_; }
+
   const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
     return comp_stats_;
   }

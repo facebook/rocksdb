@@ -53,7 +53,7 @@ class BlockCacheTier : public PersistentCacheTier {
 
   virtual ~BlockCacheTier() {
     // Close is re-entrant so we can call close even if it is already closed
-    Close();
+    Close().PermitUncheckedError();
     assert(!insert_th_.joinable());
   }
 

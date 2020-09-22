@@ -22,15 +22,15 @@
 #include <string>
 #include <unordered_map>
 
-#include "rocksdb/cache.h"
+#include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
+class Cache;
 class FilterPolicy;
 class FlushBlockPolicyFactory;
 class PersistentCache;
@@ -53,6 +53,7 @@ enum ChecksumType : char {
 
 // For advanced user only
 struct BlockBasedTableOptions {
+  static const char* kName() { return "BlockTableOptions"; };
   // @flush_block_policy_factory creates the instances of flush block policy.
   // which provides a configurable way to determine when to flush a block in
   // the block based tables.  If not set, table builder will use the default
@@ -392,6 +393,7 @@ struct PlainTablePropertyNames {
 const uint32_t kPlainTableVariableLength = 0;
 
 struct PlainTableOptions {
+  static const char* kName() { return "PlainTableOptions"; };
   // @user_key_len: plain table has optimization for fix-sized keys, which can
   //                be specified via user_key_len.  Alternatively, you can pass
   //                `kPlainTableVariableLength` if your keys have variable
@@ -485,6 +487,8 @@ struct CuckooTablePropertyNames {
 };
 
 struct CuckooTableOptions {
+  static const char* kName() { return "CuckooTableOptions"; };
+
   // Determines the utilization of hash tables. Smaller values
   // result in larger hash tables with fewer collisions.
   double hash_table_ratio = 0.9;
@@ -522,9 +526,19 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory {
+class TableFactory : public Configurable {
  public:
-  virtual ~TableFactory() {}
+  virtual ~TableFactory() override {}
+
+  static const char* kBlockCacheOpts() { return "BlockCache"; };
+  static const char* kBlockBasedTableName() { return "BlockBasedTable"; };
+  static const char* kPlainTableName() { return "PlainTable"; }
+  static const char* kCuckooTableName() { return "CuckooTable"; };
+
+  // Creates and configures a new TableFactory from the input options and id.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<TableFactory>* factory);
 
   // The type of the table.
   //
@@ -534,6 +548,13 @@ class TableFactory {
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
   virtual const char* Name() const = 0;
+
+  // Returns true if the class is an instance of the input name.
+  // This is typically determined by if the input name matches the
+  // name of this object.
+  virtual bool IsInstanceOf(const std::string& name) const {
+    return name == Name();
+  }
 
   // Returns a Table object table that can fetch data from file specified
   // in parameter file. It's the caller's responsibility to make sure
@@ -591,39 +612,6 @@ class TableFactory {
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const = 0;
-
-  // Sanitizes the specified DB Options and ColumnFamilyOptions.
-  //
-  // If the function cannot find a way to sanitize the input DB Options,
-  // a non-ok Status will be returned.
-  virtual Status SanitizeOptions(const DBOptions& db_opts,
-                                 const ColumnFamilyOptions& cf_opts) const = 0;
-
-  // Return a string that contains printable format of table configurations.
-  // RocksDB prints configurations at DB Open().
-  virtual std::string GetPrintableTableOptions() const = 0;
-
-  virtual Status GetOptionString(const ConfigOptions& /*config_options*/,
-                                 std::string* /*opt_string*/) const {
-    return Status::NotSupported(
-        "The table factory doesn't implement GetOptionString().");
-  }
-
-  // Returns the raw pointer of the table options that is used by this
-  // TableFactory, or nullptr if this function is not supported.
-  // Since the return value is a raw pointer, the TableFactory owns the
-  // pointer and the caller should not delete the pointer.
-  //
-  // In certain case, it is desirable to alter the underlying options when the
-  // TableFactory is not used by any open DB by casting the returned pointer
-  // to the right class.   For instance, if BlockBasedTableFactory is used,
-  // then the pointer can be casted to BlockBasedTableOptions.
-  //
-  // Note that changing the underlying TableFactory options while the
-  // TableFactory is currently used by any open DB is undefined behavior.
-  // Developers should use DB::SetOption() instead to dynamically change
-  // options while the DB is open.
-  virtual void* GetOptions() { return nullptr; }
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

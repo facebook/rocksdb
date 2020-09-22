@@ -41,6 +41,10 @@
 
 #endif
 
+#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+bool pmull_runtime_flag = false;
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 namespace crc32c {
 
@@ -494,6 +498,7 @@ std::string IsFastCrc32Supported() {
   if (crc32c_runtime_check()) {
     has_fast_crc = true;
     arch = "Arm64";
+    pmull_runtime_flag = crc32c_pmull_runtime_check();
   } else {
     has_fast_crc = false;
     arch = "Arm64";
@@ -1224,6 +1229,7 @@ static inline Function Choose_Extend() {
   return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #elif defined(__linux__) && defined(HAVE_ARM64_CRC)
   if(crc32c_runtime_check()) {
+    pmull_runtime_flag = crc32c_pmull_runtime_check();
     return ExtendARMImpl;
   } else {
     return ExtendImpl<Slow_CRC32>;

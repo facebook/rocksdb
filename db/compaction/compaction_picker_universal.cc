@@ -1033,9 +1033,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
       MaxFileSizeForLevel(mutable_cf_options_, output_level,
                           kCompactionStyleUniversal),
       LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_, start_level,
-                         1, true /* enable_compression */),
-      GetCompressionOptions(mutable_cf_options_, vstorage_, start_level,
+      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
+                         output_level, 1, true /* enable_compression */),
+      GetCompressionOptions(mutable_cf_options_, vstorage_, output_level,
                             true /* enable_compression */),
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       score_, false /* deletion_compaction */, compaction_reason);

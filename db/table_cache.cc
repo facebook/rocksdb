@@ -67,13 +67,15 @@ const int kLoadConcurency = 128;
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const FileOptions& file_options, Cache* const cache,
-                       BlockCacheTracer* const block_cache_tracer)
+                       BlockCacheTracer* const block_cache_tracer,
+                       const std::shared_ptr<IOTracer>& io_tracer)
     : ioptions_(ioptions),
       file_options_(file_options),
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
-      loader_mutex_(kLoadConcurency, GetSliceNPHash64) {
+      loader_mutex_(kLoadConcurency, GetSliceNPHash64),
+      io_tracer_(io_tracer) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -126,7 +128,7 @@ Status TableCache::GetTableReader(
     StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
-            std::move(file), fname, ioptions_.env,
+            std::move(file), fname, ioptions_.env, io_tracer_,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(

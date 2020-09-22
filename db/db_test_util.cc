@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 
 #include "db/forward_iterator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
@@ -19,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 int64_t MaybeCurrentTime(Env* env) {
   int64_t time = 1337346000;  // arbitrary fallback default
-  (void)env->GetCurrentTime(&time);
+  env->GetCurrentTime(&time).PermitUncheckedError();
   return time;
 }
 }  // namespace
@@ -53,11 +54,7 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
-#ifndef ROCKSDB_LITE
-ROT13BlockCipher rot13Cipher_(16);
-#endif  // ROCKSDB_LITE
-
-DBTestBase::DBTestBase(const std::string path)
+DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
@@ -76,14 +73,18 @@ DBTestBase::DBTestBase(const std::string path)
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
-    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env,
-                                     new CTREncryptionProvider(rot13Cipher_));
+    std::shared_ptr<EncryptionProvider> provider;
+    Status s = EncryptionProvider::CreateFromString(
+        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
+        &provider);
+    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
                                        : (mem_env_ ? mem_env_ : base_env));
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->skip_fsync_ = !env_do_fsync;
   dbname_ = test::PerThreadDBPath(env_, path);
   alternative_wal_dir_ = dbname_ + "/wal";
   alternative_db_log_dir_ = dbname_ + "/db_log_dir";
@@ -665,7 +666,7 @@ void DBTestBase::Reopen(const Options& options) {
 
 void DBTestBase::Close() {
   for (auto h : handles_) {
-    db_->DestroyColumnFamilyHandle(h);
+    EXPECT_OK(db_->DestroyColumnFamilyHandle(h));
   }
   handles_.clear();
   delete db_;
