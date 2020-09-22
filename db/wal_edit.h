@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "logging/event_logger.h"
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
