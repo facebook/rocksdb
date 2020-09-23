@@ -731,7 +731,6 @@ set(SOURCES
         table/table_factory.cc
         table/table_properties.cc
         table/two_level_iterator.cc
-        test_util/mock_time_env.cc
         test_util/sync_point.cc
         test_util/sync_point_impl.cc
         test_util/testutil.cc
@@ -1020,6 +1019,7 @@ option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
 if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
+  test_util/mock_time_env.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()

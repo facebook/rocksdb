@@ -178,7 +178,6 @@ LIB_SOURCES =                                                   \
   table/table_factory.cc                                        \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
-  test_util/mock_time_env.cc                                    \
   test_util/sync_point.cc                                       \
   test_util/sync_point_impl.cc                                  \
   test_util/transaction_test_util.cc                            \
@@ -306,6 +305,7 @@ STRESS_LIB_SOURCES =                                            \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
+  test_util/mock_time_env.cc                                    \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
