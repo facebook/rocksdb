@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -62,29 +64,11 @@ class MockTimeEnv : public EnvWrapper {
   // TODO: this is a workaround for the different behavior on different platform
   // for timedwait timeout. Ideally timedwait API should be moved to env.
   // details: PR #7101.
-  void InstallTimedWaitFixCallback() {
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-#if defined(OS_MACOSX) && !defined(NDEBUG)
-    // This is an alternate way (vs. SpecialEnv) of dealing with the fact
-    // that on some platforms, pthread_cond_timedwait does not appear to
-    // release the lock for other threads to operate if the deadline time
-    // is already passed. (TimedWait calls are currently a bad abstraction
-    // because the deadline parameter is usually computed from Env time,
-    // but is interpreted in real clock time.)
-    SyncPoint::GetInstance()->SetCallBack(
-        "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-          uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-          if (time_us < this->RealNowMicros()) {
-            *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
-          }
-        });
-#endif  // OS_MACOSX && !NDEBUG
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
+  void InstallTimedWaitFixCallback();
 
  private:
   std::atomic<uint64_t> current_time_us_{0};
+  static constexpr uint64_t kMicrosInSecond = 1000U * 1000U;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
