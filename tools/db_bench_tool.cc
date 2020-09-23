@@ -3573,50 +3573,13 @@ class Benchmark {
     int64_t bytes = 0;
     size_t uncompressed_size = 0;
     while (ok && bytes < 1024 * 1048576) {
-      CacheAllocationPtr uncompressed;
-      switch (FLAGS_compression_type_e) {
-        case ROCKSDB_NAMESPACE::kSnappyCompression: {
-          uncompressed = Snappy_Uncompress(compressed.data(), compressed.size(),
-                                           &uncompressed_size);
-          ok = uncompressed.get() != nullptr;
-          break;
-        }
-        case ROCKSDB_NAMESPACE::kZlibCompression:
-          uncompressed =
-              Zlib_Uncompress(uncompression_info, compressed.data(),
-                              compressed.size(), &uncompressed_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kBZip2Compression:
-          uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                          &uncompressed_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kLZ4Compression:
-          uncompressed =
-              LZ4_Uncompress(uncompression_info, compressed.data(),
-                             compressed.size(), &uncompressed_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-          uncompressed =
-              LZ4_Uncompress(uncompression_info, compressed.data(),
-                             compressed.size(), &uncompressed_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kXpressCompression:
-          uncompressed.reset(XPRESS_Uncompress(
-              compressed.data(), compressed.size(), &uncompressed_size));
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kZSTD:
-          uncompressed = ZSTD_Uncompress(uncompression_info, compressed.data(),
-                                         compressed.size(), &uncompressed_size);
-          ok = uncompressed.get() != nullptr;
-          break;
-        default:
-          ok = false;
-      }
+      constexpr uint32_t compress_format_version = 2;
+
+      CacheAllocationPtr uncompressed = UncompressData(
+          uncompression_info, compressed.data(), compressed.size(),
+          &uncompressed_size, compress_format_version);
+
+      ok = uncompressed.get() != nullptr;
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kUncompress);
     }

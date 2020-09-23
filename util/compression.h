@@ -1462,7 +1462,7 @@ inline bool CompressData(const Slice& raw,
 inline CacheAllocationPtr UncompressData(
     const UncompressionInfo& uncompression_info, const char* data, size_t n,
     size_t* uncompressed_size, uint32_t compress_format_version,
-    MemoryAllocator* allocator) {
+    MemoryAllocator* allocator = nullptr) {
   switch (uncompression_info.type()) {
     case kSnappyCompression:
       return Snappy_Uncompress(data, n, uncompressed_size, allocator);
