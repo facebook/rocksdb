@@ -3601,45 +3601,47 @@ class Benchmark {
 
     bool ok = CompressSlice(compression_info, input, &compressed);
     int64_t bytes = 0;
-    int decompress_size;
+    size_t uncompressed_size = 0;
     while (ok && bytes < 1024 * 1048576) {
       CacheAllocationPtr uncompressed;
       switch (FLAGS_compression_type_e) {
         case ROCKSDB_NAMESPACE::kSnappyCompression: {
           uncompressed = Snappy_Uncompress(compressed.data(), compressed.size(),
-                                           &decompress_size);
+                                           &uncompressed_size);
           ok = uncompressed.get() != nullptr;
           break;
         }
         case ROCKSDB_NAMESPACE::kZlibCompression:
           uncompressed =
               Zlib_Uncompress(uncompression_info, compressed.data(),
-                              compressed.size(), &decompress_size, 2);
+                              compressed.size(), &uncompressed_size, 2);
           ok = uncompressed.get() != nullptr;
           break;
         case ROCKSDB_NAMESPACE::kBZip2Compression:
           uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                          &decompress_size, 2);
+                                          &uncompressed_size, 2);
           ok = uncompressed.get() != nullptr;
           break;
         case ROCKSDB_NAMESPACE::kLZ4Compression:
-          uncompressed = LZ4_Uncompress(uncompression_info, compressed.data(),
-                                        compressed.size(), &decompress_size, 2);
+          uncompressed =
+              LZ4_Uncompress(uncompression_info, compressed.data(),
+                             compressed.size(), &uncompressed_size, 2);
           ok = uncompressed.get() != nullptr;
           break;
         case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-          uncompressed = LZ4_Uncompress(uncompression_info, compressed.data(),
-                                        compressed.size(), &decompress_size, 2);
+          uncompressed =
+              LZ4_Uncompress(uncompression_info, compressed.data(),
+                             compressed.size(), &uncompressed_size, 2);
           ok = uncompressed.get() != nullptr;
           break;
         case ROCKSDB_NAMESPACE::kXpressCompression:
           uncompressed.reset(XPRESS_Uncompress(
-              compressed.data(), compressed.size(), &decompress_size));
+              compressed.data(), compressed.size(), &uncompressed_size));
           ok = uncompressed.get() != nullptr;
           break;
         case ROCKSDB_NAMESPACE::kZSTD:
           uncompressed = ZSTD_Uncompress(uncompression_info, compressed.data(),
-                                         compressed.size(), &decompress_size);
+                                         compressed.size(), &uncompressed_size);
           ok = uncompressed.get() != nullptr;
           break;
         default:

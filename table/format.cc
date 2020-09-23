@@ -353,9 +353,9 @@ Status UncompressBlockContentsForCompressionType(
 
   StopWatchNano timer(ioptions.env, ShouldReportDetailedTime(
                                         ioptions.env, ioptions.statistics));
-  int decompress_size = 0;
+  size_t uncompressed_size = 0;
   CacheAllocationPtr ubuf =
-      UncompressData(uncompression_info, data, n, &decompress_size,
+      UncompressData(uncompression_info, data, n, &uncompressed_size,
                      GetCompressFormatForVersion(format_version), allocator);
   if (!ubuf) {
     return Status::Corruption(
@@ -363,7 +363,7 @@ Status UncompressBlockContentsForCompressionType(
         CompressionTypeToString(uncompression_info.type()));
   }
 
-  *contents = BlockContents(std::move(ubuf), decompress_size);
+  *contents = BlockContents(std::move(ubuf), uncompressed_size);
 
   if (ShouldReportDetailedTime(ioptions.env, ioptions.statistics)) {
     RecordTimeToHistogram(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,

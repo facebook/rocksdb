@@ -129,10 +129,9 @@ bool Compress(const char* input, size_t length, std::string* output) {
 }
 
 char* Decompress(const char* input_data, size_t input_length,
-  int* decompress_size) {
-
+                 size_t* uncompressed_size) {
   assert(input_data != nullptr);
-  assert(decompress_size != nullptr);
+  assert(uncompressed_size != nullptr);
 
   if (input_length == 0) {
     return nullptr;
@@ -185,14 +184,6 @@ char* Decompress(const char* input_data, size_t input_length,
 
   assert(decompressedBufferSize > 0);
 
-  // On Windows we are limited to a 32-bit int for the
-  // output data size argument
-  // so we hopefully never get here
-  if (decompressedBufferSize > std::numeric_limits<int>::max()) {
-    assert(false);
-    return nullptr;
-  }
-
   // The callers are deallocating using delete[]
   // thus we must allocate with new[]
   std::unique_ptr<char[]> outputBuffer(new char[decompressedBufferSize]);
@@ -216,7 +207,7 @@ char* Decompress(const char* input_data, size_t input_length,
     return nullptr;
   }
 
-  *decompress_size = static_cast<int>(decompressedDataSize);
+  *uncompressed_size = decompressedDataSize;
 
   // Return the raw buffer to the caller supporting the tradition
   return outputBuffer.release();
