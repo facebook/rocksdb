@@ -21,7 +21,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status BlobFileReader::Create(
-    const ReadOptions& read_options,
     const ImmutableCFOptions& immutable_cf_options,
     const FileOptions& file_options, uint32_t column_family_id,
     uint64_t blob_file_number,
@@ -29,21 +28,11 @@ Status BlobFileReader::Create(
   assert(blob_file_reader);
   assert(!*blob_file_reader);
 
-  FileOptions file_opts(file_options);
-
-  {
-    const Status s = PrepareIOFromReadOptions(
-        read_options, immutable_cf_options.env, file_opts.io_options);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
   std::unique_ptr<RandomAccessFileReader> file_reader;
 
   {
-    const Status s = OpenFile(immutable_cf_options, file_opts, blob_file_number,
-                              &file_reader);
+    const Status s = OpenFile(immutable_cf_options, file_options,
+                              blob_file_number, &file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -54,8 +43,8 @@ Status BlobFileReader::Create(
   CompressionType compression_type = kNoCompression;
 
   {
-    const Status s = ReadHeader(file_reader.get(), file_opts.io_options,
-                                column_family_id, &compression_type);
+    const Status s =
+        ReadHeader(file_reader.get(), column_family_id, &compression_type);
     if (!s.ok()) {
       return s;
     }
@@ -112,7 +101,6 @@ Status BlobFileReader::OpenFile(
 }
 
 Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
-                                  const IOOptions& io_options,
                                   uint32_t column_family_id,
                                   CompressionType* compression_type) {
   assert(file_reader);
@@ -126,8 +114,8 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
     constexpr uint64_t read_offset = 0;
     constexpr size_t read_size = BlobLogHeader::kSize;
 
-    const Status s = ReadFromFile(file_reader, io_options, read_offset,
-                                  read_size, &header_slice, &buf, &aligned_buf);
+    const Status s = ReadFromFile(file_reader, read_offset, read_size,
+                                  &header_slice, &buf, &aligned_buf);
     if (!s.ok()) {
       return s;
     }
@@ -158,7 +146,6 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
 }
 
 Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
-                                    const IOOptions& io_options,
                                     uint64_t read_offset, size_t read_size,
                                     Slice* slice, std::string* buf,
                                     AlignedBuf* aligned_buf) {
@@ -173,14 +160,14 @@ Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
   if (file_reader->use_direct_io()) {
     constexpr char* scratch = nullptr;
 
-    s = file_reader->Read(io_options, read_offset, read_size, slice, scratch,
+    s = file_reader->Read(IOOptions(), read_offset, read_size, slice, scratch,
                           aligned_buf);
   } else {
     buf->reserve(read_size);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
-    s = file_reader->Read(io_options, read_offset, read_size, slice, &(*buf)[0],
-                          aligned_scratch);
+    s = file_reader->Read(IOOptions(), read_offset, read_size, slice,
+                          &(*buf)[0], aligned_scratch);
   }
 
   if (!s.ok()) {
@@ -233,22 +220,12 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const uint64_t record_offset = offset - adjustment;
   const uint64_t record_size = value_size + adjustment;
 
-  IOOptions io_options;
-
-  {
-    const Status s =
-        PrepareIOFromReadOptions(read_options, file_reader_->env(), io_options);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
   Slice record_slice;
   std::string buf;
   AlignedBuf aligned_buf;
 
   {
-    const Status s = ReadFromFile(file_reader_.get(), io_options, record_offset,
+    const Status s = ReadFromFile(file_reader_.get(), record_offset,
                                   static_cast<size_t>(record_size),
                                   &record_slice, &buf, &aligned_buf);
     if (!s.ok()) {
