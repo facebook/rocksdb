@@ -52,6 +52,7 @@ commands:
       - run:
           name: Install gtest-parallel
           command: |
+            echo "Currently using a forked version to print task status in circleCI output, pending: https://github.com/google/gtest-parallel/pull/79"
             git clone --single-branch --branch master --depth 1 https://github.com/jay-zhuang/gtest-parallel.git ~/gtest-parallel
             echo "export PATH=$HOME/gtest-parallel:$PATH" >> $BASH_ENV
 
@@ -336,72 +337,72 @@ jobs:
             sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
             cat /tmp/test_list
             export TEST_TMPDIR=/tmp/rocksdb_test_tmp
-            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp
+            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp --print_task_status_continuously
       - post-steps
 
 workflows:
-#  build-linux:
-#    jobs:
-#      - build-linux
-#  build-linux-shared_lib-alt_namespace-status_checked:
-#    jobs:
-#      - build-linux-shared_lib-alt_namespace-status_checked
-#  build-linux-lite:
-#    jobs:
-#      - build-linux-lite
-#  build-linux-release:
-#    jobs:
-#      - build-linux-release
-#  build-linux-release-rtti:
-#    jobs:
-#      - build-linux-release-rtti
-#  build-linux-lite-release:
-#    jobs:
-#      - build-linux-lite-release
-#  build-linux-clang-no-test:
-#    jobs:
-#      - build-linux-clang-no-test
-#  build-linux-clang10-asan:
-#    jobs:
-#      - build-linux-clang10-asan
-#  build-linux-clang10-mini-tsan:
-#    jobs:
-#      - build-linux-clang10-mini-tsan
-#  build-linux-clang10-ubsan:
-#    jobs:
-#      - build-linux-clang10-ubsan
-#  build-linux-clang10-clang-analyze:
-#    jobs:
-#      - build-linux-clang10-clang-analyze
-#  build-linux-cmake:
-#    jobs:
-#      - build-linux-cmake
-#  build-linux-unity:
-#    jobs:
-#      - build-linux-unity
-#  build-windows:
-#    jobs:
-#      - build-windows
-#  build-windows-vs2017:
-#    jobs:
-#      - build-windows:
-#          vs_year: "2017"
-#          cmake_generator: "Visual Studio 15 Win64"
-#  build-windows-vs2015:
-#    jobs:
-#      - build-windows:
-#          vs_year: "2015"
-#          cmake_generator: "Visual Studio 14 Win64"
-#  build-windows-cxx20:
-#    jobs:
-#      - build-windows:
-#          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-#  build-java:
-#    jobs:
-#      - build-linux-java
-#  build-examples:
-#    jobs:
-#      - build-examples
+  build-linux:
+    jobs:
+      - build-linux
+  build-linux-shared_lib-alt_namespace-status_checked:
+    jobs:
+      - build-linux-shared_lib-alt_namespace-status_checked
+  build-linux-lite:
+    jobs:
+      - build-linux-lite
+  build-linux-release:
+    jobs:
+      - build-linux-release
+  build-linux-release-rtti:
+    jobs:
+      - build-linux-release-rtti
+  build-linux-lite-release:
+    jobs:
+      - build-linux-lite-release
+  build-linux-clang-no-test:
+    jobs:
+      - build-linux-clang-no-test
+  build-linux-clang10-asan:
+    jobs:
+      - build-linux-clang10-asan
+  build-linux-clang10-mini-tsan:
+    jobs:
+      - build-linux-clang10-mini-tsan
+  build-linux-clang10-ubsan:
+    jobs:
+      - build-linux-clang10-ubsan
+  build-linux-clang10-clang-analyze:
+    jobs:
+      - build-linux-clang10-clang-analyze
+  build-linux-cmake:
+    jobs:
+      - build-linux-cmake
+  build-linux-unity:
+    jobs:
+      - build-linux-unity
+  build-windows:
+    jobs:
+      - build-windows
+  build-windows-vs2017:
+    jobs:
+      - build-windows:
+          vs_year: "2017"
+          cmake_generator: "Visual Studio 15 Win64"
+  build-windows-vs2015:
+    jobs:
+      - build-windows:
+          vs_year: "2015"
+          cmake_generator: "Visual Studio 14 Win64"
+  build-windows-cxx20:
+    jobs:
+      - build-windows:
+          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+  build-java:
+    jobs:
+      - build-linux-java
+  build-examples:
+    jobs:
+      - build-examples
   build-linux-non-shm:
     jobs:
       - build-linux-non-shm:
@@ -416,6 +417,6 @@ workflows:
       - build-linux-non-shm:
           start_test: "statistics_test" # make sure unique in src.mk
           end_test: ""
-#  build-linux-gcc-4-8:
-#    jobs:
-#      - build-linux-gcc-4-8
+  build-linux-gcc-4-8:
+    jobs:
+      - build-linux-gcc-4-8
