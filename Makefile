@@ -421,6 +421,11 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
 
+ifdef USE_CLANG
+	# Used by some teams in Facebook
+	WARNING_FLAGS += -Wshift-sign-overflow
+endif
+
 ifeq ($(PLATFORM), OS_OPENBSD)
 	WARNING_FLAGS += -Wno-unused-lambda-capture
 endif
