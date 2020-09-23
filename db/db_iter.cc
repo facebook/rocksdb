@@ -147,13 +147,13 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
-    Slice prefix;
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
-      prefix = prefix_.GetUserKey();
+      const Slice prefix = prefix_.GetUserKey();
+      FindNextUserEntry(true /* skipping the current user key */, &prefix);
+    } else {
+      FindNextUserEntry(true /* skipping the current user key */, nullptr);
     }
-    FindNextUserEntry(true /* skipping the current user key */,
-                      prefix_same_as_start_ ? &prefix : nullptr);
   } else {
     is_key_seqnum_zero_ = false;
     valid_ = false;
